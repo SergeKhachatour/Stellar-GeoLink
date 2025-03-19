@@ -19,20 +19,21 @@ The data from this platform feeds directly into the BlockchainMaps Unity project
 
 ## Project Structure
 
+```
 Stellar-GeoLink/
-├── backend/                 # Backend server
-│   ├── config/             # Configuration files
-│   ├── middleware/         # Express middleware
-│   ├── routes/            # API routes
-│   ├── services/          # Business logic
-│   └── app.js             # Main server file
-├── frontend/               # React frontend
-│   ├── public/            # Static files
+├── backend/
+│   ├── config/             # Database and API configurations
+│   ├── middleware/         # Auth, API key, and request handling
+│   ├── routes/            # API endpoint definitions
+│   ├── services/          # Business logic and data processing
+│   └── app.js             # Main application entry point
+├── frontend/
+│   ├── public/            # Static assets
 │   └── src/
-│       ├── components/    # React components
-│       ├── contexts/      # React contexts
-│       ├── pages/         # Page components
-│       └── services/      # API services
+│       ├── components/    # Reusable UI components
+│       ├── contexts/      # React context providers
+│       ├── pages/         # Main application views
+│       └── services/      # API integration services
 ```
 
 ## Prerequisites
@@ -104,9 +105,14 @@ The application will be available at:
 
 ## User Roles
 
-- **Admin**: Full system access and management
-- **Wallet Provider**: Manage wallet locations and data
-- **Data Consumer**: Access location data through API
+- **Admin**: Full system access and management capabilities
+- **Wallet Provider**: Manage wallet locations and transaction data
+- **Data Consumer**: Access location data through API endpoints
+- **SDF Employee**: Special role for Stellar Development Foundation employees with:
+  - Access to sensitive blockchain node data
+  - Ability to manage node configurations
+  - Permission to view detailed analytics
+  - Authorization to approve data provider requests
 
 ## Features
 
