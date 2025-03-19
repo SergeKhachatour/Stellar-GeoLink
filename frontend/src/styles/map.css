@@ -1,0 +1,74 @@
+.map-container {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.marker {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.marker.wallet {
+    background-color: #007bff;
+}
+
+.marker.rwa {
+    background-color: #28a745;
+}
+
+.marker.iot {
+    background-color: #ffc107;
+}
+
+.mapboxgl-popup {
+    max-width: 300px;
+}
+
+.mapboxgl-popup-content {
+    padding: 15px;
+}
+
+.mapboxgl-popup-content h3 {
+    margin: 0 0 10px 0;
+    color: #2c3e50;
+}
+
+.mapboxgl-popup-content p {
+    margin: 5px 0;
+    color: #666;
+}
+
+.mapboxgl-ctrl-group {
+    margin-right: 10px;
+}
+
+.mapbox-gl-draw_polygon {
+    background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMCAwaDI0djI0SDB6IiBmaWxsPSJub25lIi8+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bTAgMThjLTQuNDIgMC04LTMuNTgtOC04czMuNTgtOCA4LTggOCAzLjU4IDggOC0zLjU4IDgtOCA4eiIvPjwvc3ZnPg==');
+}
+
+.mapbox-gl-draw_trash {
+    background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNNiAxOWMwIDEuMS45IDIgMiAyaDhjMS4xIDAgMi0uOSAyLTJWN0g2djEyek0xOSA0aC0zLjVsLTEtMWgtNWwtMSAxSDV2MmgxNFY0eiIvPjxwYXRoIGQ9Ik0wIDBoMjR2MjRIMHoiIGZpbGw9Im5vbmUiLz48L3N2Zz4=');
+}
+
+.geofence-manager form {
+    margin-bottom: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.geofence-manager .form-group {
+    margin-bottom: 15px;
+}
+
+.geofence-manager button {
+    margin-right: 10px;
+}
+
+.geofence-manager button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+} 
