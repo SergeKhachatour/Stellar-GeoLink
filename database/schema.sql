@@ -46,8 +46,6 @@ CREATE TABLE IF NOT EXISTS wallet_types (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Run these commands in order:
-
 -- 1. Add unique constraint to wallet_types name
 ALTER TABLE wallet_types ADD CONSTRAINT wallet_types_name_unique UNIQUE (name);
 
