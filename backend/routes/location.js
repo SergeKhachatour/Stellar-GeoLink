@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { validateProviderApiKey, validateConsumerApiKey } = require('../middleware/apiKey');
+const { validateProviderApiKey, validateConsumerApiKey, authenticateApiKey } = require('../middleware/apiKey');
 const { validateLocationUpdate } = require('../middleware/validation');
 const { locationUpdateLimiter } = require('../middleware/rateLimiter');
 const { validateSignature } = require('../middleware/security');
@@ -350,6 +350,34 @@ router.patch('/:publicKey/tracking', validateProviderApiKey, async (req, res) =>
         res.json({ success: true });
     } catch (error) {
         console.error('Error updating tracking status:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET endpoint for wallet locations - accessible by data consumers
+router.get('/wallet-locations', authenticateApiKey, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                w.id,
+                w.public_key,
+                w.blockchain,
+                w.latitude,
+                w.longitude,
+                w.tracking_status,
+                w.last_updated,
+                wt.name as wallet_type,
+                wp.name as provider_name
+            FROM wallet_locations w
+            JOIN wallet_types wt ON w.wallet_type_id = wt.id
+            JOIN wallet_providers wp ON w.wallet_provider_id = wp.id
+            WHERE w.tracking_status = 'active'
+            AND w.location_enabled = true
+        `);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching wallet locations:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

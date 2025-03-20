@@ -163,3 +163,21 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For support, email sergekhachatour@gmail.com or open an issue in the repository.
+
+## API Usage for Data Consumers
+
+1. Register as a data consumer
+2. Request an API key through the dashboard
+3. Use the API key in requests:
+   ```bash
+   curl -H "X-API-Key: your_api_key" https://api.stellar-geolink.com/api/location/wallet-locations
+   ```
+
+### Rate Limits
+- 60 requests per minute
+- 5000 requests per day
+
+### Available Endpoints
+- GET /api/location/wallet-locations
+- GET /api/location/wallet-statistics
+- GET /api/location/active-regions

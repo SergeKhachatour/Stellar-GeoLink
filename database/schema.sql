@@ -250,7 +250,7 @@ CREATE TABLE IF NOT EXISTS alert_history (
 -- Add index for session lookups
 CREATE INDEX IF NOT EXISTS idx_user_sessions_session_id ON user_sessions(session_id);
 
--- Add to your schema.sql if not already present
+
 CREATE TABLE IF NOT EXISTS api_requests (
     id SERIAL PRIMARY KEY,
     consumer_id INTEGER REFERENCES data_consumers(id),
@@ -267,4 +267,33 @@ CREATE TABLE IF NOT EXISTS wallet_locations_history (
     longitude DECIMAL(11, 8) NOT NULL,
     provider_id INTEGER REFERENCES wallet_providers(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- API Key Management Tables
+CREATE TABLE IF NOT EXISTS api_keys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    api_key VARCHAR(64) UNIQUE NOT NULL,
+    name VARCHAR(100),
+    status BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_used TIMESTAMP WITH TIME ZONE
+);
+
+-- API Usage Tracking
+CREATE TABLE IF NOT EXISTS api_usage (
+    id SERIAL PRIMARY KEY,
+    api_key_id INTEGER REFERENCES api_keys(id),
+    endpoint VARCHAR(255) NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    response_time INTEGER, -- in milliseconds
+    status_code INTEGER
+);
+
+-- Rate Limiting Configuration
+CREATE TABLE IF NOT EXISTS rate_limits (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id),
+    requests_per_minute INTEGER DEFAULT 60,
+    requests_per_day INTEGER DEFAULT 5000
 ); 
