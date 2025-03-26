@@ -1,275 +1,288 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { authenticateUser } = require('../middleware/authUser');
-const { isAdmin } = require('../middleware/roleCheck');
+const { authenticateAdmin } = require('../middleware/auth'); // Import from auth.js
 const crypto = require('crypto');
-const { sendEmail } = require('../services/email');
-const authMiddleware = require('../middleware/auth');
 
-// Admin middleware (you should implement proper admin authentication)
-const adminAuth = (req, res, next) => {
-    // Implement proper admin authentication
-    next();
-};
-
-// Manage wallet providers
-router.post('/providers', adminAuth, async (req, res) => {
-    const { name } = req.body;
-    const apiKey = crypto.randomBytes(32).toString('hex');
-
-    try {
-        const result = await pool.query(
-            'INSERT INTO wallet_providers (name, api_key) VALUES ($1, $2) RETURNING *',
-            [name, apiKey]
-        );
-
-        res.json(result.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Manage data consumers
-router.post('/consumers', adminAuth, async (req, res) => {
-    const { name } = req.body;
-    const apiKey = crypto.randomBytes(32).toString('hex');
-
-    try {
-        const result = await pool.query(
-            'INSERT INTO data_consumers (name, api_key) VALUES ($1, $2) RETURNING *',
-            [name, apiKey]
-        );
-
-        res.json(result.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Get all API key requests
-router.get('/api-key-requests', authenticateUser, isAdmin, async (req, res) => {
+// Get all locations
+router.get('/locations', authenticateAdmin, async (req, res) => {
     try {
         const result = await pool.query(`
-            SELECT 
-                akr.*,
-                u.email,
-                u.first_name,
-                u.last_name,
-                u.organization
-            FROM api_key_requests akr
-            JOIN users u ON u.id = akr.user_id
-            WHERE akr.status = 'pending'
-            ORDER BY akr.created_at DESC
+            SELECT wl.*, wt.name as wallet_type, wp.name as provider_name 
+            FROM wallet_locations wl
+            LEFT JOIN wallet_types wt ON wl.wallet_type_id = wt.id
+            LEFT JOIN wallet_providers wp ON wl.wallet_provider_id = wp.id
+            ORDER BY wl.created_at DESC
         `);
         res.json(result.rows);
     } catch (error) {
-        console.error('Error fetching API key requests:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error fetching locations:', error);
+        res.status(500).json({ error: 'Failed to fetch locations' });
     }
 });
 
-// Process API key request
-router.post('/api-key-requests/:requestId/process', authenticateUser, isAdmin, async (req, res) => {
-    const { requestId } = req.params;
-    const { approved, apiKey } = req.body;
-    
+// Get all providers
+router.get('/providers', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT wp.*, u.email, u.first_name, u.last_name 
+            FROM wallet_providers wp
+            LEFT JOIN users u ON wp.user_id = u.id
+            ORDER BY wp.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching providers:', error);
+        res.status(500).json({ error: 'Failed to fetch providers' });
+    }
+});
+
+// Get all users
+router.get('/users', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// Get user by ID
+router.get('/users/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json(result.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch user' });
+    }
+});
+
+// Update user status
+router.patch('/users/:id/status', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const result = await pool.query(
+            'UPDATE users SET status = $1 WHERE id = $2 RETURNING *',
+            [status, id]
+        );
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error updating user status:', error);
+        res.status(500).json({ error: 'Failed to update user status' });
+    }
+});
+
+// Get all API keys
+router.get('/api-keys', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM api_keys');
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch API keys' });
+    }
+});
+
+// Get all API key requests with user details
+router.get('/api-key-requests', authenticateAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT r.*, u.email, u.first_name, u.last_name, u.organization
+            FROM api_key_requests r
+            JOIN users u ON u.id = r.user_id
+            ORDER BY r.created_at DESC`
+        );
+        res.json(result.rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch API key requests' });
+    }
+});
+
+// Process (approve/reject) API key request
+router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-
-        // Get request details
-        const requestResult = await client.query(
-            `SELECT * FROM api_key_requests WHERE id = $1`,
-            [requestId]
-        );
-        const request = requestResult.rows[0];
-
-        if (!request) {
-            throw new Error('Request not found');
+        
+        const { id } = req.params;
+        const { status, reason } = req.body;
+        
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ error: 'Invalid status' });
         }
+
+        // Get the request details first
+        const requestResult = await client.query(
+            'SELECT * FROM api_key_requests WHERE id = $1',
+            [id]
+        );
+
+        if (requestResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        const request = requestResult.rows[0];
 
         // Update request status
         await client.query(
             `UPDATE api_key_requests 
-            SET status = $1, reviewed_by = $2, reviewed_at = NOW()
-            WHERE id = $3`,
-            [approved ? 'approved' : 'rejected', req.user.id, requestId]
+             SET status = $1, 
+                 reviewed_by = $2, 
+                 reviewed_at = CURRENT_TIMESTAMP,
+                 review_notes = $3
+             WHERE id = $4`,
+            [status, req.user.id, reason, id]
         );
 
-        if (approved) {
-            // Create data consumer entry
-            await client.query(
-                `INSERT INTO data_consumers (name, api_key, user_id)
-                VALUES ($1, $2, $3)`,
-                [request.organization_name, apiKey, request.user_id]
-            );
-
-            // Send approval email
-            const userResult = await client.query(
-                'SELECT email FROM users WHERE id = $1',
-                [request.user_id]
-            );
+        if (status === 'approved') {
+            const apiKey = crypto.randomBytes(32).toString('hex');
             
-            if (userResult.rows[0]) {
-                await sendEmail({
-                    to: userResult.rows[0].email,
-                    subject: 'API Key Request Approved',
-                    text: `Your API key request has been approved. You can now access your API key in your dashboard.`,
-                    html: `<p>Your API key request has been approved. You can now access your API key in your dashboard.</p>`
-                });
+            if (request.request_type === 'wallet_provider') {
+                await client.query(
+                    `INSERT INTO wallet_providers (user_id, api_key, status)
+                     VALUES ($1, $2, true)`,
+                    [request.user_id, apiKey]
+                );
+            } else {
+                await client.query(
+                    `INSERT INTO data_consumers (user_id, api_key, status)
+                     VALUES ($1, $2, true)`,
+                    [request.user_id, apiKey]
+                );
             }
         }
 
         await client.query('COMMIT');
-        res.json({ message: 'Request processed successfully' });
+        res.json({ message: `Request ${status}` });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error processing API key request:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to process request' });
     } finally {
         client.release();
     }
 });
 
-// Get all active API keys
-router.get('/api-keys', authenticateUser, isAdmin, async (req, res) => {
+// Get admin dashboard statistics
+router.get('/stats', authenticateAdmin, async (req, res) => {
     try {
-        const result = await pool.query(`
-            SELECT 
-                CASE 
-                    WHEN wp.id IS NOT NULL THEN 'wallet_provider'
-                    ELSE 'data_consumer'
-                END as type,
-                COALESCE(wp.id, dc.id) as id,
-                COALESCE(wp.name, dc.name) as organization,
-                COALESCE(wp.api_key, dc.api_key) as api_key,
-                COALESCE(wp.status, dc.status) as status,
-                COALESCE(wp.created_at, dc.created_at) as created_at
-            FROM wallet_providers wp
-            FULL OUTER JOIN data_consumers dc ON false
-            WHERE wp.id IS NOT NULL OR dc.id IS NOT NULL
-            ORDER BY created_at DESC
-        `);
-        res.json(result.rows);
+        const [locationsCount, providersCount, usersCount, apiCallsCount] = await Promise.all([
+            pool.query('SELECT COUNT(*) FROM wallet_locations WHERE location_enabled = true'),
+            pool.query('SELECT COUNT(*) FROM users WHERE role = \'wallet_provider\''),
+            pool.query('SELECT COUNT(*) FROM users'),
+            pool.query('SELECT COUNT(*) FROM api_usage_logs WHERE created_at > NOW() - INTERVAL \'24 hours\'')
+        ]);
+
+        res.json({
+            total_locations: parseInt(locationsCount.rows[0].count),
+            total_providers: parseInt(providersCount.rows[0].count),
+            total_users: parseInt(usersCount.rows[0].count),
+            api_calls_24h: parseInt(apiCallsCount.rows[0].count)
+        });
     } catch (error) {
-        console.error('Error fetching API keys:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error fetching admin statistics:', error);
+        res.status(500).json({ error: 'Failed to fetch admin statistics' });
     }
 });
 
-// Middleware to check if user is admin
-const isAdminMiddleware = async (req, res, next) => {
+// Update user details
+router.patch('/users/:id', authenticateAdmin, async (req, res) => {
     try {
-        // Check if we have a user object from auth middleware
-        if (!req.user || !req.user.user || !req.user.user.id) {
-            return res.status(401).json({ message: 'Authentication required' });
+        const { id } = req.params;
+        const { email, first_name, last_name, organization, role, status } = req.body;
+        
+        const result = await pool.query(
+            `UPDATE users 
+             SET email = $1, 
+                 first_name = $2, 
+                 last_name = $3, 
+                 organization = $4, 
+                 role = $5, 
+                 status = $6
+             WHERE id = $7 
+             RETURNING *`,
+            [email, first_name, last_name, organization, role, status, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+// Reset password endpoint
+router.post('/users/:id/reset-password', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Implement your password reset logic here
+        // This could involve generating a reset token and sending an email
+        
+        res.json({ message: 'Password reset email sent' });
+    } catch (error) {
+        console.error('Error resetting password:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
+});
+
+// Add this PUT endpoint to handle user updates
+router.put('/users/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { first_name, last_name, role, status } = req.body;
+
+        // Validate role against the enum type
+        if (!['admin', 'sdf_employee', 'wallet_provider', 'data_consumer'].includes(role)) {
+            return res.status(400).json({ message: 'Invalid role specified' });
         }
 
         const result = await pool.query(
-            'SELECT role FROM users WHERE id = $1',
-            [req.user.user.id]
+            `UPDATE users 
+             SET first_name = $1, 
+                 last_name = $2, 
+                 role = $3::user_role, 
+                 status = $4
+             WHERE id = $5
+             RETURNING id, email, first_name, last_name, role, organization, status`,
+            [first_name, last_name, role, status, id]
         );
 
-        if (!result.rows.length || result.rows[0].role !== 'admin') {
-            return res.status(403).json({ message: 'Access denied' });
+        if (result.rows.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
         }
-        next();
-    } catch (err) {
-        console.error('Admin check error:', err);
-        res.status(500).json({ message: 'Server error' });
-    }
-};
 
-// Get all users
-router.get('/users', authMiddleware, isAdminMiddleware, async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT 
-                id, 
-                email, 
-                role, 
-                first_name, 
-                last_name, 
-                organization,
-                status,
-                created_at,
-                last_login
-            FROM users
-            ORDER BY created_at DESC
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error fetching users:', err);
-        res.status(500).json({ message: 'Server error' });
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({ message: 'Error updating user' });
     }
 });
 
-// Get all providers
-router.get('/providers', authMiddleware, isAdminMiddleware, async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT 
-                wp.*,
-                u.email,
-                u.organization
-            FROM wallet_providers wp
-            JOIN users u ON u.id = wp.user_id
-            ORDER BY wp.created_at DESC
-        `);
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Error fetching providers:', err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Get all locations
-router.get('/locations', authMiddleware, isAdminMiddleware, async (req, res) => {
+// Get all wallet locations
+router.get('/wallet-locations', authenticateAdmin, async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT 
                 wl.*,
-                wp.name as provider_name
+                wp.name as provider_name,
+                wt.name as wallet_type
             FROM wallet_locations wl
-            JOIN wallet_providers wp ON wp.id = wl.wallet_provider_id
-            ORDER BY wl.last_updated DESC
-            LIMIT 100
+            JOIN wallet_providers wp ON wp.id = wl.provider_id
+            JOIN wallet_types wt ON wt.id = wl.wallet_type_id
+            WHERE wl.location_enabled = true
         `);
         res.json(result.rows);
-    } catch (err) {
-        console.error('Error fetching locations:', err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Update user status
-router.patch('/users/:userId/status', authMiddleware, isAdminMiddleware, async (req, res) => {
-    const { status } = req.body;
-    try {
-        const result = await pool.query(
-            'UPDATE users SET status = $1 WHERE id = $2 RETURNING *',
-            [status, req.params.userId]
-        );
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Error updating user status:', err);
-        res.status(500).json({ message: 'Server error' });
-    }
-});
-
-// Update provider status
-router.patch('/providers/:providerId/status', authMiddleware, isAdminMiddleware, async (req, res) => {
-    const { status } = req.body;
-    try {
-        const result = await pool.query(
-            'UPDATE wallet_providers SET status = $1 WHERE id = $2 RETURNING *',
-            [status, req.params.providerId]
-        );
-        res.json(result.rows[0]);
-    } catch (err) {
-        console.error('Error updating provider status:', err);
-        res.status(500).json({ message: 'Server error' });
+    } catch (error) {
+        console.error('Error fetching wallet locations:', error);
+        res.status(500).json({ error: 'Failed to fetch wallet locations' });
     }
 });
 

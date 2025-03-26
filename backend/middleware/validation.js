@@ -61,7 +61,60 @@ const validateGeofence = (req, res, next) => {
     next();
 };
 
+const validateRegistration = (req, res, next) => {
+    const {
+        email,
+        password,
+        firstName,
+        lastName,
+        organization,
+        role,
+        useCase
+    } = req.body;
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    // Password validation (at least 8 characters, 1 uppercase, 1 lowercase, 1 number)
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
+    if (!password || !passwordRegex.test(password)) {
+        return res.status(400).json({
+            error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number'
+        });
+    }
+
+    // Other field validations
+    if (!firstName || firstName.trim().length < 2) {
+        return res.status(400).json({ error: 'First name is required (minimum 2 characters)' });
+    }
+
+    if (!lastName || lastName.trim().length < 2) {
+        return res.status(400).json({ error: 'Last name is required (minimum 2 characters)' });
+    }
+
+    if (!organization || organization.trim().length < 2) {
+        return res.status(400).json({ error: 'Organization is required (minimum 2 characters)' });
+    }
+
+    if (!role || !['wallet_provider', 'data_consumer'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid role selected' });
+    }
+
+    // Use case validation for data_consumer
+    if (role === 'data_consumer' && (!useCase || useCase.trim().length < 50)) {
+        return res.status(400).json({ 
+            error: 'Please provide a detailed use case description (minimum 50 characters)'
+        });
+    }
+
+    next();
+};
+
 module.exports = {
     validateLocationUpdate,
-    validateGeofence
+    validateGeofence,
+    validateRegistration
 }; 

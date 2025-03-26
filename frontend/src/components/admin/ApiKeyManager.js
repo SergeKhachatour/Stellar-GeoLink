@@ -11,7 +11,8 @@ import {
     Typography,
     Tabs,
     Tab,
-    Box
+    Box,
+    Chip
 } from '@mui/material';
 import { format } from 'date-fns';
 import api from '../../utils/api';
@@ -63,52 +64,76 @@ const ApiKeyManager = () => {
     };
 
     return (
-        <div className="api-key-manager">
-            <Typography variant="h6" gutterBottom>
+        <Box>
+            <Typography variant="h6" gutterBottom sx={{ 
+                fontWeight: 500,
+                color: 'text.primary'
+            }}>
                 API Key Management
             </Typography>
 
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-                <Tabs value={tab} onChange={(e, newValue) => setTab(newValue)}>
+            <Box sx={{ 
+                borderBottom: 1, 
+                borderColor: 'divider', 
+                mb: 3
+            }}>
+                <Tabs 
+                    value={tab} 
+                    onChange={(e, newValue) => setTab(newValue)}
+                    sx={{
+                        '& .MuiTab-root': {
+                            textTransform: 'none',
+                            fontWeight: 500
+                        }
+                    }}
+                >
                     <Tab label="Pending Requests" />
                     <Tab label="Active Keys" />
                 </Tabs>
             </Box>
 
             {tab === 0 && (
-                <TableContainer component={Paper}>
+                <TableContainer component={Paper} elevation={0} sx={{ mb: 3 }}>
                     <Table>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Organization</TableCell>
-                                <TableCell>Type</TableCell>
-                                <TableCell>Purpose</TableCell>
-                                <TableCell>Requested</TableCell>
-                                <TableCell>Actions</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Organization</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Type</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Purpose</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Requested</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Actions</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {requests.map(request => (
+                            {requests.map((request) => (
                                 <TableRow key={request.id}>
                                     <TableCell>{request.organization_name}</TableCell>
                                     <TableCell>{request.request_type}</TableCell>
                                     <TableCell>{request.purpose}</TableCell>
                                     <TableCell>
-                                        {format(new Date(request.created_at), 'PPpp')}
+                                        {format(new Date(request.created_at), 'MMM d, yyyy')}
                                     </TableCell>
                                     <TableCell>
-                                        <Button
-                                            color="primary"
-                                            onClick={() => handleApproval(request.id, true)}
-                                        >
-                                            Approve
-                                        </Button>
-                                        <Button
-                                            color="error"
-                                            onClick={() => handleApproval(request.id, false)}
-                                        >
-                                            Reject
-                                        </Button>
+                                        <Box sx={{ display: 'flex', gap: 1 }}>
+                                            <Button
+                                                variant="contained"
+                                                color="success"
+                                                size="small"
+                                                onClick={() => handleApproval(request.id, true)}
+                                                sx={{ textTransform: 'none' }}
+                                            >
+                                                Approve
+                                            </Button>
+                                            <Button
+                                                variant="outlined"
+                                                color="error"
+                                                size="small"
+                                                onClick={() => handleApproval(request.id, false)}
+                                                sx={{ textTransform: 'none' }}
+                                            >
+                                                Reject
+                                            </Button>
+                                        </Box>
                                     </TableCell>
                                 </TableRow>
                             ))}
@@ -118,42 +143,36 @@ const ApiKeyManager = () => {
             )}
 
             {tab === 1 && (
-                <TableContainer component={Paper}>
+                <TableContainer component={Paper} elevation={0}>
                     <Table>
                         <TableHead>
                             <TableRow>
-                                <TableCell>Organization</TableCell>
-                                <TableCell>Type</TableCell>
-                                <TableCell>API Key</TableCell>
-                                <TableCell>Status</TableCell>
-                                <TableCell>Created</TableCell>
-                                <TableCell>Actions</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>API Key</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Type</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Status</TableCell>
+                                <TableCell sx={{ fontWeight: 500 }}>Actions</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {activeKeys.map(key => (
+                            {activeKeys.map((key) => (
                                 <TableRow key={key.id}>
-                                    <TableCell>{key.organization}</TableCell>
+                                    <TableCell>{key.api_key}</TableCell>
                                     <TableCell>{key.type}</TableCell>
                                     <TableCell>
-                                        <code>{key.api_key}</code>
-                                    </TableCell>
-                                    <TableCell>
-                                        {key.status ? 'Active' : 'Disabled'}
-                                    </TableCell>
-                                    <TableCell>
-                                        {format(new Date(key.created_at), 'PPpp')}
+                                        <Chip 
+                                            label={key.active ? 'Active' : 'Inactive'}
+                                            color={key.active ? 'success' : 'default'}
+                                            size="small"
+                                        />
                                     </TableCell>
                                     <TableCell>
                                         <Button
-                                            color={key.status ? 'error' : 'primary'}
-                                            onClick={() => handleKeyStatus(
-                                                key.id,
-                                                key.type,
-                                                !key.status
-                                            )}
+                                            variant="outlined"
+                                            size="small"
+                                            onClick={() => handleKeyStatus(key.id, key.type, !key.active)}
+                                            sx={{ textTransform: 'none' }}
                                         >
-                                            {key.status ? 'Disable' : 'Enable'}
+                                            {key.active ? 'Deactivate' : 'Activate'}
                                         </Button>
                                     </TableCell>
                                 </TableRow>
@@ -162,7 +181,7 @@ const ApiKeyManager = () => {
                     </Table>
                 </TableContainer>
             )}
-        </div>
+        </Box>
     );
 };
 

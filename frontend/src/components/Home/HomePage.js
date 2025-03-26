@@ -30,7 +30,7 @@ const HomePage = () => {
                                 Track Stellar Assets in Real-Time
                             </Typography>
                             <Typography variant="h5" paragraph>
-                                GeoLink provides real-time location tracking for Stellar-based assets, 
+                                GeoLink provides real-time location tracking for Stellar-based RWA's, 
                                 enabling seamless integration of physical and digital worlds.
                             </Typography>
                             <Button 

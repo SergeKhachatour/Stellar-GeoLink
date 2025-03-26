@@ -38,6 +38,12 @@ app.use('/api/geofence', geofenceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 
+// Error handling
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something broke!' });
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

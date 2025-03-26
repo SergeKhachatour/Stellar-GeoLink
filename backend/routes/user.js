@@ -9,25 +9,23 @@ const crypto = require('crypto');
 
 router.get('/api-keys', authenticateUser, async (req, res) => {
     try {
-        const result = await pool.query(
-            `SELECT 
-                CASE 
-                    WHEN wp.id IS NOT NULL THEN 'wallet_provider'
-                    ELSE 'data_consumer'
-                END as type,
-                COALESCE(wp.api_key, dc.api_key) as api_key,
-                COALESCE(wp.status, dc.status) as status,
-                COALESCE(wp.id, dc.id) as id
-            FROM users u
-            LEFT JOIN wallet_providers wp ON wp.user_id = u.id
-            LEFT JOIN data_consumers dc ON dc.user_id = u.id
-            WHERE u.id = $1`,
-            [req.user.id]
-        );
+        let result;
+        if (req.user.role === 'wallet_provider') {
+            result = await pool.query(
+                'SELECT * FROM wallet_providers WHERE user_id = $1',
+                [req.user.id]
+            );
+        } else if (req.user.role === 'data_consumer') {
+            result = await pool.query(
+                'SELECT * FROM data_consumers WHERE user_id = $1',
+                [req.user.id]
+            );
+        }
 
         res.json(result.rows);
     } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
+        console.error('Error fetching API keys:', error);
+        res.status(500).json({ error: 'Failed to fetch API keys' });
     }
 });
 
@@ -44,31 +42,35 @@ router.get('/api-requests', authenticateUser, async (req, res) => {
     }
 });
 
-// Get API usage for a specific provider
+// Get API usage statistics
 router.get('/api-usage', authenticateUser, async (req, res) => {
-    if (req.user.role !== 'data_consumer') {
-        return res.status(403).json({ error: 'Unauthorized' });
-    }
-
     try {
-        const result = await pool.query(`
-            SELECT 
-                DATE_TRUNC('day', au.timestamp) as date,
-                COUNT(*) as requests,
-                AVG(au.response_time) as avg_response_time,
-                endpoint
-            FROM api_usage au
-            JOIN api_keys ak ON au.api_key_id = ak.id
-            WHERE ak.user_id = $1
-            GROUP BY DATE_TRUNC('day', au.timestamp), endpoint
-            ORDER BY date DESC
-            LIMIT 30
-        `, [req.user.id]);
+        const result = await pool.query(
+            `SELECT 
+                COUNT(*) FILTER (WHERE aul.created_at >= DATE_TRUNC('month', CURRENT_DATE)) as monthly_requests,
+                ROUND(COUNT(*) FILTER (WHERE aul.created_at >= DATE_TRUNC('day', CURRENT_DATE - INTERVAL '30 days'))::numeric / 30) as daily_average,
+                MAX(aul.created_at) as last_request_at
+            FROM api_usage_logs aul
+            JOIN api_keys ak ON ak.id = aul.api_key_id
+            WHERE ak.user_id = $1`,
+            [req.user.id]
+        );
 
-        res.json(result.rows);
+        // If no usage data exists yet, return default values
+        const usageData = result.rows[0] || {
+            monthly_requests: 0,
+            daily_average: 0,
+            last_request_at: null
+        };
+
+        res.json({
+            monthly_requests: parseInt(usageData.monthly_requests),
+            daily_average: parseInt(usageData.daily_average),
+            last_request_at: usageData.last_request_at
+        });
     } catch (error) {
         console.error('Error fetching API usage:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to fetch API usage statistics' });
     }
 });
 
@@ -164,6 +166,66 @@ router.post('/api-keys', authenticateUser, async (req, res) => {
     } catch (error) {
         console.error('Error generating API key:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Submit new API key request
+router.post('/api-key-request', authenticateUser, async (req, res) => {
+    const { purpose, organization_name } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN');
+
+        // Get user's organization if not provided
+        let orgName = organization_name;
+        if (!orgName) {
+            const userResult = await client.query(
+                'SELECT organization FROM users WHERE id = $1',
+                [req.user.id]
+            );
+            orgName = userResult.rows[0]?.organization;
+        }
+
+        if (!orgName) {
+            throw new Error('Organization name is required');
+        }
+
+        // Create API key request
+        const result = await client.query(
+            `INSERT INTO api_key_requests 
+            (user_id, request_type, organization_name, purpose, status)
+            VALUES ($1, $2, $3, $4, 'pending')
+            RETURNING *`,
+            [req.user.id, req.user.role, orgName, purpose]
+        );
+
+        await client.query('COMMIT');
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error creating API key request:', error);
+        res.status(500).json({ 
+            error: error.message || 'Failed to create API key request' 
+        });
+    } finally {
+        client.release();
+    }
+});
+
+// Get user's API key requests history
+router.get('/api-key-requests', authenticateUser, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT * FROM api_key_requests 
+             WHERE user_id = $1 
+             ORDER BY created_at DESC`,
+            [req.user.id]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching API key requests:', error);
+        res.status(500).json({ error: 'Failed to fetch requests' });
     }
 });
 

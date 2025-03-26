@@ -47,7 +47,17 @@ CREATE TABLE IF NOT EXISTS wallet_types (
 );
 
 -- 1. Add unique constraint to wallet_types name
-ALTER TABLE wallet_types ADD CONSTRAINT wallet_types_name_unique UNIQUE (name);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_constraint 
+        WHERE conname = 'wallet_types_name_unique'
+    ) THEN
+        ALTER TABLE wallet_types ADD CONSTRAINT wallet_types_name_unique UNIQUE (name);
+    END IF;
+END
+$$;
 
 -- 2. Now create the user_sessions table
 CREATE TABLE IF NOT EXISTS user_sessions (
@@ -123,13 +133,14 @@ CREATE TABLE IF NOT EXISTS api_key_requests (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS api_key_usage (
+CREATE TABLE IF NOT EXISTS api_usage_logs (
     id SERIAL PRIMARY KEY,
     api_key VARCHAR(255) NOT NULL,
+    api_key_id INTEGER REFERENCES api_keys(id),
     endpoint VARCHAR(255) NOT NULL,
     method VARCHAR(10) NOT NULL,
-    status_code INTEGER NOT NULL,
-    response_time INTEGER NOT NULL, -- in milliseconds
+    status_code INTEGER,
+    response_time INTEGER, -- in milliseconds
     ip_address VARCHAR(45), -- IPv6 compatible
     user_agent TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -143,10 +154,11 @@ CREATE INDEX IF NOT EXISTS idx_wallet_providers_api_key ON wallet_providers(api_
 CREATE INDEX IF NOT EXISTS idx_data_consumers_api_key ON data_consumers(api_key);
 CREATE INDEX IF NOT EXISTS idx_wallet_locations_blockchain ON wallet_locations(blockchain);
 CREATE INDEX IF NOT EXISTS idx_wallet_locations_wallet_type ON wallet_locations(wallet_type_id);
-CREATE INDEX IF NOT EXISTS idx_api_key_usage_api_key ON api_key_usage(api_key);
-CREATE INDEX IF NOT EXISTS idx_api_key_usage_created_at ON api_key_usage(created_at);
-CREATE INDEX IF NOT EXISTS idx_api_key_usage_provider ON api_key_usage(wallet_provider_id);
-CREATE INDEX IF NOT EXISTS idx_api_key_usage_consumer ON api_key_usage(data_consumer_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_api_key ON api_usage_logs(api_key);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_created_at ON api_usage_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_provider ON api_usage_logs(wallet_provider_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_consumer ON api_usage_logs(data_consumer_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_api_key_id ON api_usage_logs(api_key_id);
 
 -- Historical location tracking
 CREATE TABLE IF NOT EXISTS wallet_location_history (
@@ -172,6 +184,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop trigger if exists before creating it
+DROP TRIGGER IF EXISTS log_location_changes ON wallet_locations;
 CREATE TRIGGER log_location_changes
     AFTER UPDATE ON wallet_locations
     FOR EACH ROW
@@ -249,14 +263,6 @@ CREATE TABLE IF NOT EXISTS alert_history (
 CREATE INDEX IF NOT EXISTS idx_user_sessions_session_id ON user_sessions(session_id);
 
 
-CREATE TABLE IF NOT EXISTS api_requests (
-    id SERIAL PRIMARY KEY,
-    consumer_id INTEGER REFERENCES data_consumers(id),
-    endpoint VARCHAR(255) NOT NULL,
-    response_time INTEGER NOT NULL, -- in milliseconds
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS wallet_locations_history (
     id SERIAL PRIMARY KEY,
     public_key VARCHAR(255) NOT NULL,
@@ -278,20 +284,69 @@ CREATE TABLE IF NOT EXISTS api_keys (
     last_used TIMESTAMP WITH TIME ZONE
 );
 
--- API Usage Tracking
-CREATE TABLE IF NOT EXISTS api_usage (
-    id SERIAL PRIMARY KEY,
-    api_key_id INTEGER REFERENCES api_keys(id),
-    endpoint VARCHAR(255) NOT NULL,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    response_time INTEGER, -- in milliseconds
-    status_code INTEGER
-);
-
 -- Rate Limiting Configuration
 CREATE TABLE IF NOT EXISTS rate_limits (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     requests_per_minute INTEGER DEFAULT 60,
     requests_per_day INTEGER DEFAULT 5000
-); 
+);
+
+-- Clean up redundant tables if they exist
+DROP TABLE IF EXISTS api_usage CASCADE;
+DROP TABLE IF EXISTS api_requests CASCADE;
+DROP TABLE IF EXISTS wallet_locations_history CASCADE;
+
+-- Update api_key_requests table to include all needed fields
+ALTER TABLE api_key_requests 
+    ADD COLUMN IF NOT EXISTS request_type VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS organization_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS purpose TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id),
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+
+-- Update api_usage_logs table to be our main API tracking table
+ALTER TABLE api_usage_logs
+    ADD COLUMN IF NOT EXISTS api_key_id INTEGER REFERENCES api_keys(id),
+    ALTER COLUMN status_code DROP NOT NULL,
+    ALTER COLUMN response_time DROP NOT NULL;
+
+-- Add missing indexes
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_key_requests_user_id ON api_key_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_api_key_id ON api_usage_logs(api_key_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_logs_timestamp ON api_usage_logs(created_at);
+
+-- Update rate_limits table to include UNIQUE constraint on user_id if not exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM pg_constraint 
+        WHERE conname = 'rate_limits_user_id_key'
+    ) THEN
+        ALTER TABLE rate_limits ADD CONSTRAINT rate_limits_user_id_key UNIQUE (user_id);
+    END IF;
+END
+$$;
+
+-- Add updated_at columns to relevant tables if they don't exist
+ALTER TABLE api_key_requests 
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE rate_limits 
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+-- Ensure all timestamp columns use WITH TIME ZONE
+ALTER TABLE api_keys 
+    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE,
+    ALTER COLUMN last_used TYPE TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE api_usage_logs 
+    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE api_key_requests 
+    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE rate_limits 
+    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE; 

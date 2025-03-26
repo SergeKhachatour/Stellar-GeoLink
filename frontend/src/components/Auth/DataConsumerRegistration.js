@@ -115,18 +115,19 @@ const DataConsumerRegistration = () => {
                             })}
                         />
                         <TextField
-                            label="Use Case Description"
+                            margin="normal"
                             required
                             fullWidth
+                            name="useCase"
+                            label="Use Case Description"
                             multiline
                             rows={4}
-                            margin="normal"
                             value={formData.useCase}
                             onChange={(e) => setFormData({
                                 ...formData,
                                 useCase: e.target.value
                             })}
-                            helperText="Please describe how you plan to use the API"
+                            helperText="Please provide a detailed description of how you plan to use our API (minimum 50 characters)"
                         />
                         <Button
                             type="submit"

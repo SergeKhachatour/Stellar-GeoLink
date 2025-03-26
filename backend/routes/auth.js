@@ -5,12 +5,37 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { authenticateUser } = require('../middleware/authUser');
 const sessionService = require('../services/session');
+const { validateRegistration } = require('../middleware/validation');
 
-router.post('/register', async (req, res) => {
-    const { email, password, firstName, lastName, organization } = req.body;
-    
+router.post('/register', validateRegistration, async (req, res) => {
+    const {
+        email,
+        password,
+        firstName,
+        lastName,
+        organization,
+        role,
+        useCase
+    } = req.body;
+
+    // Validate role
+    const validRoles = ['wallet_provider', 'data_consumer'];
+    if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role selected' });
+    }
+
+    // Additional validation for data_consumer
+    if (role === 'data_consumer' && !useCase) {
+        return res.status(400).json({ error: 'Use case is required for Data Consumer registration' });
+    }
+
+    const client = await pool.connect();
+
     try {
-        const existingUser = await pool.query(
+        await client.query('BEGIN');
+
+        // Check if email already exists
+        const existingUser = await client.query(
             'SELECT id FROM users WHERE email = $1',
             [email]
         );
@@ -19,25 +44,92 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: 'Email already registered' });
         }
 
-        const passwordHash = await bcrypt.hash(password, 10);
-        
-        const result = await pool.query(
-            `INSERT INTO users (email, password_hash, first_name, last_name, 
-                organization, role)
-            VALUES ($1, $2, $3, $4, $5, 'wallet_provider')
-            RETURNING id, email, role`,
-            [email, passwordHash, firstName, lastName, organization]
+        // Hash password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        // Insert user
+        const userResult = await client.query(
+            `INSERT INTO users (
+                email,
+                password_hash,
+                first_name,
+                last_name,
+                organization,
+                role
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id`,
+            [email, hashedPassword, firstName, lastName, organization, role]
         );
 
+        const userId = userResult.rows[0].id;
+
+        // Handle role-specific logic
+        if (role === 'data_consumer') {
+            // Create API key request
+            await client.query(
+                `INSERT INTO api_key_requests (
+                    user_id,
+                    request_type,
+                    organization_name,
+                    purpose,
+                    status
+                ) VALUES ($1, $2, $3, $4, $5)`,
+                [userId, 'initial', organization, useCase, 'pending']
+            );
+
+            // Set default rate limits
+            await client.query(
+                `INSERT INTO rate_limits (user_id)
+                VALUES ($1)`,
+                [userId]
+            );
+        } else if (role === 'wallet_provider') {
+            // Create wallet provider profile
+            await client.query(
+                `INSERT INTO wallet_providers (
+                    user_id,
+                    name,
+                    status
+                ) VALUES ($1, $2, $3)`,
+                [userId, organization, 'pending']
+            );
+        }
+
+        await client.query('COMMIT');
+
+        // Generate JWT token
         const token = jwt.sign(
-            { userId: result.rows[0].id },
+            { 
+                userId,
+                role,
+                status: 'pending'
+            },
             process.env.JWT_SECRET,
             { expiresIn: '24h' }
         );
 
-        res.json({ token, user: result.rows[0] });
+        // Send success response
+        res.status(201).json({
+            message: 'Registration successful',
+            token,
+            user: {
+                id: userId,
+                email,
+                firstName,
+                lastName,
+                organization,
+                role,
+                status: 'pending'
+            }
+        });
+
     } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Registration error:', error);
         res.status(500).json({ error: 'Internal server error' });
+    } finally {
+        client.release();
     }
 });
 

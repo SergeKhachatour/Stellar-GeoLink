@@ -1,24 +1,25 @@
 import React from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Box, Container, Grid, Paper, Typography } from '@mui/material';
 import Map from './Map';
 
 const Dashboard = () => {
-    return (
-        <Container maxWidth="xl">
-            <Box sx={{ mt: 4, mb: 4 }}>
-                <Typography variant="h4" component="h1" gutterBottom>
-                    Dashboard
-                </Typography>
-                <Grid container spacing={3}>
-                    <Grid item xs={12}>
-                        <Paper sx={{ p: 2, height: '600px' }}>
-                            <Map />
-                        </Paper>
-                    </Grid>
-                </Grid>
-            </Box>
-        </Container>
-    );
+    const { user } = useAuth();
+
+    if (!user) return null;
+
+    // Redirect based on user role
+    switch (user.role) {
+        case 'data_consumer':
+            return <Navigate to="/dashboard/consumer" replace />;
+        case 'wallet_provider':
+            return <Navigate to="/dashboard/provider" replace />;
+        case 'admin':
+            return <Navigate to="/admin" replace />;
+        default:
+            return <Navigate to="/" replace />;
+    }
 };
 
 export default Dashboard; 

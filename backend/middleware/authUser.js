@@ -20,6 +20,21 @@ const authenticateUser = (req, res, next) => {
     }
 };
 
+const authenticateAdmin = async (req, res, next) => {
+    try {
+        // First run the normal user authentication
+        await authenticateUser(req, res, async () => {
+            // Then check if the user is an admin
+            if (req.user.role !== 'admin') {
+                return res.status(403).json({ message: 'Access denied. Admin rights required.' });
+            }
+            next();
+        });
+    } catch (error) {
+        res.status(401).json({ message: 'Authentication failed' });
+    }
+};
+
 const requireAuth = (req, res, next) => {
     if (!req.user) {
         return res.status(401).json({ message: 'Authentication required' });
@@ -41,6 +56,7 @@ const requireRole = (roles) => {
 
 module.exports = { 
     authenticateUser, 
+    authenticateAdmin,
     requireAuth,
     requireRole 
 }; 

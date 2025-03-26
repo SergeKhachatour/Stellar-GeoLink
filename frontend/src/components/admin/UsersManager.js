@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import {
+    Box,
+    Typography,
+    Button,
+    TableContainer,
+    Table,
+    TableHead,
+    TableBody,
+    TableRow,
+    TableCell,
+    Paper,
+    Chip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    FormControlLabel,
+    Switch
+} from '@mui/material';
+import { Add as AddIcon } from '@mui/icons-material';
 import api from '../../utils/api';
 
 const UsersManager = () => {
     const [users, setUsers] = useState([]);
-    const [newUser, setNewUser] = useState({
-        email: '',
-        firstName: '',
-        lastName: '',
-        organization: '',
-        role: 'wallet_provider'
-    });
+    const [selectedUser, setSelectedUser] = useState(null);
     const [editingUser, setEditingUser] = useState(null);
 
     useEffect(() => {
@@ -25,141 +44,192 @@ const UsersManager = () => {
         }
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const handleEditClick = (user) => {
+        setSelectedUser(user);
+        setEditingUser({
+            ...user,
+            status: user.status || false
+        });
+    };
+
+    const handleClose = () => {
+        setSelectedUser(null);
+        setEditingUser(null);
+    };
+
+    const handleSave = async () => {
         try {
-            if (editingUser) {
-                await api.put(`/admin/users/${editingUser.id}`, newUser);
-            } else {
-                await api.post('/admin/users', newUser);
-            }
+            await api.put(`/admin/users/${editingUser.id}`, editingUser);
             fetchUsers();
-            setNewUser({
-                email: '',
-                firstName: '',
-                lastName: '',
-                organization: '',
-                role: 'wallet_provider'
-            });
-            setEditingUser(null);
+            handleClose();
         } catch (error) {
-            console.error('Error saving user:', error);
+            console.error('Error updating user:', error);
         }
     };
 
-    const handleToggleStatus = async (userId, currentStatus) => {
-        try {
-            await api.patch(`/admin/users/${userId}`, {
-                status: !currentStatus
-            });
-            fetchUsers();
-        } catch (error) {
-            console.error('Error updating user status:', error);
-        }
+    const handleChange = (e) => {
+        const { name, value, checked } = e.target;
+        setEditingUser(prev => ({
+            ...prev,
+            [name]: name === 'status' ? checked : value
+        }));
     };
 
     return (
-        <div className="users-manager">
-            <h2>Manage Users</h2>
+        <Box>
+            <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                mb: 3
+            }}>
+                <Typography variant="h6" sx={{ fontWeight: 500, color: 'text.primary' }}>
+                    Users Management
+                </Typography>
+                <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => setEditingUser({})}
+                    sx={{ textTransform: 'none' }}
+                >
+                    Add User
+                </Button>
+            </Box>
 
-            <form onSubmit={handleSubmit} className="user-form">
-                <div className="form-row">
-                    <div className="form-group">
-                        <label>Email:</label>
-                        <input
-                            type="email"
-                            value={newUser.email}
-                            onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                            required
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label>First Name:</label>
-                        <input
-                            type="text"
-                            value={newUser.firstName}
-                            onChange={(e) => setNewUser({...newUser, firstName: e.target.value})}
-                            required
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label>Last Name:</label>
-                        <input
-                            type="text"
-                            value={newUser.lastName}
-                            onChange={(e) => setNewUser({...newUser, lastName: e.target.value})}
-                            required
-                        />
-                    </div>
-                </div>
-                <div className="form-row">
-                    <div className="form-group">
-                        <label>Organization:</label>
-                        <input
-                            type="text"
-                            value={newUser.organization}
-                            onChange={(e) => setNewUser({...newUser, organization: e.target.value})}
-                            required
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label>Role:</label>
-                        <select
-                            value={newUser.role}
-                            onChange={(e) => setNewUser({...newUser, role: e.target.value})}
-                            required
-                        >
-                            <option value="wallet_provider">Wallet Provider</option>
-                            <option value="sdf_employee">SDF Employee</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </div>
-                </div>
-                <button type="submit" className="submit-btn">
-                    {editingUser ? 'Update User' : 'Create User'}
-                </button>
-            </form>
+            <TableContainer component={Paper} elevation={0}>
+                <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell sx={{ fontWeight: 500 }}>Email</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>Name</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>Organization</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>Role</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>Status</TableCell>
+                            <TableCell sx={{ fontWeight: 500 }}>Actions</TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {users.map(user => (
+                            <TableRow key={user.id}>
+                                <TableCell>{user.email}</TableCell>
+                                <TableCell>{`${user.first_name} ${user.last_name}`}</TableCell>
+                                <TableCell>{user.organization}</TableCell>
+                                <TableCell>
+                                    <Chip 
+                                        label={user.role.replace('_', ' ')}
+                                        size="small"
+                                        color={
+                                            user.role === 'admin' ? 'error' :
+                                            user.role === 'wallet_provider' ? 'primary' : 
+                                            'default'
+                                        }
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <Chip 
+                                        label={user.status ? 'Active' : 'Inactive'}
+                                        color={user.status ? 'success' : 'default'}
+                                        size="small"
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={() => handleEditClick(user)}
+                                        sx={{ textTransform: 'none' }}
+                                    >
+                                        Manage
+                                    </Button>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </TableContainer>
 
-            <table className="users-table">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Organization</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Last Login</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {users.map(user => (
-                        <tr key={user.id}>
-                            <td>{`${user.first_name} ${user.last_name}`}</td>
-                            <td>{user.email}</td>
-                            <td>{user.organization}</td>
-                            <td>{user.role}</td>
-                            <td>{user.status ? 'Active' : 'Disabled'}</td>
-                            <td>{user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</td>
-                            <td className="action-buttons">
-                                <button 
-                                    onClick={() => setEditingUser(user)}
-                                    className="edit-btn"
+            <Dialog 
+                open={!!selectedUser} 
+                onClose={handleClose}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>
+                    Manage User
+                </DialogTitle>
+                <DialogContent sx={{ pt: 2 }}>
+                    {editingUser && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <TextField
+                                fullWidth
+                                label="Email"
+                                name="email"
+                                value={editingUser.email || ''}
+                                onChange={handleChange}
+                                margin="normal"
+                            />
+                            <TextField
+                                fullWidth
+                                label="First Name"
+                                name="first_name"
+                                value={editingUser.first_name || ''}
+                                onChange={handleChange}
+                                margin="normal"
+                            />
+                            <TextField
+                                fullWidth
+                                label="Last Name"
+                                name="last_name"
+                                value={editingUser.last_name || ''}
+                                onChange={handleChange}
+                                margin="normal"
+                            />
+                            <TextField
+                                fullWidth
+                                label="Organization"
+                                name="organization"
+                                value={editingUser.organization || ''}
+                                onChange={handleChange}
+                                margin="normal"
+                            />
+                            <FormControl fullWidth margin="normal">
+                                <InputLabel>Role</InputLabel>
+                                <Select
+                                    name="role"
+                                    value={editingUser.role || ''}
+                                    label="Role"
+                                    onChange={handleChange}
                                 >
-                                    Edit
-                                </button>
-                                <button 
-                                    onClick={() => handleToggleStatus(user.id, user.status)}
-                                    className={user.status ? 'disable-btn' : 'enable-btn'}
-                                >
-                                    {user.status ? 'Disable' : 'Enable'}
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+                                    <MenuItem value="admin">Admin</MenuItem>
+                                    <MenuItem value="data_consumer">Data Consumer</MenuItem>
+                                    <MenuItem value="wallet_provider">Wallet Provider</MenuItem>
+                                </Select>
+                            </FormControl>
+                            <FormControlLabel
+                                control={
+                                    <Switch
+                                        checked={editingUser.status || false}
+                                        name="status"
+                                        onChange={handleChange}
+                                        color="primary"
+                                    />
+                                }
+                                label="Account Active"
+                                sx={{ mt: 2 }}
+                            />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleClose} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button onClick={handleSave} color="primary" variant="contained">
+                        Save Changes
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </Box>
     );
 };
 
