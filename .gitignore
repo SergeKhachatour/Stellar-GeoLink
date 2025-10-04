@@ -134,3 +134,35 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Security and sensitive files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials/
+config/secrets.json
+.env.production
+.env.staging
+
+# Database dumps and backups
+*.sql
+*.dump
+*.backup
+database-backups/
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Test and debug files (contain sensitive data)
+test-*.js
+debug-*.js
+check-*.js
+*test*.js
+*debug*.js
+*check*.js

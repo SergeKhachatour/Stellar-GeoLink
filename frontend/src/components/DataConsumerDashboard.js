@@ -23,7 +23,7 @@ import {
 import { DataUsage, Key, Speed, ContentCopy } from '@mui/icons-material';
 import { format } from 'date-fns';
 import api from '../utils/api';
-import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
+import ApiKeyRequestForm from './ApiKeyRequestForm';
 import { Link } from 'react-router-dom';
 
 const DataConsumerDashboard = () => {

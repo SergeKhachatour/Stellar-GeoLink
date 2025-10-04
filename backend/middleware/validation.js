@@ -79,7 +79,7 @@ const validateRegistration = (req, res, next) => {
     }
 
     // Password validation (at least 8 characters, 1 uppercase, 1 lowercase, 1 number)
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d]{8,}$/;
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
     if (!password || !passwordRegex.test(password)) {
         return res.status(400).json({
             error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number'

@@ -6,6 +6,16 @@ BEGIN
     END IF;
 END $$;
 
+-- Create refresh tokens table
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_revoked BOOLEAN DEFAULT FALSE
+);
+
 -- Create tables if they don't exist
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -22,21 +32,19 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS wallet_providers (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    api_key VARCHAR(255) UNIQUE NOT NULL,
-    status BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER REFERENCES users(id),
-    rate_limit INTEGER DEFAULT 100
+    name VARCHAR(255) NOT NULL,
+    api_key_id INTEGER REFERENCES api_keys(id),
+    status BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS data_consumers (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    api_key VARCHAR(255) UNIQUE NOT NULL,
-    status BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    user_id INTEGER REFERENCES users(id)
+    user_id INTEGER REFERENCES users(id),
+    organization_name VARCHAR(255) NOT NULL,
+    use_case TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS wallet_types (
@@ -130,7 +138,9 @@ CREATE TABLE IF NOT EXISTS api_key_requests (
     status VARCHAR(50) DEFAULT 'pending',
     reviewed_by INTEGER REFERENCES users(id),
     reviewed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    review_notes TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS api_usage_logs (
@@ -279,7 +289,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
     user_id INTEGER REFERENCES users(id),
     api_key VARCHAR(64) UNIQUE NOT NULL,
     name VARCHAR(100),
-    status BOOLEAN DEFAULT true,
+    status BOOLEAN DEFAULT false,
+    rejection_reason TEXT,
+    reviewed_by INTEGER REFERENCES users(id),
+    reviewed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_used TIMESTAMP WITH TIME ZONE
 );
@@ -287,9 +300,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
 -- Rate Limiting Configuration
 CREATE TABLE IF NOT EXISTS rate_limits (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
+    user_id INTEGER REFERENCES users(id) UNIQUE,
     requests_per_minute INTEGER DEFAULT 60,
-    requests_per_day INTEGER DEFAULT 5000
+    requests_per_day INTEGER DEFAULT 5000,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Clean up redundant tables if they exist
@@ -297,13 +312,7 @@ DROP TABLE IF EXISTS api_usage CASCADE;
 DROP TABLE IF EXISTS api_requests CASCADE;
 DROP TABLE IF EXISTS wallet_locations_history CASCADE;
 
--- Update api_key_requests table to include all needed fields
-ALTER TABLE api_key_requests 
-    ADD COLUMN IF NOT EXISTS request_type VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS organization_name VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS purpose TEXT,
-    ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id),
-    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;
+-- Columns already added during table creation
 
 -- Update api_usage_logs table to be our main API tracking table
 ALTER TABLE api_usage_logs
@@ -317,36 +326,35 @@ CREATE INDEX IF NOT EXISTS idx_api_key_requests_user_id ON api_key_requests(user
 CREATE INDEX IF NOT EXISTS idx_api_usage_logs_api_key_id ON api_usage_logs(api_key_id);
 CREATE INDEX IF NOT EXISTS idx_api_usage_logs_timestamp ON api_usage_logs(created_at);
 
--- Update rate_limits table to include UNIQUE constraint on user_id if not exists
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM pg_constraint 
-        WHERE conname = 'rate_limits_user_id_key'
-    ) THEN
-        ALTER TABLE rate_limits ADD CONSTRAINT rate_limits_user_id_key UNIQUE (user_id);
-    END IF;
-END
-$$;
+-- UNIQUE constraint already added during table creation
 
--- Add updated_at columns to relevant tables if they don't exist
-ALTER TABLE api_key_requests 
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+-- Columns already added during table creation
 
-ALTER TABLE rate_limits 
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+-- All timestamp columns already use WITH TIME ZONE
 
--- Ensure all timestamp columns use WITH TIME ZONE
-ALTER TABLE api_keys 
-    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE,
-    ALTER COLUMN last_used TYPE TIMESTAMP WITH TIME ZONE;
+-- User Privacy and Visibility Settings
+CREATE TABLE IF NOT EXISTS user_privacy_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) UNIQUE,
+    location_sharing_enabled BOOLEAN DEFAULT true,
+    data_retention_days INTEGER DEFAULT 30,
+    anonymize_data BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-ALTER TABLE api_usage_logs 
-    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;
+CREATE TABLE IF NOT EXISTS user_visibility_settings (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) UNIQUE,
+    public_profile BOOLEAN DEFAULT false,
+    show_location_history BOOLEAN DEFAULT true,
+    allow_data_export BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
-ALTER TABLE api_key_requests 
-    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE;
-
-ALTER TABLE rate_limits 
-    ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE; 
+-- Add missing indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_user_privacy_settings_user_id ON user_privacy_settings(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_visibility_settings_user_id ON user_visibility_settings(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_status ON api_keys(status);
+CREATE INDEX IF NOT EXISTS idx_api_keys_reviewed_by ON api_keys(reviewed_by); 

@@ -13,9 +13,11 @@ import {
     Paper,
     Alert
 } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
 
 const Register = () => {
     const navigate = useNavigate();
+    const { register } = useAuth();
     const [formData, setFormData] = useState({
         email: '',
         password: '',
@@ -102,27 +104,17 @@ const Register = () => {
         }
 
         try {
-            const response = await fetch('http://localhost:4000/api/auth/register', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: formData.email,
-                    password: formData.password,
-                    firstName: formData.firstName,
-                    lastName: formData.lastName,
-                    organization: formData.organization,
-                    role: formData.role,
-                    useCase: formData.role === 'data_consumer' ? formData.useCase : undefined
-                })
+            await register({
+                email: formData.email,
+                password: formData.password,
+                firstName: formData.firstName,
+                lastName: formData.lastName,
+                organization: formData.organization,
+                role: formData.role,
+                useCase: formData.role === 'data_consumer' ? formData.useCase : undefined
             });
 
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.error || 'Registration failed');
-            }
-
+            // Registration successful, redirect to login
             navigate('/login');
         } catch (error) {
             setSubmitError(error.message || 'Registration failed. Please try again.');

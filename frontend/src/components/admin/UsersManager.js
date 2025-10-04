@@ -59,11 +59,17 @@ const UsersManager = () => {
 
     const handleSave = async () => {
         try {
-            await api.put(`/admin/users/${editingUser.id}`, editingUser);
+            if (editingUser.id) {
+                // Update existing user
+                await api.put(`/admin/users/${editingUser.id}`, editingUser);
+            } else {
+                // Create new user
+                await api.post('/admin/users', editingUser);
+            }
             fetchUsers();
             handleClose();
         } catch (error) {
-            console.error('Error updating user:', error);
+            console.error('Error saving user:', error);
         }
     };
 
@@ -89,7 +95,17 @@ const UsersManager = () => {
                 <Button
                     variant="contained"
                     startIcon={<AddIcon />}
-                    onClick={() => setEditingUser({})}
+                    onClick={() => {
+                        setEditingUser({
+                            email: '',
+                            first_name: '',
+                            last_name: '',
+                            organization: '',
+                            role: 'data_consumer',
+                            status: true
+                        });
+                        setSelectedUser({});
+                    }}
                     sx={{ textTransform: 'none' }}
                 >
                     Add User
@@ -149,13 +165,13 @@ const UsersManager = () => {
             </TableContainer>
 
             <Dialog 
-                open={!!selectedUser} 
+                open={!!selectedUser || !!editingUser} 
                 onClose={handleClose}
                 maxWidth="sm"
                 fullWidth
             >
                 <DialogTitle>
-                    Manage User
+                    {selectedUser && selectedUser.id ? 'Manage User' : 'Add New User'}
                 </DialogTitle>
                 <DialogContent sx={{ pt: 2 }}>
                     {editingUser && (

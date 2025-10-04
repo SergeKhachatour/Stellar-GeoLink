@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./swagger');
+const swaggerSpec = require('./config/swagger');
 const trackApiUsage = require('./middleware/apiTracking');
 const locationRoutes = require('./routes/location');
 const adminRoutes = require('./routes/admin');
@@ -11,7 +11,10 @@ const userRoutes = require('./routes/user');
 const geofenceRoutes = require('./routes/geofence');
 const analyticsRoutes = require('./routes/analytics');
 const alertRoutes = require('./routes/alerts');
+const walletProviderRoutes = require('./routes/walletProvider');
 const { rateLimiter } = require('./middleware/rateLimiter');
+const { authenticateUser } = require('./middleware/authUser');
+const path = require('path');
 
 const app = express();
 
@@ -37,6 +40,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/geofence', geofenceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/wallet-provider', walletProviderRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {
@@ -46,7 +50,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
 
 module.exports = app; 

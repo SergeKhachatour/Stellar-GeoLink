@@ -4,6 +4,7 @@ import Login from '../components/Login';
 import Register from '../components/Register';
 import UserDashboard from '../components/UserDashboard';
 import AdminDashboard from '../components/AdminDashboard';
+import RequestApiKey from '../components/RequestApiKey';
 import ProtectedRoute from '../components/ProtectedRoute';
 import Layout from '../components/Layout';
 
@@ -26,6 +27,14 @@ const AppRoutes = () => {
                     element={
                         <ProtectedRoute roles={['admin']}>
                             <AdminDashboard />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/request-api-key" 
+                    element={
+                        <ProtectedRoute>
+                            <RequestApiKey />
                         </ProtectedRoute>
                     } 
                 />

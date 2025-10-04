@@ -1,0 +1,439 @@
+[1mdiff --git a/backend/app.js b/backend/app.js[m
+[1mindex 4773140..17405a4 100644[m
+[1m--- a/backend/app.js[m
+[1m+++ b/backend/app.js[m
+[36m@@ -2,7 +2,7 @@[m [mrequire('dotenv').config();[m
+ const express = require('express');[m
+ const cors = require('cors');[m
+ const swaggerUi = require('swagger-ui-express');[m
+[31m-const swaggerSpec = require('./swagger');[m
+[32m+[m[32mconst swaggerSpec = require('./config/swagger');[m
+ const trackApiUsage = require('./middleware/apiTracking');[m
+ const locationRoutes = require('./routes/location');[m
+ const adminRoutes = require('./routes/admin');[m
+[36m@@ -12,25 +12,136 @@[m [mconst geofenceRoutes = require('./routes/geofence');[m
+ const analyticsRoutes = require('./routes/analytics');[m
+ const alertRoutes = require('./routes/alerts');[m
+ const { rateLimiter } = require('./middleware/rateLimiter');[m
+[32m+[m[32mconst { authenticateUser } = require('./middleware/authUser');[m
+[32m+[m[32mconst path = require('path');[m
+ [m
+ const app = express();[m
+ [m
+[31m-// Configure CORS to accept requests from frontend[m
+[32m+[m[32m// CORS configuration - this must come before any routes[m
+ app.use(cors({[m
+[31m-    origin: process.env.NODE_ENV === 'production' [m
+[31m-        ? 'https://your-production-domain.com'  // Update this with your production domain[m
+[31m-        : 'http://localhost:3000',[m
+[31m-    credentials: true[m
+[32m+[m[32m    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],[m
+[32m+[m[32m    credentials: true,[m
+[32m+[m[32m    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],[m
+[32m+[m[32m    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'][m
+ }));[m
+ [m
+[32m+[m[32m// Body parser middleware[m
+ app.use(express.json());[m
+[32m+[m
+[32m+[m[32m// Request logging middleware[m
+[32m+[m[32mapp.use((req, res, next) => {[m
+[32m+[m[32m    console.log(`${req.method} ${req.path}`, {[m
+[32m+[m[32m        body: req.body,[m
+[32m+[m[32m        headers: req.headers[m
+[32m+[m[32m    });[m
+[32m+[m[32m    next();[m
+[32m+[m[32m});[m
+[32m+[m
+ app.use(trackApiUsage);[m
+ app.use(rateLimiter);[m
+ [m
+[31m-// API Documentation[m
+[31m-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));[m
+[32m+[m[32m// Setup Swagger UI[m
+[32m+[m[32mapp.use('/api-docs', (req, res, next) => {[m
+[32m+[m[32m    let filteredSpec = { ...swaggerSpec };[m
+[32m+[m[41m    [m
+[32m+[m[32m    // If user is authenticated, filter based on role[m
+[32m+[m[32m    if (req.user) {[m
+[32m+[m[32m        if (req.user.role === 'wallet_provider') {[m
+[32m+[m[32m            filteredSpec.definition.tags = filteredSpec.definition.tags.filter([m
+[32m+[m[32m                tag => tag.name === 'Wallet Provider'[m
+[32m+[m[32m            );[m
+[32m+[m[32m        } else if (req.user.role === 'data_consumer') {[m
+[32m+[m[32m            filteredSpec.definition.tags = filteredSpec.definition.tags.filter([m
+[32m+[m[32m                tag => tag.name === 'Data Consumer'[m
+[32m+[m[32m            );[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    const swaggerUiOptions = {[m
+[32m+[m[32m        swaggerOptions: {[m
+[32m+[m[32m            persistAuthorization: true,[m
+[32m+[m[32m            displayRequestDuration: true,[m
+[32m+[m[32m            filter: true,[m
+[32m+[m[32m            tryItOutEnabled: true[m
+[32m+[m[32m        },[m
+[32m+[m[32m        customCss: '.swagger-ui .topbar { display: none }',[m
+[32m+[m[32m        customSiteTitle: "Stellar GeoLink API Documentation"[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    // Use the setup with the filtered spec[m
+[32m+[m[32m    swaggerUi.setup(filteredSpec, swaggerUiOptions)(req, res, next);[m
+[32m+[m[32m}, swaggerUi.serve);[m
+[32m+[m
+[32m+[m[32m// Set proper content type for Swagger UI files[m
+[32m+[m[32mapp.use((req, res, next) => {[m
+[32m+[m[32m    if (req.path.endsWith('.css')) {[m
+[32m+[m[32m        res.type('text/css');[m
+[32m+[m[32m    } else if (req.path.endsWith('.js')) {[m
+[32m+[m[32m        res.type('application/javascript');[m
+[32m+[m[32m    }[m
+[32m+[m[32m    next();[m
+[32m+[m[32m});[m
+[32m+[m
+[32m+[m[32m// Postman collection download route[m
+[32m+[m[32mapp.get('/api-docs/postman', authenticateUser, (req, res) => {[m
+[32m+[m[32m    const postmanCollection = {[m
+[32m+[m[32m        info: {[m
+[32m+[m[32m            name: 'Stellar GeoLink API',[m
+[32m+[m[32m            schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'[m
+[32m+[m[32m        },[m
+[32m+[m[32m        item: [],[m
+[32m+[m[32m        auth: {[m
+[32m+[m[32m            type: 'apikey',[m
+[32m+[m[32m            apikey: [[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    key: 'key',[m
+[32m+[m[32m                    value: 'X-API-Key',[m
+[32m+[m[32m                    type: 'string'[m
+[32m+[m[32m                },[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    key: 'value',[m
+[32m+[m[32m                    value: '{{apiKey}}',[m
+[32m+[m[32m                    type: 'string'[m
+[32m+[m[32m                },[m
+[32m+[m[32m                {[m
+[32m+[m[32m                    key: 'in',[m
+[32m+[m[32m                    value: 'header',[m
+[32m+[m[32m                    type: 'string'[m
+[32m+[m[32m                }[m
+[32m+[m[32m            ][m
+[32m+[m[32m        }[m
+[32m+[m[32m    };[m
+[32m+[m
+[32m+[m[32m    // Convert Swagger paths to Postman collection[m
+[32m+[m[32m    Object.entries(swaggerSpec.paths || {}).forEach(([path, methods]) => {[m
+[32m+[m[32m        Object.entries(methods).forEach(([method, details]) => {[m
+[32m+[m[32m            if ([m
+[32m+[m[32m                (req.user.role === 'wallet_provider' && details.tags?.includes('Wallet Provider')) ||[m
+[32m+[m[32m                (req.user.role === 'data_consumer' && details.tags?.includes('Data Consumer'))[m
+[32m+[m[32m            ) {[m
+[32m+[m[32m                postmanCollection.item.push({[m
+[32m+[m[32m                    name: details.summary,[m
+[32m+[m[32m                    request: {[m
+[32m+[m[32m                        method: method.toUpperCase(),[m
+[32m+[m[32m                        header: [],[m
+[32m+[m[32m                        url: {[m
+[32m+[m[32m                            raw: `{{baseUrl}}${path}`,[m
+[32m+[m[32m                            host: ['{{baseUrl}}'],[m
+[32m+[m[32m                            path: path.split('/').filter(Boolean)[m
+[32m+[m[32m                        },[m
+[32m+[m[32m                        description: details.description[m
+[32m+[m[32m                    }[m
+[32m+[m[32m                });[m
+[32m+[m[32m            }[m
+[32m+[m[32m        });[m
+[32m+[m[32m    });[m
+[32m+[m
+[32m+[m[32m    res.setHeader('Content-Type', 'application/json');[m
+[32m+[m[32m    res.setHeader('Content-Disposition', 'attachment; filename=stellar-geolink-api.postman_collection.json');[m
+[32m+[m[32m    res.send(JSON.stringify(postmanCollection, null, 2));[m
+[32m+[m[32m});[m
+ [m
+[31m-app.use('/api/location', locationRoutes);[m
+[32m+[m[32mapp.use('/api/locations', locationRoutes);[m
+ app.use('/api/admin', adminRoutes);[m
+ app.use('/api/auth', authRoutes);[m
+ app.use('/api/user', userRoutes);[m
+[36m@@ -46,7 +157,7 @@[m [mapp.use((err, req, res, next) => {[m
+ [m
+ const PORT = process.env.PORT || 4000;[m
+ app.listen(PORT, () => {[m
+[31m-    console.log(`Server running on port ${PORT}`);[m
+[32m+[m[32m    console.log(`Server is running on port ${PORT}`);[m
+ });[m
+ [m
+ module.exports = app; [m
+\ No newline at end of file[m
+[1mdiff --git a/backend/config/database.js b/backend/config/database.js[m
+[1mindex 3403b8a..9345111 100644[m
+[1m--- a/backend/config/database.js[m
+[1m+++ b/backend/config/database.js[m
+[36m@@ -1,31 +1,36 @@[m
+ const { Pool } = require('pg');[m
+ [m
+[31m-const pool = new Pool({[m
+[31m-    user: process.env.DB_USER,[m
+[31m-    host: process.env.DB_HOST,[m
+[31m-    database: 'GeoLink',  // Hardcoded database name[m
+[31m-    password: process.env.DB_PASSWORD,[m
+[31m-    port: process.env.DB_PORT,[m
+[31m-    // Add additional PostgreSQL configurations if needed[m
+[31m-    ssl: false, // Set to true if you're using SSL[m
+[31m-    max: 20, // Maximum number of clients in the pool[m
+[31m-    idleTimeoutMillis: 30000, // How long a client is allowed to remain idle before being closed[m
+[31m-    connectionTimeoutMillis: 2000, // How long to wait before timing out when connecting a new client[m
+[31m-});[m
+[32m+[m[32mconst poolConfig = {[m
+[32m+[m[32m    user: process.env.DB_USER || 'postgres',[m
+[32m+[m[32m    host: process.env.DB_HOST || 'localhost',[m
+[32m+[m[32m    database: process.env.DB_NAME || 'GeoLink',[m
+[32m+[m[32m    password: process.env.DB_PASSWORD || 'your_password',[m
+[32m+[m[32m    port: process.env.DB_PORT || 5432[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32m// Only add SSL configuration if explicitly required[m
+[32m+[m[32mif (process.env.NODE_ENV === 'production') {[m
+[32m+[m[32m    poolConfig.ssl = {[m
+[32m+[m[32m        rejectUnauthorized: false[m
+[32m+[m[32m    };[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mconst pool = new Pool(poolConfig);[m
+ [m
+ // Add error handling for the pool[m
+[31m-pool.on('error', (err, client) => {[m
+[32m+[m[32mpool.on('error', (err) => {[m
+     console.error('Unexpected error on idle client', err);[m
+     process.exit(-1);[m
+ });[m
+ [m
+ // Test the connection[m
+[31m-pool.query('SELECT NOW()', (err, res) => {[m
+[31m-    if (err) {[m
+[31m-        console.error('Error connecting to the database:', err);[m
+[31m-    } else {[m
+[32m+[m[32mpool.connect()[m
+[32m+[m[32m    .then(client => {[m
+         console.log('Successfully connected to GeoLink database');[m
+[31m-    }[m
+[31m-});[m
+[32m+[m[32m        client.release();[m
+[32m+[m[32m    })[m
+[32m+[m[32m    .catch(err => {[m
+[32m+[m[32m        console.error('Error connecting to database:', err);[m
+[32m+[m[32m    });[m
+ [m
+ module.exports = pool; [m
+\ No newline at end of file[m
+[1mdiff --git a/backend/middleware/authUser.js b/backend/middleware/authUser.js[m
+[1mindex c240780..cca27ed 100644[m
+[1m--- a/backend/middleware/authUser.js[m
+[1m+++ b/backend/middleware/authUser.js[m
+[36m@@ -1,22 +1,43 @@[m
+ const jwt = require('jsonwebtoken');[m
+[32m+[m[32mconst pool = require('../config/database');[m
+ [m
+[31m-const authenticateUser = (req, res, next) => {[m
+[31m-    const token = req.header('Authorization')?.replace('Bearer ', '');[m
+[31m-[m
+[31m-    // If no token, user is not authenticated but we'll let the route handler decide what to do[m
+[31m-    if (!token) {[m
+[31m-        req.user = null;[m
+[31m-        return next();[m
+[31m-    }[m
+[31m-[m
+[32m+[m[32mconst authenticateUser = async (req, res, next) => {[m
+     try {[m
+[32m+[m[32m        const token = req.headers.authorization?.split(' ')[1];[m
+[32m+[m[41m        [m
+[32m+[m[32m        if (!token) {[m
+[32m+[m[32m            return res.status(401).json({ error: 'No token provided' });[m
+[32m+[m[32m        }[m
+[32m+[m
+         const decoded = jwt.verify(token, process.env.JWT_SECRET);[m
+[31m-        req.user = decoded.user;[m
+[31m-        next();[m
+[31m-    } catch (err) {[m
+[31m-        // Invalid token, but we'll let the route handler decide what to do[m
+[31m-        req.user = null;[m
+[32m+[m[41m        [m
+[32m+[m[32m        const result = await pool.query([m
+[32m+[m[32m            'SELECT id, email, role, organization, status FROM users WHERE id = $1',[m
+[32m+[m[32m            [decoded.userId][m
+[32m+[m[32m        );[m
+[32m+[m
+[32m+[m[32m        if (result.rows.length === 0) {[m
+[32m+[m[32m            return res.status(401).json({ error: 'User not found' });[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        if (!result.rows[0].status) {[m
+[32m+[m[32m            return res.status(401).json({ error: 'Account is disabled' });[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        req.user = result.rows[0];[m
+         next();[m
+[32m+[m[32m    } catch (error) {[m
+[32m+[m[32m        console.error('Authentication error:', error);[m
+[32m+[m[41m        [m
+[32m+[m[32m        if (error.name === 'JsonWebTokenError') {[m
+[32m+[m[32m            return res.status(401).json({ error: 'Invalid token' });[m
+[32m+[m[32m        }[m
+[32m+[m[41m        [m
+[32m+[m[32m        if (error.name === 'TokenExpiredError') {[m
+[32m+[m[32m            return res.status(401).json({ error: 'Token expired' });[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        res.status(500).json({ error: 'Internal server error during authentication' });[m
+     }[m
+ };[m
+ [m
+[1mdiff --git a/backend/package-lock.json b/backend/package-lock.json[m
+[1mindex 7b4ecee..3f37831 100644[m
+[1m--- a/backend/package-lock.json[m
+[1m+++ b/backend/package-lock.json[m
+[36m@@ -21,7 +21,7 @@[m
+         "pg": "^8.14.1",[m
+         "redis": "^4.6.7",[m
+         "swagger-jsdoc": "^6.2.8",[m
+[31m-        "swagger-ui-express": "^4.6.3"[m
+[32m+[m[32m        "swagger-ui-express": "^5.0.1"[m
+       },[m
+       "devDependencies": {[m
+         "nodemon": "^3.1.9"[m
+[36m@@ -2220,19 +2220,19 @@[m
+       }[m
+     },[m
+     "node_modules/swagger-ui-dist": {[m
+[31m-      "version": "5.20.1",[m
+[31m-      "resolved": "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.20.1.tgz",[m
+[31m-      "integrity": "sha512-qBPCis2w8nP4US7SvUxdJD3OwKcqiWeZmjN2VWhq2v+ESZEXOP/7n4DeiOiiZcGYTKMHAHUUrroHaTsjUWTEGw==",[m
+[32m+[m[32m      "version": "5.20.2",[m
+[32m+[m[32m      "resolved": "https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.20.2.tgz",[m
+[32m+[m[32m      "integrity": "sha512-zP2biZvCt6R1IAz/iGcjeEViHez7UPHUFfMFyF6jcTKS1ZIP2cgr+KSZEMhBnpIcFfDrZxkD8v56taL5A8phuA==",[m
+       "dependencies": {[m
+         "@scarf/scarf": "=1.4.0"[m
+       }[m
+     },[m
+     "node_modules/swagger-ui-express": {[m
+[31m-      "version": "4.6.3",[m
+[31m-      "resolved": "https://registry.npmjs.org/swagger-ui-express/-/swagger-ui-express-4.6.3.tgz",[m
+[31m-      "integrity": "sha512-CDje4PndhTD2HkgyKH3pab+LKspDeB/NhPN2OF1j+piYIamQqBYwAXWESOT1Yju2xFg51bRW9sUng2WxDjzArw==",[m
+[32m+[m[32m      "version": "5.0.1",[m
+[32m+[m[32m      "resolved": "https://registry.npmjs.org/swagger-ui-express/-/swagger-ui-express-5.0.1.tgz",[m
+[32m+[m[32m      "integrity": "sha512-SrNU3RiBGTLLmFU8GIJdOdanJTl4TOmT27tt3bWWHppqYmAZ6IDuEuBvMU6nZq0zLEe6b/1rACXCgLZqO6ZfrA==",[m
+       "dependencies": {[m
+[31m-        "swagger-ui-dist": ">=4.11.0"[m
+[32m+[m[32m        "swagger-ui-dist": ">=5.0.0"[m
+       },[m
+       "engines": {[m
+         "node": ">= v0.10.32"[m
+[36m@@ -2331,9 +2331,9 @@[m
+       }[m
+     },[m
+     "node_modules/validator": {[m
+[31m-      "version": "13.12.0",[m
+[31m-      "resolved": "https://registry.npmjs.org/validator/-/validator-13.12.0.tgz",[m
+[31m-      "integrity": "sha512-c1Q0mCiPlgdTVVVIJIrBuxNicYE+t/7oKeI9MWLj3fh/uq2Pxh/3eeWbVZ4OcGW1TUf53At0njHw5SMdA3tmMg==",[m
+[32m+[m[32m      "version": "13.15.0",[m
+[32m+[m[32m      "resolved": "https://registry.npmjs.org/validator/-/validator-13.15.0.tgz",[m
+[32m+[m[32m      "integrity": "sha512-36B2ryl4+oL5QxZ3AzD0t5SsMNGvTtQHpjgFO5tbNxfXbMFkY822ktCDe1MnlqV3301QQI9SLHDNJokDI+Z9pA==",[m
+       "engines": {[m
+         "node": ">= 0.10"[m
+       }[m
+[1mdiff --git a/backend/package.json b/backend/package.json[m
+[1mindex 7cd3dc5..ee470a7 100644[m
+[1m--- a/backend/package.json[m
+[1m+++ b/backend/package.json[m
+[36m@@ -24,7 +24,7 @@[m
+     "pg": "^8.14.1",[m
+     "redis": "^4.6.7",[m
+     "swagger-jsdoc": "^6.2.8",[m
+[31m-    "swagger-ui-express": "^4.6.3"[m
+[32m+[m[32m    "swagger-ui-express": "^5.0.1"[m
+   },[m
+   "devDependencies": {[m
+     "nodemon": "^3.1.9"[m
+[1mdiff --git a/backend/routes/admin.js b/backend/routes/admin.js[m
+[1mindex 386c416..1dd3d02 100644[m
+[1m--- a/backend/routes/admin.js[m
+[1m+++ b/backend/routes/admin.js[m
+[36m@@ -80,9 +80,27 @@[m [mrouter.patch('/users/:id/status', authenticateAdmin, async (req, res) => {[m
+ // Get all API keys[m
+ router.get('/api-keys', authenticateAdmin, async (req, res) => {[m
+     try {[m
+[31m-        const result = await pool.query('SELECT * FROM api_keys');[m
+[32m+[m[32m        const result = await pool.query(`[m
+[32m+[m[32m            SELECT[m[41m [m
+[32m+[m[32m                COALESCE(wp.id, dc.id) as id,[m
+[32m+[m[32m                COALESCE(wp.api_key, dc.api_key) as api_key,[m
+[32m+[m[32m                COALESCE(wp.status, dc.status) as status,[m
+[32m+[m[32m                u.email,[m
+[32m+[m[32m                u.organization,[m
+[32m+[m[32m                CASE[m[41m [m
+[32m+[m[32m                    WHEN wp.id IS NOT NULL THEN 'wallet_provider'[m
+[32m+[m[32m                    ELSE 'data_consumer'[m
+[32m+[m[32m                END as type,[m
+[32m+[m[32m                COALESCE(wp.created_at, dc.created_at) as created_at[m
+[32m+[m[32m            FROM users u[m
+[32m+[m[32m            LEFT JOIN wallet_providers wp ON u.id = wp.user_id[m
+[32m+[m[32m            LEFT JOIN data_consumers dc ON u.id = dc.user_id[m
+[32m+[m[32m            WHERE wp.id IS NOT NULL OR dc.id IS NOT NULL[m
+[32m+[m[32m            ORDER BY COALESCE(wp.created_at, dc.created_at) DESC[m
+[32m+[m[32m        `);[m
+         res.json(result.rows);[m
+     } catch (error) {[m
+[32m+[m[32m        console.error('Error fetching API keys:', error);[m
+         res.status(500).json({ error: 'Failed to fetch API keys' });[m
+     }[m
+ });[m
+[36m@@ -91,18 +109,52 @@[m [mrouter.get('/api-keys', authenticateAdmin, async (req, res) => {[m
+ router.get('/api-key-requests', authenticateAdmin, async (req, res) => {[m
+     try {[m
+         const result = await pool.query(`[m
+[31m-            SELECT r.*, u.email, u.first_name, u.last_name, u.organization[m
+[31m-            FROM api_key_requests r[m
+[31m-            JOIN users u ON u.id = r.user_id[m
+[31m-            ORDER BY r.created_at DESC`[m
+[31m-        );[m
+[32m+[m[32m            SELECT[m[41m [m
+[32m+[m[32m                akr.*,[m
+[32m+[m[32m                u.email,[m
+[32m+[m[32m                u.first_name,[m
+[32m+[m[32m                u.last_name[m
+[32m+[m[32m            FROM api_key_requests akr[m
+[32m+[m[32m            JOIN users u ON akr.user_id = u.id[m
+[32m+[m[32m            ORDER BY akr.created_at DESC[m
+[32m+[m[32m        `);[m
+         res.json(result.rows);[m
+     } catch (error) {[m
+[32m+[m[32m        console.error('Error fetching API key requests:', error);[m
+         res.status(500).json({ error: 'Failed to fetch API key requests' });[m
+     }[m
+ });[m
+ [m
+[31m-// Process (approve/reject) API key request[m
+[32m+[m[32m// Get API key request details[m
+[32m+[m[32mrouter.get('/api-key-requests/:id', authenticateAdmin, async (req, res) => {[m
+[32m+[m[32m    try {[m
+[32m+[m[32m        const { id } = req.params;[m
+[32m+[m[32m        const result = await pool.query(`[m
+[32m+[m[32m            SELECT[m[41m [m
+[32m+[m[32m                akr.*,[m
+[32m+[m[32m                u.email,[m
+[32m+[m[32m                u.first_name,[m
+[32m+[m[32m                u.last_name,[m
+[32m+[m[32m                u.organization,[m
+[32m+[m[32m                ru.email as reviewer_email[m
+[32m+[m[32m            FROM api_key_requests akr[m
+[32m+[m[32m            JOIN users u ON akr.user_id = u.id[m
+[32m+[m[32m            LEFT JOIN users ru ON akr.reviewed_by = ru.id[m
+[32m+[m[32m            WHERE akr.id = $1[m
+[32m+[m[32m        `, [id]);[m
+[32m+[m
+[32m+[m[32m        if (result.rows.length === 0) {[m
+[32m+[m[32m            return res.status(404).json({ error: 'Request not found' });[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m 

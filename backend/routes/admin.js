@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { authenticateAdmin } = require('../middleware/auth'); // Import from auth.js
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 
 // Get all locations
 router.get('/locations', authenticateAdmin, async (req, res) => {
@@ -77,13 +78,57 @@ router.patch('/users/:id/status', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Get all API keys
+// Get all API keys with user details
 router.get('/api-keys', authenticateAdmin, async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM api_keys');
+        const result = await pool.query(`
+            SELECT 
+                ak.*,
+                u.email,
+                u.first_name,
+                u.last_name,
+                u.role,
+                u.organization,
+                wp.name as provider_name,
+                dc.organization_name as consumer_organization
+            FROM api_keys ak
+            LEFT JOIN users u ON ak.user_id = u.id
+            LEFT JOIN wallet_providers wp ON wp.api_key_id = ak.id
+            LEFT JOIN data_consumers dc ON dc.user_id = u.id
+            ORDER BY ak.created_at DESC
+        `);
         res.json(result.rows);
     } catch (error) {
+        console.error('Error fetching API keys:', error);
         res.status(500).json({ error: 'Failed to fetch API keys' });
+    }
+});
+
+// Update API key status
+router.patch('/api-keys/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, rejection_reason } = req.body;
+        
+        const result = await pool.query(
+            `UPDATE api_keys 
+             SET status = $1, 
+                 rejection_reason = $2,
+                 reviewed_by = $3,
+                 reviewed_at = CURRENT_TIMESTAMP
+             WHERE id = $4 
+             RETURNING *`,
+            [status, rejection_reason, req.user.id, id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'API key not found' });
+        }
+        
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error updating API key:', error);
+        res.status(500).json({ error: 'Failed to update API key' });
     }
 });
 
@@ -111,7 +156,9 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
         const { id } = req.params;
         const { status, reason } = req.body;
         
-        if (!['approved', 'rejected'].includes(status)) {
+        console.log('Processing API key request:', { id, status, reason });
+        
+        if (!['approved', 'rejected', 'pending'].includes(status)) {
             return res.status(400).json({ error: 'Invalid status' });
         }
 
@@ -132,27 +179,53 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
             `UPDATE api_key_requests 
              SET status = $1, 
                  reviewed_by = $2, 
-                 reviewed_at = CURRENT_TIMESTAMP,
-                 review_notes = $3
-             WHERE id = $4`,
-            [status, req.user.id, reason, id]
+                 reviewed_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [status, req.user.id, id]
         );
 
         if (status === 'approved') {
             const apiKey = crypto.randomBytes(32).toString('hex');
             
+            // Insert into the main api_keys table
+            const apiKeyResult = await client.query(
+                `INSERT INTO api_keys (user_id, api_key, name, created_at)
+                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                 RETURNING id`,
+                [request.user_id, apiKey, request.organization_name]
+            );
+
+            // Also create the appropriate provider/consumer record
             if (request.request_type === 'wallet_provider') {
                 await client.query(
-                    `INSERT INTO wallet_providers (user_id, api_key, status)
-                     VALUES ($1, $2, true)`,
-                    [request.user_id, apiKey]
+                    `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
+                     VALUES ($1, $2, $3, true)`,
+                    [request.user_id, request.organization_name, apiKeyResult.rows[0].id]
                 );
             } else {
                 await client.query(
-                    `INSERT INTO data_consumers (user_id, api_key, status)
-                     VALUES ($1, $2, true)`,
-                    [request.user_id, apiKey]
+                    `INSERT INTO data_consumers (user_id, organization_name, created_at)
+                     VALUES ($1, $2, CURRENT_TIMESTAMP)`,
+                    [request.user_id, request.organization_name]
                 );
+            }
+        } else if (status === 'pending') {
+            // If resetting to pending, we need to clean up any created API keys and related records
+            // First, find and delete any API keys created for this user from this request
+            const existingApiKeys = await client.query(
+                `SELECT ak.id FROM api_keys ak 
+                 WHERE ak.user_id = $1 AND ak.name = $2`,
+                [request.user_id, request.organization_name]
+            );
+            
+            for (const apiKey of existingApiKeys.rows) {
+                // Delete related wallet_providers or data_consumers first
+                await client.query('DELETE FROM wallet_providers WHERE api_key_id = $1', [apiKey.id]);
+                await client.query('DELETE FROM data_consumers WHERE user_id = $1 AND organization_name = $2', 
+                    [request.user_id, request.organization_name]);
+                
+                // Delete the API key
+                await client.query('DELETE FROM api_keys WHERE id = $1', [apiKey.id]);
             }
         }
 
@@ -161,7 +234,13 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error processing API key request:', error);
-        res.status(500).json({ error: 'Failed to process request' });
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint
+        });
+        res.status(500).json({ error: 'Failed to process request', details: error.message });
     } finally {
         client.release();
     }
@@ -186,6 +265,43 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     } catch (error) {
         console.error('Error fetching admin statistics:', error);
         res.status(500).json({ error: 'Failed to fetch admin statistics' });
+    }
+});
+
+// Create new user
+router.post('/users', authenticateAdmin, async (req, res) => {
+    try {
+        const { email, first_name, last_name, organization, role, status } = req.body;
+        
+        // Check if user already exists
+        const existingUser = await pool.query(
+            'SELECT id FROM users WHERE email = $1',
+            [email]
+        );
+        
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ error: 'User with this email already exists' });
+        }
+        
+        // Create user with a temporary password (user will need to reset it)
+        const tempPassword = crypto.randomBytes(16).toString('hex');
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+        
+        const result = await pool.query(
+            `INSERT INTO users (email, password, first_name, last_name, organization, role, status, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+             RETURNING id, email, first_name, last_name, organization, role, status`,
+            [email, hashedPassword, first_name, last_name, organization, role, status]
+        );
+        
+        res.status(201).json({
+            message: 'User created successfully',
+            user: result.rows[0],
+            tempPassword: tempPassword // In production, this should be sent via email
+        });
+    } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({ error: 'Failed to create user' });
     }
 });
 

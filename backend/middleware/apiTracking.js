@@ -21,29 +21,29 @@ const trackApiUsage = async (req, res, next) => {
         // Track the API usage asynchronously
         (async () => {
             try {
-                // Get provider or consumer ID based on API key
-                const [providerResult, consumerResult] = await Promise.all([
-                    pool.query('SELECT id FROM wallet_providers WHERE api_key = $1', [apiKey]),
-                    pool.query('SELECT id FROM data_consumers WHERE api_key = $1', [apiKey])
-                ]);
-
-                await pool.query(
-                    `INSERT INTO api_key_usage 
-                    (api_key, endpoint, method, status_code, response_time, ip_address, user_agent, 
-                    wallet_provider_id, data_consumer_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                    [
-                        apiKey,
-                        endpoint,
-                        method,
-                        res.statusCode,
-                        responseTime,
-                        req.ip,
-                        req.get('user-agent'),
-                        providerResult.rows[0]?.id || null,
-                        consumerResult.rows[0]?.id || null
-                    ]
+                // Get API key ID from api_keys table
+                const apiKeyResult = await pool.query(
+                    'SELECT id FROM api_keys WHERE api_key = $1', 
+                    [apiKey]
                 );
+
+                if (apiKeyResult.rows.length > 0) {
+                    await pool.query(
+                        `INSERT INTO api_usage_logs 
+                        (api_key, endpoint, method, status_code, response_time, ip_address, user_agent, api_key_id)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                        [
+                            apiKey,
+                            endpoint,
+                            method,
+                            res.statusCode,
+                            responseTime,
+                            req.ip,
+                            req.get('user-agent'),
+                            apiKeyResult.rows[0].id
+                        ]
+                    );
+                }
             } catch (error) {
                 console.error('Error tracking API usage:', error);
             }

@@ -116,13 +116,16 @@ The application will be available at:
 
 ## Features
 
-- User authentication and authorization
-- Role-based access control
-- Real-time geolocation tracking
-- Interactive maps with Mapbox
-- API key management
-- Usage analytics
-- Geofencing capabilities
+- **User Authentication & Authorization**: JWT-based authentication with refresh tokens
+- **Role-based Access Control**: Admin, Wallet Provider, Data Consumer, and SDF Employee roles
+- **API Key Management**: Comprehensive API key lifecycle management with approval workflows
+- **Real-time Geolocation Tracking**: PostGIS-powered location tracking with historical data
+- **Interactive Maps**: Mapbox GL JS integration for visualization
+- **Usage Analytics**: Detailed API usage tracking and analytics dashboard
+- **Geofencing Capabilities**: Polygon-based geofencing with notifications
+- **Privacy Controls**: User privacy and visibility settings
+- **Admin Dashboard**: Complete administrative interface for user and API key management
+- **Request Management**: API key request workflow with approval/rejection system
 
 ## API Documentation
 
@@ -168,7 +171,8 @@ For support, email sergekhachatour@gmail.com or open an issue in the repository.
 
 1. Register as a data consumer
 2. Request an API key through the dashboard
-3. Use the API key in requests:
+3. Wait for admin approval
+4. Use the API key in requests:
    ```bash
    curl -H "X-API-Key: your_api_key" https://api.stellar-geolink.com/api/location/wallet-locations
    ```
@@ -178,6 +182,31 @@ For support, email sergekhachatour@gmail.com or open an issue in the repository.
 - 5000 requests per day
 
 ### Available Endpoints
-- GET /api/location/wallet-locations
-- GET /api/location/wallet-statistics
-- GET /api/location/active-regions
+- GET /api/location/wallet-locations - Get all wallet locations
+- GET /api/location/wallet-statistics - Get location statistics
+- GET /api/location/active-regions - Get active regions
+- GET /api/user/locations - Get user-specific locations (Wallet Providers)
+- POST /api/user/privacy-settings - Update privacy settings
+- POST /api/user/visibility-settings - Update visibility settings
+
+## API Usage for Wallet Providers
+
+1. Register as a wallet provider
+2. API key is automatically created (pending approval)
+3. Wait for admin approval
+4. Submit wallet locations:
+   ```bash
+   curl -X POST -H "X-API-Key: your_api_key" \
+        -H "Content-Type: application/json" \
+        -d '{"public_key":"G...","latitude":40.7128,"longitude":-74.0060}' \
+        https://api.stellar-geolink.com/api/user/locations
+   ```
+
+## Admin Dashboard Features
+
+- **User Management**: View, edit, and manage all users
+- **API Key Management**: Approve/reject API key requests
+- **Pending Requests**: Handle API key requests with approval workflow
+- **Active Keys**: Manage approved API keys
+- **Rejected Keys**: View and potentially re-approve rejected keys
+- **Analytics**: System-wide usage statistics and monitoring

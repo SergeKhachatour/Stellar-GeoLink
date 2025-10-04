@@ -55,14 +55,17 @@ export const AuthProvider = ({ children }) => {
             const response = await authApi.login(credentials);
             console.log('Login response:', response.data);
 
-            const { token, user } = response.data;
+            const { token, refreshToken, user } = response.data;
             
             if (!token || !user) {
                 throw new Error('Invalid response from server');
             }
 
-            // Store token and set up API
+            // Store tokens and set up API
             localStorage.setItem('token', token);
+            if (refreshToken) {
+                localStorage.setItem('refreshToken', refreshToken);
+            }
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
             // Set user in state
@@ -88,10 +91,23 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const logout = () => {
-        localStorage.removeItem('token');
-        setUser(null);
-        setError(null);
+    const logout = async () => {
+        try {
+            // Call logout endpoint to invalidate refresh token
+            const token = localStorage.getItem('token');
+            if (token) {
+                await authApi.logout();
+            }
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
+            // Clear local storage regardless of API call success
+            localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            setUser(null);
+            setError(null);
+        }
     };
 
     return (

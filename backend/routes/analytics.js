@@ -97,8 +97,8 @@ router.get('/api-usage', validateConsumerApiKey, async (req, res) => {
                 endpoint,
                 COUNT(*) as request_count,
                 AVG(response_time) as avg_response_time
-            FROM api_requests
-            WHERE consumer_id = $1
+            FROM api_usage_logs
+            WHERE data_consumer_id = $1
             AND created_at > NOW() - INTERVAL '24 hours'
             GROUP BY time_period, endpoint
             ORDER BY time_period DESC
