@@ -167,6 +167,13 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 For support, email sergekhachatour@gmail.com or open an issue in the repository.
 
+## Deployment Status
+
+✅ **Azure Web App Deployment**: Successfully deployed to Azure with complete database schema
+✅ **GitHub Actions CI/CD**: Automated deployment pipeline configured
+✅ **PostgreSQL with PostGIS**: Full spatial database with 26+ tables deployed
+✅ **ESLint Issues Resolved**: Frontend build optimized for production
+
 ## API Usage for Data Consumers
 
 1. Register as a data consumer
