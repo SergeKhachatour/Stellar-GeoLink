@@ -36,53 +36,33 @@ jobs:
         run: |
           # Create a proper Azure Web App structure
           mkdir -p azure-app
+          
+          # Copy all backend files
           cp -r backend/* azure-app/
           
-          # Copy the original package.json from backend
-          cp backend/package.json azure-app/package.json
-          
-          # Update the package.json to ensure it has the correct start script
-          cat > azure-app/package.json << 'EOF'
-          {
-            "name": "geolink-backend",
-            "version": "1.0.0",
-            "main": "app.js",
-            "scripts": {
-              "start": "node app.js",
-              "dev": "nodemon app.js",
-              "test": "echo \"Error: no test specified\" && exit 1"
-            },
-            "dependencies": {
-              "axios": "^1.8.3",
-              "bcrypt": "^5.1.1",
-              "cors": "^2.8.5",
-              "dotenv": "^16.4.7",
-              "express": "^4.21.2",
-              "express-rate-limit": "^7.5.0",
-              "ioredis": "^5.6.0",
-              "jsonwebtoken": "^9.0.2",
-              "nodemailer": "^6.9.3",
-              "pg": "^8.14.1",
-              "redis": "^4.6.7",
-              "swagger-jsdoc": "^6.2.8",
-              "swagger-ui-express": "^4.6.3"
-            },
-            "engines": {
-              "node": ">=18.0.0"
-            }
-          }
-          EOF
+          # Ensure package.json exists and is correct
+          echo "Verifying package.json exists..."
+          ls -la azure-app/package.json
           
           # Create a simple startup script for Linux
           cat > azure-app/startup.sh << 'EOF'
           #!/bin/bash
           echo "Starting GeoLink backend..."
           cd /home/site/wwwroot
+          echo "Current directory: $(pwd)"
+          echo "Files in directory:"
+          ls -la
+          echo "Installing dependencies..."
           npm install --production
+          echo "Starting application..."
           node app.js
           EOF
           
           chmod +x azure-app/startup.sh
+          
+          # List contents before zipping
+          echo "Contents of azure-app directory:"
+          ls -la azure-app/
           
           zip -r backend.zip azure-app/*
           zip -r frontend.zip frontend/build/*
