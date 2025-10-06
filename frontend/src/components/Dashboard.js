@@ -1,8 +1,7 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Box, Container, Grid, Paper, Typography } from '@mui/material';
-import Map from './Map';
+// Removed unused imports
 
 const Dashboard = () => {
     const { user } = useAuth();

@@ -33,8 +33,8 @@ const WalletProviderDashboard = () => {
     const [wallets, setWallets] = useState([]);
     const [apiKey, setApiKey] = useState(null);
     const [apiUsage, setApiUsage] = useState([]);
-    const [requestHistory, setRequestHistory] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [, setRequestHistory] = useState([]);
+    const [loading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [requestFormOpen, setRequestFormOpen] = useState(false);

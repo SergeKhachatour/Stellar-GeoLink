@@ -32,7 +32,7 @@ export const WalletProvider = ({ children }) => {
         
         // Use Horizon instead of Server (modern Stellar SDK v12 approach)
         const Horizon = StellarSdk.Horizon;
-        const Networks = StellarSdk.Networks;
+        // const Networks = StellarSdk.Networks;
         
         // Use hardcoded testnet configuration for now
         server = new Horizon.Server('https://horizon-testnet.stellar.org');
@@ -59,7 +59,7 @@ export const WalletProvider = ({ children }) => {
   }, []);
 
   // Load account information from Stellar network
-  const loadAccountInfo = async (pubKey) => {
+  const loadAccountInfo = React.useCallback(async (pubKey) => {
     try {
       if (!(await initializeStellar())) {
         throw new Error('Failed to initialize Stellar SDK');
@@ -79,7 +79,7 @@ export const WalletProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Connect wallet with secret key
   const connectWallet = async (secretKeyInput) => {
