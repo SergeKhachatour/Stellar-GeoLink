@@ -20,12 +20,12 @@ export const WalletProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Stellar server configuration - initialize lazily to avoid constructor issues
-  let server = null;
-  let networkPassphrase = null;
+  // Stellar server configuration - use useRef to persist values across renders
+  const serverRef = React.useRef(null);
+  const networkPassphraseRef = React.useRef(null);
   
   const initializeStellar = React.useCallback(async () => {
-    if (!server) {
+    if (!serverRef.current) {
       try {
         // Use dynamic import for browser environment
         const StellarSdk = await import('@stellar/stellar-sdk');
@@ -35,8 +35,8 @@ export const WalletProvider = ({ children }) => {
         // const Networks = StellarSdk.Networks;
         
         // Use hardcoded testnet configuration for now
-        server = new Horizon.Server('https://horizon-testnet.stellar.org');
-        networkPassphrase = 'Test SDF Network ; September 2015';
+        serverRef.current = new Horizon.Server('https://horizon-testnet.stellar.org');
+        networkPassphraseRef.current = 'Test SDF Network ; September 2015';
       } catch (error) {
         console.error('Failed to initialize Stellar SDK:', error);
         return false;
@@ -52,7 +52,7 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Failed to initialize Stellar SDK');
       }
       setLoading(true);
-      const account = await server.loadAccount(pubKey);
+      const account = await serverRef.current.loadAccount(pubKey);
       setAccount(account);
       
       // Get XLM balance
@@ -66,7 +66,7 @@ export const WalletProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [initializeStellar, server]);
+  }, [initializeStellar]);
 
   // Load wallet from localStorage on mount
   useEffect(() => {
@@ -102,7 +102,7 @@ export const WalletProvider = ({ children }) => {
       const publicKey = keypair.publicKey();
 
       // Test the keypair by loading account
-      await server.loadAccount(publicKey);
+      await serverRef.current.loadAccount(publicKey);
 
       // Save to state and localStorage
       setPublicKey(publicKey);
@@ -185,11 +185,11 @@ export const WalletProvider = ({ children }) => {
       const Operation = StellarSdk.Operation;
       
       const keypair = Keypair.fromSecret(secretKey);
-      const sourceAccount = await server.loadAccount(publicKey);
+      const sourceAccount = await serverRef.current.loadAccount(publicKey);
 
       const transaction = new TransactionBuilder(sourceAccount, {
         fee: '100',
-        networkPassphrase
+        networkPassphrase: networkPassphraseRef.current
       })
         .addOperation(Operation.payment({
           destination,
@@ -205,7 +205,7 @@ export const WalletProvider = ({ children }) => {
 
       transaction.sign(keypair);
 
-      const result = await server.submitTransaction(transaction);
+      const result = await serverRef.current.submitTransaction(transaction);
       
       // Reload account info
       await loadAccountInfo(publicKey);
@@ -236,7 +236,7 @@ export const WalletProvider = ({ children }) => {
       const TransactionBuilder = StellarSdk.TransactionBuilder;
       
       const keypair = Keypair.fromSecret(secretKey);
-      const transaction = TransactionBuilder.fromXDR(transactionXDR, networkPassphrase);
+      const transaction = TransactionBuilder.fromXDR(transactionXDR, networkPassphraseRef.current);
       transaction.sign(keypair);
       
       return transaction.toXDR();
@@ -258,7 +258,7 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Failed to initialize Stellar SDK');
       }
 
-      const transactions = await server.transactions()
+      const transactions = await serverRef.current.transactions()
         .forAccount(publicKey)
         .order('desc')
         .limit(limit)
@@ -320,8 +320,8 @@ export const WalletProvider = ({ children }) => {
     loadAccountInfo,
     
     // Utils
-    server,
-    networkPassphrase
+    server: serverRef.current,
+    networkPassphrase: networkPassphraseRef.current
   };
 
   return (
