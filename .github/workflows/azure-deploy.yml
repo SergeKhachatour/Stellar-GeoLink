@@ -65,16 +65,41 @@ jobs:
           }
           EOF
           
-          # Create startup script for Linux Azure Web App
-          cat > azure-app/startup.sh << 'EOF'
-          #!/bin/bash
-          echo "Starting GeoLink backend..."
-          cd /home/site/wwwroot
-          npm install
-          node app.js
+          # Create a web.config for Azure Web App (Windows-style but works on Linux too)
+          cat > azure-app/web.config << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <system.webServer>
+              <handlers>
+                <add name="iisnode" path="app.js" verb="*" modules="iisnode"/>
+              </handlers>
+              <rewrite>
+                <rules>
+                  <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">
+                    <match url="^app.js\/debug[\/]?" />
+                  </rule>
+                  <rule name="StaticContent">
+                    <action type="Rewrite" url="public{REQUEST_URI}"/>
+                  </rule>
+                  <rule name="DynamicContent">
+                    <conditions>
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="True"/>
+                    </conditions>
+                    <action type="Rewrite" url="app.js"/>
+                  </rule>
+                </rules>
+              </rewrite>
+              <security>
+                <requestFiltering>
+                  <hiddenSegments>
+                    <remove segment="bin"/>
+                  </hiddenSegments>
+                </requestFiltering>
+              </security>
+              <iisnode watchedFiles="web.config;*.js"/>
+            </system.webServer>
+          </configuration>
           EOF
-          
-          chmod +x azure-app/startup.sh
           
           zip -r backend.zip azure-app/*
           zip -r frontend.zip frontend/build/*
@@ -91,19 +116,10 @@ jobs:
             --data-binary @backend.zip \
             https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
           
-          echo "Deployment completed. Setting startup command..."
-          
-          # Set the startup command for the Azure Web App
-          curl -X POST \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
-            -d '{"command": "npm start"}' \
-            https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/command
-          
-          echo "Startup command set. Checking app status..."
+          echo "Deployment completed. Checking app status..."
           
           # Wait a moment for deployment to process
-          sleep 15
+          sleep 20
           
           # Test if the app is responding
           curl -f https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/ || echo "App not responding yet"
