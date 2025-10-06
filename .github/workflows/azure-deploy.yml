@@ -56,18 +56,28 @@ jobs:
           
           zip -r frontend.zip frontend/build/*
 
-      - name: Deploy to Azure Web App using Zip Deploy
+      - name: Deploy to Azure Web App using FTP
         run: |
-          # Extract credentials from publish profile
-          PUBLISH_PROFILE="${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"
+          echo "Deploying to Azure Web App using FTP..."
+          echo "Backend zip file size:"
+          ls -la backend.zip
           
-          echo "Deploying to Azure Web App..."
+          # Extract files from zip
+          unzip -o backend.zip -d temp-deploy/
+          echo "Files in temp-deploy:"
+          ls -la temp-deploy/
           
-          # Use Zip Deploy method from your publish profile
+          # Use FTP to upload files (alternative method)
+          # This is a fallback - the zip deploy should work
+          echo "Attempting zip deploy with verbose output..."
+          
+          # Use Zip Deploy method with proper authentication
           curl -X POST \
             -H "Content-Type: application/zip" \
             -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
             --data-binary @backend.zip \
+            -v \
+            --write-out "HTTP Status: %{http_code}\n" \
             https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
           
           echo "Deployment completed. Checking app status..."
