@@ -34,37 +34,26 @@ jobs:
 
       - name: Archive production artifacts
         run: |
-          # Create a proper Azure Web App structure
-          mkdir -p azure-app
+          # Create a simple structure - deploy backend files directly
+          mkdir -p deploy-root
           
-          # Copy all backend files
-          cp -r backend/* azure-app/
+          # Copy all backend files directly to root
+          cp -r backend/* deploy-root/
           
           # Ensure package.json exists and is correct
           echo "Verifying package.json exists..."
-          ls -la azure-app/package.json
+          ls -la deploy-root/package.json
+          cat deploy-root/package.json
           
-          # Create a simple startup script for Linux
-          cat > azure-app/startup.sh << 'EOF'
-          #!/bin/bash
-          echo "Starting GeoLink backend..."
-          cd /home/site/wwwroot
-          echo "Current directory: $(pwd)"
-          echo "Files in directory:"
-          ls -la
-          echo "Installing dependencies..."
-          npm install --production
-          echo "Starting application..."
-          node app.js
-          EOF
+          # List all files being deployed
+          echo "Contents of deploy-root directory:"
+          ls -la deploy-root/
           
-          chmod +x azure-app/startup.sh
+          # Create the zip file with all files in root
+          cd deploy-root
+          zip -r ../backend.zip *
+          cd ..
           
-          # List contents before zipping
-          echo "Contents of azure-app directory:"
-          ls -la azure-app/
-          
-          zip -r backend.zip azure-app/*
           zip -r frontend.zip frontend/build/*
 
       - name: Deploy to Azure Web App using Zip Deploy
