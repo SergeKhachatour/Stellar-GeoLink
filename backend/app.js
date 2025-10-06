@@ -34,6 +34,9 @@ app.use(express.json());
 app.use(trackApiUsage);
 app.use(rateLimiter);
 
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, 'public')));
+
 // API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -49,6 +52,11 @@ app.use('/api/wallet-provider', walletProviderRoutes);
 // app.use('/api/location-verification', locationVerificationRoutes);
 // app.use('/api/nft-analytics', nftAnalyticsRoutes);
 // app.use('/api/config', configRoutes);
+
+// Catch all handler: send back React's index.html file for any non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Error handling
 app.use((err, req, res, next) => {
