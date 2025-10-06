@@ -24,9 +24,7 @@ const app = express();
 
 // Configure CORS to accept requests from frontend
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' 
-        ? 'https://your-production-domain.com'  // Update this with your production domain
-        : 'http://localhost:3000',
+    origin: true,  // Allow all origins for debugging
     credentials: true
 }));
 
