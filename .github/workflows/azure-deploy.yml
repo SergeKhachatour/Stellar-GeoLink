@@ -40,32 +40,15 @@ jobs:
       - name: Deploy backend to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
-          app-name: 'GeoLink' # Replace with your Azure Web App name
+          app-name: 'GeoLink'
           slot-name: 'production'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend.zip
-          # Add environment variables for backend
-          configuration-variables: |
-            NODE_ENV=production
-            PORT=8080
-            DB_HOST=20.253.209.97
-            DB_PORT=5432
-            DB_NAME=GeoLink
-            DB_USER=geolink_user
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_SSL=false
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            API_BASE_URL=https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net
-            FRONTEND_URL=https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net
 
       - name: Deploy frontend to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
-          app-name: 'GeoLink' # Replace with your Azure Web App name
+          app-name: 'GeoLink'
           slot-name: 'production'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: frontend.zip
-          # Add environment variables for frontend (if needed, often handled by build)
-          configuration-variables: |
-            REACT_APP_API_BASE_URL=https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net
-            REACT_APP_MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }} # Assuming Mapbox token is a secret
