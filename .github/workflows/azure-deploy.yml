@@ -56,22 +56,19 @@ jobs:
           
           zip -r frontend.zip frontend/build/*
 
-      - name: Deploy to Azure Web App using FTP
+      - name: Deploy to Azure Web App using Kudu API
         run: |
-          echo "Deploying to Azure Web App using FTP..."
+          echo "Deploying to Azure Web App using Kudu API..."
           echo "Backend zip file size:"
           ls -la backend.zip
           
-          # Extract files from zip
+          # Extract files from zip to verify contents
           unzip -o backend.zip -d temp-deploy/
           echo "Files in temp-deploy:"
           ls -la temp-deploy/
           
-          # Use FTP to upload files (alternative method)
-          # This is a fallback - the zip deploy should work
-          echo "Attempting zip deploy with verbose output..."
-          
-          # Use Zip Deploy method with proper authentication
+          # Try different deployment methods
+          echo "Method 1: Using zipdeploy API..."
           curl -X POST \
             -H "Content-Type: application/zip" \
             -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
@@ -79,6 +76,16 @@ jobs:
             -v \
             --write-out "HTTP Status: %{http_code}\n" \
             https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
+          
+          echo ""
+          echo "Method 2: Using pushdeploy API..."
+          curl -X POST \
+            -H "Content-Type: application/zip" \
+            -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
+            --data-binary @backend.zip \
+            -v \
+            --write-out "HTTP Status: %{http_code}\n" \
+            https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/pushdeploy
           
           echo "Deployment completed. Checking app status..."
           
