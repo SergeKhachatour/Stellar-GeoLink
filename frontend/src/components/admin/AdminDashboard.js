@@ -23,8 +23,8 @@ const AdminDashboard = () => {
         total_users: 0,
         api_calls_24h: 0
     });
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const [, setLoading] = useState(true);
+    const [, setError] = useState('');
 
     useEffect(() => {
         fetchDashboardStats();

@@ -57,12 +57,12 @@ const ApiKeyManager = () => {
         }
     };
 
-    const generateApiKey = () => {
-        // Generate a random 64-character hex string (32 bytes)
-        const array = new Uint8Array(32);
-        crypto.getRandomValues(array);
-        return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-    };
+    // const generateApiKey = () => {
+    //     // Generate a random 64-character hex string (32 bytes)
+    //     const array = new Uint8Array(32);
+    //     crypto.getRandomValues(array);
+    //     return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    // };
 
     const handleApproval = async (requestId, status) => {
         try {

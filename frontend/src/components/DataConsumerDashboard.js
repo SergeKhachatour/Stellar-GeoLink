@@ -1,27 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
     Container,
-    Paper,
     Typography,
     Box,
     Button,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
     Alert,
     CircularProgress,
     Card,
     CardContent,
     Grid,
-    Chip,
     IconButton,
     Tooltip
 } from '@mui/material';
-import { DataUsage, Key, Speed, ContentCopy } from '@mui/icons-material';
-import { format } from 'date-fns';
+import { DataUsage, Key, ContentCopy } from '@mui/icons-material';
 import api from '../utils/api';
 import ApiKeyRequestForm from './ApiKeyRequestForm';
 import { Link } from 'react-router-dom';
@@ -29,7 +20,7 @@ import { Link } from 'react-router-dom';
 const DataConsumerDashboard = () => {
     const [apiKey, setApiKey] = useState(null);
     const [apiUsage, setApiUsage] = useState(null);
-    const [requestHistory, setRequestHistory] = useState([]);
+    const [, setRequestHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');

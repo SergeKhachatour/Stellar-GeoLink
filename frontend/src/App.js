@@ -12,11 +12,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
-import AlertsList from './components/Alerts/AlertsList';
-import DashboardStats from './components/Analytics/DashboardStats';
 import ApiKeyManagement from './components/ApiKeyManagement';
-import ApiKeyRequest from './components/ApiKeyRequest';
-import Profile from './components/Profile';
 import DataConsumerDashboard from './components/DataConsumerDashboard';
 import WalletProviderDashboard from './components/WalletProviderDashboard';
 // // import NFTDashboard from './components/NFT/NFTDashboard'; // Temporarily disabled // Temporarily disabled
