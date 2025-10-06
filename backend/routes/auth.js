@@ -242,7 +242,11 @@ router.post('/login', async (req, res) => {
         res.json(responseData);
     } catch (err) {
         console.error('Login error:', err);
-        res.status(500).json({ message: 'Server error' });
+        res.status(500).json({ 
+            message: 'Server error',
+            error: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 });
 
