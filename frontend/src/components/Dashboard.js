@@ -15,6 +15,8 @@ const Dashboard = () => {
             return <Navigate to="/dashboard/consumer" replace />;
         case 'wallet_provider':
             return <Navigate to="/dashboard/provider" replace />;
+        case 'nft_manager':
+            return <Navigate to="/dashboard/nft" replace />;
         case 'admin':
             return <Navigate to="/admin" replace />;
         default:

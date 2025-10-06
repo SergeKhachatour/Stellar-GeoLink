@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { authenticateUser } = require('../middleware/authUser');
+const { authMiddleware } = require('../middleware/auth');
 const sessionService = require('../services/session');
 const { validateRegistration } = require('../middleware/validation');
 
@@ -22,7 +23,7 @@ router.post('/register', validateRegistration, async (req, res) => {
     } = req.body;
 
     // Validate role
-    const validRoles = ['wallet_provider', 'data_consumer'];
+    const validRoles = ['wallet_provider', 'data_consumer', 'nft_manager'];
     if (!validRoles.includes(role)) {
         return res.status(400).json({ error: 'Invalid role selected' });
     }
@@ -409,6 +410,35 @@ router.get('/verify', authenticateUser, async (req, res) => {
     } catch (err) {
         console.error('Verify error:', err);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Update user's public key
+router.put('/update-public-key', authMiddleware, async (req, res) => {
+    try {
+        const { public_key } = req.body;
+        const userId = req.user.user.id;
+
+        if (!public_key || public_key.length !== 56) {
+            return res.status(400).json({ error: 'Invalid public key format' });
+        }
+
+        const result = await pool.query(
+            'UPDATE users SET public_key = $1 WHERE id = $2 RETURNING id, email, public_key',
+            [public_key, userId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({
+            message: 'Public key updated successfully',
+            user: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Error updating public key:', error);
+        res.status(500).json({ error: 'Failed to update public key' });
     }
 });
 

@@ -5,7 +5,13 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon app.js",
+    "dev": "NODE_ENV=development nodemon app.js",
+    "dev:local": "NODE_ENV=development node scripts/switch-env.js development && npm run dev",
+    "dev:azure": "NODE_ENV=development node scripts/switch-env.js production && npm run dev",
+    "prod": "NODE_ENV=production node app.js",
+    "prod:azure": "NODE_ENV=production node scripts/switch-env.js production && npm run prod",
+    "switch:dev": "node scripts/switch-env.js development",
+    "switch:prod": "node scripts/switch-env.js production",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
