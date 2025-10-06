@@ -48,3 +48,11 @@ jobs:
             -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
             --data-binary @backend.zip \
             https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
+          
+          echo "Deployment completed. Checking app status..."
+          
+          # Wait a moment for deployment to process
+          sleep 10
+          
+          # Test if the app is responding
+          curl -f https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/ || echo "App not responding yet"
