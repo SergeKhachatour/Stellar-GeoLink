@@ -19,7 +19,7 @@ import ApiKeyRequest from './components/ApiKeyRequest';
 import Profile from './components/Profile';
 import DataConsumerDashboard from './components/DataConsumerDashboard';
 import WalletProviderDashboard from './components/WalletProviderDashboard';
-// import NFTDashboard from './components/NFT/NFTDashboard'; // Temporarily disabled
+// // import NFTDashboard from './components/NFT/NFTDashboard'; // Temporarily disabled // Temporarily disabled
 
 function App() {
     return (
