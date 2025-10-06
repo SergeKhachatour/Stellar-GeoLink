@@ -51,6 +51,25 @@ app.use('/api/wallet-provider', walletProviderRoutes);
 // app.use('/api/nft-analytics', nftAnalyticsRoutes);
 // app.use('/api/config', configRoutes);
 
+// Debug endpoint to check environment variables
+app.get('/api/test', (req, res) => {
+  res.json({
+    message: 'Test endpoint working',
+    timestamp: new Date().toISOString(),
+    environment: {
+      NODE_ENV: process.env.NODE_ENV,
+      DB_HOST: process.env.DB_HOST,
+      DB_PORT: process.env.DB_PORT,
+      DB_NAME: process.env.DB_NAME,
+      DB_USER: process.env.DB_USER,
+      DB_PASSWORD: process.env.DB_PASSWORD ? '[SET]' : '[NOT SET]',
+      DB_SSL: process.env.DB_SSL,
+      JWT_SECRET: process.env.JWT_SECRET ? '[SET]' : '[NOT SET]',
+      PORT: process.env.PORT
+    }
+  });
+});
+
 // Catch all handler: send back React's index.html file for any non-API routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
