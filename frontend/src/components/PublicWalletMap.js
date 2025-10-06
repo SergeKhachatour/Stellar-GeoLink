@@ -154,7 +154,12 @@ const PublicWalletMap = () => {
             }
 
             try {
-                const response = await fetch('http://localhost:4000/api/locations/public', {
+                // Determine API URL based on environment
+                const apiUrl = window.location.hostname.includes('azurewebsites.net') 
+                    ? `${window.location.protocol}//${window.location.hostname}/api/locations/public`
+                    : 'http://localhost:4000/api/locations/public';
+                
+                const response = await fetch(apiUrl, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',

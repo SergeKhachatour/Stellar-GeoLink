@@ -1,8 +1,18 @@
 import axios from 'axios';
 import sessionService from '../services/sessionService';
 
+// Determine the API base URL based on environment
+const getApiBaseURL = () => {
+    // If we're running on Azure, use the same domain
+    if (window.location.hostname.includes('azurewebsites.net')) {
+        return `${window.location.protocol}//${window.location.hostname}/api`;
+    }
+    // For local development
+    return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+};
+
 const api = axios.create({
-    baseURL: process.env.REACT_APP_API_URL || 'http://localhost:4000/api'
+    baseURL: getApiBaseURL()
 });
 
 api.interceptors.request.use(config => {
