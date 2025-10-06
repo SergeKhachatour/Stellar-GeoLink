@@ -51,23 +51,57 @@ app.use('/api/wallet-provider', walletProviderRoutes);
 // app.use('/api/nft-analytics', nftAnalyticsRoutes);
 // app.use('/api/config', configRoutes);
 
-// Debug endpoint to check environment variables
-app.get('/api/test', (req, res) => {
-  res.json({
-    message: 'Test endpoint working',
-    timestamp: new Date().toISOString(),
-    environment: {
-      NODE_ENV: process.env.NODE_ENV,
-      DB_HOST: process.env.DB_HOST,
-      DB_PORT: process.env.DB_PORT,
-      DB_NAME: process.env.DB_NAME,
-      DB_USER: process.env.DB_USER,
-      DB_PASSWORD: process.env.DB_PASSWORD ? '[SET]' : '[NOT SET]',
-      DB_SSL: process.env.DB_SSL,
-      JWT_SECRET: process.env.JWT_SECRET ? '[SET]' : '[NOT SET]',
-      PORT: process.env.PORT
-    }
-  });
+// Debug endpoint to check environment variables and database connection
+app.get('/api/test', async (req, res) => {
+  try {
+    const pool = require('./config/database');
+    
+    // Test database connection and query
+    const client = await pool.connect();
+    const result = await client.query('SELECT COUNT(*) as user_count FROM users');
+    const adminResult = await client.query(
+      'SELECT id, email, role FROM users WHERE email = $1',
+      ['admin@stellar-geolink.com']
+    );
+    client.release();
+    
+    res.json({
+      message: 'Test endpoint working',
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: true,
+        userCount: result.rows[0].user_count,
+        adminUser: adminResult.rows.length > 0 ? adminResult.rows[0] : 'NOT FOUND'
+      },
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        DB_HOST: process.env.DB_HOST,
+        DB_PORT: process.env.DB_PORT,
+        DB_NAME: process.env.DB_NAME,
+        DB_USER: process.env.DB_USER,
+        DB_PASSWORD: process.env.DB_PASSWORD ? '[SET]' : '[NOT SET]',
+        DB_SSL: process.env.DB_SSL,
+        JWT_SECRET: process.env.JWT_SECRET ? '[SET]' : '[NOT SET]',
+        PORT: process.env.PORT
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Database connection failed',
+      error: error.message,
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        DB_HOST: process.env.DB_HOST,
+        DB_PORT: process.env.DB_PORT,
+        DB_NAME: process.env.DB_NAME,
+        DB_USER: process.env.DB_USER,
+        DB_PASSWORD: process.env.DB_PASSWORD ? '[SET]' : '[NOT SET]',
+        DB_SSL: process.env.DB_SSL,
+        JWT_SECRET: process.env.JWT_SECRET ? '[SET]' : '[NOT SET]',
+        PORT: process.env.PORT
+      }
+    });
+  }
 });
 
 // Catch all handler: send back React's index.html file for any non-API routes
