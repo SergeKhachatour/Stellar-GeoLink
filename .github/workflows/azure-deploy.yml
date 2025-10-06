@@ -37,10 +37,14 @@ jobs:
           zip -r backend.zip backend/*
           zip -r frontend.zip frontend/build/*
 
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: 'GeoLink'
-          slot-name: 'production'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend.zip
+      - name: Deploy to Azure Web App using Zip Deploy
+        run: |
+          # Extract credentials from publish profile
+          PUBLISH_PROFILE="${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}"
+          
+          # Use Zip Deploy method from your publish profile
+          curl -X POST \
+            -H "Content-Type: application/zip" \
+            -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
+            --data-binary @backend.zip \
+            https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
