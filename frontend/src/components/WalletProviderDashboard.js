@@ -34,7 +34,7 @@ const WalletProviderDashboard = () => {
     const [apiKey, setApiKey] = useState(null);
     const [apiUsage, setApiUsage] = useState([]);
     const [, setRequestHistory] = useState([]);
-    const [loading] = useState(true);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [requestFormOpen, setRequestFormOpen] = useState(false);
