@@ -24,7 +24,7 @@ export const WalletProvider = ({ children }) => {
   let server = null;
   let networkPassphrase = null;
   
-  const initializeStellar = async () => {
+  const initializeStellar = React.useCallback(async () => {
     if (!server) {
       try {
         // Use dynamic import for browser environment
@@ -43,20 +43,7 @@ export const WalletProvider = ({ children }) => {
       }
     }
     return true;
-  };
-
-  // Load wallet from localStorage on mount
-  useEffect(() => {
-    const savedPublicKey = localStorage.getItem('stellar_public_key');
-    const savedSecretKey = localStorage.getItem('stellar_secret_key');
-    
-    if (savedPublicKey && savedSecretKey) {
-      setPublicKey(savedPublicKey);
-      setSecretKey(savedSecretKey);
-      setIsConnected(true);
-      loadAccountInfo(savedPublicKey);
-    }
-  }, [loadAccountInfo]);
+  }, []);
 
   // Load account information from Stellar network
   const loadAccountInfo = React.useCallback(async (pubKey) => {
@@ -80,6 +67,19 @@ export const WalletProvider = ({ children }) => {
       setLoading(false);
     }
   }, [initializeStellar, server]);
+
+  // Load wallet from localStorage on mount
+  useEffect(() => {
+    const savedPublicKey = localStorage.getItem('stellar_public_key');
+    const savedSecretKey = localStorage.getItem('stellar_secret_key');
+    
+    if (savedPublicKey && savedSecretKey) {
+      setPublicKey(savedPublicKey);
+      setSecretKey(savedSecretKey);
+      setIsConnected(true);
+      loadAccountInfo(savedPublicKey);
+    }
+  }, [loadAccountInfo]);
 
   // Connect wallet with secret key
   const connectWallet = async (secretKeyInput) => {
