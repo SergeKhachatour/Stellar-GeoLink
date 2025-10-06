@@ -1,11 +1,17 @@
 const { Pool } = require('pg');
-const { loadEnvironmentConfig, getDatabaseConfig } = require('./envLoader');
 
-// Load environment configuration
-loadEnvironmentConfig();
-
-// Get database configuration based on environment
-const poolConfig = getDatabaseConfig();
+// Database configuration using environment variables
+const poolConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'GeoLink',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+};
 
 const pool = new Pool(poolConfig);
 
