@@ -356,7 +356,7 @@ router.put('/users/:id', authenticateAdmin, async (req, res) => {
         const { first_name, last_name, role, status } = req.body;
 
         // Validate role against the enum type
-        if (!['admin', 'sdf_employee', 'wallet_provider', 'data_consumer'].includes(role)) {
+        if (!['admin', 'sdf_employee', 'wallet_provider', 'data_consumer', 'nft_manager'].includes(role)) {
             return res.status(400).json({ message: 'Invalid role specified' });
         }
 

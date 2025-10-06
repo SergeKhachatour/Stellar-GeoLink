@@ -35,7 +35,8 @@ const Register = () => {
 
     const roles = [
         { value: 'data_consumer', label: 'Data Consumer' },
-        { value: 'wallet_provider', label: 'Wallet Provider' }
+        { value: 'wallet_provider', label: 'Wallet Provider' },
+        { value: 'nft_manager', label: 'NFT Manager' }
     ];
 
     const handleChange = (e) => {

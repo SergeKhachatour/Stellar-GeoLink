@@ -99,7 +99,7 @@ const validateRegistration = (req, res, next) => {
         return res.status(400).json({ error: 'Organization is required (minimum 2 characters)' });
     }
 
-    if (!role || !['wallet_provider', 'data_consumer'].includes(role)) {
+    if (!role || !['wallet_provider', 'data_consumer', 'nft_manager'].includes(role)) {
         return res.status(400).json({ error: 'Invalid role selected' });
     }
 

@@ -4,6 +4,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
 import { AuthProvider } from './contexts/AuthContext';
+import { WalletProvider } from './contexts/WalletContext';
 import Navbar from './components/Navigation/Navbar';
 import HomePage from './components/Home/HomePage';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -18,13 +19,15 @@ import ApiKeyRequest from './components/ApiKeyRequest';
 import Profile from './components/Profile';
 import DataConsumerDashboard from './components/DataConsumerDashboard';
 import WalletProviderDashboard from './components/WalletProviderDashboard';
+import NFTDashboard from './components/NFT/NFTDashboard';
 
 function App() {
     return (
         <ThemeProvider theme={theme}>
             <CssBaseline />
             <AuthProvider>
-                <BrowserRouter>
+                <WalletProvider>
+                    <BrowserRouter>
                     <Navbar />
                     <Routes>
                         <Route path="/" element={<HomePage />} />
@@ -48,6 +51,14 @@ function App() {
                             } 
                         />
                         <Route 
+                            path="/dashboard/nft" 
+                            element={
+                                <ProtectedRoute roles={['nft_manager']}>
+                                    <NFTDashboard />
+                                </ProtectedRoute>
+                            } 
+                        />
+                        <Route 
                             path="/admin" 
                             element={
                                 <ProtectedRoute roles={['admin']}>
@@ -64,7 +75,8 @@ function App() {
                             } 
                         />
                     </Routes>
-                </BrowserRouter>
+                    </BrowserRouter>
+                </WalletProvider>
             </AuthProvider>
         </ThemeProvider>
     );

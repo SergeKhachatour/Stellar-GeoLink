@@ -219,6 +219,7 @@ const UsersManager = () => {
                                     <MenuItem value="admin">Admin</MenuItem>
                                     <MenuItem value="data_consumer">Data Consumer</MenuItem>
                                     <MenuItem value="wallet_provider">Wallet Provider</MenuItem>
+                                    <MenuItem value="nft_manager">NFT Manager</MenuItem>
                                 </Select>
                             </FormControl>
                             <FormControlLabel
