@@ -56,7 +56,7 @@ export const WalletProvider = ({ children }) => {
       setIsConnected(true);
       loadAccountInfo(savedPublicKey);
     }
-  }, []);
+  }, [loadAccountInfo]);
 
   // Load account information from Stellar network
   const loadAccountInfo = React.useCallback(async (pubKey) => {
@@ -79,7 +79,7 @@ export const WalletProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initializeStellar, server]);
 
   // Connect wallet with secret key
   const connectWallet = async (secretKeyInput) => {
