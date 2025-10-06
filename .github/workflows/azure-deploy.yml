@@ -58,26 +58,8 @@ jobs:
           zip -r frontend.zip frontend/build/*
 
       - name: Deploy to Azure Web App
-        run: |
-          echo "Deploying to Azure Web App..."
-          echo "Backend zip file size:"
-          ls -la backend.zip
-          
-          # Verify zip contents
-          echo "Verifying zip contents:"
-          unzip -l backend.zip
-          
-          # Deploy using Azure Web Apps Deploy action
-          curl -X POST \
-            -H "Content-Type: application/zip" \
-            -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
-            --data-binary @backend.zip \
-            -v \
-            --write-out "HTTP Status: %{http_code}\n" \
-            https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
-          
-          echo "Deployment completed. Waiting for app to start..."
-          sleep 30
-          
-          # Test if the app is responding
-          curl -f https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/ || echo "App not responding yet"
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'GeoLink'
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: backend.zip
