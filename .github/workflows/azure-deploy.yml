@@ -41,8 +41,7 @@ jobs:
           cp -r backend/* azure-deploy/
           
           # Create a proper package.json for Azure deployment
-          cat > azure-deploy/package.json << 'EOF'
-{
+          echo '{
   "name": "geolink-backend",
   "version": "1.0.0",
   "description": "Stellar GeoLink Backend API",
@@ -64,8 +63,7 @@ jobs:
   "engines": {
     "node": ">=18.0.0"
   }
-}
-EOF
+}' > azure-deploy/package.json
           
           # Verify the structure
           echo "Deployment directory contents:"
