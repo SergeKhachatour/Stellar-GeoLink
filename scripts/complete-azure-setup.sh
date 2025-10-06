@@ -72,7 +72,7 @@ sudo ufw --force enable
 # Step 8: Create database and user
 print_status "Creating database and user..."
 sudo -u postgres psql -c "CREATE DATABASE geolink;"
-sudo -u postgres psql -c "CREATE USER geolink_user WITH PASSWORD 'StellarGeoLink2024!';"
+sudo -u postgres psql -c "CREATE USER geolink_user WITH PASSWORD '[REDACTED]!';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE geolink TO geolink_user;"
 
 # Step 9: Enable PostGIS extension
@@ -131,7 +131,7 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=geolink
 DB_USER=geolink_user
-DB_PASSWORD=StellarGeoLink2024!
+DB_PASSWORD=[REDACTED]!
 DB_SSL=false
 
 # JWT Configuration
@@ -301,7 +301,7 @@ echo "Host: localhost (or your Azure PostgreSQL server)"
 echo "Port: 5432"
 echo "Database: geolink"
 echo "Username: geolink_user"
-echo "Password: StellarGeoLink2024!"
+echo "Password: [REDACTED]!"
 
 print_warning "Remember to:"
 echo "1. Change default passwords"

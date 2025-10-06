@@ -25,7 +25,7 @@ sudo systemctl enable postgresql
 # Switch to postgres user and create database
 echo "🔧 Creating GeoLink database..."
 sudo -u postgres psql -c "CREATE DATABASE geolink;"
-sudo -u postgres psql -c "CREATE USER geolink_user WITH PASSWORD 'StellarGeoLink2024!';"
+sudo -u postgres psql -c "CREATE USER geolink_user WITH PASSWORD '[REDACTED]!';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE geolink TO geolink_user;"
 
 # Enable PostGIS extension
@@ -57,7 +57,7 @@ echo "   Host: $(curl -s ifconfig.me)"
 echo "   Port: 5432"
 echo "   Database: geolink"
 echo "   Username: geolink_user"
-echo "   Password: StellarGeoLink2024!"
+echo "   Password: [REDACTED]!"
 echo ""
 echo "🔧 Next steps:"
 echo "1. Run the schema setup: sudo -u postgres psql -d geolink -f /path/to/schema.sql"

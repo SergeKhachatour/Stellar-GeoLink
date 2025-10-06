@@ -17,7 +17,7 @@ DB_HOST=your-azure-postgres-host.postgres.database.azure.com
 DB_PORT=5432
 DB_NAME=geolink
 DB_USER=geolink_user@your-azure-postgres-host
-DB_PASSWORD=StellarGeoLink2024!
+DB_PASSWORD=[REDACTED]!
 DB_SSL=true
 
 # JWT Configuration

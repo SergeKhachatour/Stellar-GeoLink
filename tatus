@@ -1,0 +1,10 @@
+[33m889bc5e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31mStellar-GeoLink/main[m[33m)[m Fix Azure Linux Web App deployment - add proper startup script for Linux OS
+[33m3b48b10[m Fix Azure Web App deployment - add proper package.json and web.config for Node.js app
+[33m822be70[m Add deployment status check and manual environment setup instructions
+[33m9f71186[m Fix Azure deployment using direct Zip Deploy API with publish profile credentials
+[33m7fe0690[m Update deployment status - trigger test deployment with publish profile
+[33m2b094f2[m Simplify Azure deployment - deploy backend only with publish profile
+[33m397021c[m Fix Azure deployment workflow - remove invalid configuration-variables
+[33m749b5d4[m Fix React Hook variable persistence using useRef for server and networkPassphrase
+[33me7ac157[m Fix React Hook dependencies and function order in WalletContext
+[33m2095f9d[m Fix remaining ESLint errors - unused variables and React Hook dependencies

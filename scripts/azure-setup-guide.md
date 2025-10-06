@@ -113,7 +113,7 @@ MAPBOX_TOKEN=your-mapbox-token
 ```sql
 -- Connect to your Azure PostgreSQL server
 -- Create a dedicated user for the application
-CREATE USER geolink_user WITH PASSWORD 'StellarGeoLink2024!';
+CREATE USER geolink_user WITH PASSWORD '[REDACTED]!';
 GRANT ALL PRIVILEGES ON DATABASE geolink TO geolink_user;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO geolink_user;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO geolink_user;
