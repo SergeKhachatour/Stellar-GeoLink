@@ -456,7 +456,7 @@ const NFTDashboard = () => {
       console.error('Error creating map for', mapType, ':', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs]);
+  }, [userLocation, nearbyNFTs, updateMapMarkers]);
 
   const updateMapMarkers = useCallback((mapType = 'main') => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
@@ -745,7 +745,7 @@ const NFTDashboard = () => {
         }
       }, 1000);
     }
-  }, [openMapDialog, nearbyNFTs.length]);
+  }, [openMapDialog, nearbyNFTs.length, updateMapMarkers]);
 
   // Update map markers when nearbyNFTs change
   useEffect(() => {
@@ -760,7 +760,7 @@ const NFTDashboard = () => {
         updateMapMarkers('overlay');
       }
     }
-  }, [nearbyNFTs]);
+  }, [nearbyNFTs, updateMapMarkers]);
 
 
 
