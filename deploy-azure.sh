@@ -21,15 +21,15 @@ echo "🔧 Setting up environment variables..."
 # Note: You'll need to set these environment variables in your Azure Web App portal:
 # NODE_ENV=production
 # PORT=8080
-# DB_HOST=20.253.209.97
+# DB_HOST=[YOUR_DB_HOST]
 # DB_PORT=5432
-# DB_NAME=GeoLink
-# DB_USER=geolink_user
-# DB_PASSWORD=StellarGeoLink2024
+# DB_NAME=[YOUR_DB_NAME]
+# DB_USER=[YOUR_DB_USER]
+# DB_PASSWORD=[YOUR_DB_PASSWORD]
 # DB_SSL=false
-# JWT_SECRET=StellarGeoLink2024_Production_SuperSecure_JWT_Key_For_WebApp_Deployment
-# API_BASE_URL=https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net
-# FRONTEND_URL=https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net
+# JWT_SECRET=[YOUR_JWT_SECRET]
+# API_BASE_URL=[YOUR_API_BASE_URL]
+# FRONTEND_URL=[YOUR_FRONTEND_URL]
 
 echo "📋 Manual step required:"
 echo "Please set the following environment variables in your Azure Web App:"
@@ -37,13 +37,13 @@ echo "1. Go to Azure Portal → Your Web App → Configuration → Application s
 echo "2. Add these environment variables:"
 echo "   - NODE_ENV: production"
 echo "   - PORT: 8080"
-echo "   - DB_HOST: 20.253.209.97"
+echo "   - DB_HOST: [YOUR_DB_HOST]"
 echo "   - DB_PORT: 5432"
-echo "   - DB_NAME: GeoLink"
-echo "   - DB_USER: geolink_user"
-echo "   - DB_PASSWORD: [REDACTED]"
+echo "   - DB_NAME: [YOUR_DB_NAME]"
+echo "   - DB_USER: [YOUR_DB_USER]"
+echo "   - DB_PASSWORD: [YOUR_DB_PASSWORD]"
 echo "   - DB_SSL: false"
-echo "   - JWT_SECRET: [REDACTED]"
+echo "   - JWT_SECRET: [YOUR_JWT_SECRET]"
 echo "   - MAPBOX_TOKEN: your_mapbox_token_here"
 echo "   - REACT_APP_MAPBOX_TOKEN: your_mapbox_token_here"
 echo "   - ADMIN_EMAIL: admin@stellar-geolink.com"

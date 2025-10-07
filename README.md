@@ -278,6 +278,7 @@ npm run eject
 - **Admin**: Full system access and management capabilities
 - **Wallet Provider**: Manage wallet locations and transaction data
 - **Data Consumer**: Access location data through API endpoints
+- **NFT Manager**: Manage location-based NFTs and collections
 - **SDF Employee**: Special role for Stellar Development Foundation employees with:
   - Access to sensitive blockchain node data
   - Ability to manage node configurations
@@ -287,10 +288,12 @@ npm run eject
 ## Features
 
 - **User Authentication & Authorization**: JWT-based authentication with refresh tokens
-- **Role-based Access Control**: Admin, Wallet Provider, Data Consumer, and SDF Employee roles
+- **Role-based Access Control**: Admin, Wallet Provider, Data Consumer, SDF Employee, and NFT Manager roles
 - **API Key Management**: Comprehensive API key lifecycle management with approval workflows
 - **Real-time Geolocation Tracking**: PostGIS-powered location tracking with historical data
 - **Interactive Maps**: Mapbox GL JS integration for visualization
+- **NFT System**: Location-based NFT collection and management system
+- **NFT Dashboard**: Complete NFT management interface with map visualization
 - **Usage Analytics**: Detailed API usage tracking and analytics dashboard
 - **Geofencing Capabilities**: Polygon-based geofencing with notifications
 - **Privacy Controls**: User privacy and visibility settings
@@ -393,12 +396,21 @@ The application is deployed on Azure Web Apps with the following configuration:
 ### Common Issues
 
 #### Frontend Build Failures
-If the frontend build fails due to missing NFT components, temporarily disable NFT-related imports in `frontend/src/App.js`:
+The NFT functionality is now fully integrated and working. If you encounter build issues:
 
-```javascript
-// Temporarily comment out NFT imports
-// import NFTDashboard from './components/NFT/NFTDashboard';
-```
+1. **Clear node_modules and reinstall**:
+   ```bash
+   rm -rf node_modules package-lock.json
+   npm install
+   ```
+
+2. **Check for missing dependencies**:
+   ```bash
+   npm audit
+   npm audit fix
+   ```
+
+3. **Verify environment variables** are properly set for Mapbox integration
 
 #### Database Connection Issues
 - Ensure PostgreSQL is running and accessible

@@ -29,6 +29,8 @@ jobs:
           npm install
 
       - name: Build frontend
+        env:
+          REACT_APP_MAPBOX_TOKEN: ${{ secrets.REACT_APP_MAPBOX_TOKEN }}
         run: |
           cd frontend
           npm run build
