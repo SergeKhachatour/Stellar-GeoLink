@@ -456,7 +456,7 @@ const NFTDashboard = () => {
       console.error('Error creating map for', mapType, ':', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs, updateMapMarkers]);
+  }, [userLocation, nearbyNFTs]);
 
   const updateMapMarkers = useCallback((mapType = 'main') => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
