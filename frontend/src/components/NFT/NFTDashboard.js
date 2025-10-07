@@ -22,7 +22,6 @@ import {
   Tab,
   CardMedia,
   CardHeader,
-  Avatar
 } from '@mui/material';
 import {
   ArrowBackIos,
@@ -242,7 +241,7 @@ const NFTDashboard = () => {
       setLoading(false);
       setRequestInProgress(false);
     }
-  }, [isConnected, requestInProgress, lastRequestTime, requestCooldown]);
+  }, [isConnected, requestInProgress, lastRequestTime, requestCooldown, requestCount]);
 
   const fetchNearbyNFTs = useCallback(async () => {
     if (!userLocation || requestInProgress) {
@@ -338,7 +337,6 @@ const NFTDashboard = () => {
 
   const initializeMap = useCallback((container, mapType) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
-    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
     
     if (currentMap.current) {
       console.log('Map already initialized for', mapType);
@@ -624,7 +622,7 @@ const NFTDashboard = () => {
     }
     
     return () => clearTimeout(timeout);
-  }, [user, isConnected, wallet?.publicKey]); // Removed fetchUserCollection from dependencies
+  }, [user, isConnected, wallet?.publicKey, fetchUserCollection, loading, requestInProgress]);
 
   // Reset request counter every minute
   useEffect(() => {
@@ -747,7 +745,7 @@ const NFTDashboard = () => {
         }
       }, 1000);
     }
-  }, [openMapDialog, nearbyNFTs.length, updateMapMarkers]);
+  }, [openMapDialog, nearbyNFTs.length]);
 
   // Update map markers when nearbyNFTs change
   useEffect(() => {
@@ -762,7 +760,7 @@ const NFTDashboard = () => {
         updateMapMarkers('overlay');
       }
     }
-  }, [nearbyNFTs, updateMapMarkers]);
+  }, [nearbyNFTs]);
 
 
 
@@ -921,7 +919,7 @@ const NFTDashboard = () => {
 
     setLoading(true);
     try {
-      const response = await api.post('/nft/pin', {
+      await api.post('/nft/pin', {
         name: pinForm.name,
         description: pinForm.description,
         ipfs_hash: pinForm.ipfs_hash,

@@ -10,8 +10,7 @@ import {
     CardContent,
     Grid,
     IconButton,
-    Tooltip,
-    Avatar
+    Tooltip
 } from '@mui/material';
 import { DataUsage, Key, ContentCopy } from '@mui/icons-material';
 import api from '../utils/api';
