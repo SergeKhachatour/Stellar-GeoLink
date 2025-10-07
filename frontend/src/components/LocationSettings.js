@@ -18,7 +18,6 @@ import {
 import {
   Close as CloseIcon,
   LocationOn as LocationIcon,
-  LocationOff as LocationOffIcon,
   Refresh as RefreshIcon
 } from '@mui/icons-material';
 

@@ -6,7 +6,8 @@ import {
     Typography,
     Button,
     Box,
-    Container
+    Container,
+    Avatar
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -33,7 +34,7 @@ const Navbar = () => {
                             color: 'inherit'
                         }}
                     >
-                        GeoLink
+                        Stellar GeoLink
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 2 }}>
                         {user ? (

@@ -20,7 +20,8 @@ import {
     Accordion,
     AccordionSummary,
     AccordionDetails,
-    Divider
+    Divider,
+    Avatar
 } from '@mui/material';
 import { Link } from 'react-router-dom';
 import { DataUsage, Key, ContentCopy, ExpandMore, Code, Description } from '@mui/icons-material';

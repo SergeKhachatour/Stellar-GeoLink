@@ -7,7 +7,8 @@ import {
     Button, 
     Card, 
     CardContent,
-    CardMedia 
+    CardMedia,
+    Avatar
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -26,9 +27,21 @@ const HomePage = () => {
                 <Container maxWidth="lg">
                     <Grid container spacing={4} alignItems="center">
                         <Grid item xs={12} md={6}>
-                            <Typography variant="h2" component="h1" gutterBottom>
-                                Track Stellar Assets in Real-Time
-                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                <Avatar
+                                    src="/images/Stellar_Logo.png"
+                                    alt="Stellar Logo"
+                                    sx={{ 
+                                        width: 64, 
+                                        height: 64, 
+                                        mr: 2,
+                                        backgroundColor: 'transparent'
+                                    }}
+                                />
+                                <Typography variant="h2" component="h1">
+                                    Track Stellar Assets in Real-Time
+                                </Typography>
+                            </Box>
                             <Typography variant="h5" paragraph>
                                 GeoLink provides real-time location tracking for Stellar-based RWA's, 
                                 enabling seamless integration of physical and digital worlds.
@@ -142,6 +155,47 @@ const HomePage = () => {
                         >
                             Sign Up Now
                         </Button>
+                    </Box>
+                </Container>
+            </Box>
+
+            {/* Footer */}
+            <Box sx={{ bgcolor: 'primary.main', color: 'white', py: 4 }}>
+                <Container maxWidth="lg">
+                    <Grid container spacing={4} alignItems="center">
+                        <Grid item xs={12} md={6}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                <Avatar
+                                    src="/images/Stellar_Logo.png"
+                                    alt="Stellar Logo"
+                                    sx={{ 
+                                        width: 40, 
+                                        height: 40, 
+                                        mr: 2,
+                                        backgroundColor: 'transparent'
+                                    }}
+                                />
+                                <Typography variant="h5" component="h3">
+                                    Stellar GeoLink
+                                </Typography>
+                            </Box>
+                            <Typography variant="body1" color="rgba(255,255,255,0.8)">
+                                Real-time location tracking for Stellar-based Real World Assets (RWAs)
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <Typography variant="h6" gutterBottom>
+                                Powered by Stellar Network
+                            </Typography>
+                            <Typography variant="body2" color="rgba(255,255,255,0.8)">
+                                Built on the Stellar blockchain for secure, fast, and cost-effective asset tracking
+                            </Typography>
+                        </Grid>
+                    </Grid>
+                    <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.2)', mt: 3, pt: 3, textAlign: 'center' }}>
+                        <Typography variant="body2" color="rgba(255,255,255,0.6)">
+                            © 2024 Stellar GeoLink. All rights reserved.
+                        </Typography>
                     </Box>
                 </Container>
             </Box>

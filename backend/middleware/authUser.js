@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const pool = require('../config/database');
 
-const authenticateUser = (req, res, next) => {
+const authenticateUser = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
     // If no token, user is not authenticated but we'll let the route handler decide what to do
@@ -11,7 +12,22 @@ const authenticateUser = (req, res, next) => {
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded.user;
+        
+        // Fetch user's public key from database
+        const result = await pool.query(
+            'SELECT public_key FROM users WHERE id = $1',
+            [decoded.user.id]
+        );
+        
+        if (result.rows.length > 0) {
+            req.user = {
+                ...decoded.user,
+                public_key: result.rows[0].public_key
+            };
+        } else {
+            req.user = decoded.user;
+        }
+        
         next();
     } catch (err) {
         // Invalid token, but we'll let the route handler decide what to do

@@ -8,7 +8,8 @@ import {
     Card,
     CardContent,
     Tabs,
-    Tab
+    Tab,
+    Avatar
 } from '@mui/material';
 import ApiKeyManager from './ApiKeyManager';
 import UsersManager from './UsersManager';

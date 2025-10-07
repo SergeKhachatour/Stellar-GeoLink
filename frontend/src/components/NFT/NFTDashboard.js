@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -16,35 +16,13 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Alert,
   CircularProgress,
   Tabs,
   Tab,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
-  Avatar,
-  Divider,
-  Tooltip,
-  Badge,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Switch,
-  FormControlLabel,
   CardMedia,
-  CardActionArea,
   CardHeader,
-  Fab,
-  Stack
+  Avatar
 } from '@mui/material';
 import {
   ArrowBackIos,
@@ -52,27 +30,13 @@ import {
 } from '@mui/icons-material';
 import {
   Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
   LocationOn as LocationIcon,
-  Visibility as VisibilityIcon,
-  VisibilityOff as VisibilityOffIcon,
   Map as MapIcon,
-  Analytics as AnalyticsIcon,
-  Settings as SettingsIcon,
   Refresh as RefreshIcon,
   Close as CloseIcon,
-  CheckCircleOutline as CheckCircleOutlineIcon,
-  ErrorOutline as ErrorOutlineIcon,
-  InfoOutlined as InfoOutlinedIcon,
-  GpsFixed as GpsFixedIcon,
-  GpsOff as GpsOffIcon,
   AccountBalanceWallet as WalletIcon,
-  Star as StarIcon,
-  StarBorder as StarBorderIcon,
   AccountBalance as StellarIcon,
   Collections as CollectionsIcon,
-  Explore as ExploreIcon,
   GetApp as CollectIcon,
   Info as InfoIcon
 } from '@mui/icons-material';
@@ -186,7 +150,7 @@ function a11yProps(index) {
 
 const NFTDashboard = () => {
   const { user } = useAuth();
-  const { wallet, connectWallet, disconnectWallet, isConnected, balance } = useWallet();
+  const { wallet, disconnectWallet, isConnected, balance, connectWalletViewOnly } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [nearbyNFTs, setNearbyNFTs] = useState([]);
   const [userCollection, setUserCollection] = useState([]);
@@ -202,7 +166,7 @@ const NFTDashboard = () => {
   const [openWalletDialog, setOpenWalletDialog] = useState(false);
   const [openLocationSettings, setOpenLocationSettings] = useState(false);
   const [openPinDialog, setOpenPinDialog] = useState(false);
-  const [pinLocation, setPinLocation] = useState(null);
+  const [, setPinLocation] = useState(null);
   const [autoDetectingLocation, setAutoDetectingLocation] = useState(false);
   const [pinForm, setPinForm] = useState({
     name: '',
@@ -217,12 +181,422 @@ const NFTDashboard = () => {
   const [pinMarker, setPinMarker] = useState(null);
   const [geocoding, setGeocoding] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
+  const [requestInProgress, setRequestInProgress] = useState(false);
+  const [lastRequestTime, setLastRequestTime] = useState(0);
+  const [requestCount, setRequestCount] = useState(0);
+  const requestCooldown = 3000; // 3 seconds cooldown between requests
+  const maxRequestsPerMinute = 10; // Maximum 10 requests per minute
   const mapContainer = useRef(null);
   const overlayMapContainer = useRef(null);
   const map = useRef(null);
   const overlayMap = useRef(null);
   const markers = useRef({});
   const overlayMarkers = useRef({});
+
+  // Function definitions (moved before useEffect to avoid hoisting issues)
+  const fetchUserCollection = useCallback(async () => {
+    if (!isConnected || requestInProgress) return;
+    
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastRequestTime < requestCooldown) {
+      console.log('Request too soon, skipping...');
+      return;
+    }
+    
+    // Check request rate limit
+    if (requestCount >= maxRequestsPerMinute) {
+      console.log('Too many requests, rate limited');
+      setError('Too many requests. Please wait before trying again.');
+      return;
+    }
+    
+    setRequestInProgress(true);
+    setLastRequestTime(now);
+    setRequestCount(prev => prev + 1);
+    setLoading(true);
+    try {
+      const response = await api.get('/nft/user-collection');
+      console.log('User collection response:', response.data);
+      
+      // Handle the actual API response structure
+      const collectionArray = response.data.collection || response.data || [];
+      const collectionData = collectionArray.map(item => {
+        const nftData = item.nft || item;
+        const collectionData = nftData.collection || {};
+        return {
+          ...nftData,
+          full_ipfs_url: nftData.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nftData.ipfs_hash}` : null,
+          collection: {
+            ...collectionData,
+            full_image_url: collectionData.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${collectionData.image_url}` : null
+          }
+        };
+      });
+      
+      setUserCollection(collectionData);
+    } catch (err) {
+      console.error('Error fetching user collection:', err);
+      setError('Failed to fetch your NFT collection.');
+    } finally {
+      setLoading(false);
+      setRequestInProgress(false);
+    }
+  }, [isConnected, requestInProgress, lastRequestTime, requestCooldown]);
+
+  const fetchNearbyNFTs = useCallback(async () => {
+    if (!userLocation || requestInProgress) {
+      if (!userLocation) {
+        setError('Location not available. Please enable location services.');
+      }
+      return;
+    }
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastRequestTime < requestCooldown) {
+      console.log('Request too soon, skipping...');
+      return;
+    }
+
+    setRequestInProgress(true);
+    setLastRequestTime(now);
+    setError('');
+    try {
+      const response = await api.get('/nft/nearby', {
+        params: {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          radius: 1000 // 1km radius
+        }
+      });
+      
+      // Process the NFTs to add full IPFS URLs
+      const processedNFTs = response.data.nfts.map(nft => ({
+        ...nft,
+        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+        collection: {
+          ...nft.collection,
+          full_image_url: nft.collection?.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}` : null
+        }
+      }));
+      
+      setNearbyNFTs(processedNFTs);
+    } catch (err) {
+      console.error('Error fetching nearby NFTs:', err);
+      setError('Failed to fetch nearby NFTs.');
+    } finally {
+      setRequestInProgress(false);
+    }
+  }, [userLocation, requestInProgress, lastRequestTime, requestCooldown]);
+
+  const fetchNearbyNFTsWithLocation = useCallback(async (location) => {
+    if (!location || requestInProgress) {
+      if (!location) {
+        setError('Location not available. Please enable location services.');
+      }
+      return;
+    }
+
+    // Check cooldown
+    const now = Date.now();
+    if (now - lastRequestTime < requestCooldown) {
+      console.log('Request too soon, skipping...');
+      return;
+    }
+
+    setRequestInProgress(true);
+    setLastRequestTime(now);
+    setError('');
+    try {
+      const response = await api.get('/nft/nearby', {
+        params: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          radius: 1000 // 1km radius
+        }
+      });
+      
+      // Process the NFTs to add full IPFS URLs
+      const processedNFTs = response.data.nfts.map(nft => ({
+        ...nft,
+        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+        collection: {
+          ...nft.collection,
+          full_image_url: nft.collection?.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}` : null
+        }
+      }));
+      
+      setNearbyNFTs(processedNFTs);
+    } catch (err) {
+      console.error('Error fetching nearby NFTs:', err);
+      setError('Failed to fetch nearby NFTs.');
+    } finally {
+      setRequestInProgress(false);
+    }
+  }, [requestInProgress, lastRequestTime, requestCooldown]);
+
+  const initializeMap = useCallback((container, mapType) => {
+    const currentMap = mapType === 'overlay' ? overlayMap : map;
+    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
+    
+    if (currentMap.current) {
+      console.log('Map already initialized for', mapType);
+      return;
+    }
+
+    console.log('Initializing map for', mapType, 'with container:', container);
+
+    // Check if Mapbox token is available
+    if (!MAPBOX_TOKEN || MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN') {
+      setError('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
+      return;
+    }
+
+    // Start with globe view (zoom level 1) and animate to user location
+    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0]; // Center of globe
+    const initialZoom = 1; // Always start with globe view
+    const initialPitch = 0; // Start flat, then tilt to 3D
+    const initialBearing = 0;
+
+    try {
+      currentMap.current = new Mapboxgl.Map({
+        container: container,
+        style: 'mapbox://styles/mapbox/satellite-streets-v12', // Satellite with streets
+        center: initialCenter,
+        zoom: initialZoom,
+        pitch: initialPitch,
+        bearing: initialBearing,
+        projection: 'globe', // Enable globe projection
+        antialias: true, // Enable antialiasing for better 3D rendering
+        optimizeForTerrain: true // Optimize for 3D terrain
+      });
+
+      console.log('Map created for', mapType);
+
+      currentMap.current.on('load', () => {
+        console.log('Map loaded for', mapType);
+        
+        // Add navigation control with enhanced options
+        currentMap.current.addControl(new Mapboxgl.NavigationControl({
+          showCompass: true,
+          showZoom: true,
+          visualizePitch: true
+        }), 'top-left');
+
+        // Add fullscreen control for overlay map
+        if (mapType === 'overlay') {
+          currentMap.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
+        }
+
+        // Add user location marker
+        if (userLocation) {
+          new Mapboxgl.Marker({ 
+            color: '#3b82f6',
+            scale: 1.2
+          })
+            .setLngLat([userLocation.longitude, userLocation.latitude])
+            .setPopup(new Mapboxgl.Popup().setHTML('<h4>📍 Your Location</h4>'))
+            .addTo(currentMap.current);
+        }
+
+        // Enhanced 3D animation for overlay map
+        if (mapType === 'overlay' && userLocation) {
+          // Start with globe view, then animate to user location with moderate 3D effect
+          currentMap.current.flyTo({
+            center: [userLocation.longitude, userLocation.latitude],
+            zoom: 14, // Reduced zoom to prevent performance issues
+            pitch: 45, // Reduced pitch for better performance
+            bearing: 0,
+            duration: 3000, // Reduced duration for better performance
+            essential: true
+          });
+        } else if (mapType === 'main' && userLocation) {
+          // Standard animation for main map
+          currentMap.current.flyTo({
+            center: [userLocation.longitude, userLocation.latitude],
+            zoom: 15,
+            pitch: 30, // Reduced pitch for better performance
+            bearing: 0,
+            duration: 2000, // Reduced duration
+            essential: true
+          });
+        }
+
+        // Wait for style to be fully loaded before adding markers
+        currentMap.current.on('styledata', () => {
+          console.log('Map style loaded for', mapType);
+          updateMapMarkers(mapType);
+        });
+        
+        // Fallback: update markers after a delay if styledata event doesn't fire
+        setTimeout(() => {
+          if (currentMap.current && currentMap.current.isStyleLoaded()) {
+            console.log('Style loaded via timeout for', mapType);
+            updateMapMarkers(mapType);
+          }
+        }, 2000);
+
+        // Force marker update for overlay map if nearbyNFTs are already loaded
+        if (mapType === 'overlay' && nearbyNFTs.length > 0) {
+          console.log('Force updating markers for overlay map with', nearbyNFTs.length, 'NFTs');
+          setTimeout(() => {
+            if (currentMap.current && currentMap.current.isStyleLoaded()) {
+              updateMapMarkers(mapType);
+            }
+          }, 3000);
+        }
+      });
+
+      // Handle map errors
+      currentMap.current.on('error', (e) => {
+        console.error('Map error for', mapType, ':', e);
+        setError(`Map initialization failed: ${e.error?.message || 'Unknown error'}`);
+      });
+
+    } catch (error) {
+      console.error('Error creating map for', mapType, ':', error);
+      setError(`Failed to initialize map: ${error.message}`);
+    }
+  }, [userLocation, nearbyNFTs]);
+
+  const updateMapMarkers = useCallback((mapType = 'main') => {
+    const currentMap = mapType === 'overlay' ? overlayMap : map;
+    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
+    
+    if (!currentMap.current) {
+      console.warn('Map not initialized, cannot add markers');
+      return;
+    }
+
+    // Prevent multiple simultaneous marker updates
+    if (mapLoading) {
+      console.log('Map is already loading markers, skipping...');
+      return;
+    }
+    
+    // Ensure map is loaded before adding markers
+    if (!currentMap.current.isStyleLoaded()) {
+      console.log('Map style not loaded, waiting...');
+      setMapLoading(true);
+      // Use a timeout instead of event listener to avoid infinite loops
+      setTimeout(() => {
+        if (currentMap.current && currentMap.current.isStyleLoaded()) {
+          console.log('Style loaded on retry, updating markers...');
+          setMapLoading(false);
+          updateMapMarkers(mapType);
+        } else {
+          console.warn('Style still not loaded after timeout');
+          setMapLoading(false);
+        }
+      }, 1000);
+      return;
+    }
+
+    // Remove existing markers
+    Object.values(currentMarkers.current).forEach(marker => marker.remove());
+    currentMarkers.current = {};
+    
+    // Debug: Check map center and bounds
+    const mapCenter = currentMap.current.getCenter();
+    const mapBounds = currentMap.current.getBounds();
+    console.log('Map center:', mapCenter);
+    console.log('Map bounds:', mapBounds);
+    console.log('Number of NFTs to place:', nearbyNFTs.length);
+
+    // Sort NFTs by distance to spread them out better
+    const sortedNFTs = [...nearbyNFTs].sort((a, b) => (a.distance || 0) - (b.distance || 0));
+
+    sortedNFTs.forEach((nft, index) => {
+      // Validate coordinates before proceeding
+      if (nft.latitude && nft.longitude && 
+          !isNaN(nft.latitude) && !isNaN(nft.longitude) &&
+          isFinite(nft.latitude) && isFinite(nft.longitude)) {
+        
+        // Use exact coordinates - no offsets to maintain precise positioning
+        const exactLat = parseFloat(nft.latitude);
+        const exactLng = parseFloat(nft.longitude);
+        
+        // Final validation of coordinates
+        if (isNaN(exactLat) || isNaN(exactLng) || !isFinite(exactLat) || !isFinite(exactLng)) {
+          console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
+          return;
+        }
+        
+        // Debug logging to check coordinates
+        console.log(`NFT ${nft.id} coordinates:`, { lat: exactLat, lng: exactLng, name: nft.name });
+        
+        // Check if coordinates are in a reasonable range
+        if (exactLat < -90 || exactLat > 90 || exactLng < -180 || exactLng > 180) {
+          console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: exactLat, lng: exactLng });
+          return;
+        }
+
+        // Create NFT image marker with exact positioning
+        try {
+          // Create custom element for NFT image
+          const el = document.createElement('div');
+          el.style.width = '60px';
+          el.style.height = '60px';
+          el.style.borderRadius = '12px';
+          el.style.border = '3px solid #ffffff';
+          el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+          el.style.cursor = 'pointer';
+          el.style.overflow = 'hidden';
+          el.style.position = 'relative';
+          el.style.zIndex = '1000';
+          
+          if (nft.full_ipfs_url) {
+            el.innerHTML = `
+              <img src="${nft.full_ipfs_url}" 
+                   alt="${nft.name || 'NFT'}" 
+                   style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;"
+                   onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+              <div style="display: none; width: 100%; height: 100%; background: linear-gradient(135deg, #ef4444, #dc2626); align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; position: absolute; top: 0; left: 0;">
+                NFT
+              </div>
+            `;
+          } else {
+            el.innerHTML = `
+              <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #ef4444, #dc2626); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">
+                NFT
+              </div>
+            `;
+          }
+
+          // Add click handler to show NFT details
+          el.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Update carousel index to show this NFT
+            const nftIndex = nearbyNFTs.findIndex(n => n.id === nft.id);
+            if (nftIndex !== -1) {
+              setCarouselIndex(nftIndex);
+              setSelectedNFT(nft);
+              setOpenDetailsDialog(true);
+            }
+          });
+
+          const marker = new Mapboxgl.Marker({
+            element: el,
+            anchor: 'center'
+          })
+            .setLngLat([exactLng, exactLat]) // [longitude, latitude] format for Mapbox
+            .addTo(currentMap.current);
+
+          currentMarkers.current[nft.id] = marker;
+          console.log(`NFT image marker created for NFT ${nft.id} at:`, [exactLng, exactLat]);
+        } catch (error) {
+          console.error('Error creating marker for NFT:', nft.id, error);
+        }
+      }
+    });
+    
+    // Markers are positioned at exact coordinates regardless of zoom level
+    console.log(`Successfully placed ${sortedNFTs.length} NFT markers at their exact coordinates`);
+    setMapLoading(false);
+  }, [nearbyNFTs, mapLoading]);
 
   useEffect(() => {
     if (user && user.role !== 'nft_manager' && user.role !== 'admin') {
@@ -236,13 +610,38 @@ const NFTDashboard = () => {
       setLoading(false);
     }, 5000); // 5 second timeout
     
-    // Only fetch data if wallet is connected
-    if (isConnected && wallet?.publicKey) {
-      fetchUserCollection();
+    // Only fetch data if wallet is connected and not already in progress
+    if (isConnected && wallet?.publicKey && !requestInProgress && !loading) {
+      // Add a small delay to prevent rapid calls
+      const fetchTimeout = setTimeout(() => {
+        fetchUserCollection();
+      }, 500); // Increased delay to 500ms
+      
+      return () => {
+        clearTimeout(timeout);
+        clearTimeout(fetchTimeout);
+      };
     }
     
     return () => clearTimeout(timeout);
-  }, [user, isConnected, wallet]);
+  }, [user, isConnected, wallet?.publicKey]); // Removed fetchUserCollection from dependencies
+
+  // Reset request counter every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRequestCount(0);
+    }, 60000); // Reset every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-connect wallet using user's stored public key
+  useEffect(() => {
+    if (user && user.public_key && !isConnected) {
+      console.log('Auto-connecting wallet with stored public key:', user.public_key);
+      connectWalletViewOnly(user.public_key);
+    }
+  }, [user, isConnected, connectWalletViewOnly]);
 
   // Auto-detect location on page load
   useEffect(() => {
@@ -281,7 +680,7 @@ const NFTDashboard = () => {
         );
       }
     }
-  }, [user, isConnected, wallet]);
+  }, [user, isConnected, wallet, fetchNearbyNFTsWithLocation]);
 
   // Carousel navigation functions
   const handlePreviousNFT = () => {
@@ -305,7 +704,7 @@ const NFTDashboard = () => {
     if (tabValue === 2 && mapContainer.current && !map.current) {
       initializeMap(mapContainer.current, 'main');
     }
-  }, [tabValue]);
+  }, [tabValue, initializeMap]);
 
   useEffect(() => {
     if (openMapDialog) {
@@ -336,7 +735,7 @@ const NFTDashboard = () => {
       overlayMap.current = null;
       overlayMarkers.current = {};
     }
-  }, [openMapDialog]);
+  }, [openMapDialog, initializeMap]);
 
   // Force marker update when overlay map is ready and nearbyNFTs exist
   useEffect(() => {
@@ -348,7 +747,7 @@ const NFTDashboard = () => {
         }
       }, 1000);
     }
-  }, [openMapDialog, overlayMap.current, nearbyNFTs.length]);
+  }, [openMapDialog, nearbyNFTs.length, updateMapMarkers]);
 
   // Update map markers when nearbyNFTs change
   useEffect(() => {
@@ -363,130 +762,10 @@ const NFTDashboard = () => {
         updateMapMarkers('overlay');
       }
     }
-  }, [nearbyNFTs]);
+  }, [nearbyNFTs, updateMapMarkers]);
 
-  const fetchNearbyNFTs = async () => {
-    if (!userLocation) {
-      setError('Location not available. Please enable location services.');
-      return;
-    }
 
-    setLoading(true);
-    setError('');
-    try {
-      const response = await api.get('/nft/nearby', {
-        params: {
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          radius: 1000 // 1km radius
-        }
-      });
-      
-      // Process the NFTs to add full IPFS URLs
-      const processedNFTs = response.data.nfts.map(nft => ({
-        ...nft,
-        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
-        collection: {
-          ...nft.collection,
-          full_image_url: nft.collection?.image_url ? 
-            (nft.collection.image_url.startsWith('http') ? 
-              nft.collection.image_url : 
-              `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}`) : 
-            null
-        }
-      }));
-      
-      setNearbyNFTs(processedNFTs);
-    } catch (err) {
-      console.error('Error fetching nearby NFTs:', err);
-      setError('Failed to fetch nearby NFTs. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const fetchNearbyNFTsWithLocation = async (location) => {
-    if (!location) {
-      setError('Location not available. Please enable location services.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    try {
-      const response = await api.get('/nft/nearby', {
-        params: {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radius: 1000 // 1km radius
-        }
-      });
-      
-      // Process the NFTs to add full IPFS URLs
-      const processedNFTs = response.data.nfts.map(nft => ({
-        ...nft,
-        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
-        collection: {
-          ...nft.collection,
-          full_image_url: nft.collection?.image_url ? 
-            (nft.collection.image_url.startsWith('http') ? 
-              nft.collection.image_url : 
-              `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}`) : 
-            null
-        }
-      }));
-      
-      setNearbyNFTs(processedNFTs);
-    } catch (err) {
-      console.error('Error fetching nearby NFTs:', err);
-      setError('Failed to fetch nearby NFTs. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUserCollection = async () => {
-    if (!isConnected) return;
-    
-    setLoading(true);
-    try {
-      const response = await api.get('/nft/user-collection');
-      console.log('User collection response:', response.data);
-      
-      // Handle the actual API response structure
-      const collectionData = response.data.collection || [];
-      
-      // Process the NFTs to add full IPFS URLs
-      const processedCollection = collectionData.map(item => {
-        // Handle different possible data structures
-        const nftData = item.nft || item;
-        const collectionData = nftData.collection || {};
-        
-        return {
-          ...item,
-          nft: {
-            ...nftData,
-            full_ipfs_url: nftData.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nftData.ipfs_hash}` : null,
-            collection: {
-              ...collectionData,
-              full_image_url: collectionData.image_url ? 
-                (collectionData.image_url.startsWith('http') ? 
-                  collectionData.image_url : 
-                  `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${collectionData.image_url}`) : 
-                null
-            }
-          }
-        };
-      });
-      
-      setUserCollection(processedCollection);
-    } catch (err) {
-      console.error('Error fetching user collection:', err);
-      setError('Failed to fetch your NFT collection.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getUserLocation = () => {
     // Clear all previous messages first
@@ -684,268 +963,6 @@ const NFTDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const initializeMap = (container, mapType) => {
-    const currentMap = mapType === 'overlay' ? overlayMap : map;
-    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
-    
-    if (currentMap.current) {
-      console.log('Map already initialized for', mapType);
-      return;
-    }
-
-    console.log('Initializing map for', mapType, 'with container:', container);
-
-    // Check if Mapbox token is available
-    if (!MAPBOX_TOKEN || MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN') {
-      setError('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
-      return;
-    }
-
-    // Start with globe view (zoom level 1) and animate to user location
-    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0]; // Center of globe
-    const initialZoom = 1; // Always start with globe view
-    const initialPitch = 0; // Start flat, then tilt to 3D
-    const initialBearing = 0;
-
-    try {
-      currentMap.current = new Mapboxgl.Map({
-        container: container,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12', // Satellite with streets
-        center: initialCenter,
-        zoom: initialZoom,
-        pitch: initialPitch,
-        bearing: initialBearing,
-        projection: 'globe', // Enable globe projection
-        antialias: true, // Enable antialiasing for better 3D rendering
-        optimizeForTerrain: true // Optimize for 3D terrain
-      });
-
-      console.log('Map created for', mapType);
-
-      currentMap.current.on('load', () => {
-        console.log('Map loaded for', mapType);
-        
-        // Add navigation control with enhanced options
-        currentMap.current.addControl(new Mapboxgl.NavigationControl({
-          showCompass: true,
-          showZoom: true,
-          visualizePitch: true
-        }), 'top-left');
-
-        // Add fullscreen control for overlay map
-        if (mapType === 'overlay') {
-          currentMap.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
-        }
-
-        // Add user location marker
-        if (userLocation) {
-          new Mapboxgl.Marker({ 
-            color: '#3b82f6',
-            scale: 1.2
-          })
-            .setLngLat([userLocation.longitude, userLocation.latitude])
-            .setPopup(new Mapboxgl.Popup().setHTML('<h4>📍 Your Location</h4>'))
-            .addTo(currentMap.current);
-        }
-
-        // Enhanced 3D animation for overlay map
-        if (mapType === 'overlay' && userLocation) {
-          // Start with globe view, then animate to user location with moderate 3D effect
-          currentMap.current.flyTo({
-            center: [userLocation.longitude, userLocation.latitude],
-            zoom: 14, // Reduced zoom to prevent performance issues
-            pitch: 45, // Reduced pitch for better performance
-            bearing: 0,
-            duration: 3000, // Reduced duration for better performance
-            essential: true
-          });
-        } else if (mapType === 'main' && userLocation) {
-          // Standard animation for main map
-          currentMap.current.flyTo({
-            center: [userLocation.longitude, userLocation.latitude],
-            zoom: 15,
-            pitch: 30, // Reduced pitch for better performance
-            bearing: 0,
-            duration: 2000, // Reduced duration
-            essential: true
-          });
-        }
-
-        // Wait for style to be fully loaded before adding markers
-        currentMap.current.on('styledata', () => {
-          console.log('Map style loaded for', mapType);
-          updateMapMarkers(mapType);
-        });
-        
-        // Fallback: update markers after a delay if styledata event doesn't fire
-        setTimeout(() => {
-          if (currentMap.current && currentMap.current.isStyleLoaded()) {
-            console.log('Style loaded via timeout for', mapType);
-            updateMapMarkers(mapType);
-          }
-        }, 2000);
-
-        // Force marker update for overlay map if nearbyNFTs are already loaded
-        if (mapType === 'overlay' && nearbyNFTs.length > 0) {
-          console.log('Force updating markers for overlay map with', nearbyNFTs.length, 'NFTs');
-          setTimeout(() => {
-            if (currentMap.current && currentMap.current.isStyleLoaded()) {
-              updateMapMarkers(mapType);
-            }
-          }, 3000);
-        }
-      });
-
-      // Handle map errors
-      currentMap.current.on('error', (e) => {
-        console.error('Map error for', mapType, ':', e);
-        setError(`Map initialization failed: ${e.error?.message || 'Unknown error'}`);
-      });
-
-    } catch (error) {
-      console.error('Error creating map for', mapType, ':', error);
-      setError(`Failed to initialize map: ${error.message}`);
-    }
-  };
-
-  const updateMapMarkers = (mapType = 'main') => {
-    const currentMap = mapType === 'overlay' ? overlayMap : map;
-    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
-    
-    if (!currentMap.current) {
-      console.warn('Map not initialized, cannot add markers');
-      return;
-    }
-
-    // Prevent multiple simultaneous marker updates
-    if (mapLoading) {
-      console.log('Map is already loading markers, skipping...');
-      return;
-    }
-    
-    // Ensure map is loaded before adding markers
-    if (!currentMap.current.isStyleLoaded()) {
-      console.log('Map style not loaded, waiting...');
-      setMapLoading(true);
-      // Use a timeout instead of event listener to avoid infinite loops
-      setTimeout(() => {
-        if (currentMap.current && currentMap.current.isStyleLoaded()) {
-          console.log('Style loaded on retry, updating markers...');
-          setMapLoading(false);
-          updateMapMarkers(mapType);
-        } else {
-          console.warn('Style still not loaded after timeout');
-          setMapLoading(false);
-        }
-      }, 1000);
-      return;
-    }
-
-    // Remove existing markers
-    Object.values(currentMarkers.current).forEach(marker => marker.remove());
-    currentMarkers.current = {};
-    
-    // Debug: Check map center and bounds
-    const mapCenter = currentMap.current.getCenter();
-    const mapBounds = currentMap.current.getBounds();
-    console.log('Map center:', mapCenter);
-    console.log('Map bounds:', mapBounds);
-    console.log('Number of NFTs to place:', nearbyNFTs.length);
-
-    // Sort NFTs by distance to spread them out better
-    const sortedNFTs = [...nearbyNFTs].sort((a, b) => (a.distance || 0) - (b.distance || 0));
-
-    sortedNFTs.forEach((nft, index) => {
-      // Validate coordinates before proceeding
-      if (nft.latitude && nft.longitude && 
-          !isNaN(nft.latitude) && !isNaN(nft.longitude) &&
-          isFinite(nft.latitude) && isFinite(nft.longitude)) {
-        
-        // Use exact coordinates - no offsets to maintain precise positioning
-        const exactLat = parseFloat(nft.latitude);
-        const exactLng = parseFloat(nft.longitude);
-        
-        // Final validation of coordinates
-        if (isNaN(exactLat) || isNaN(exactLng) || !isFinite(exactLat) || !isFinite(exactLng)) {
-          console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
-          return;
-        }
-        
-        // Debug logging to check coordinates
-        console.log(`NFT ${nft.id} coordinates:`, { lat: exactLat, lng: exactLng, name: nft.name });
-        
-        // Check if coordinates are in a reasonable range
-        if (exactLat < -90 || exactLat > 90 || exactLng < -180 || exactLng > 180) {
-          console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: exactLat, lng: exactLng });
-          return;
-        }
-
-        // Create NFT image marker with exact positioning
-        try {
-          // Create custom element for NFT image
-          const el = document.createElement('div');
-          el.style.width = '60px';
-          el.style.height = '60px';
-          el.style.borderRadius = '12px';
-          el.style.border = '3px solid #ffffff';
-          el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-          el.style.cursor = 'pointer';
-          el.style.overflow = 'hidden';
-          el.style.position = 'relative';
-          el.style.zIndex = '1000';
-          
-          if (nft.full_ipfs_url) {
-            el.innerHTML = `
-              <img src="${nft.full_ipfs_url}" 
-                   alt="${nft.name || 'NFT'}" 
-                   style="width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;"
-                   onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-              <div style="display: none; width: 100%; height: 100%; background: linear-gradient(135deg, #ef4444, #dc2626); align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; position: absolute; top: 0; left: 0;">
-                NFT
-              </div>
-            `;
-          } else {
-            el.innerHTML = `
-              <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #ef4444, #dc2626); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;">
-                NFT
-              </div>
-            `;
-          }
-
-          // Add click handler to show NFT details
-          el.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Update carousel index to show this NFT
-            const nftIndex = nearbyNFTs.findIndex(n => n.id === nft.id);
-            if (nftIndex !== -1) {
-              setCarouselIndex(nftIndex);
-              setSelectedNFT(nft);
-              setOpenDetailsDialog(true);
-            }
-          });
-
-          const marker = new Mapboxgl.Marker({
-            element: el,
-            anchor: 'center'
-          })
-            .setLngLat([exactLng, exactLat]) // [longitude, latitude] format for Mapbox
-            .addTo(currentMap.current);
-
-          currentMarkers.current[nft.id] = marker;
-          console.log(`NFT image marker created for NFT ${nft.id} at:`, [exactLng, exactLat]);
-        } catch (error) {
-          console.error('Error creating marker for NFT:', nft.id, error);
-        }
-      }
-    });
-    
-    // Markers are positioned at exact coordinates regardless of zoom level
-    console.log(`Successfully placed ${sortedNFTs.length} NFT markers at their exact coordinates`);
-    setMapLoading(false);
   };
 
   const handleCollectNFT = async (nft) => {
@@ -1284,12 +1301,12 @@ const NFTDashboard = () => {
             {userCollection.map((item) => (
               <Grid item xs={12} sm={6} md={4} key={item.id}>
                 <Card>
-                  {item.nft.full_ipfs_url && (
+                  {item.full_ipfs_url && (
                     <CardMedia
                       component="img"
                       height="200"
-                      image={item.nft.full_ipfs_url}
-                      alt={item.nft.collection?.name || 'NFT'}
+                      image={item.full_ipfs_url}
+                      alt={item.collection?.name || 'NFT'}
                       onError={(e) => {
                         e.target.style.display = 'none';
                       }}
@@ -1297,10 +1314,10 @@ const NFTDashboard = () => {
                   )}
                   <CardContent>
                     <Typography variant="h6" component="div">
-                      {item.nft.collection?.name || 'Unknown NFT'}
+                      {item.collection?.name || 'Unknown NFT'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Rarity: {item.nft.collection?.rarity_level || 'common'}
+                      Rarity: {item.collection?.rarity_level || 'common'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       Collected: {new Date(item.collected_at).toLocaleDateString()}

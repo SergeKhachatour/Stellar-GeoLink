@@ -15,7 +15,6 @@ import {
   Card,
   CardContent,
   CardActions,
-  Divider,
   IconButton,
   InputAdornment
 } from '@mui/material';

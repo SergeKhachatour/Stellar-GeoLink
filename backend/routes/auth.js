@@ -396,7 +396,7 @@ router.get('/verify', authenticateUser, async (req, res) => {
 
     try {
         const result = await pool.query(
-            'SELECT id, email, role, first_name, last_name FROM users WHERE id = $1',
+            'SELECT id, email, role, first_name, last_name, public_key FROM users WHERE id = $1',
             [req.user.id]
         );
 
@@ -409,7 +409,8 @@ router.get('/verify', authenticateUser, async (req, res) => {
             email: result.rows[0].email,
             role: result.rows[0].role,
             firstName: result.rows[0].first_name,
-            lastName: result.rows[0].last_name
+            lastName: result.rows[0].last_name,
+            public_key: result.rows[0].public_key
         });
     } catch (err) {
         console.error('Verify error:', err);
