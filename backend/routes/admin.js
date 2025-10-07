@@ -81,6 +81,20 @@ router.patch('/users/:id/status', authenticateAdmin, async (req, res) => {
 // Get all API keys with user details
 router.get('/api-keys', authenticateAdmin, async (req, res) => {
     try {
+        // First check if api_keys table exists
+        const tableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'api_keys'
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            console.log('api_keys table does not exist, returning empty array');
+            return res.json([]);
+        }
+        
         const result = await pool.query(`
             SELECT 
                 ak.*,
@@ -100,7 +114,13 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
         res.json(result.rows);
     } catch (error) {
         console.error('Error fetching API keys:', error);
-        res.status(500).json({ error: 'Failed to fetch API keys' });
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint
+        });
+        res.status(500).json({ error: 'Failed to fetch API keys', details: error.message });
     }
 });
 
