@@ -335,129 +335,6 @@ const NFTDashboard = () => {
     }
   }, [requestInProgress, lastRequestTime, requestCooldown]);
 
-  const initializeMap = useCallback((container, mapType) => {
-    const currentMap = mapType === 'overlay' ? overlayMap : map;
-    
-    if (currentMap.current) {
-      console.log('Map already initialized for', mapType);
-      return;
-    }
-
-    console.log('Initializing map for', mapType, 'with container:', container);
-
-    // Check if Mapbox token is available
-    if (!MAPBOX_TOKEN || MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN') {
-      setError('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
-      return;
-    }
-
-    // Start with globe view (zoom level 1) and animate to user location
-    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0]; // Center of globe
-    const initialZoom = 1; // Always start with globe view
-    const initialPitch = 0; // Start flat, then tilt to 3D
-    const initialBearing = 0;
-
-    try {
-      currentMap.current = new Mapboxgl.Map({
-        container: container,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12', // Satellite with streets
-        center: initialCenter,
-        zoom: initialZoom,
-        pitch: initialPitch,
-        bearing: initialBearing,
-        projection: 'globe', // Enable globe projection
-        antialias: true, // Enable antialiasing for better 3D rendering
-        optimizeForTerrain: true // Optimize for 3D terrain
-      });
-
-      console.log('Map created for', mapType);
-
-      currentMap.current.on('load', () => {
-        console.log('Map loaded for', mapType);
-        
-        // Add navigation control with enhanced options
-        currentMap.current.addControl(new Mapboxgl.NavigationControl({
-          showCompass: true,
-          showZoom: true,
-          visualizePitch: true
-        }), 'top-left');
-
-        // Add fullscreen control for overlay map
-        if (mapType === 'overlay') {
-          currentMap.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
-        }
-
-        // Add user location marker
-        if (userLocation) {
-          new Mapboxgl.Marker({ 
-            color: '#3b82f6',
-            scale: 1.2
-          })
-            .setLngLat([userLocation.longitude, userLocation.latitude])
-            .setPopup(new Mapboxgl.Popup().setHTML('<h4>📍 Your Location</h4>'))
-            .addTo(currentMap.current);
-        }
-
-        // Enhanced 3D animation for overlay map
-        if (mapType === 'overlay' && userLocation) {
-          // Start with globe view, then animate to user location with moderate 3D effect
-          currentMap.current.flyTo({
-            center: [userLocation.longitude, userLocation.latitude],
-            zoom: 14, // Reduced zoom to prevent performance issues
-            pitch: 45, // Reduced pitch for better performance
-            bearing: 0,
-            duration: 3000, // Reduced duration for better performance
-            essential: true
-          });
-        } else if (mapType === 'main' && userLocation) {
-          // Standard animation for main map
-          currentMap.current.flyTo({
-            center: [userLocation.longitude, userLocation.latitude],
-            zoom: 15,
-            pitch: 30, // Reduced pitch for better performance
-            bearing: 0,
-            duration: 2000, // Reduced duration
-            essential: true
-          });
-        }
-
-        // Wait for style to be fully loaded before adding markers
-        currentMap.current.on('styledata', () => {
-          console.log('Map style loaded for', mapType);
-          updateMapMarkers(mapType);
-        });
-        
-        // Fallback: update markers after a delay if styledata event doesn't fire
-        setTimeout(() => {
-          if (currentMap.current && currentMap.current.isStyleLoaded()) {
-            console.log('Style loaded via timeout for', mapType);
-            updateMapMarkers(mapType);
-          }
-        }, 2000);
-
-        // Force marker update for overlay map if nearbyNFTs are already loaded
-        if (mapType === 'overlay' && nearbyNFTs.length > 0) {
-          console.log('Force updating markers for overlay map with', nearbyNFTs.length, 'NFTs');
-          setTimeout(() => {
-            if (currentMap.current && currentMap.current.isStyleLoaded()) {
-              updateMapMarkers(mapType);
-            }
-          }, 3000);
-        }
-      });
-
-      // Handle map errors
-      currentMap.current.on('error', (e) => {
-        console.error('Map error for', mapType, ':', e);
-        setError(`Map initialization failed: ${e.error?.message || 'Unknown error'}`);
-      });
-
-    } catch (error) {
-      console.error('Error creating map for', mapType, ':', error);
-      setError(`Failed to initialize map: ${error.message}`);
-    }
-  }, [userLocation, nearbyNFTs]);
-
   const updateMapMarkers = useCallback((mapType = 'main') => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
     const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
@@ -595,6 +472,130 @@ const NFTDashboard = () => {
     console.log(`Successfully placed ${sortedNFTs.length} NFT markers at their exact coordinates`);
     setMapLoading(false);
   }, [nearbyNFTs, mapLoading]);
+
+  const initializeMap = useCallback((container, mapType) => {
+    const currentMap = mapType === 'overlay' ? overlayMap : map;
+    
+    if (currentMap.current) {
+      console.log('Map already initialized for', mapType);
+      return;
+    }
+
+    console.log('Initializing map for', mapType, 'with container:', container);
+
+    // Check if Mapbox token is available
+    if (!MAPBOX_TOKEN || MAPBOX_TOKEN === 'YOUR_MAPBOX_ACCESS_TOKEN') {
+      setError('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
+      return;
+    }
+
+    // Start with globe view (zoom level 1) and animate to user location
+    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0]; // Center of globe
+    const initialZoom = 1; // Always start with globe view
+    const initialPitch = 0; // Start flat, then tilt to 3D
+    const initialBearing = 0;
+
+    try {
+      currentMap.current = new Mapboxgl.Map({
+        container: container,
+        style: 'mapbox://styles/mapbox/satellite-streets-v12', // Satellite with streets
+        center: initialCenter,
+        zoom: initialZoom,
+        pitch: initialPitch,
+        bearing: initialBearing,
+        projection: 'globe', // Enable globe projection
+        antialias: true, // Enable antialiasing for better 3D rendering
+        optimizeForTerrain: true // Optimize for 3D terrain
+      });
+
+      console.log('Map created for', mapType);
+
+      currentMap.current.on('load', () => {
+        console.log('Map loaded for', mapType);
+        
+        // Add navigation control with enhanced options
+        currentMap.current.addControl(new Mapboxgl.NavigationControl({
+          showCompass: true,
+          showZoom: true,
+          visualizePitch: true
+        }), 'top-left');
+
+        // Add fullscreen control for overlay map
+        if (mapType === 'overlay') {
+          currentMap.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
+        }
+
+        // Add user location marker
+        if (userLocation) {
+          new Mapboxgl.Marker({ 
+            color: '#3b82f6',
+            scale: 1.2
+          })
+            .setLngLat([userLocation.longitude, userLocation.latitude])
+            .setPopup(new Mapboxgl.Popup().setHTML('<h4>📍 Your Location</h4>'))
+            .addTo(currentMap.current);
+        }
+
+        // Enhanced 3D animation for overlay map
+        if (mapType === 'overlay' && userLocation) {
+          // Start with globe view, then animate to user location with moderate 3D effect
+          currentMap.current.flyTo({
+            center: [userLocation.longitude, userLocation.latitude],
+            zoom: 14, // Reduced zoom to prevent performance issues
+            pitch: 45, // Reduced pitch for better performance
+            bearing: 0,
+            duration: 3000, // Reduced duration for better performance
+            essential: true
+          });
+        } else if (mapType === 'main' && userLocation) {
+          // Standard animation for main map
+          currentMap.current.flyTo({
+            center: [userLocation.longitude, userLocation.latitude],
+            zoom: 15,
+            pitch: 30, // Reduced pitch for better performance
+            bearing: 0,
+            duration: 2000, // Reduced duration
+            essential: true
+          });
+        }
+
+        // Wait for style to be fully loaded before adding markers
+        currentMap.current.on('styledata', () => {
+          console.log('Map style loaded for', mapType);
+          updateMapMarkers(mapType);
+        });
+        
+        // Fallback: update markers after a delay if styledata event doesn't fire
+        setTimeout(() => {
+          if (currentMap.current && currentMap.current.isStyleLoaded()) {
+            console.log('Style loaded via timeout for', mapType);
+            updateMapMarkers(mapType);
+          }
+        }, 2000);
+
+        // Force marker update for overlay map if nearbyNFTs are already loaded
+        if (mapType === 'overlay' && nearbyNFTs.length > 0) {
+          console.log('Force updating markers for overlay map with', nearbyNFTs.length, 'NFTs');
+          setTimeout(() => {
+            if (currentMap.current && currentMap.current.isStyleLoaded()) {
+              updateMapMarkers(mapType);
+            }
+          }, 3000);
+        }
+      });
+
+      // Handle map errors
+      currentMap.current.on('error', (e) => {
+        console.error('Map error for', mapType, ':', e);
+        setError(`Map initialization failed: ${e.error?.message || 'Unknown error'}`);
+      });
+
+    } catch (error) {
+      console.error('Error creating map for', mapType, ':', error);
+      setError(`Failed to initialize map: ${error.message}`);
+    }
+  }, [userLocation, nearbyNFTs, updateMapMarkers]);
+
 
   useEffect(() => {
     if (user && user.role !== 'nft_manager' && user.role !== 'admin') {
