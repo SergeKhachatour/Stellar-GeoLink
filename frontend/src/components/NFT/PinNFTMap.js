@@ -75,7 +75,7 @@ const PinNFTMap = () => {
   const markerRef = useRef(null);
 
   // Mapbox configuration
-  const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1Ijoic3RlbGxhci1nZW9saW5rIiwiYSI6ImNsc2V4Z2V4ZzAwMDFyMmx0b2V4Z2V4Z2cifQ.example';
+  const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 
   useEffect(() => {
     fetchCollections();
