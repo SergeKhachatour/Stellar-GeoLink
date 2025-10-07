@@ -7,7 +7,12 @@ import { filterWallets, groupWalletsByCountry } from '../utils/coordinates';
 // Initialize Mapbox with your access token
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 console.log('Mapbox Token:', MAPBOX_TOKEN ? 'Token exists' : 'No token found');
-mapboxgl.accessToken = MAPBOX_TOKEN;
+
+if (!MAPBOX_TOKEN) {
+    console.error('REACT_APP_MAPBOX_TOKEN is not set. Please check your environment variables.');
+} else {
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+}
 
 // Sample data for testing
 const sampleWallets = [

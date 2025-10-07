@@ -11,7 +11,14 @@ const WalletMap = ({ wallets, geofences, center, drawingMode, onLocationSelect, 
 
     useEffect(() => {
         if (!map.current) {
-            mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
+            const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN;
+            
+            if (!mapboxToken) {
+                console.error('REACT_APP_MAPBOX_TOKEN is not set. Please check your environment variables.');
+                return;
+            }
+            
+            mapboxgl.accessToken = mapboxToken;
             map.current = new mapboxgl.Map({
                 container: mapContainer.current,
                 style: 'mapbox://styles/mapbox/streets-v11',
