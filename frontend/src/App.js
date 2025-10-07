@@ -15,7 +15,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import ApiKeyManagement from './components/ApiKeyManagement';
 import DataConsumerDashboard from './components/DataConsumerDashboard';
 import WalletProviderDashboard from './components/WalletProviderDashboard';
-// import NFTDashboard from './components/NFT/NFTDashboard';
+import NFTDashboard from './components/NFT/NFTDashboard';
 
 function App() {
     return (
@@ -46,14 +46,14 @@ function App() {
                                 </ProtectedRoute>
                             } 
                         />
-                        {/* <Route 
+                        <Route 
                             path="/dashboard/nft" 
                             element={
                                 <ProtectedRoute roles={['nft_manager']}>
                                     <NFTDashboard />
                                 </ProtectedRoute>
                             } 
-                        /> */}
+                        />
                         <Route 
                             path="/admin" 
                             element={

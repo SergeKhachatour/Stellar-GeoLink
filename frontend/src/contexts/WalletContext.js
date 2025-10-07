@@ -92,7 +92,16 @@ export const WalletProvider = ({ children }) => {
 
       // Validate secret key format
       if (!secretKeyInput || secretKeyInput.length !== 56) {
-        throw new Error('Invalid secret key format');
+        throw new Error('Invalid secret key format. Secret key must be 56 characters long.');
+      }
+
+      // Check if it starts with 'S' (Stellar secret key format)
+      if (!secretKeyInput.startsWith('S')) {
+        // Check if it might be a public key instead
+        if (secretKeyInput.startsWith('G')) {
+          throw new Error('This appears to be a public key (starts with "G"). Please use your secret key (starts with "S") to import your wallet.');
+        }
+        throw new Error('Invalid secret key format. Stellar secret keys start with "S".');
       }
 
       // Create keypair from secret key
@@ -119,6 +128,51 @@ export const WalletProvider = ({ children }) => {
       try {
         await api.put('/auth/update-public-key', {
           public_key: publicKey
+        });
+      } catch (err) {
+        console.warn('Failed to update public key in backend:', err);
+      }
+
+    } catch (err) {
+      console.error('Error connecting wallet:', err);
+      setError(err.message || 'Failed to connect wallet');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Connect wallet with public key only (for viewing)
+  const connectWalletViewOnly = async (publicKeyInput) => {
+    try {
+      if (!(await initializeStellar())) {
+        throw new Error('Failed to initialize Stellar SDK');
+      }
+      setLoading(true);
+      setError(null);
+
+      // Validate public key format
+      if (!publicKeyInput || publicKeyInput.length !== 56) {
+        throw new Error('Invalid public key format');
+      }
+
+      // Test the public key by loading account
+      await serverRef.current.loadAccount(publicKeyInput);
+
+      // Save to state and localStorage (view-only mode)
+      setPublicKey(publicKeyInput);
+      setSecretKey(null); // No secret key for view-only
+      setIsConnected(true);
+      
+      localStorage.setItem('stellar_public_key', publicKeyInput);
+      localStorage.removeItem('stellar_secret_key'); // Remove secret key
+
+      // Load account info
+      await loadAccountInfo(publicKeyInput);
+
+      // Update user's public key in backend
+      try {
+        await api.put('/auth/update-public-key', {
+          public_key: publicKeyInput
         });
       } catch (err) {
         console.warn('Failed to update public key in backend:', err);
@@ -308,9 +362,11 @@ export const WalletProvider = ({ children }) => {
     account,
     loading,
     error,
+    wallet: { publicKey, secretKey, isConnected },
     
     // Actions
     connectWallet,
+    connectWalletViewOnly,
     generateWallet,
     disconnectWallet,
     sendTransaction,

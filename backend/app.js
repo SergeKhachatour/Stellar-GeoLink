@@ -12,9 +12,9 @@ const geofenceRoutes = require('./routes/geofence');
 const analyticsRoutes = require('./routes/analytics');
 const alertRoutes = require('./routes/alerts');
 const walletProviderRoutes = require('./routes/walletProvider');
-// const nftRoutes = require('./routes/nft');
-// const locationVerificationRoutes = require('./routes/locationVerification');
-// const nftAnalyticsRoutes = require('./routes/nftAnalytics');
+const nftRoutes = require('./routes/nft');
+const locationVerificationRoutes = require('./routes/locationVerification');
+const nftAnalyticsRoutes = require('./routes/nftAnalytics');
 // const configRoutes = require('./routes/config');
 const { rateLimiter } = require('./middleware/rateLimiter');
 const { authenticateUser } = require('./middleware/authUser');
@@ -46,9 +46,9 @@ app.use('/api/geofence', geofenceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/wallet-provider', walletProviderRoutes);
-// app.use('/api/nft', nftRoutes);
-// app.use('/api/location-verification', locationVerificationRoutes);
-// app.use('/api/nft-analytics', nftAnalyticsRoutes);
+app.use('/api/nft', nftRoutes);
+app.use('/api/location-verification', locationVerificationRoutes);
+app.use('/api/nft-analytics', nftAnalyticsRoutes);
 // app.use('/api/config', configRoutes);
 
 // Debug endpoint to check environment variables and database connection
