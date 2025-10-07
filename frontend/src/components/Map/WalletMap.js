@@ -11,7 +11,7 @@ const WalletMap = ({ wallets, geofences, center, drawingMode, onLocationSelect, 
 
     useEffect(() => {
         if (!map.current) {
-            const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN;
+            const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
             
             if (!mapboxToken) {
                 console.error('REACT_APP_MAPBOX_TOKEN is not set. Please check your environment variables.');

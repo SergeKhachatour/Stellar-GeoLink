@@ -116,7 +116,7 @@ const WalletLocationsManager = () => {
                             label="Wallet Type"
                         >
                             <MenuItem value="">All</MenuItem>
-                            {walletTypes.map(type => (
+                            {Array.isArray(walletTypes) && walletTypes.map(type => (
                                 <MenuItem key={type.id} value={type.id}>{type.name}</MenuItem>
                             ))}
                         </Select>
