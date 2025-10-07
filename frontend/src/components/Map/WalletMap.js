@@ -11,6 +11,7 @@ const WalletMap = ({ wallets, geofences, center, drawingMode, onLocationSelect, 
 
     useEffect(() => {
         if (!map.current) {
+            // Use environment variable for Mapbox token
             const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN;
             
             if (!mapboxToken) {
