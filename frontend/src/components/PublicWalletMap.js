@@ -5,7 +5,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { filterWallets, groupWalletsByCountry } from '../utils/coordinates';
 
 // Initialize Mapbox with your access token
-const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 console.log('Mapbox Token:', MAPBOX_TOKEN ? 'Token exists' : 'No token found');
 
 if (!MAPBOX_TOKEN) {

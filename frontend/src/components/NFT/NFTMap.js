@@ -62,7 +62,7 @@ const NFTMap = () => {
   const markers = useRef([]);
 
   // Mapbox configuration
-  const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+  const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 
   useEffect(() => {
     fetchNFTs();
