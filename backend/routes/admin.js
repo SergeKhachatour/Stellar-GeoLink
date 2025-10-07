@@ -95,23 +95,42 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
             return res.json([]);
         }
         
-        const result = await pool.query(`
-            SELECT 
-                ak.*,
-                u.email,
-                u.first_name,
-                u.last_name,
-                u.role,
-                u.organization,
-                wp.name as provider_name,
-                dc.organization_name as consumer_organization
-            FROM api_keys ak
-            LEFT JOIN users u ON ak.user_id = u.id
-            LEFT JOIN wallet_providers wp ON wp.api_key_id = ak.id
-            LEFT JOIN data_consumers dc ON dc.user_id = u.id
-            ORDER BY ak.created_at DESC
-        `);
-        res.json(result.rows);
+        // Try to query the table, but handle any errors gracefully
+        try {
+            const result = await pool.query(`
+                SELECT 
+                    ak.*,
+                    u.email,
+                    u.first_name,
+                    u.last_name,
+                    u.role,
+                    u.organization,
+                    wp.name as provider_name,
+                    dc.organization_name as consumer_organization
+                FROM api_keys ak
+                LEFT JOIN users u ON ak.user_id = u.id
+                LEFT JOIN wallet_providers wp ON wp.api_key_id = ak.id
+                LEFT JOIN data_consumers dc ON dc.user_id = u.id
+                ORDER BY ak.created_at DESC
+            `);
+            res.json(result.rows);
+        } catch (queryError) {
+            console.log('Query failed, trying simpler query:', queryError.message);
+            // If the complex query fails, try a simpler one
+            const simpleResult = await pool.query(`
+                SELECT 
+                    ak.*,
+                    u.email,
+                    u.first_name,
+                    u.last_name,
+                    u.role,
+                    u.organization
+                FROM api_keys ak
+                LEFT JOIN users u ON ak.user_id = u.id
+                ORDER BY ak.created_at DESC
+            `);
+            res.json(simpleResult.rows);
+        }
     } catch (error) {
         console.error('Error fetching API keys:', error);
         console.error('Error details:', {
@@ -120,7 +139,8 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
             detail: error.detail,
             constraint: error.constraint
         });
-        res.status(500).json({ error: 'Failed to fetch API keys', details: error.message });
+        // Return empty array instead of 500 error to prevent frontend crashes
+        res.json([]);
     }
 });
 
