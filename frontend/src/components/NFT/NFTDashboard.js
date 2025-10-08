@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as turf from '@turf/turf';
+// import * as turf from '@turf/turf'; // Removed unused import
 import {
   Box,
   Container,
@@ -189,7 +189,7 @@ const NFTDashboard = () => {
   const [pinMarkerLocked, setPinMarkerLocked] = useState(false);
   const [isDraggingPin, setIsDraggingPin] = useState(false);
   const [pinMarkerProtected, setPinMarkerProtected] = useState(false);
-  const [addedRadiusCircles, setAddedRadiusCircles] = useState(new Set());
+  // const [addedRadiusCircles, setAddedRadiusCircles] = useState(new Set()); // Removed unused variables
   const [geocoding, setGeocoding] = useState(false);
   const [mapLoading, setMapLoading] = useState(false);
   const [requestInProgress, setRequestInProgress] = useState(false);
@@ -204,7 +204,7 @@ const NFTDashboard = () => {
   const [selectedRarity, setSelectedRarity] = useState('');
   const [radiusFilter] = useState(1000); // Removed setRadiusFilter as it's unused
   // Clustering removed - individual markers only
-  const [markerUpdateTimeout, setMarkerUpdateTimeout] = useState(null);
+  // const [markerUpdateTimeout, setMarkerUpdateTimeout] = useState(null); // Removed unused variable
   const [isUserMovingMap, setIsUserMovingMap] = useState(false);
   const [markersStable, setMarkersStable] = useState(false);
   const [markersCreated, setMarkersCreated] = useState(false);
@@ -596,7 +596,7 @@ const NFTDashboard = () => {
       setLoading(false);
       setMapLoading(false);
     }
-  }, [nearbyNFTs, userLocation, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker]);
+  }, [nearbyNFTs, userLocation, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
 
   // Function to create clusters when zoomed out
   const createClusters = (nfts, map) => {
@@ -1111,7 +1111,7 @@ const NFTDashboard = () => {
       console.error('Error initializing map:', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker]);
+  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker, addZoomListener, createNFTFilterControl]);
 
 
   useEffect(() => {
@@ -1296,7 +1296,7 @@ const NFTDashboard = () => {
       console.log('Force creating initial markers...');
       updateMapMarkers('main', true);
     }
-  }, [map.current, nearbyNFTs.length, markersCreated, updateMapMarkers]);
+  }, [nearbyNFTs.length, markersCreated, updateMapMarkers]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
