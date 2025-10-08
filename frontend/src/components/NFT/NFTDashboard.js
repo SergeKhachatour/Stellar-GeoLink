@@ -184,6 +184,7 @@ const NFTDashboard = () => {
   const [lastRequestTime, setLastRequestTime] = useState(0);
   const [collectionFetched, setCollectionFetched] = useState(false);
   const requestCooldown = 3000; // 3 seconds cooldown between requests
+  // Trigger new deployment - ESLint errors fixed, ready for production build
   const mapContainer = useRef(null);
   const overlayMapContainer = useRef(null);
   const map = useRef(null);
