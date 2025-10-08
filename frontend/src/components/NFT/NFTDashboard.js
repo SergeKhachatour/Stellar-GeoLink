@@ -182,10 +182,8 @@ const NFTDashboard = () => {
   const [mapLoading, setMapLoading] = useState(false);
   const [requestInProgress, setRequestInProgress] = useState(false);
   const [lastRequestTime, setLastRequestTime] = useState(0);
-  const [requestCount, setRequestCount] = useState(0);
   const [collectionFetched, setCollectionFetched] = useState(false);
   const requestCooldown = 3000; // 3 seconds cooldown between requests
-  const maxRequestsPerMinute = 10; // Maximum 10 requests per minute
   const mapContainer = useRef(null);
   const overlayMapContainer = useRef(null);
   const map = useRef(null);
