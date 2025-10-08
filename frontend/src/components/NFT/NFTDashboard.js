@@ -634,14 +634,7 @@ const NFTDashboard = () => {
     }
   }, [isConnected, wallet?.publicKey, collectionFetched, fetchUserCollection]);
 
-  // Reset request counter every minute
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setRequestCount(0);
-    }, 60000); // Reset every minute
-
-    return () => clearInterval(interval);
-  }, []);
+  // Request counter removed - no longer needed
 
   // Auto-connect wallet using user's stored public key
   useEffect(() => {
