@@ -27,7 +27,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Slider,
+  // Slider, // Removed unused import
 } from '@mui/material';
 import {
   ArrowBackIos,
@@ -199,10 +199,10 @@ const NFTDashboard = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState(null);
   const [mapView, setMapView] = useState('3d'); // '2d', '3d', 'satellite'
-  const [showFilters, setShowFilters] = useState(false);
+  // const [showFilters, setShowFilters] = useState(false); // Removed unused variables
   const [selectedCollection, setSelectedCollection] = useState('');
   const [selectedRarity, setSelectedRarity] = useState('');
-  const [radiusFilter, setRadiusFilter] = useState(1000);
+  const [radiusFilter] = useState(1000); // Removed setRadiusFilter as it's unused
   // Clustering removed - individual markers only
   const [markerUpdateTimeout, setMarkerUpdateTimeout] = useState(null);
   const [isUserMovingMap, setIsUserMovingMap] = useState(false);
@@ -363,159 +363,41 @@ const NFTDashboard = () => {
     }
   }, [requestInProgress, lastRequestTime, requestCooldown]);
 
-  // Debounced marker update to prevent excessive updates
-  const debouncedUpdateMarkers = useCallback((mapType = 'main') => {
-    // Clear existing timeout
-    if (markerUpdateTimeout) {
-      clearTimeout(markerUpdateTimeout);
-    }
-    
-    // Set new timeout
-    const timeout = setTimeout(() => {
-      updateMapMarkers(mapType);
-      setMarkerUpdateTimeout(null);
-    }, 500); // 500ms debounce
-    
-    setMarkerUpdateTimeout(timeout);
-  }, [markerUpdateTimeout]);
+  // Debounced marker update to prevent excessive updates - REMOVED UNUSED
+  // const debouncedUpdateMarkers = useCallback((mapType = 'main') => {
+  //   // Clear existing timeout
+  //   if (markerUpdateTimeout) {
+  //     clearTimeout(markerUpdateTimeout);
+  //   }
+  //   
+  //   // Set new timeout
+  //   const timeout = setTimeout(() => {
+  //     updateMapMarkers(mapType);
+  //     setMarkerUpdateTimeout(null);
+  //   }, 500); // 500ms debounce
+  //   
+  //   setMarkerUpdateTimeout(timeout);
+  // }, [markerUpdateTimeout]);
 
-  // Helper function to calculate distance between two points
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
+  // Helper function to calculate distance between two points - REMOVED UNUSED
+  // const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  //   const R = 6371e3; // Earth's radius in meters
+  //   const φ1 = lat1 * Math.PI/180;
+  //   const φ2 = lat2 * Math.PI/180;
+  //   const Δφ = (lat2-lat1) * Math.PI/180;
+  //   const Δλ = (lon2-lon1) * Math.PI/180;
 
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  //   const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+  //           Math.cos(φ1) * Math.cos(φ2) *
+  //           Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 
-    return R * c; // Distance in meters
-  };
+  //   return R * c; // Distance in meters
+  // };
 
-  // Helper function to clear all radius circles
-  const clearAllRadiusCircles = (map) => {
-    try {
-      // Get all sources and layers
-      const style = map.getStyle();
-      if (style && style.layers) {
-        // Remove layers first (in reverse order)
-        style.layers.forEach(layer => {
-          if (layer.id.startsWith('radius-circle-')) {
-            try {
-              if (map.getLayer(layer.id)) {
-                map.removeLayer(layer.id);
-              }
-            } catch (error) {
-              console.log(`Layer ${layer.id} already removed or doesn't exist`);
-            }
-          }
-        });
-      }
-      
-      if (style && style.sources) {
-        // Then remove sources
-        Object.keys(style.sources).forEach(sourceId => {
-          if (sourceId.startsWith('radius-circle-')) {
-            try {
-              if (map.getSource(sourceId)) {
-                map.removeSource(sourceId);
-              }
-            } catch (error) {
-              console.log(`Source ${sourceId} already removed or doesn't exist`);
-            }
-          }
-        });
-      }
-      
-      // Clear tracking set
-      setAddedRadiusCircles(new Set());
-      
-      console.log('✅ All radius circles cleared');
-    } catch (error) {
-      console.error('Error clearing radius circles:', error);
-    }
-  };
-
-  // Helper function to add radius circle to map
-  const addRadiusCircle = (map, lng, lat, radiusMeters) => {
-    try {
-      const radiusKm = radiusMeters / 1000;
-      
-      // Create circle source
-      const circleId = `radius-circle-${lng}-${lat}`;
-      const strokeId = `${circleId}-stroke`;
-      
-      // Check if already added
-      if (addedRadiusCircles.has(circleId)) {
-        console.log(`⏭️ Radius circle already exists for ${lat}, ${lng}`);
-        return;
-      }
-      
-      // Remove existing layers first (in reverse order)
-      if (map.getLayer(strokeId)) {
-        map.removeLayer(strokeId);
-      }
-      if (map.getLayer(circleId)) {
-        map.removeLayer(circleId);
-      }
-      
-      // Remove existing source
-      if (map.getSource(circleId)) {
-        map.removeSource(circleId);
-      }
-      
-      // Wait a bit to ensure cleanup is complete
-      setTimeout(() => {
-        try {
-          // Create circle geometry using turf.js
-          const circle = turf.circle([lng, lat], radiusKm, { steps: 64, units: 'kilometers' });
-          
-          // Add source
-          map.addSource(circleId, {
-            type: 'geojson',
-            data: circle
-          });
-          
-          // Add fill layer
-          map.addLayer({
-            id: circleId,
-            type: 'fill',
-            source: circleId,
-            paint: {
-              'fill-color': '#ff0000',
-              'fill-opacity': 0.1
-            }
-          });
-          
-          // Add stroke layer
-          map.addLayer({
-            id: strokeId,
-            type: 'line',
-            source: circleId,
-            paint: {
-              'line-color': '#ff0000',
-              'line-width': 2,
-              'line-opacity': 0.8
-            }
-          });
-          
-          // Track this circle
-          setAddedRadiusCircles(prev => new Set([...prev, circleId]));
-          
-          console.log(`✅ Radius circle added for NFT at ${lat}, ${lng} with radius ${radiusMeters}m`);
-        } catch (innerError) {
-          console.error('Error in radius circle creation:', innerError);
-        }
-      }, 100); // Small delay to ensure cleanup is complete
-      
-    } catch (error) {
-      console.error('Error adding radius circle:', error);
-      // Don't throw error, just log it
-    }
-  };
+  // Helper functions for radius circles - REMOVED UNUSED
+  // const clearAllRadiusCircles = (map) => { ... }
+  // const addRadiusCircle = (map, lng, lat, radiusMeters) => { ... }
 
   const updateMapMarkers = useCallback((mapType = 'main', forceUpdate = false) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
@@ -1229,7 +1111,7 @@ const NFTDashboard = () => {
       console.error('Error initializing map:', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs, updateMapMarkers]);
+  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker]);
 
 
   useEffect(() => {
@@ -2216,7 +2098,7 @@ const NFTDashboard = () => {
       };
       
       console.log('Pinning NFT with data:', pinData);
-      const response = await api.post('/nft/pin', pinData);
+      await api.post('/nft/pin', pinData); // Response not needed
 
       // Enhanced success confirmation
       setSuccess(`🎉 NFT "${pinForm.name}" pinned successfully at ${finalLatitude.toFixed(8)}, ${finalLongitude.toFixed(8)}!`);
