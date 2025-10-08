@@ -41,7 +41,8 @@ import {
   MyLocation as MyLocationIcon,
   ZoomIn as ZoomInIcon,
   ZoomOut as ZoomOutIcon,
-  Fullscreen as FullscreenIcon
+  Fullscreen as FullscreenIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -72,8 +73,12 @@ const PinNFTMap = () => {
     gps_verification: false,
     admin_approval: false
   });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const mapContainer = useRef(null);
   const markerRef = useRef(null);
+  const searchTimeout = useRef(null);
 
   // Mapbox configuration
   const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -199,11 +204,24 @@ const PinNFTMap = () => {
 
   const handleSubmitPin = async () => {
     try {
-      // await api.post('/nft/pin', {
-      //   ...pinForm,
-      //   ...verificationData
-      // });
-      console.log('Pin NFT:', pinForm, verificationData);
+      // Validate required fields
+      if (!pinForm.collection_id || !pinForm.latitude || !pinForm.longitude || !pinForm.ipfs_hash) {
+        setError('Please fill in all required fields');
+        return;
+      }
+
+      const response = await api.post('/nft/pin', {
+        collection_id: pinForm.collection_id,
+        latitude: pinForm.latitude,
+        longitude: pinForm.longitude,
+        radius_meters: pinForm.radius_meters,
+        ipfs_hash: pinForm.ipfs_hash,
+        smart_contract_address: pinForm.smart_contract_address,
+        rarity_requirements: pinForm.rarity_requirements,
+        is_active: pinForm.is_active
+      });
+      
+      console.log('NFT pinned successfully:', response.data);
       alert('NFT pinned successfully!');
       setOpenDialog(false);
       
@@ -213,8 +231,20 @@ const PinNFTMap = () => {
         markerRef.current = null;
       }
       setSelectedLocation(null);
+      
+      // Reset form
+      setPinForm({
+        collection_id: '',
+        ipfs_hash: '',
+        latitude: '',
+        longitude: '',
+        radius_meters: 10,
+        rarity_requirements: {},
+        smart_contract_address: '',
+        is_active: true
+      });
     } catch (err) {
-      setError('Failed to pin NFT');
+      setError('Failed to pin NFT: ' + (err.response?.data?.error || err.message));
       console.error('Error pinning NFT:', err);
     }
   };
@@ -227,6 +257,117 @@ const PinNFTMap = () => {
       });
     }
   };
+
+  // Geocoding function for address search
+  const searchAddress = async (query) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    console.log('Searching for:', query);
+    console.log('Mapbox token:', MAPBOX_TOKEN ? 'Present' : 'Missing');
+
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=5`
+      );
+      const data = await response.json();
+      
+      console.log('Search response:', data);
+      
+      if (data.features) {
+        setSearchResults(data.features);
+        setShowSearchResults(true);
+        console.log('Search results:', data.features);
+      }
+    } catch (err) {
+      console.error('Error searching address:', err);
+      setError('Failed to search address');
+    }
+  };
+
+  // Handle search input change
+  const handleSearchChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    
+    // Clear previous timeout
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+    
+    // If query is empty, hide results
+    if (!query.trim()) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+    
+    // Debounce search
+    searchTimeout.current = setTimeout(() => {
+      searchAddress(query);
+    }, 300);
+  };
+
+  // Handle search result selection
+  const handleSearchResultClick = (result) => {
+    const [lng, lat] = result.center;
+    setSearchQuery(result.place_name);
+    setShowSearchResults(false);
+    
+    // Update form with coordinates
+    setPinForm(prev => ({
+      ...prev,
+      latitude: lat,
+      longitude: lng
+    }));
+    
+    // Center map on result
+    if (map) {
+      map.flyTo({
+        center: [lng, lat],
+        zoom: 15
+      });
+      
+      // Add marker at location
+      if (markerRef.current) {
+        markerRef.current.remove();
+      }
+      
+      const marker = new mapboxgl.Marker()
+        .setLngLat([lng, lat])
+        .addTo(map);
+      
+      markerRef.current = marker;
+      setSelectedLocation({ lat, lng });
+    }
+  };
+
+  // Handle Enter key press
+  const handleSearchKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      searchAddress(searchQuery);
+    }
+  };
+
+  // Close search results when clicking outside
+  const handleClickOutside = (e) => {
+    if (e.target.closest('.search-container')) {
+      return;
+    }
+    setShowSearchResults(false);
+  };
+
+  // Add click outside listener
+  useEffect(() => {
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const steps = [
     'NFT Details',
@@ -273,7 +414,7 @@ const PinNFTMap = () => {
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Click on the map to select where you want to pin your NFT. Make sure you have the right to place NFTs at this location.
         </Typography>
-        <Box display="flex" gap={2} mt={2}>
+        <Box display="flex" gap={2} mt={2} flexWrap="wrap">
           <Button
             variant="outlined"
             startIcon={<MyLocationIcon />}
@@ -295,6 +436,61 @@ const PinNFTMap = () => {
           >
             Zoom Out
           </Button>
+        </Box>
+        
+        {/* Address Search */}
+        <Box sx={{ mt: 2, position: 'relative' }} className="search-container">
+          <TextField
+            fullWidth
+            label="Search for a location"
+            placeholder="Enter address, city, or landmark..."
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onKeyPress={handleSearchKeyPress}
+            InputProps={{
+              startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
+            }}
+          />
+          
+          {/* Search Results Dropdown */}
+          {showSearchResults && searchResults.length > 0 && (
+            <Paper
+              sx={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                right: 0,
+                zIndex: 1000,
+                maxHeight: 200,
+                overflow: 'auto',
+                mt: 1,
+                boxShadow: 3
+              }}
+            >
+              {searchResults.map((result, index) => (
+                <Box
+                  key={index}
+                  sx={{
+                    p: 2,
+                    cursor: 'pointer',
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    '&:hover': {
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                  onClick={() => handleSearchResultClick(result)}
+                >
+                  <Typography variant="body2" fontWeight="bold">
+                    {result.text}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {result.place_name}
+                  </Typography>
+                </Box>
+              ))}
+            </Paper>
+          )}
         </Box>
       </Paper>
 
@@ -371,6 +567,62 @@ const PinNFTMap = () => {
                         ))}
                       </Select>
                     </FormControl>
+                    
+                    {/* Address Search in Dialog */}
+                    <Box sx={{ mt: 2, position: 'relative' }} className="search-container">
+                      <TextField
+                        fullWidth
+                        label="Search for a location"
+                        placeholder="Enter address, city, or landmark..."
+                        value={searchQuery}
+                        onChange={handleSearchChange}
+                        onKeyPress={handleSearchKeyPress}
+                        margin="normal"
+                        InputProps={{
+                          startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
+                        }}
+                      />
+                      
+                      {/* Search Results Dropdown */}
+                      {showSearchResults && searchResults.length > 0 && (
+                        <Paper
+                          sx={{
+                            position: 'absolute',
+                            top: '100%',
+                            left: 0,
+                            right: 0,
+                            zIndex: 1000,
+                            maxHeight: 200,
+                            overflow: 'auto',
+                            mt: 1,
+                            boxShadow: 3
+                          }}
+                        >
+                          {searchResults.map((result, index) => (
+                            <Box
+                              key={index}
+                              sx={{
+                                p: 2,
+                                cursor: 'pointer',
+                                borderBottom: '1px solid',
+                                borderColor: 'divider',
+                                '&:hover': {
+                                  backgroundColor: 'action.hover'
+                                }
+                              }}
+                              onClick={() => handleSearchResultClick(result)}
+                            >
+                              <Typography variant="body2" fontWeight="bold">
+                                {result.text}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {result.place_name}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Paper>
+                      )}
+                    </Box>
                     
                     <TextField
                       fullWidth
