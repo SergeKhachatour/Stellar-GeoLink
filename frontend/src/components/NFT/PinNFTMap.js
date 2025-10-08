@@ -45,6 +45,7 @@ import {
 } from '@mui/icons-material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import api from '../../services/api';
 
 const PinNFTMap = () => {
   const [collections, setCollections] = useState([]);
@@ -91,49 +92,12 @@ const PinNFTMap = () => {
   const fetchCollections = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await api.get('/nft/collections');
-      // setCollections(response.data);
-      
-      // Mock data for now
-      setCollections([
-        {
-          id: 1,
-          name: 'Stellar Explorer',
-          description: 'Discover the cosmos with Stellar NFTs',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'common',
-          collection_requirements: {
-            min_distance: 100,
-            max_per_user: 5
-          }
-        },
-        {
-          id: 2,
-          name: 'Galaxy Guardian',
-          description: 'Rare NFTs for protecting the galaxy',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'rare',
-          collection_requirements: {
-            min_distance: 50,
-            max_per_user: 3
-          }
-        },
-        {
-          id: 3,
-          name: 'Cosmic Legend',
-          description: 'Legendary NFTs from the depths of space',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'legendary',
-          collection_requirements: {
-            min_distance: 10,
-            max_per_user: 1
-          }
-        }
-      ]);
+      const response = await api.get('/nft/collections');
+      setCollections(response.data || []);
     } catch (err) {
       setError('Failed to fetch NFT collections');
       console.error('Error fetching collections:', err);
+      setCollections([]);
     } finally {
       setLoading(false);
     }

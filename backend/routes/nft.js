@@ -76,6 +76,22 @@ router.get('/pinned', authenticateUser, async (req, res) => {
 // Pin a new NFT
 router.post('/pin', authenticateUser, async (req, res) => {
     try {
+        // Check if NFT tables exist
+        const tableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('pinned_nfts', 'nft_collections')
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            console.log('NFT tables do not exist, cannot pin NFT');
+            return res.status(503).json({ 
+                error: 'NFT system not available. Database tables are missing. Please contact administrator.' 
+            });
+        }
+
         const {
             collection_id,
             latitude,
@@ -116,6 +132,12 @@ router.post('/pin', authenticateUser, async (req, res) => {
         });
     } catch (error) {
         console.error('Error pinning NFT:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint
+        });
         res.status(500).json({ error: 'Failed to pin NFT' });
     }
 });
@@ -313,6 +335,40 @@ router.post('/collect', authenticateUser, async (req, res) => {
 // Get user's NFT collection
 router.get('/user-collection', authenticateUser, async (req, res) => {
     try {
+        // Check if NFT tables exist
+        const tableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('user_nft_ownership', 'pinned_nfts', 'nft_collections')
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            console.log('NFT tables do not exist, returning empty collection');
+            return res.json({
+                collection: [],
+                count: 0
+            });
+        }
+        
+        // Check if user_nft_ownership table exists specifically
+        const ownershipTableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'user_nft_ownership'
+            );
+        `);
+        
+        if (!ownershipTableCheck.rows[0].exists) {
+            console.log('user_nft_ownership table does not exist, returning empty collection');
+            return res.json({
+                collection: [],
+                count: 0
+            });
+        }
+
         const result = await pool.query(`
             SELECT uno.*, pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level
             FROM user_nft_ownership uno
@@ -347,7 +403,18 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching user collection:', error);
-        res.status(500).json({ error: 'Failed to fetch user collection' });
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint
+        });
+        
+        // Return empty collection instead of 500 error
+        res.json({
+            collection: [],
+            count: 0
+        });
     }
 });
 

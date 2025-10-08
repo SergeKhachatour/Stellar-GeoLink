@@ -183,6 +183,7 @@ const NFTDashboard = () => {
   const [requestInProgress, setRequestInProgress] = useState(false);
   const [lastRequestTime, setLastRequestTime] = useState(0);
   const [requestCount, setRequestCount] = useState(0);
+  const [collectionFetched, setCollectionFetched] = useState(false);
   const requestCooldown = 3000; // 3 seconds cooldown between requests
   const maxRequestsPerMinute = 10; // Maximum 10 requests per minute
   const mapContainer = useRef(null);
@@ -194,25 +195,10 @@ const NFTDashboard = () => {
 
   // Function definitions (moved before useEffect to avoid hoisting issues)
   const fetchUserCollection = useCallback(async () => {
-    if (!isConnected || requestInProgress) return;
+    if (!isConnected || collectionFetched) return;
     
-    // Check cooldown
-    const now = Date.now();
-    if (now - lastRequestTime < requestCooldown) {
-      console.log('Request too soon, skipping...');
-      return;
-    }
-    
-    // Check request rate limit
-    if (requestCount >= maxRequestsPerMinute) {
-      console.log('Too many requests, rate limited');
-      setError('Too many requests. Please wait before trying again.');
-      return;
-    }
-    
-    setRequestInProgress(true);
-    setLastRequestTime(now);
-    setRequestCount(prev => prev + 1);
+    console.log('Fetching user collection...');
+    setCollectionFetched(true);
     setLoading(true);
     try {
       const response = await api.get('/nft/user-collection');
@@ -234,14 +220,16 @@ const NFTDashboard = () => {
       });
       
       setUserCollection(collectionData);
+      console.log('User collection updated:', collectionData.length, 'NFTs');
     } catch (err) {
       console.error('Error fetching user collection:', err);
       setError('Failed to fetch your NFT collection.');
+      // Set empty collection on error
+      setUserCollection([]);
     } finally {
       setLoading(false);
-      setRequestInProgress(false);
     }
-  }, [isConnected, requestInProgress, lastRequestTime, requestCooldown, requestCount]);
+  }, [isConnected, collectionFetched]);
 
   const fetchNearbyNFTs = useCallback(async () => {
     if (!userLocation || requestInProgress) {
@@ -354,17 +342,24 @@ const NFTDashboard = () => {
     if (!currentMap.current.isStyleLoaded()) {
       console.log('Map style not loaded, waiting...');
       setMapLoading(true);
-      // Use a timeout instead of event listener to avoid infinite loops
-      setTimeout(() => {
+      
+      // Use a longer timeout and better retry logic
+      const checkStyleLoaded = (attempt = 1) => {
         if (currentMap.current && currentMap.current.isStyleLoaded()) {
           console.log('Style loaded on retry, updating markers...');
           setMapLoading(false);
           updateMapMarkers(mapType);
+        } else if (attempt < 5) {
+          console.log(`Style not ready, retrying in ${attempt * 500}ms...`);
+          setTimeout(() => checkStyleLoaded(attempt + 1), attempt * 500);
         } else {
-          console.warn('Style still not loaded after timeout');
+          console.warn('Style still not loaded after multiple attempts, proceeding anyway');
           setMapLoading(false);
+          updateMapMarkers(mapType);
         }
-      }, 1000);
+      };
+      
+      setTimeout(() => checkStyleLoaded(), 1000);
       return;
     }
 
@@ -625,6 +620,21 @@ const NFTDashboard = () => {
     return () => clearTimeout(timeout);
   }, [user, isConnected, wallet?.publicKey, fetchUserCollection, loading, requestInProgress]);
 
+  // Reset collection fetched flag when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setCollectionFetched(false);
+    }
+  }, [isConnected]);
+
+  // Fetch user collection when wallet connects
+  useEffect(() => {
+    if (isConnected && wallet?.publicKey && !collectionFetched) {
+      console.log('Wallet connected, fetching user collection...');
+      fetchUserCollection();
+    }
+  }, [isConnected, wallet?.publicKey, collectionFetched, fetchUserCollection]);
+
   // Reset request counter every minute
   useEffect(() => {
     const interval = setInterval(() => {
@@ -707,24 +717,25 @@ const NFTDashboard = () => {
 
   useEffect(() => {
     if (openMapDialog) {
-      // Multiple attempts to initialize the map with increasing delays
+      // Wait for the dialog to be fully rendered before initializing map
       const attemptInitialization = (attempt = 1) => {
         console.log(`Attempt ${attempt} to initialize overlay map...`);
         
-        if (overlayMapContainer.current && !overlayMap.current) {
-          console.log('Container found, initializing map...');
+        // Check if container exists and is visible
+        if (overlayMapContainer.current && overlayMapContainer.current.offsetParent !== null && !overlayMap.current) {
+          console.log('Container found and visible, initializing map...');
           initializeMap(overlayMapContainer.current, 'overlay');
-        } else if (attempt < 5) {
-          console.log(`Container not ready, retrying in ${attempt * 200}ms...`);
-          setTimeout(() => attemptInitialization(attempt + 1), attempt * 200);
+        } else if (attempt < 3) {
+          console.log(`Container not ready, retrying in ${attempt * 300}ms...`);
+          setTimeout(() => attemptInitialization(attempt + 1), attempt * 300);
         } else {
-          console.error('Failed to initialize overlay map after 5 attempts');
-          setError('Failed to load map. Please try again.');
+          console.warn('Overlay map initialization skipped - container not ready');
+          // Don't show error, just skip the map initialization
         }
       };
       
-      // Start with a small delay to ensure DOM is ready
-      setTimeout(() => attemptInitialization(), 100);
+      // Start with a longer delay to ensure dialog is fully rendered
+      setTimeout(() => attemptInitialization(), 500);
     }
     
     // Cleanup overlay map when dialog closes
@@ -983,6 +994,7 @@ const NFTDashboard = () => {
 
       setSuccess(response.data.message);
       fetchNearbyNFTs(); // Refresh nearby NFTs
+      setCollectionFetched(false); // Reset flag to allow collection refresh
       fetchUserCollection(); // Refresh user collection
     } catch (err) {
       console.error('Error collecting NFT:', err);

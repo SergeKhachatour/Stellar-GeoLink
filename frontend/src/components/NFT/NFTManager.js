@@ -52,6 +52,7 @@ import {
   Analytics as AnalyticsIcon,
   Security as SecurityIcon
 } from '@mui/icons-material';
+import api from '../../services/api';
 
 const NFTManager = () => {
   const [collections, setCollections] = useState([]);
@@ -88,56 +89,12 @@ const NFTManager = () => {
   const fetchCollections = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await api.get('/nft/collections');
-      // setCollections(response.data);
-      
-      // Mock data for now
-      setCollections([
-        {
-          id: 1,
-          name: 'Stellar Explorer',
-          description: 'Discover the cosmos with Stellar NFTs',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'common',
-          created_at: '2024-01-01T00:00:00Z',
-          collection_requirements: {
-            min_distance: 100,
-            max_per_user: 5,
-            time_restrictions: null
-          }
-        },
-        {
-          id: 2,
-          name: 'Galaxy Guardian',
-          description: 'Rare NFTs for protecting the galaxy',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'rare',
-          created_at: '2024-01-01T00:00:00Z',
-          collection_requirements: {
-            min_distance: 50,
-            max_per_user: 3,
-            time_restrictions: 'night_only'
-          }
-        },
-        {
-          id: 3,
-          name: 'Cosmic Legend',
-          description: 'Legendary NFTs from the depths of space',
-          image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-          rarity_level: 'legendary',
-          created_at: '2024-01-01T00:00:00Z',
-          collection_requirements: {
-            min_distance: 10,
-            max_per_user: 1,
-            time_restrictions: 'full_moon_only',
-            prerequisite_collections: [1, 2]
-          }
-        }
-      ]);
+      const response = await api.get('/nft/collections');
+      setCollections(response.data || []);
     } catch (err) {
       setError('Failed to fetch NFT collections');
       console.error('Error fetching collections:', err);
+      setCollections([]);
     } finally {
       setLoading(false);
     }
@@ -145,46 +102,12 @@ const NFTManager = () => {
 
   const fetchPinnedNFTs = async () => {
     try {
-      // TODO: Replace with actual API call
-      // const response = await api.get('/nft/pinned');
-      // setPinnedNFTs(response.data);
-      
-      // Mock data for now
-      setPinnedNFTs([
-        {
-          id: 1,
-          collection_id: 1,
-          latitude: 40.7128,
-          longitude: -74.0060,
-          radius_meters: 10,
-          ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-          smart_contract_address: 'GTestAddress123456789',
-          is_active: true,
-          pinned_at: '2024-01-15T10:30:00Z',
-          collection: {
-            name: 'Stellar Explorer',
-            rarity_level: 'common'
-          }
-        },
-        {
-          id: 2,
-          collection_id: 2,
-          latitude: 40.7589,
-          longitude: -73.9851,
-          radius_meters: 5,
-          ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-          smart_contract_address: 'GTestAddress987654321',
-          is_active: true,
-          pinned_at: '2024-01-16T14:20:00Z',
-          collection: {
-            name: 'Galaxy Guardian',
-            rarity_level: 'rare'
-          }
-        }
-      ]);
+      const response = await api.get('/nft/pinned');
+      setPinnedNFTs(response.data || []);
     } catch (err) {
       setError('Failed to fetch pinned NFTs');
       console.error('Error fetching pinned NFTs:', err);
+      setPinnedNFTs([]);
     }
   };
 

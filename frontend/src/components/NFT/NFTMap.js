@@ -41,6 +41,7 @@ import {
 } from '@mui/icons-material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import api from '../../services/api';
 
 const NFTMap = () => {
   const [nfts, setNfts] = useState([]);
@@ -88,73 +89,18 @@ const NFTMap = () => {
   const fetchNFTs = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await api.get('/nft/nearby', {
-      //   params: {
-      //     latitude: userLocation?.lat,
-      //     longitude: userLocation?.lng,
-      //     radius: filters.radius
-      //   }
-      // });
-      // setNfts(response.data.nfts);
-      
-      // Mock data for now
-      setNfts([
-        {
-          id: 1,
-          collection_id: 1,
-          latitude: 40.7128,
-          longitude: -74.0060,
-          radius_meters: 10,
-          ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-          smart_contract_address: 'GTestAddress123456789',
-          is_active: true,
-          is_collected: false,
-          collection: {
-            name: 'Stellar Explorer',
-            description: 'Discover the cosmos with Stellar NFTs',
-            image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-            rarity_level: 'common'
-          }
-        },
-        {
-          id: 2,
-          collection_id: 2,
-          latitude: 40.7589,
-          longitude: -73.9851,
-          radius_meters: 5,
-          ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-          smart_contract_address: 'GTestAddress987654321',
-          is_active: true,
-          is_collected: true,
-          collection: {
-            name: 'Galaxy Guardian',
-            description: 'Rare NFTs for protecting the galaxy',
-            image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-            rarity_level: 'rare'
-          }
-        },
-        {
-          id: 3,
-          collection_id: 3,
-          latitude: 40.7505,
-          longitude: -73.9934,
-          radius_meters: 3,
-          ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-          smart_contract_address: 'GTestAddress555666777',
-          is_active: true,
-          is_collected: false,
-          collection: {
-            name: 'Cosmic Legend',
-            description: 'Legendary NFTs from the depths of space',
-            image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-            rarity_level: 'legendary'
-          }
+      const response = await api.get('/nft/nearby', {
+        params: {
+          latitude: userLocation?.lat,
+          longitude: userLocation?.lng,
+          radius: filters.radius
         }
-      ]);
+      });
+      setNfts(response.data.nfts || []);
     } catch (err) {
-      setError('Failed to fetch NFTs');
+      setError('Failed to fetch nearby NFTs');
       console.error('Error fetching NFTs:', err);
+      setNfts([]);
     } finally {
       setLoading(false);
     }

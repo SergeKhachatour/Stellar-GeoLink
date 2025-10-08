@@ -512,14 +512,41 @@ INSERT INTO nft_collections (name, description, image_url, rarity_level) VALUES
 ('Cosmic Legends', 'Legendary artifacts from the depths of space', 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=400&h=300&fit=crop', 'legendary')
 ON CONFLICT DO NOTHING;
 
+-- Insert sample pinned NFTs
+INSERT INTO pinned_nfts (collection_id, latitude, longitude, radius_meters, pinned_by_user, current_owner, is_active) VALUES
+(1, 40.7128, -74.0060, 50, 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', true),
+(2, 34.0522, -118.2437, 100, 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', true),
+(3, 51.5074, -0.1278, 25, 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', 'GABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCD', true)
+ON CONFLICT DO NOTHING;
+
 -- =====================================================
 -- FUNCTIONS & TRIGGERS FOR NFT SYSTEM
 -- =====================================================
 
+-- Create updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
 -- Triggers for updated_at
-CREATE TRIGGER IF NOT EXISTS update_nft_collections_updated_at BEFORE UPDATE ON nft_collections FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER IF NOT EXISTS update_pinned_nfts_updated_at BEFORE UPDATE ON pinned_nfts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER IF NOT EXISTS update_user_nft_ownership_updated_at BEFORE UPDATE ON user_nft_ownership FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_nft_collections_updated_at ON nft_collections;
+CREATE TRIGGER update_nft_collections_updated_at 
+    BEFORE UPDATE ON nft_collections 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_pinned_nfts_updated_at ON pinned_nfts;
+CREATE TRIGGER update_pinned_nfts_updated_at 
+    BEFORE UPDATE ON pinned_nfts 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS update_user_nft_ownership_updated_at ON user_nft_ownership;
+CREATE TRIGGER update_user_nft_ownership_updated_at 
+    BEFORE UPDATE ON user_nft_ownership 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
 -- VIEWS FOR NFT ANALYTICS
@@ -568,22 +595,24 @@ GROUP BY nc.id, nc.name, nc.rarity_level;
 DO $$
 BEGIN
     RAISE NOTICE '=====================================================';
-    RAISE NOTICE 'Stellar-GeoLink Database Schema Created Successfully!';
+    RAISE NOTICE 'Stellar-GeoLink Complete Database Schema Created!';
     RAISE NOTICE '=====================================================';
-    RAISE NOTICE 'Tables created: users, api_keys, geofences, location_updates,';
-    RAISE NOTICE 'nft_collections, pinned_nfts, user_nft_ownership, nft_transfers,';
-    RAISE NOTICE 'location_verifications, api_usage, alerts';
+    RAISE NOTICE 'Core Tables: users, api_keys, geofences, wallet_locations,';
+    RAISE NOTICE 'alert_preferences, location_events, user_sessions';
+    RAISE NOTICE '';
+    RAISE NOTICE 'NFT System Tables: nft_collections, pinned_nfts,';
+    RAISE NOTICE 'user_nft_ownership, nft_transfers, location_verifications';
     RAISE NOTICE '';
     RAISE NOTICE 'Features included:';
-    RAISE NOTICE '- User management with role-based access';
+    RAISE NOTICE '- Complete user management with role-based access';
     RAISE NOTICE '- Stellar wallet integration (public_key support)';
-    RAISE NOTICE '- Location-based NFT system';
-    RAISE NOTICE '- Geofencing capabilities';
-    RAISE NOTICE '- API key management';
-    RAISE NOTICE '- Analytics and monitoring';
-    RAISE NOTICE '- Sample data and admin user';
+    RAISE NOTICE '- Location-based NFT pinning and collection system';
+    RAISE NOTICE '- Geofencing and location tracking capabilities';
+    RAISE NOTICE '- API key management and usage tracking';
+    RAISE NOTICE '- Analytics views and monitoring';
+    RAISE NOTICE '- Sample NFT collections and pinned NFTs';
+    RAISE NOTICE '- Automatic timestamp triggers';
     RAISE NOTICE '';
-    RAISE NOTICE 'Default admin user: admin@stellargeolink.com';
-    RAISE NOTICE 'Default password: admin123';
+    RAISE NOTICE 'Your Stellar-GeoLink NFT system is ready! 🚀';
     RAISE NOTICE '=====================================================';
 END $$; 

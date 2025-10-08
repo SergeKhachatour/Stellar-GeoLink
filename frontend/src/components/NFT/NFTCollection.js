@@ -31,6 +31,7 @@ import {
   CardMedia,
   Stack
 } from '@mui/material';
+import api from '../../services/api';
 import {
   Visibility as ViewIcon,
   MonetizationOn as PriceIcon,
@@ -67,64 +68,12 @@ const NFTCollection = () => {
   const fetchUserCollection = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API call
-      // const response = await api.get('/nft/user-collection');
-      // setUserNFTs(response.data.collection);
-      
-      // Mock data for now
-      setUserNFTs([
-        {
-          id: 1,
-          nft_id: 1,
-          user_public_key: 'GTestUser123456789',
-          collected_at: '2024-01-15T10:30:00Z',
-          transfer_count: 0,
-          current_owner: 'GTestUser123456789',
-          is_active: true,
-          nft: {
-            id: 1,
-            collection_id: 1,
-            latitude: 40.7128,
-            longitude: -74.0060,
-            radius_meters: 10,
-            ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-            smart_contract_address: 'GTestAddress123456789',
-            collection: {
-              name: 'Stellar Explorer',
-              description: 'Discover the cosmos with Stellar NFTs',
-              image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-              rarity_level: 'common'
-            }
-          }
-        },
-        {
-          id: 2,
-          nft_id: 2,
-          user_public_key: 'GTestUser123456789',
-          collected_at: '2024-01-16T14:20:00Z',
-          transfer_count: 1,
-          current_owner: 'GTestUser123456789',
-          is_active: true,
-          nft: {
-            id: 2,
-            collection_id: 2,
-            latitude: 40.7589,
-            longitude: -73.9851,
-            radius_meters: 5,
-            ipfs_hash: 'bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi',
-            smart_contract_address: 'GTestAddress987654321',
-            collection: {
-              name: 'Galaxy Guardian',
-              description: 'Rare NFTs for protecting the galaxy',
-              image_url: 'https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_52.png',
-              rarity_level: 'rare'
-            }
-          }
-        }
-      ]);
+      const response = await api.get('/nft/user-collection');
+      setUserNFTs(response.data.collection || []);
     } catch (err) {
       setError('Failed to fetch NFT collection');
       console.error('Error fetching collection:', err);
+      setUserNFTs([]);
     } finally {
       setLoading(false);
     }
