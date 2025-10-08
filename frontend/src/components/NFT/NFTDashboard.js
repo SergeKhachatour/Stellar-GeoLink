@@ -869,10 +869,10 @@ const NFTDashboard = () => {
       setLoading(false);
       setMapLoading(false);
     }
-  }, [nearbyNFTs, userLocation, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
+  }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
 
   // Add zoom event listener to update markers when zoom changes
-  const addZoomListener = (map) => {
+  const addZoomListener = useCallback((map) => {
     if (map && !map._zoomListenerAdded) {
       map.on('zoomend', () => {
         const currentZoom = map.getZoom();
@@ -913,10 +913,10 @@ const NFTDashboard = () => {
       });
       map._zoomListenerAdded = true;
     }
-  };
+  }, [currentMarkers, updateMapMarkers, setMarkersCreated, setMarkersLocked, setMarkersStable, setMarkersNeverUpdate]);
 
   // Custom NFT Filter Control for Mapbox
-  const createNFTFilterControl = () => {
+  const createNFTFilterControl = useCallback(() => {
     class NFTFilterControl {
       onAdd(map) {
         this._map = map;
@@ -985,7 +985,7 @@ const NFTDashboard = () => {
     }
     
     return new NFTFilterControl();
-  };
+  }, [setSelectedCollection, setSelectedRarity]);
 
   const initializeMap = useCallback((container, mapType) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
