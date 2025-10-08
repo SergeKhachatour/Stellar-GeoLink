@@ -399,6 +399,279 @@ const NFTDashboard = () => {
   // const clearAllRadiusCircles = (map) => { ... }
   // const addRadiusCircle = (map, lng, lat, radiusMeters) => { ... }
 
+  // Function to create clusters when zoomed out
+  const createClusters = (nfts, map) => {
+    const clusterDistance = 0.1; // ~11km at equator - much larger distance for proper clustering
+    const clusters = [];
+    
+    console.log(`Creating clusters for ${nfts.length} NFTs with distance threshold: ${clusterDistance}`);
+    
+    nfts.forEach(nft => {
+      const nftLng = parseFloat(nft.longitude);
+      const nftLat = parseFloat(nft.latitude);
+      
+      // Find existing cluster or create new one
+      let assignedCluster = null;
+      for (const cluster of clusters) {
+        const clusterLng = cluster.centerLng;
+        const clusterLat = cluster.centerLat;
+        const distance = Math.sqrt(
+          Math.pow(nftLng - clusterLng, 2) + Math.pow(nftLat - clusterLat, 2)
+        );
+        
+        if (distance < clusterDistance) {
+          assignedCluster = cluster;
+          break;
+        }
+      }
+      
+      if (assignedCluster) {
+        assignedCluster.nfts.push(nft);
+        // Update cluster center to be the average of all NFTs in the cluster
+        const totalLng = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.longitude), 0);
+        const totalLat = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.latitude), 0);
+        assignedCluster.centerLng = totalLng / assignedCluster.nfts.length;
+        assignedCluster.centerLat = totalLat / assignedCluster.nfts.length;
+      } else {
+        clusters.push({
+          centerLng: nftLng,
+          centerLat: nftLat,
+          nfts: [nft]
+        });
+      }
+    });
+    
+    console.log(`Created ${clusters.length} clusters:`, clusters.map(c => ({ count: c.nfts.length, center: [c.centerLng, c.centerLat] })));
+    
+    // Create cluster markers - only if they don't already exist
+    clusters.forEach((cluster, clusterIndex) => {
+      const clusterId = `cluster-${clusterIndex}`;
+      
+      // Check if cluster marker already exists
+      if (currentMarkers.current[clusterId]) {
+        console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
+        return;
+      }
+      
+      if (cluster.nfts.length === 1) {
+        // Single NFT - create individual marker
+        createSingleMarker(cluster.nfts[0], map);
+      } else {
+        // Multiple NFTs - create cluster marker
+        createClusterMarker(cluster, map, clusterIndex);
+      }
+    });
+  };
+
+  // Function to create individual markers when zoomed in
+  const createIndividualMarkers = (nfts, map) => {
+    nfts.forEach((nft, nftIndex) => {
+      createSingleMarker(nft, map, nftIndex);
+    });
+  };
+
+  // Function to create a single NFT marker
+  const createSingleMarker = (nft, map, nftIndex = 0) => {
+    try {
+      // Check if marker already exists
+      if (currentMarkers.current[nft.id]) {
+        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
+        return;
+      }
+
+      // Ensure we have valid base coordinates first
+      if (!nft.longitude || !nft.latitude || 
+          isNaN(nft.longitude) || isNaN(nft.latitude) ||
+          !isFinite(nft.longitude) || !isFinite(nft.latitude)) {
+        console.warn('Invalid base coordinates for NFT:', nft.id, 'Skipping marker creation.');
+        return;
+      }
+
+      // Use exact coordinates with tiny visual offset to prevent stacking
+      const baseLng = parseFloat(nft.longitude);
+      const baseLat = parseFloat(nft.latitude);
+      
+      // Add tiny random offset for visual separation (doesn't affect database coordinates)
+      const offsetLng = (Math.random() - 0.5) * 0.0002; // ±0.0001 degrees ≈ ±11 meters
+      const offsetLat = (Math.random() - 0.5) * 0.0002;
+      
+      const finalLng = baseLng + offsetLng;
+      const finalLat = baseLat + offsetLat;
+      
+      console.log(`NFT ${nft.id} coordinates:`, {
+        lat: finalLat,
+        lng: finalLng,
+        name: nft.name,
+        nftIndex,
+        originalCoords: { lat: baseLat, lng: baseLng }
+      });
+
+      // Final validation of coordinates
+      if (isNaN(finalLat) || isNaN(finalLng) || !isFinite(finalLat) || !isFinite(finalLng)) {
+        console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
+        return;
+      }
+      
+      // Check if coordinates are in a reasonable range
+      if (finalLat < -90 || finalLat > 90 || finalLng < -180 || finalLng > 180) {
+        console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
+        return;
+      }
+
+      // Create simple square element for NFT marker
+      const el = document.createElement('div');
+      el.className = 'nft-marker';
+      el.style.width = '40px';
+      el.style.height = '40px';
+      el.style.borderRadius = '8px'; // Square with rounded corners
+      el.style.border = '3px solid #fff';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      el.style.cursor = 'pointer';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.fontSize = '12px';
+      el.style.fontWeight = 'bold';
+      el.style.color = '#fff';
+      el.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      el.style.position = 'relative';
+      el.style.zIndex = '1000';
+      
+      // Add NFT image if available
+      if (nft.ipfs_hash) {
+        const img = document.createElement('img');
+        img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.borderRadius = '8px'; // Square with rounded corners
+        img.style.objectFit = 'cover';
+        img.onerror = () => {
+          console.log('Image failed to load:', this.src);
+          el.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
+          el.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
+        };
+        el.appendChild(img);
+      } else {
+        el.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
+      }
+
+      // Add click handler to show NFT details
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('NFT marker clicked:', nft);
+        // You can add NFT details modal here
+      });
+
+      // Create draggable marker
+      const marker = new Mapboxgl.Marker({
+        element: el,
+        draggable: true
+      })
+      .setLngLat([finalLng, finalLat])
+      .addTo(map);
+
+      // Add drag event listeners
+      marker.on('dragstart', () => {
+        marker._isDragging = true;
+        console.log(`Started dragging NFT ${nft.id}`);
+      });
+
+      marker.on('dragend', async () => {
+        marker._isDragging = false;
+        marker._lastUpdated = Date.now();
+        
+        const lng = marker.getLngLat().lng;
+        const lat = marker.getLngLat().lat;
+        
+        console.log(`Final drag coordinates for NFT ${nft.id}:`, { lng, lat });
+        
+        try {
+          // Update NFT coordinates in database
+          const response = await api.put(`/nft/pinned/${nft.id}`, {
+            longitude: lng,
+            latitude: lat
+          });
+          
+          console.log(`Successfully updated NFT ${nft.id} coordinates:`, response.data);
+          
+          // Update local nearbyNFTs array
+          const nftIndex = nearbyNFTs.findIndex(n => n.id === nft.id);
+          if (nftIndex !== -1) {
+            nearbyNFTs[nftIndex].longitude = lng;
+            nearbyNFTs[nftIndex].latitude = lat;
+          }
+        } catch (error) {
+          console.error(`Error updating NFT ${nft.id} coordinates:`, error);
+        }
+      });
+
+      // Store marker reference
+      currentMarkers.current[nft.id] = marker;
+      
+      console.log(`NFT image marker created for NFT ${nft.id} at:`, [finalLng, finalLat]);
+    } catch (error) {
+      console.error(`Error creating marker for NFT ${nft.id}:`, error);
+    }
+  };
+
+  // Function to create a cluster marker
+  const createClusterMarker = (cluster, map, clusterIndex) => {
+    try {
+      const clusterId = `cluster-${clusterIndex}`;
+      
+      // Double-check if cluster marker already exists
+      if (currentMarkers.current[clusterId]) {
+        console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
+        return;
+      }
+      
+      const el = document.createElement('div');
+      el.className = 'cluster-marker';
+      el.style.width = '50px';
+      el.style.height = '50px';
+      el.style.borderRadius = '50%';
+      el.style.border = '4px solid #fff';
+      el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+      el.style.cursor = 'pointer';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.fontSize = '16px';
+      el.style.fontWeight = 'bold';
+      el.style.color = '#fff';
+      el.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%)';
+      el.style.position = 'relative';
+      el.style.zIndex = '1000';
+      
+      el.innerHTML = cluster.nfts.length;
+      
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        map.flyTo({
+          center: [cluster.centerLng, cluster.centerLat],
+          zoom: 12,
+          duration: 1000
+        });
+      });
+
+      const marker = new Mapboxgl.Marker({
+        element: el,
+        draggable: false
+      })
+      .setLngLat([cluster.centerLng, cluster.centerLat])
+      .addTo(map);
+
+      currentMarkers.current[clusterId] = marker;
+      
+      console.log(`Cluster marker created for ${cluster.nfts.length} NFTs at:`, [cluster.centerLng, cluster.centerLat]);
+    } catch (error) {
+      console.error(`Error creating cluster ${clusterIndex}:`, error);
+    }
+  };
+
   const updateMapMarkers = useCallback((mapType = 'main', forceUpdate = false) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
     const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
@@ -550,9 +823,9 @@ const NFTDashboard = () => {
       // Prevent recreation if markers are locked or stable
       if (markersLocked || markersStable || markersNeverUpdate) {
         console.log('🚫 Markers are locked/stable, preventing recreation');
-        return;
-      }
-      
+          return;
+        }
+        
       // Prevent recreation if any marker is being dragged
       const isDragging = Object.values(currentMarkers.current).some(marker => 
         marker._isDragging || marker._dragStart
@@ -569,9 +842,9 @@ const NFTDashboard = () => {
       );
       if (recentlyUpdated) {
         console.log('🚫 Markers were recently updated, preventing recreation');
-        return;
-      }
-      
+          return;
+        }
+
       if (currentZoom < clusterThreshold) {
         // Create clusters when zoomed out
         console.log('🔍 Zoomed out - creating clusters');
@@ -597,305 +870,6 @@ const NFTDashboard = () => {
       setMapLoading(false);
     }
   }, [nearbyNFTs, userLocation, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
-
-  // Function to create clusters when zoomed out
-  const createClusters = (nfts, map) => {
-    const clusterDistance = 0.1; // ~11km at equator - much larger distance for proper clustering
-    const clusters = [];
-    
-    console.log(`Creating clusters for ${nfts.length} NFTs with distance threshold: ${clusterDistance}`);
-    
-    nfts.forEach(nft => {
-      const nftLng = parseFloat(nft.longitude);
-      const nftLat = parseFloat(nft.latitude);
-      
-      // Find existing cluster or create new one
-      let assignedCluster = null;
-      for (const cluster of clusters) {
-        const clusterLng = cluster.centerLng;
-        const clusterLat = cluster.centerLat;
-        const distance = Math.sqrt(
-          Math.pow(nftLng - clusterLng, 2) + Math.pow(nftLat - clusterLat, 2)
-        );
-        
-        if (distance < clusterDistance) {
-          assignedCluster = cluster;
-          break;
-        }
-      }
-      
-      if (assignedCluster) {
-        assignedCluster.nfts.push(nft);
-        // Update cluster center to be the average of all NFTs in the cluster
-        const totalLng = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.longitude), 0);
-        const totalLat = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.latitude), 0);
-        assignedCluster.centerLng = totalLng / assignedCluster.nfts.length;
-        assignedCluster.centerLat = totalLat / assignedCluster.nfts.length;
-      } else {
-        clusters.push({
-          centerLng: nftLng,
-          centerLat: nftLat,
-          nfts: [nft]
-        });
-      }
-    });
-    
-    console.log(`Created ${clusters.length} clusters:`, clusters.map(c => ({ count: c.nfts.length, center: [c.centerLng, c.centerLat] })));
-    
-    // Create cluster markers - only if they don't already exist
-    clusters.forEach((cluster, clusterIndex) => {
-      const clusterId = `cluster-${clusterIndex}`;
-      
-      // Check if cluster marker already exists
-      if (currentMarkers.current[clusterId]) {
-        console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
-        return;
-      }
-      
-      if (cluster.nfts.length === 1) {
-        // Single NFT - create individual marker
-        createSingleMarker(cluster.nfts[0], map);
-      } else {
-        // Multiple NFTs - create cluster marker
-        createClusterMarker(cluster, map, clusterIndex);
-      }
-    });
-  };
-
-  // Function to create individual markers when zoomed in
-  const createIndividualMarkers = (nfts, map) => {
-    nfts.forEach((nft, nftIndex) => {
-      createSingleMarker(nft, map, nftIndex);
-    });
-  };
-
-  // Function to create a single NFT marker
-  const createSingleMarker = (nft, map, nftIndex = 0) => {
-    try {
-      // Check if marker already exists
-      if (currentMarkers.current[nft.id]) {
-        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
-        return;
-      }
-
-      // Ensure we have valid base coordinates first
-      if (!nft.longitude || !nft.latitude || 
-          isNaN(nft.longitude) || isNaN(nft.latitude) ||
-          !isFinite(nft.longitude) || !isFinite(nft.latitude)) {
-        console.warn('Invalid base coordinates for NFT:', nft.id, 'Skipping marker creation.');
-        return;
-      }
-
-      // Use exact coordinates with tiny visual offset to prevent stacking
-      const baseLng = parseFloat(nft.longitude);
-      const baseLat = parseFloat(nft.latitude);
-      
-      // Add tiny random offset (0.0001 degrees = ~11 meters) to prevent visual stacking
-      const offsetLng = (Math.random() - 0.5) * 0.0002; // ±0.0001 degrees
-      const offsetLat = (Math.random() - 0.5) * 0.0002; // ±0.0001 degrees
-      
-      const finalLng = baseLng + offsetLng;
-      const finalLat = baseLat + offsetLat;
-        
-        // Final validation of coordinates
-      if (isNaN(finalLat) || isNaN(finalLng) || !isFinite(finalLat) || !isFinite(finalLng)) {
-          console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
-          return;
-        }
-        
-        // Check if coordinates are in a reasonable range
-      if (finalLat < -90 || finalLat > 90 || finalLng < -180 || finalLng > 180) {
-        console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
-          return;
-        }
-
-      // Create simple square element for NFT marker
-          const el = document.createElement('div');
-      el.className = 'nft-marker';
-      el.style.width = '40px';
-      el.style.height = '40px';
-      el.style.borderRadius = '8px'; // Square with rounded corners
-      el.style.border = '3px solid #fff';
-      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-          el.style.cursor = 'pointer';
-      el.style.display = 'flex';
-      el.style.alignItems = 'center';
-      el.style.justifyContent = 'center';
-      el.style.fontSize = '12px';
-      el.style.fontWeight = 'bold';
-      el.style.color = '#fff';
-      el.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-          el.style.position = 'relative';
-          el.style.zIndex = '1000';
-          
-      // Add NFT image if available
-      if (nft.ipfs_hash) {
-        const img = document.createElement('img');
-        img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.borderRadius = '8px'; // Square with rounded corners
-        img.style.objectFit = 'cover';
-        img.onerror = () => {
-          console.log('Image failed to load:', this.src);
-          el.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
-          el.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        };
-        el.appendChild(img);
-          } else {
-        el.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-          }
-
-          // Add click handler to show NFT details
-          el.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Update carousel index to show this NFT
-            const nftIndex = nearbyNFTs.findIndex(n => n.id === nft.id);
-            if (nftIndex !== -1) {
-              setCarouselIndex(nftIndex);
-              setSelectedNFT(nft);
-              setOpenDetailsDialog(true);
-            }
-          });
-
-      // Create marker at exact coordinates
-          const marker = new Mapboxgl.Marker({
-            element: el,
-        draggable: true
-      })
-      .setLngLat([finalLng, finalLat])
-      .addTo(map);
-
-      // Add drag functionality for existing NFTs
-      marker.on('dragstart', () => {
-        console.log('Started dragging NFT marker:', nft.id);
-        el.style.transform = 'scale(1.2)';
-        el.style.zIndex = '2000';
-      });
-
-      marker.on('dragstart', () => {
-        marker._isDragging = true;
-        console.log(`Started dragging NFT ${nft.id}`);
-      });
-
-      marker.on('drag', () => {
-        const { lng, lat } = marker.getLngLat();
-        console.log(`Dragging NFT ${nft.id} to:`, { lng, lat });
-      });
-
-      marker.on('dragend', async () => {
-        marker._isDragging = false;
-        const { lng, lat } = marker.getLngLat();
-        console.log(`Finished dragging NFT ${nft.id} to:`, { lng, lat });
-        
-        // Reset visual state
-        el.style.transform = 'scale(1)';
-        el.style.zIndex = '1000';
-        
-        try {
-          // Update NFT coordinates in database with exact coordinates (no offset)
-          const response = await api.put(`/nft/pinned/${nft.id}`, {
-            latitude: lat,
-            longitude: lng
-          });
-          console.log('NFT coordinates updated:', response.data);
-          setSuccess(`NFT "${nft.name || nft.id}" moved to ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-          
-          // Update the NFT data in the nearbyNFTs array to reflect the new coordinates
-          const nftIndex = nearbyNFTs.findIndex(n => n.id === nft.id);
-          if (nftIndex !== -1) {
-            nearbyNFTs[nftIndex].latitude = lat;
-            nearbyNFTs[nftIndex].longitude = lng;
-            console.log(`Updated NFT ${nft.id} coordinates in local data:`, { lat, lng });
-          }
-          
-          // Lock markers to prevent recreation after drag
-          setMarkersLocked(true);
-          setMarkersStable(true);
-          setMarkersCreated(true);
-          
-          // Mark this marker as recently updated
-          marker._lastUpdated = Date.now();
-          
-        } catch (error) {
-          console.error('Error updating NFT coordinates:', error);
-          setError('Failed to update NFT location');
-        }
-      });
-
-      // Store marker reference
-          currentMarkers.current[nft.id] = marker;
-      
-      console.log(`NFT image marker created for NFT ${nft.id} at:`, [finalLng, finalLat]);
-        } catch (error) {
-      console.error(`Error processing NFT ${nft.id}:`, error);
-    }
-  };
-
-  // Function to create a cluster marker
-  const createClusterMarker = (cluster, map, clusterIndex) => {
-    try {
-      const clusterId = `cluster-${clusterIndex}`;
-      
-      // Double-check if cluster marker already exists
-      if (currentMarkers.current[clusterId]) {
-        console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
-        return;
-      }
-      
-      // Create cluster element
-      const el = document.createElement('div');
-      el.className = 'cluster-marker';
-      el.style.width = '50px';
-      el.style.height = '50px';
-      el.style.borderRadius = '50%';
-      el.style.border = '4px solid #fff';
-      el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-      el.style.cursor = 'pointer';
-      el.style.display = 'flex';
-      el.style.alignItems = 'center';
-      el.style.justifyContent = 'center';
-      el.style.fontSize = '16px';
-      el.style.fontWeight = 'bold';
-      el.style.color = '#fff';
-      el.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%)';
-      el.style.position = 'relative';
-      el.style.zIndex = '1000';
-      
-      // Add count number
-      el.innerHTML = cluster.nfts.length;
-      
-      // Add click handler to zoom in
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        // Zoom in to the cluster area
-        map.flyTo({
-          center: [cluster.centerLng, cluster.centerLat],
-          zoom: 12,
-          duration: 1000
-        });
-      });
-
-      // Create cluster marker
-      const marker = new Mapboxgl.Marker({
-        element: el,
-        draggable: false
-      })
-      .setLngLat([cluster.centerLng, cluster.centerLat])
-      .addTo(map);
-
-      // Store cluster marker reference
-      currentMarkers.current[clusterId] = marker;
-      
-      console.log(`Cluster marker created for ${cluster.nfts.length} NFTs at:`, [cluster.centerLng, cluster.centerLat]);
-    } catch (error) {
-      console.error(`Error creating cluster ${clusterIndex}:`, error);
-    }
-  };
 
   // Add zoom event listener to update markers when zoom changes
   const addZoomListener = (map) => {
@@ -933,12 +907,84 @@ const NFTDashboard = () => {
           
           // Recreate markers with new zoom level
           updateMapMarkers('main', true);
-        } else {
+          } else {
           console.log('Zoom changed but clustering mode unchanged, keeping existing markers');
         }
       });
       map._zoomListenerAdded = true;
     }
+  };
+
+  // Custom NFT Filter Control for Mapbox
+  const createNFTFilterControl = () => {
+    class NFTFilterControl {
+      onAdd(map) {
+        this._map = map;
+        this._container = document.createElement('div');
+        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
+        this._container.style.background = 'white';
+        this._container.style.padding = '10px';
+        this._container.style.borderRadius = '4px';
+        this._container.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        this._container.style.minWidth = '200px';
+        
+        this._container.innerHTML = `
+          <div style="margin-bottom: 10px;">
+            <label style="display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Collection</label>
+            <select id="nft-collection-filter" style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
+              <option value="">All Collections</option>
+            </select>
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label style="display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Rarity</label>
+            <select id="nft-rarity-filter" style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
+              <option value="">All Rarities</option>
+              <option value="common">Common</option>
+              <option value="rare">Rare</option>
+              <option value="epic">Epic</option>
+              <option value="legendary">Legendary</option>
+            </select>
+          </div>
+          <button id="apply-nft-filters" style="width: 100%; padding: 8px; background: #007cba; color: white; border: none; border-radius: 3px; cursor: pointer;">
+            Apply Filters
+          </button>
+        `;
+        
+        // Add event listeners for autopostback
+        const collectionSelect = this._container.querySelector('#nft-collection-filter');
+        const raritySelect = this._container.querySelector('#nft-rarity-filter');
+        const applyButton = this._container.querySelector('#apply-nft-filters');
+        
+        // Autopostback on collection change
+        collectionSelect.addEventListener('change', () => {
+          console.log('Collection filter changed to:', collectionSelect.value);
+          setSelectedCollection(collectionSelect.value);
+          applyFilters();
+        });
+        
+        // Autopostback on rarity change
+        raritySelect.addEventListener('change', () => {
+          console.log('Rarity filter changed to:', raritySelect.value);
+          setSelectedRarity(raritySelect.value);
+          applyFilters();
+        });
+        
+        // Manual apply button
+        applyButton.addEventListener('click', () => {
+          console.log('Apply filters button clicked');
+          applyFilters();
+        });
+        
+        return this._container;
+      }
+      
+      onRemove() {
+        this._container.parentNode.removeChild(this._container);
+        this._map = undefined;
+      }
+    }
+    
+    return new NFTFilterControl();
   };
 
   const initializeMap = useCallback((container, mapType) => {
@@ -1298,16 +1344,13 @@ const NFTDashboard = () => {
     }
   }, [nearbyNFTs.length, markersCreated, updateMapMarkers]);
 
-  // Cleanup timeout on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (markerUpdateTimeout) {
-        clearTimeout(markerUpdateTimeout);
-      }
       // Clear success animation on unmount
       setShowPinSuccess(false);
     };
-  }, [markerUpdateTimeout]);
+  }, []);
 
 
 
@@ -1785,78 +1828,6 @@ const NFTDashboard = () => {
     }
   };
 
-  // Custom NFT Filter Control for Mapbox
-  const createNFTFilterControl = () => {
-    class NFTFilterControl {
-      onAdd(map) {
-        this._map = map;
-        this._container = document.createElement('div');
-        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
-        this._container.style.background = 'white';
-        this._container.style.padding = '10px';
-        this._container.style.borderRadius = '4px';
-        this._container.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
-        this._container.style.minWidth = '200px';
-        
-        this._container.innerHTML = `
-          <div style="margin-bottom: 10px;">
-            <label style="display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Collection</label>
-            <select id="nft-collection-filter" style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
-              <option value="">All Collections</option>
-            </select>
-          </div>
-          <div style="margin-bottom: 10px;">
-            <label style="display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Rarity</label>
-            <select id="nft-rarity-filter" style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
-              <option value="">All Rarities</option>
-              <option value="common">Common</option>
-              <option value="rare">Rare</option>
-              <option value="epic">Epic</option>
-              <option value="legendary">Legendary</option>
-            </select>
-          </div>
-          <button id="apply-nft-filters" style="width: 100%; padding: 8px; background: #007cba; color: white; border: none; border-radius: 3px; cursor: pointer;">
-            Apply Filters
-          </button>
-        `;
-        
-        // Add event listeners for autopostback
-        const collectionSelect = this._container.querySelector('#nft-collection-filter');
-        const raritySelect = this._container.querySelector('#nft-rarity-filter');
-        const applyButton = this._container.querySelector('#apply-nft-filters');
-        
-        // Autopostback on collection change
-        collectionSelect.addEventListener('change', () => {
-          console.log('Collection filter changed to:', collectionSelect.value);
-          setSelectedCollection(collectionSelect.value);
-          applyFilters();
-        });
-        
-        // Autopostback on rarity change
-        raritySelect.addEventListener('change', () => {
-          console.log('Rarity filter changed to:', raritySelect.value);
-          setSelectedRarity(raritySelect.value);
-          applyFilters();
-        });
-        
-        // Manual apply button (for additional filters)
-        applyButton.addEventListener('click', () => {
-          setSelectedCollection(collectionSelect.value);
-          setSelectedRarity(raritySelect.value);
-          applyFilters();
-        });
-        
-        return this._container;
-      }
-      
-      onRemove() {
-        this._container.parentNode.removeChild(this._container);
-        this._map = undefined;
-      }
-    }
-    
-    return new NFTFilterControl();
-  };
 
   const addPinMarker = (lng, lat) => {
     console.log('🚨 addPinMarker called with coordinates:', { lng, lat });
