@@ -166,55 +166,86 @@ class ContractDeploymentService {
       console.log('Contract ID:', contractId);
       console.log('StellarExpert link: https://stellar.expert/explorer/testnet/contract/' + contractId);
       
-      // Try to initialize the contract with a simple approach
-      console.log('🚀 Attempting to initialize contract with simple approach...');
+      // Check if contract is already initialized by calling a simple function
+      console.log('🚀 Checking if contract is already initialized...');
       
       try {
-        // Create a simple transaction to initialize the contract
-        const transaction = new StellarSdk.TransactionBuilder(adminAccount, {
+        // Try to call the 'name' function to check if contract is initialized
+        const testContract = new StellarSdk.Contract(contractAddress);
+        const testTransaction = new StellarSdk.TransactionBuilder(adminAccount, {
           fee: StellarSdk.BASE_FEE,
           networkPassphrase: this.networkPassphrase
         });
-
-        // Use the Contract.call() method for initialization
-        const contract = new StellarSdk.Contract(contractAddress);
         
-        transaction.addOperation(
-          contract.call(
-            'initialize',
-            StellarSdk.Address.fromString(adminKeypair.publicKey()),
-            name,
-            symbol
-          )
+        testTransaction.addOperation(
+          testContract.call('name')
         );
+        
+        const testTx = testTransaction.setTimeout(30).build();
+        testTx.sign(adminKeypair);
+        
+        try {
+          const testResponse = await this.sorobanServer.sendTransaction(testTx);
+          console.log('✅ Contract is already initialized and working!');
+          console.log('Test transaction hash:', testResponse.hash);
+          
+          const result = {
+            hash: testResponse.hash,
+            ledger: testResponse.ledger,
+            successful: true
+          };
+          
+          console.log('Contract is ready for use');
+          return result;
+          
+        } catch (testError) {
+          console.log('⚠️ Contract not initialized, attempting initialization...');
+          
+          // Contract is not initialized, try to initialize it
+          const initTransaction = new StellarSdk.TransactionBuilder(adminAccount, {
+            fee: StellarSdk.BASE_FEE,
+            networkPassphrase: this.networkPassphrase
+          });
 
-        const tx = transaction.setTimeout(30).build();
-        tx.sign(adminKeypair);
+          const contract = new StellarSdk.Contract(contractAddress);
+          
+          initTransaction.addOperation(
+            contract.call(
+              'initialize',
+              StellarSdk.Address.fromString(adminKeypair.publicKey()),
+              name,
+              symbol
+            )
+          );
 
-        // Submit transaction
-        const response = await this.sorobanServer.sendTransaction(tx);
+          const initTx = initTransaction.setTimeout(30).build();
+          initTx.sign(adminKeypair);
+
+          // Submit initialization transaction
+          const initResponse = await this.sorobanServer.sendTransaction(initTx);
+          
+          console.log('✅ Contract initialized successfully!');
+          console.log('Initialization transaction hash:', initResponse.hash);
+          console.log('Ledger:', initResponse.ledger);
+          
+          const result = {
+            hash: initResponse.hash,
+            ledger: initResponse.ledger,
+            successful: true
+          };
+          
+          console.log('Contract initialization completed');
+          return result;
+        }
         
-        console.log('✅ Contract initialized successfully!');
-        console.log('Transaction hash:', response.hash);
-        console.log('Ledger:', response.ledger);
-        
-        const result = {
-          hash: response.hash,
-          ledger: response.ledger,
-          successful: true
-        };
-        
-        console.log('Contract initialization completed');
-        return result;
-        
-      } catch (initError) {
-        console.log('⚠️ Contract initialization failed:', initError.message);
+      } catch (error) {
+        console.log('⚠️ Contract initialization check failed:', error.message);
         
         const result = {
           hash: 'initialization_failed',
           ledger: 'initialization_failed',
           successful: false,
-          error: initError.message
+          error: error.message
         };
         
         console.log('Contract setup failed');

@@ -167,10 +167,13 @@ class RealNFTService {
           initTx.sign(minterKeypair);
           
           try {
-            await this.sorobanServer.sendTransaction(initTx);
+            const initResponse = await this.sorobanServer.sendTransaction(initTx);
             console.log('✅ Contract initialized successfully');
+            console.log('Initialization transaction hash:', initResponse.hash);
+            console.log('Ledger:', initResponse.ledger);
           } catch (initError2) {
-            console.log('⚠️ Contract initialization failed, but continuing with minting attempt:', initError2.message);
+            console.log('⚠️ Contract initialization failed:', initError2.message);
+            throw new Error(`Contract initialization failed: ${initError2.message}. Please ensure the contract is properly deployed and initialized.`);
           }
         }
       } catch (checkError) {
