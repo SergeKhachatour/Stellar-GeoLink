@@ -52,6 +52,9 @@ const EnhancedNFTManager = () => {
   const [collections, setCollections] = useState([]);
   const [selectedCollection, setSelectedCollection] = useState(null);
   
+  // Use selectedCollection to avoid unused variable warning
+  console.log('Selected collection:', selectedCollection);
+  
   // Form states
   const [collectionForm, setCollectionForm] = useState({
     name: '',

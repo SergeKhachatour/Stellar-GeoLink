@@ -3,7 +3,7 @@
  * Integrates with actual Stellar testnet for real NFT minting and transferring
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -22,13 +22,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemSecondaryAction,
-  IconButton,
-  Divider,
   Radio,
   RadioGroup,
   FormControlLabel,
@@ -39,10 +32,7 @@ import {
   Send as SendIcon,
   Create as CreateIcon,
   LocationOn as LocationIcon,
-  Image as ImageIcon,
-  CloudUpload as UploadIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon
+  CloudUpload as UploadIcon
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import realNFTService from '../../services/realNFTService';
@@ -100,14 +90,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     symbol: 'SGL'
   });
 
-  // Load contracts and user NFTs on mount
-  useEffect(() => {
-    if (isConnected) {
-      loadContracts();
-      loadUserNFTs();
-    }
-  }, [isConnected]);
-
   const loadContracts = async () => {
     try {
       const contractsData = realNFTService.getAllContracts();
@@ -118,7 +100,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   };
 
-  const loadUserNFTs = async () => {
+  const loadUserNFTs = useCallback(async () => {
     try {
       if (selectedContract) {
         const nfts = await realNFTService.getUserNFTs(selectedContract, publicKey);
@@ -127,7 +109,15 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     } catch (error) {
       console.error('Failed to load user NFTs:', error);
     }
-  };
+  }, [selectedContract, publicKey]);
+
+  // Load contracts and user NFTs on mount
+  useEffect(() => {
+    if (isConnected) {
+      loadContracts();
+      loadUserNFTs();
+    }
+  }, [isConnected, loadUserNFTs]);
 
   const handleDeployContract = async () => {
     try {

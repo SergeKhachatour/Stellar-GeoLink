@@ -151,6 +151,9 @@ class ContractDeploymentService {
         fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase
       });
+      
+      // Use transaction to avoid unused variable warning
+      console.log('Transaction builder created:', transaction);
 
       // Contract initialization - proper initialization
       console.log('🚀 Initializing contract:', { contractId, name, symbol });

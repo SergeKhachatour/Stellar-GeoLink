@@ -1879,7 +1879,7 @@ const NFTDashboard = () => {
         setMiniMap(null);
       }
     };
-  }, [openNFTDialog, selectedNFT]);
+  }, [openNFTDialog, selectedNFT, miniMap]);
 
   // Auto-connect wallet using user's stored public key
   useEffect(() => {
@@ -2813,7 +2813,7 @@ const NFTDashboard = () => {
       console.log('Real blockchain NFT collection successful:', result);
 
       // Update database with blockchain transaction
-      const response = await api.post('/nft/collect', {
+      await api.post('/nft/collect', {
         nft_id: nft.id,
         user_latitude: userLocation.latitude,
         user_longitude: userLocation.longitude,

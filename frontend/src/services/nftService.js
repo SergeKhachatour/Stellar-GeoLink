@@ -315,15 +315,9 @@ class NFTService {
    * Get NFT transaction history
    */
   async getNFTTransactionHistory(contractId, tokenId) {
-    try {
-      // This would typically involve querying the Stellar network for transactions
-      // For now, we'll return mock data
-      // eslint-disable-next-line no-unreachable
-      return [];
-    } catch (error) {
-      console.error('Failed to get NFT transaction history:', error);
-      throw error;
-    }
+    // This would typically involve querying the Stellar network for transactions
+    // For now, we'll return mock data
+    return [];
   }
 }
 
