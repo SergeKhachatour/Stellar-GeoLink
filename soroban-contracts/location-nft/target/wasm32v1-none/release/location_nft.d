@@ -1,0 +1,1 @@
+C:\Users\serge\OneDrive\Desktop\NodeJS\Stellar-GeoLink\soroban-contracts\location-nft\target\wasm32v1-none\release\location_nft.wasm: C:\Users\serge\OneDrive\Desktop\NodeJS\Stellar-GeoLink\soroban-contracts\location-nft\src\lib.rs

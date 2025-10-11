@@ -1,5 +1,10 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import stellarWalletService from '../services/stellarWallet';
+import sorobanService from '../services/sorobanService';
+import nftService from '../services/nftService';
+import realNFTService from '../services/realNFTService';
+import contractDeploymentService from '../services/contractDeployment';
 
 const WalletContext = createContext();
 
@@ -19,6 +24,7 @@ export const WalletProvider = ({ children }) => {
   const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // Stellar server configuration - use useRef to persist values across renders
   const serverRef = React.useRef(null);
@@ -68,18 +74,114 @@ export const WalletProvider = ({ children }) => {
     }
   }, [initializeStellar]);
 
-  // Load wallet from localStorage on mount
+  // Function to set current user (called from components)
+  const setUser = (user) => {
+    console.log('WalletContext: Setting current user:', user);
+    
+    // Prevent multiple calls with the same user
+    if (currentUser && user && currentUser.id === user.id) {
+      console.log('WalletContext: Same user, skipping setUser call');
+      return;
+    }
+    
+    setCurrentUser(user);
+  };
+
+  // Load wallet from localStorage when user is set
   useEffect(() => {
+    if (!currentUser) {
+      console.log('WalletContext: No current user, clearing wallet state');
+      setPublicKey(null);
+      setSecretKey(null);
+      setIsConnected(false);
+      setBalance(null);
+      setAccount(null);
+      setError(null);
+      return;
+    }
+
     const savedPublicKey = localStorage.getItem('stellar_public_key');
     const savedSecretKey = localStorage.getItem('stellar_secret_key');
     
-    if (savedPublicKey && savedSecretKey) {
+    console.log('WalletContext: Checking saved wallet data:', { 
+      savedPublicKey: savedPublicKey ? 'exists' : 'none',
+      savedSecretKey: savedSecretKey ? 'exists' : 'none',
+      userPublicKey: currentUser.public_key 
+    });
+
+    // Only restore if we have saved data and it matches the current user
+    if (savedPublicKey && currentUser.public_key && savedPublicKey === currentUser.public_key) {
+      console.log('WalletContext: Restoring wallet for current user');
       setPublicKey(savedPublicKey);
-      setSecretKey(savedSecretKey);
+      setSecretKey(savedSecretKey); // This could be null for view-only wallets
       setIsConnected(true);
-      loadAccountInfo(savedPublicKey);
+      console.log('WalletContext: Wallet restored, loading account info...');
+      loadAccountInfo(savedPublicKey).then(() => {
+        console.log('WalletContext: Account info loaded successfully');
+      }).catch(error => {
+        console.error('WalletContext: Failed to load account info:', error);
+      });
+    } else if (savedPublicKey && currentUser.public_key && savedPublicKey !== currentUser.public_key) {
+      console.log('WalletContext: Different user detected, clearing saved wallet data');
+      // Different user, clear saved data
+      localStorage.removeItem('stellar_public_key');
+      localStorage.removeItem('stellar_secret_key');
+      setPublicKey(null);
+      setSecretKey(null);
+      setIsConnected(false);
+      setBalance(null);
+      setAccount(null);
+      setError(null);
+    } else if (currentUser.public_key && !savedPublicKey) {
+      console.log('WalletContext: User has public key but no saved wallet, will auto-connect');
+      // User has public key but no saved wallet data, let NFTDashboard handle auto-connection
+      setPublicKey(null);
+      setSecretKey(null);
+      setIsConnected(false);
+      setBalance(null);
+      setAccount(null);
+      setError(null);
     }
-  }, [loadAccountInfo]);
+  }, [currentUser, loadAccountInfo]);
+
+  // Clear wallet state when user logs out
+  useEffect(() => {
+    const handleUserLogout = () => {
+      console.log('User logout detected, clearing wallet state');
+      setCurrentUser(null);
+      setPublicKey(null);
+      setSecretKey(null);
+      setIsConnected(false);
+      setBalance(null);
+      setAccount(null);
+      setError(null);
+      // Don't clear localStorage here as it might be needed for reconnection
+    };
+
+    const handleStorageChange = (e) => {
+      if (e.key === 'token' && e.newValue === null) {
+        // Token was removed (logout), clear wallet state
+        console.log('Token removed, clearing wallet state');
+        handleUserLogout();
+      }
+    };
+
+    // Listen for custom logout event and storage changes
+    window.addEventListener('userLogout', handleUserLogout);
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check if token exists on mount
+    const token = localStorage.getItem('token');
+    if (!token) {
+      // No token, clear wallet state
+      handleUserLogout();
+    }
+
+    return () => {
+      window.removeEventListener('userLogout', handleUserLogout);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
 
   // Connect wallet with secret key
   const connectWallet = async (secretKeyInput) => {
@@ -219,6 +321,69 @@ export const WalletProvider = ({ children }) => {
     localStorage.removeItem('stellar_secret_key');
   };
 
+  // Clear wallet state (for logout)
+  const clearWallet = () => {
+    setPublicKey(null);
+    setSecretKey(null);
+    setIsConnected(false);
+    setBalance(null);
+    setAccount(null);
+    setError(null);
+    // Don't clear localStorage as it might be needed for reconnection
+  };
+
+  // Clear wallet completely (including localStorage)
+  const clearWalletCompletely = () => {
+    setPublicKey(null);
+    setSecretKey(null);
+    setIsConnected(false);
+    setBalance(null);
+    setAccount(null);
+    setError(null);
+    localStorage.removeItem('stellar_public_key');
+    localStorage.removeItem('stellar_secret_key');
+  };
+
+  // Upgrade from view-only to full access
+  const upgradeToFullAccess = async (secretKeyInput) => {
+    try {
+      if (!(await initializeStellar())) {
+        throw new Error('Failed to initialize Stellar SDK');
+      }
+      
+      if (!publicKey) {
+        throw new Error('No wallet connected. Please connect a wallet first.');
+      }
+      
+      if (!secretKeyInput || secretKeyInput.length !== 56) {
+        throw new Error('Invalid secret key format. Secret key must be 56 characters long.');
+      }
+      
+      if (!secretKeyInput.startsWith('S')) {
+        throw new Error('Invalid secret key format. Stellar secret keys start with "S".');
+      }
+      
+      // Validate that the secret key corresponds to the current public key
+      const StellarSdk = await import('@stellar/stellar-sdk');
+      const Keypair = StellarSdk.Keypair;
+      const keypair = Keypair.fromSecret(secretKeyInput);
+      if (keypair.publicKey() !== publicKey) {
+        throw new Error('Secret key does not match the current wallet. Please use the correct secret key.');
+      }
+      
+      // Update to full access
+      setSecretKey(secretKeyInput);
+      localStorage.setItem('stellar_secret_key', secretKeyInput);
+      
+      console.log('WalletContext: Upgraded to full access');
+      return true;
+    } catch (error) {
+      console.error('Failed to upgrade to full access:', error);
+      setError(error.message);
+      throw error;
+    }
+  };
+
   // Send XLM transaction
   const sendTransaction = async (destination, amount, memo = null) => {
     try {
@@ -353,6 +518,121 @@ export const WalletProvider = ({ children }) => {
     }
   };
 
+  // Enhanced Stellar wallet functions following Stellar Playbook
+  const createNFTCollection = async (name, symbol, description, metadata = {}) => {
+    try {
+      if (!isConnected || !secretKey) {
+        throw new Error('Wallet must be connected with secret key to create NFT collections');
+      }
+      
+      setLoading(true);
+      const result = await nftService.createCollection(name, symbol, description, metadata);
+      return result;
+    } catch (error) {
+      console.error('Failed to create NFT collection:', error);
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const mintNFT = async (contractId, recipient, metadata = {}) => {
+    try {
+      if (!isConnected || !secretKey) {
+        throw new Error('Wallet must be connected with secret key to mint NFTs');
+      }
+      
+      setLoading(true);
+      const result = await nftService.mintNFT(contractId, recipient, metadata);
+      return result;
+    } catch (error) {
+      console.error('Failed to mint NFT:', error);
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const transferNFT = async (contractId, tokenId, from, to) => {
+    try {
+      if (!isConnected || !secretKey) {
+        throw new Error('Wallet must be connected with secret key to transfer NFTs');
+      }
+      
+      setLoading(true);
+      const result = await nftService.transferNFT(contractId, tokenId, from, to);
+      return result;
+    } catch (error) {
+      console.error('Failed to transfer NFT:', error);
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const executeOnNFTTransfer = async (contractId, tokenId, from, to, actionContractId, actionFunction, actionArgs = []) => {
+    try {
+      if (!isConnected || !secretKey) {
+        throw new Error('Wallet must be connected with secret key to execute smart contracts');
+      }
+      
+      setLoading(true);
+      const result = await nftService.executeOnNFTTransfer(contractId, tokenId, from, to, actionContractId, actionFunction, actionArgs);
+      return result;
+    } catch (error) {
+      console.error('Failed to execute on NFT transfer:', error);
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createLocationNFT = async (contractId, recipient, location, metadata = {}) => {
+    try {
+      if (!isConnected || !secretKey) {
+        throw new Error('Wallet must be connected with secret key to create location NFTs');
+      }
+      
+      setLoading(true);
+      const result = await nftService.createLocationNFT(contractId, recipient, location, metadata);
+      return result;
+    } catch (error) {
+      console.error('Failed to create location NFT:', error);
+      setError(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getNFTCollections = () => {
+    return nftService.getCollections();
+  };
+
+  const getNFTMetadata = async (contractId, tokenId) => {
+    try {
+      return await nftService.getNFTMetadata(contractId, tokenId);
+    } catch (error) {
+      console.error('Failed to get NFT metadata:', error);
+      setError(error.message);
+      throw error;
+    }
+  };
+
+  const getNFTBalance = async (contractId, account) => {
+    try {
+      return await nftService.getNFTBalance(contractId, account);
+    } catch (error) {
+      console.error('Failed to get NFT balance:', error);
+      setError(error.message);
+      throw error;
+    }
+  };
+
   const value = {
     // State
     isConnected,
@@ -364,16 +644,37 @@ export const WalletProvider = ({ children }) => {
     error,
     wallet: { publicKey, secretKey, isConnected },
     
-    // Actions
+    // Basic Actions
     connectWallet,
     connectWalletViewOnly,
     generateWallet,
     disconnectWallet,
+    clearWallet,
+    clearWalletCompletely,
+    upgradeToFullAccess,
     sendTransaction,
     signTransaction,
     getTransactionHistory,
     fundAccount,
     loadAccountInfo,
+    setUser,
+    
+    // Enhanced Stellar Functions (Following Stellar Playbook)
+    createNFTCollection,
+    mintNFT,
+    transferNFT,
+    executeOnNFTTransfer,
+    createLocationNFT,
+    getNFTCollections,
+    getNFTMetadata,
+    getNFTBalance,
+    
+    // Services
+    stellarWalletService,
+    sorobanService,
+    nftService,
+    realNFTService,
+    contractDeploymentService,
     
     // Utils
     server: serverRef.current,

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import {
   Box,
   Container,
@@ -46,12 +48,17 @@ import {
   Search as SearchIcon
 } from '@mui/icons-material';
 
+// Mapbox Token
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
+mapboxgl.accessToken = MAPBOX_TOKEN;
+
 const NFTCollection = () => {
   const [userNFTs, setUserNFTs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedNFT, setSelectedNFT] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
+  const [miniMap, setMiniMap] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRarity, setFilterRarity] = useState('all');
@@ -64,6 +71,87 @@ const NFTCollection = () => {
   useEffect(() => {
     fetchUserCollection();
   }, []);
+
+  // Initialize mini map when NFT details dialog opens
+  useEffect(() => {
+    if (openDialog && selectedNFT) {
+      const initializeMiniMap = () => {
+        const mapContainer = document.getElementById('nft-collection-mini-map');
+        if (mapContainer && !miniMap) {
+          // Clear any existing map first
+          if (miniMap && typeof miniMap.remove === 'function') {
+            try {
+              miniMap.remove();
+            } catch (error) {
+              console.warn('Error removing existing mini map:', error);
+            }
+          }
+          const miniMapInstance = new mapboxgl.Map({
+            container: 'nft-collection-mini-map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: [parseFloat(selectedNFT.nft.longitude), parseFloat(selectedNFT.nft.latitude)],
+            zoom: 15,
+            interactive: true
+          });
+
+          // Add marker for NFT location
+          new mapboxgl.Marker({ color: 'red' })
+            .setLngLat([parseFloat(selectedNFT.nft.longitude), parseFloat(selectedNFT.nft.latitude)])
+            .addTo(miniMapInstance);
+
+          // Add circle for collection radius
+          miniMapInstance.on('load', () => {
+            miniMapInstance.addSource('nft-radius', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [parseFloat(selectedNFT.nft.longitude), parseFloat(selectedNFT.nft.latitude)]
+                }
+              }
+            });
+
+            miniMapInstance.addLayer({
+              id: 'nft-radius-circle',
+              type: 'circle',
+              source: 'nft-radius',
+              paint: {
+                'circle-radius': {
+                  stops: [
+                    [0, 0],
+                    [20, selectedNFT.nft.radius_meters || 50]
+                  ],
+                  base: 2
+                },
+                'circle-color': '#ff0000',
+                'circle-opacity': 0.2,
+                'circle-stroke-color': '#ff0000',
+                'circle-stroke-width': 2
+              }
+            });
+          });
+
+          setMiniMap(miniMapInstance);
+        }
+      };
+
+      // Small delay to ensure DOM is ready
+      setTimeout(initializeMiniMap, 100);
+    }
+
+    // Cleanup mini map when dialog closes
+    return () => {
+      if (miniMap && typeof miniMap.remove === 'function') {
+        try {
+          miniMap.remove();
+        } catch (error) {
+          console.warn('Error removing mini map:', error);
+        }
+        setMiniMap(null);
+      }
+    };
+  }, [openDialog, selectedNFT]);
 
   const fetchUserCollection = async () => {
     try {
@@ -318,6 +406,23 @@ const NFTCollection = () => {
                     alt={selectedNFT.nft.collection.name}
                     style={{ width: '100%', borderRadius: 8 }}
                   />
+                  
+                  {/* Mini Map for NFT Location */}
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      NFT Location
+                    </Typography>
+                    <Box 
+                      id="nft-collection-mini-map"
+                      sx={{ 
+                        height: '200px', 
+                        width: '100%', 
+                        borderRadius: '8px',
+                        border: '1px solid #e0e0e0',
+                        overflow: 'hidden'
+                      }}
+                    />
+                  </Box>
                 </Grid>
                 
                 <Grid item xs={12} md={6}>
@@ -379,6 +484,21 @@ const NFTCollection = () => {
                       <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
                         <strong>Contract:</strong> {selectedNFT.nft.smart_contract_address}
                       </Typography>
+                      {selectedNFT.blockchain_transaction_hash && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Transaction Hash:</strong> {selectedNFT.blockchain_transaction_hash}
+                        </Typography>
+                      )}
+                      {selectedNFT.blockchain_ledger && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Ledger:</strong> {selectedNFT.blockchain_ledger}
+                        </Typography>
+                      )}
+                      {selectedNFT.blockchain_network && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Network:</strong> {selectedNFT.blockchain_network}
+                        </Typography>
+                      )}
                     </Box>
                   </Stack>
                 </Grid>

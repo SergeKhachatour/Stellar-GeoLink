@@ -553,6 +553,21 @@ const NFTMap = () => {
                       <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
                         <strong>Contract:</strong> {selectedNFT.smart_contract_address}
                       </Typography>
+                      {selectedNFT.blockchain_transaction_hash && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Transaction Hash:</strong> {selectedNFT.blockchain_transaction_hash}
+                        </Typography>
+                      )}
+                      {selectedNFT.blockchain_ledger && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Ledger:</strong> {selectedNFT.blockchain_ledger}
+                        </Typography>
+                      )}
+                      {selectedNFT.blockchain_network && (
+                        <Typography variant="body2" fontFamily="monospace" fontSize="0.8rem">
+                          <strong>Network:</strong> {selectedNFT.blockchain_network}
+                        </Typography>
+                      )}
                     </Box>
                   </Stack>
                 </Grid>

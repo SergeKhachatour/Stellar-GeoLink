@@ -107,6 +107,9 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('user');
             setUser(null);
             setError(null);
+            
+            // Dispatch custom event to notify wallet context about logout
+            window.dispatchEvent(new CustomEvent('userLogout'));
         }
     };
 

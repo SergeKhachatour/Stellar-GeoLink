@@ -1,0 +1,298 @@
+#![no_std]
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, vec, Address, Env, String, Vec, Map, Symbol, Val, Error, panic_with_error};
+
+// Import OpenZeppelin contracts
+use openzeppelin_soroban::{
+    contracts::{
+        access::AccessControl,
+        pausable::Pausable,
+        token::erc721::ERC721,
+    },
+    traits::{
+        access::AccessControlTrait,
+        pausable::PausableTrait,
+        token::erc721::ERC721Trait,
+    },
+};
+
+// Custom error codes following OpenZeppelin convention
+const ERR_NOT_WITHIN_RADIUS: u32 = 2001;
+const ERR_INVALID_LOCATION: u32 = 2002;
+const ERR_INVALID_METADATA: u32 = 2003;
+const ERR_UNAUTHORIZED_MINT: u32 = 2004;
+
+// Role constants
+const MINTER_ROLE: Symbol = symbol_short!("MINTER");
+const TRANSFER_ROLE: Symbol = symbol_short!("TRANSFER");
+
+// Location data structure
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Location {
+    pub latitude: i64,  // Scaled by 10^6 for precision
+    pub longitude: i64, // Scaled by 10^6 for precision
+    pub radius: u32,    // Radius in meters
+}
+
+// NFT metadata structure
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NFTMetadata {
+    pub name: String,
+    pub description: String,
+    pub image_url: String,
+    pub ipfs_hash: String,
+    pub attributes: Map<String, String>,
+    pub location: Location,
+    pub created_at: u64,
+}
+
+// Contract storage keys
+const LOCATION_NFT_DATA: Symbol = symbol_short!("LOC_NFT");
+const METADATA: Symbol = symbol_short!("METADATA");
+const LOCATIONS: Symbol = symbol_short!("LOCATIONS");
+
+#[contract]
+pub struct LocationNFT;
+
+#[contractimpl]
+impl LocationNFT {
+    // Initialize the contract
+    pub fn initialize(env: &Env, admin: Address, name: String, symbol: String) {
+        // Initialize OpenZeppelin contracts
+        AccessControl::initialize(env, admin.clone());
+        Pausable::initialize(env, admin.clone());
+        ERC721::initialize(env, admin, name, symbol);
+        
+        // Set up roles
+        let admin_role = AccessControl::get_admin_role(env);
+        AccessControl::grant_role(env, &MINTER_ROLE, &admin);
+        AccessControl::grant_role(env, &TRANSFER_ROLE, &admin);
+        
+        // Store contract data
+        env.storage().instance().set(&LOCATION_NFT_DATA, &LocationNFTData {
+            max_radius: 1000, // Default 1km radius
+            min_radius: 10,   // Minimum 10m radius
+        });
+    }
+    
+    // Mint NFT with location validation
+    pub fn mint_with_location(
+        env: &Env,
+        to: Address,
+        token_id: u32,
+        metadata: NFTMetadata,
+        minter_location: Location,
+    ) -> Result<(), Error> {
+        // Check if caller has minter role
+        AccessControl::require_role(env, &MINTER_ROLE);
+        
+        // Check if contract is not paused
+        Pausable::require_not_paused(env);
+        
+        // Validate location data
+        Self::validate_location(env, &metadata.location, &minter_location)?;
+        
+        // Mint the NFT
+        ERC721::mint(env, &to, token_id);
+        
+        // Store metadata
+        env.storage().persistent().set(
+            &(METADATA, token_id),
+            &metadata,
+        );
+        
+        // Store location data
+        env.storage().persistent().set(
+            &(LOCATIONS, token_id),
+            &metadata.location,
+        );
+        
+        Ok(())
+    }
+    
+    // Transfer NFT with location validation
+    pub fn transfer_with_location(
+        env: &Env,
+        from: Address,
+        to: Address,
+        token_id: u32,
+        from_location: Location,
+        to_location: Location,
+    ) -> Result<(), Error> {
+        // Check if caller has transfer role or is NFT manager
+        if !AccessControl::has_role(env, &TRANSFER_ROLE) {
+            // Check if transfer is within radius
+            Self::validate_transfer_location(env, token_id, &from_location, &to_location)?;
+        }
+        
+        // Check if contract is not paused
+        Pausable::require_not_paused(env);
+        
+        // Perform the transfer
+        ERC721::transfer_from(env, &from, &to, token_id);
+        
+        // Update location data
+        let new_location = Location {
+            latitude: to_location.latitude,
+            longitude: to_location.longitude,
+            radius: to_location.radius,
+        };
+        env.storage().persistent().set(
+            &(LOCATIONS, token_id),
+            &new_location,
+        );
+        
+        Ok(())
+    }
+    
+    // Get NFT metadata
+    pub fn get_metadata(env: &Env, token_id: u32) -> Result<NFTMetadata, Error> {
+        env.storage()
+            .persistent()
+            .get(&(METADATA, token_id))
+            .ok_or_else(|| Error::from_contract_error(ERR_INVALID_METADATA))
+    }
+    
+    // Get NFT location
+    pub fn get_location(env: &Env, token_id: u32) -> Result<Location, Error> {
+        env.storage()
+            .persistent()
+            .get(&(LOCATIONS, token_id))
+            .ok_or_else(|| Error::from_contract_error(ERR_INVALID_LOCATION))
+    }
+    
+    // Update NFT location (only by owner or authorized)
+    pub fn update_location(
+        env: &Env,
+        token_id: u32,
+        new_location: Location,
+        updater_location: Location,
+    ) -> Result<(), Error> {
+        // Check if caller is owner or has transfer role
+        let owner = ERC721::owner_of(env, token_id);
+        if owner != env.current_contract_address() {
+            AccessControl::require_role(env, &TRANSFER_ROLE);
+        }
+        
+        // Validate new location
+        Self::validate_location(env, &new_location, &updater_location)?;
+        
+        // Update location
+        env.storage().persistent().set(
+            &(LOCATIONS, token_id),
+            &new_location,
+        );
+        
+        Ok(())
+    }
+    
+    // Set maximum radius for transfers
+    pub fn set_max_radius(env: &Env, max_radius: u32) -> Result<(), Error> {
+        AccessControl::require_role(env, &AccessControl::get_admin_role(env));
+        
+        let mut data: LocationNFTData = env.storage()
+            .instance()
+            .get(&LOCATION_NFT_DATA)
+            .unwrap_or_default();
+        data.max_radius = max_radius;
+        env.storage().instance().set(&LOCATION_NFT_DATA, &data);
+        
+        Ok(())
+    }
+    
+    // Pause contract (emergency stop)
+    pub fn pause(env: &Env) -> Result<(), Error> {
+        AccessControl::require_role(env, &AccessControl::get_admin_role(env));
+        Pausable::pause(env);
+        Ok(())
+    }
+    
+    // Unpause contract
+    pub fn unpause(env: &Env) -> Result<(), Error> {
+        AccessControl::require_role(env, &AccessControl::get_admin_role(env));
+        Pausable::unpause(env);
+        Ok(())
+    }
+}
+
+// Helper functions
+impl LocationNFT {
+    fn validate_location(
+        env: &Env,
+        nft_location: &Location,
+        user_location: &Location,
+    ) -> Result<(), Error> {
+        // Calculate distance between locations
+        let distance = Self::calculate_distance(
+            nft_location.latitude,
+            nft_location.longitude,
+            user_location.latitude,
+            user_location.longitude,
+        );
+        
+        // Check if user is within radius
+        if distance > nft_location.radius as i64 {
+            panic_with_error!(env, Error::from_contract_error(ERR_NOT_WITHIN_RADIUS));
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_transfer_location(
+        env: &Env,
+        token_id: u32,
+        from_location: &Location,
+        to_location: &Location,
+    ) -> Result<(), Error> {
+        // Get NFT location
+        let nft_location = Self::get_location(env, token_id)?;
+        
+        // Check if both users are within radius
+        let from_distance = Self::calculate_distance(
+            nft_location.latitude,
+            nft_location.longitude,
+            from_location.latitude,
+            from_location.longitude,
+        );
+        
+        let to_distance = Self::calculate_distance(
+            nft_location.latitude,
+            nft_location.longitude,
+            to_location.latitude,
+            to_location.longitude,
+        );
+        
+        if from_distance > nft_location.radius as i64 || to_distance > nft_location.radius as i64 {
+            panic_with_error!(env, Error::from_contract_error(ERR_NOT_WITHIN_RADIUS));
+        }
+        
+        Ok(())
+    }
+    
+    fn calculate_distance(lat1: i64, lon1: i64, lat2: i64, lon2: i64) -> i64 {
+        // Haversine formula for distance calculation
+        let lat1_rad = (lat1 as f64) * std::f64::consts::PI / 180.0;
+        let lon1_rad = (lon1 as f64) * std::f64::consts::PI / 180.0;
+        let lat2_rad = (lat2 as f64) * std::f64::consts::PI / 180.0;
+        let lon2_rad = (lon2 as f64) * std::f64::consts::PI / 180.0;
+        
+        let dlat = lat2_rad - lat1_rad;
+        let dlon = lon2_rad - lon1_rad;
+        
+        let a = (dlat / 2.0).sin().powi(2) + lat1_rad.cos() * lat2_rad.cos() * (dlon / 2.0).sin().powi(2);
+        let c = 2.0 * a.sqrt().asin();
+        
+        // Earth's radius in meters
+        let earth_radius = 6371000.0;
+        (earth_radius * c) as i64
+    }
+}
+
+// Contract data structure
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct LocationNFTData {
+    pub max_radius: u32,
+    pub min_radius: u32,
+}

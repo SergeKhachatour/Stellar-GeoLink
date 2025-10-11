@@ -22,7 +22,6 @@ import {
   Tabs,
   Tab,
   CardMedia,
-  CardHeader,
   FormControl,
   InputLabel,
   Select,
@@ -43,6 +42,7 @@ import {
   AccountBalance as StellarIcon,
   Collections as CollectionsIcon,
   GetApp as CollectIcon,
+  ZoomIn as ZoomInIcon,
   Info as InfoIcon
 } from '@mui/icons-material';
 import Mapboxgl from 'mapbox-gl';
@@ -52,6 +52,9 @@ import { useWallet } from '../../contexts/WalletContext';
 import WalletConnectionDialog from '../Wallet/WalletConnectionDialog';
 import LocationSettings from '../LocationSettings';
 import api from '../../services/api';
+import realNFTService from '../../services/realNFTService';
+import EnhancedNFTManager from './EnhancedNFTManager';
+import RealPinNFT from './RealPinNFT';
 
 // Mapbox Token - Ensure this is loaded from your .env file
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
@@ -155,7 +158,7 @@ function a11yProps(index) {
 
 const NFTDashboard = () => {
   const { user } = useAuth();
-  const { wallet, disconnectWallet, isConnected, balance, connectWalletViewOnly } = useWallet();
+  const { wallet, disconnectWallet, isConnected, balance, connectWalletViewOnly, clearWalletCompletely, publicKey, setUser } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [nearbyNFTs, setNearbyNFTs] = useState([]);
   const [userCollection, setUserCollection] = useState([]);
@@ -172,7 +175,9 @@ const NFTDashboard = () => {
   const [openWalletDialog, setOpenWalletDialog] = useState(false);
   const [openLocationSettings, setOpenLocationSettings] = useState(false);
   const [openPinDialog, setOpenPinDialog] = useState(false);
+  const [openRealPinDialog, setOpenRealPinDialog] = useState(false);
   const [pinLocation, setPinLocation] = useState(null);
+  const [miniMap, setMiniMap] = useState(null);
   const [autoDetectingLocation, setAutoDetectingLocation] = useState(false);
   const [pinForm, setPinForm] = useState({
     name: '',
@@ -198,6 +203,7 @@ const NFTDashboard = () => {
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [mapView, setMapView] = useState('3d'); // '2d', '3d', 'satellite'
   // const [showFilters, setShowFilters] = useState(false); // Removed unused variables
   const [selectedCollection, setSelectedCollection] = useState('');
@@ -399,82 +405,16 @@ const NFTDashboard = () => {
   // const clearAllRadiusCircles = (map) => { ... }
   // const addRadiusCircle = (map, lng, lat, radiusMeters) => { ... }
 
-  // Function to create clusters when zoomed out
-  const createClusters = (nfts, map) => {
-    const clusterDistance = 0.1; // ~11km at equator - much larger distance for proper clustering
-    const clusters = [];
-    
-    console.log(`Creating clusters for ${nfts.length} NFTs with distance threshold: ${clusterDistance}`);
-    
-    nfts.forEach(nft => {
-      const nftLng = parseFloat(nft.longitude);
-      const nftLat = parseFloat(nft.latitude);
-      
-      // Find existing cluster or create new one
-      let assignedCluster = null;
-      for (const cluster of clusters) {
-        const clusterLng = cluster.centerLng;
-        const clusterLat = cluster.centerLat;
-        const distance = Math.sqrt(
-          Math.pow(nftLng - clusterLng, 2) + Math.pow(nftLat - clusterLat, 2)
-        );
-        
-        if (distance < clusterDistance) {
-          assignedCluster = cluster;
-          break;
-        }
-      }
-      
-      if (assignedCluster) {
-        assignedCluster.nfts.push(nft);
-        // Update cluster center to be the average of all NFTs in the cluster
-        const totalLng = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.longitude), 0);
-        const totalLat = assignedCluster.nfts.reduce((sum, n) => sum + parseFloat(n.latitude), 0);
-        assignedCluster.centerLng = totalLng / assignedCluster.nfts.length;
-        assignedCluster.centerLat = totalLat / assignedCluster.nfts.length;
-      } else {
-        clusters.push({
-          centerLng: nftLng,
-          centerLat: nftLat,
-          nfts: [nft]
-        });
-      }
-    });
-    
-    console.log(`Created ${clusters.length} clusters:`, clusters.map(c => ({ count: c.nfts.length, center: [c.centerLng, c.centerLat] })));
-    
-    // Create cluster markers - only if they don't already exist
-    clusters.forEach((cluster, clusterIndex) => {
-      const clusterId = `cluster-${clusterIndex}`;
-      
-      // Check if cluster marker already exists
-      if (currentMarkers.current[clusterId]) {
-        console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
-        return;
-      }
-      
-      if (cluster.nfts.length === 1) {
-        // Single NFT - create individual marker
-        createSingleMarker(cluster.nfts[0], map);
-      } else {
-        // Multiple NFTs - create cluster marker
-        createClusterMarker(cluster, map, clusterIndex);
-      }
-    });
-  };
-
-  // Function to create individual markers when zoomed in
-  const createIndividualMarkers = (nfts, map) => {
-    nfts.forEach((nft, nftIndex) => {
-      createSingleMarker(nft, map, nftIndex);
-    });
-  };
-
   // Function to create a single NFT marker
-  const createSingleMarker = (nft, map, nftIndex = 0) => {
+  const createSingleMarker = useCallback((nft, map, nftIndex = 0, markersRef = null) => {
     try {
+      console.log(`🎯 Creating single marker for NFT ${nft.id} at index ${nftIndex}`);
+      
+      // Use the passed markersRef or fall back to currentMarkers
+      const currentMarkersRef = markersRef || currentMarkers;
+      
       // Check if marker already exists
-      if (currentMarkers.current[nft.id]) {
+      if (currentMarkersRef.current[nft.id]) {
         console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
         return;
       }
@@ -487,24 +427,93 @@ const NFTDashboard = () => {
         return;
       }
 
-      // Use exact coordinates with tiny visual offset to prevent stacking
-      const baseLng = parseFloat(nft.longitude);
-      const baseLat = parseFloat(nft.latitude);
+      // Use exact NFT coordinates without any offsets
+      let finalLng = parseFloat(nft.longitude);
+      let finalLat = parseFloat(nft.latitude);
       
-      // Add tiny random offset for visual separation (doesn't affect database coordinates)
-      const offsetLng = (Math.random() - 0.5) * 0.0002; // ±0.0001 degrees ≈ ±11 meters
-      const offsetLat = (Math.random() - 0.5) * 0.0002;
+      // Globe projection coordinate handling
+      // Ensure coordinates are in proper WGS84 format for globe projection
+      if (map.getProjection()?.name === 'globe') {
+        // Globe projection requires coordinates to be in WGS84 decimal degrees
+        // Ensure longitude is between -180 and 180, latitude between -90 and 90
+        if (finalLng < -180) finalLng += 360;
+        if (finalLng > 180) finalLng -= 360;
+        if (finalLat < -90) finalLat = -90;
+        if (finalLat > 90) finalLat = 90;
+        
+        console.log(`🌍 Globe projection: Normalized coordinates for NFT ${nft.id}:`, { lng: finalLng, lat: finalLat });
+      }
       
-      const finalLng = baseLng + offsetLng;
-      const finalLat = baseLat + offsetLat;
+      // TEMPORARY FIX: Check if coordinates seem to be swapped
+      // If longitude is in latitude range and vice versa, swap them
+      if (Math.abs(finalLng) <= 90 && Math.abs(finalLat) > 90) {
+        console.log(`🔄 COORDINATE SWAP DETECTED for NFT ${nft.id}: Swapping lat/lng`);
+        const temp = finalLng;
+        finalLng = finalLat;
+        finalLat = temp;
+      }
+      
+      // Additional check: If coordinates are clearly in the ocean, try swapping
+      // Ocean coordinates are typically outside normal land boundaries
+      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
+        console.log(`🔄 INVALID COORDINATES for NFT ${nft.id}: Trying coordinate swap`);
+        const temp = finalLng;
+        finalLng = finalLat;
+        finalLat = temp;
+      }
+      
+      // Check if coordinates might be in UTM or another coordinate system
+      // UTM coordinates are typically much larger numbers (hundreds of thousands)
+      if (Math.abs(finalLng) > 1000 || Math.abs(finalLat) > 1000) {
+        console.log(`🚨 LARGE COORDINATES for NFT ${nft.id}: Possible UTM or other coordinate system`, { lng: finalLng, lat: finalLat });
+        console.log(`🚨 These coordinates are likely in UTM or another system, not WGS84 GPS coordinates`);
+      }
+      
+      // Debug: Log raw coordinate values
+      console.log(`🔍 Raw coordinates for NFT ${nft.id}:`, {
+        rawLongitude: nft.longitude,
+        rawLatitude: nft.latitude,
+        parsedLng: finalLng,
+        parsedLat: finalLat,
+        coordinateType: typeof nft.longitude,
+        isString: typeof nft.longitude === 'string',
+        stringLength: typeof nft.longitude === 'string' ? nft.longitude.length : 'N/A'
+      });
       
       console.log(`NFT ${nft.id} coordinates:`, {
         lat: finalLat,
         lng: finalLng,
         name: nft.name,
         nftIndex,
-        originalCoords: { lat: baseLat, lng: baseLng }
+        originalCoords: { lat: nft.latitude, lng: nft.longitude }
       });
+      
+      // Debug: Check if coordinates are reasonable
+      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
+        console.error(`🚨 INVALID COORDINATES for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
+      }
+      
+      // Debug: Check if coordinates are in expected ranges
+      // California should be roughly: -124 to -114 longitude, 32 to 42 latitude
+      // Rio de Janeiro should be roughly: -43 to -42 longitude, -23 to -22 latitude
+      if (finalLng >= -124 && finalLng <= -114 && finalLat >= 32 && finalLat <= 42) {
+        console.log(`✅ NFT ${nft.id} appears to be in California region`);
+      } else if (finalLng >= -43 && finalLng <= -42 && finalLat >= -23 && finalLat <= -22) {
+        console.log(`✅ NFT ${nft.id} appears to be in Rio de Janeiro region`);
+      } else {
+        console.log(`❓ NFT ${nft.id} coordinates don't match expected regions:`, { lat: finalLat, lng: finalLng });
+        
+        // Test if swapping lat/lng makes more sense
+        const swappedLng = finalLat;
+        const swappedLat = finalLng;
+        console.log(`🔄 Testing swapped coordinates for NFT ${nft.id}:`, { lat: swappedLat, lng: swappedLng });
+        
+        if (swappedLng >= -124 && swappedLng <= -114 && swappedLat >= 32 && swappedLat <= 42) {
+          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in California region if coordinates were swapped`);
+        } else if (swappedLng >= -43 && swappedLng <= -42 && swappedLat >= -23 && swappedLat <= -22) {
+          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in Rio de Janeiro region if coordinates were swapped`);
+        }
+      }
 
       // Final validation of coordinates
       if (isNaN(finalLat) || isNaN(finalLng) || !isFinite(finalLat) || !isFinite(finalLng)) {
@@ -556,20 +565,79 @@ const NFTDashboard = () => {
       }
 
       // Add click handler to show NFT details
+      // Add click handler for NFT details with delay to allow double-click
+      let clickTimeout;
       el.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        console.log('NFT marker clicked:', nft);
-        // You can add NFT details modal here
+        
+        // Clear any existing timeout
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+        }
+        
+        // Set a timeout to allow double-click to be detected
+        clickTimeout = setTimeout(() => {
+          console.log('NFT marker clicked:', nft);
+          handleNFTDetails(nft);
+        }, 200); // 200ms delay to allow double-click detection
       });
 
-      // Create draggable marker
+      // Add double-click zoom functionality
+      el.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Clear the click timeout to prevent single-click from firing
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        
+        console.log('NFT marker double-clicked, zooming in:', nft);
+        console.log('Map reference for double-click:', map);
+        console.log('Map type:', map === overlayMap.current ? 'overlay' : 'main');
+        
+        map.flyTo({
+          center: [finalLng, finalLat],
+          zoom: 18,
+          duration: 1000
+        });
+      });
+
+      // Create draggable marker with stable positioning
       const marker = new Mapboxgl.Marker({
         element: el,
         draggable: true
       })
       .setLngLat([finalLng, finalLat])
       .addTo(map);
+      
+      // Globe projection: Ensure marker is positioned correctly after map loads
+      if (map.getProjection()?.name === 'globe') {
+        // Force marker to correct position after a short delay to ensure globe is ready
+        setTimeout(() => {
+          marker.setLngLat([finalLng, finalLat]);
+          console.log(`🌍 Globe projection: Repositioned marker for NFT ${nft.id} to:`, [finalLng, finalLat]);
+        }, 100);
+        
+        // Also reposition when map style is loaded (for globe projection)
+        const repositionMarker = () => {
+          marker.setLngLat([finalLng, finalLat]);
+          console.log(`🌍 Globe projection: Style loaded - repositioned marker for NFT ${nft.id}`);
+        };
+        
+        if (map.isStyleLoaded()) {
+          repositionMarker();
+        } else {
+          map.once('style.load', repositionMarker);
+        }
+      }
+      
+      // Mark the marker as stable to prevent unnecessary updates
+      marker._isStable = true;
+      marker._lastUpdated = Date.now();
+      marker._nftId = nft.id; // Store NFT ID for tracking
 
       // Add drag event listeners
       marker.on('dragstart', () => {
@@ -580,11 +648,45 @@ const NFTDashboard = () => {
       marker.on('dragend', async () => {
         marker._isDragging = false;
         marker._lastUpdated = Date.now();
+        marker._wasRecentlyDragged = true; // Flag to prevent updates
         
-        const lng = marker.getLngLat().lng;
-        const lat = marker.getLngLat().lat;
+        // Get coordinates in WGS84 system, unaffected by zoom level
+        const lngLat = marker.getLngLat();
         
-        console.log(`Final drag coordinates for NFT ${nft.id}:`, { lng, lat });
+        // Ensure coordinates are in WGS84 decimal degrees
+        let lng = parseFloat(lngLat.lng.toFixed(8)); // High precision
+        let lat = parseFloat(lngLat.lat.toFixed(8)); // High precision
+        
+        // Convert to WGS84 if needed (Mapbox should already be in WGS84, but let's be sure)
+        // This ensures coordinates are in the standard GPS coordinate system
+        if (map.getProjection()?.name === 'globe') {
+          // Globe projection should already be in WGS84, but let's validate
+          console.log(`🌍 Globe projection detected - coordinates should be in WGS84`);
+        }
+        
+        console.log(`Final drag coordinates for NFT ${nft.id}:`, { 
+          lng, 
+          lat, 
+          zoomLevel: map.getZoom(),
+          projection: map.getProjection()?.name || 'unknown',
+          originalCoords: { lng: nft.longitude, lat: nft.latitude },
+          coordinateChange: {
+            lngDiff: lng - parseFloat(nft.longitude),
+            latDiff: lat - parseFloat(nft.latitude)
+          }
+        });
+        
+        // Validate coordinates are within reasonable bounds
+        if (Math.abs(lng) > 180 || Math.abs(lat) > 90) {
+          console.error(`🚨 INVALID DRAG COORDINATES for NFT ${nft.id}:`, { lng, lat });
+          console.error(`🚨 Coordinates are outside valid WGS84 bounds`);
+          return; // Don't update with invalid coordinates
+        }
+        
+        // Check if coordinates are reasonable (not in ocean)
+        if (Math.abs(lng) < 0.1 && Math.abs(lat) < 0.1) {
+          console.warn(`⚠️ WARNING: NFT ${nft.id} coordinates are very close to 0,0 (Gulf of Guinea)`);
+        }
         
         try {
           // Update NFT coordinates in database
@@ -601,27 +703,39 @@ const NFTDashboard = () => {
             nearbyNFTs[nftIndex].longitude = lng;
             nearbyNFTs[nftIndex].latitude = lat;
           }
+          
+          // Clear the recently dragged flag after a delay
+          setTimeout(() => {
+            marker._wasRecentlyDragged = false;
+            console.log(`🔄 Cleared recently dragged flag for NFT ${nft.id}`);
+          }, 15000); // 15 seconds - longer protection
         } catch (error) {
           console.error(`Error updating NFT ${nft.id} coordinates:`, error);
         }
       });
 
       // Store marker reference
-      currentMarkers.current[nft.id] = marker;
+      console.log(`🎯 Before storing marker ${nft.id} - currentMarkers ref:`, currentMarkersRef.current);
+      currentMarkersRef.current[nft.id] = marker;
+      console.log(`🎯 After storing marker ${nft.id} - currentMarkers ref:`, currentMarkersRef.current);
       
       console.log(`NFT image marker created for NFT ${nft.id} at:`, [finalLng, finalLat]);
+      console.log(`Stored marker in currentMarkers:`, Object.keys(currentMarkersRef.current));
     } catch (error) {
       console.error(`Error creating marker for NFT ${nft.id}:`, error);
     }
-  };
+  }, [currentMarkers, nearbyNFTs]);
 
   // Function to create a cluster marker
-  const createClusterMarker = (cluster, map, clusterIndex) => {
+  const createClusterMarker = useCallback((cluster, map, clusterIndex, markersRef = null) => {
     try {
       const clusterId = `cluster-${clusterIndex}`;
       
+      // Use the passed markersRef or fall back to currentMarkers
+      const currentMarkersRef = markersRef || currentMarkers;
+      
       // Double-check if cluster marker already exists
-      if (currentMarkers.current[clusterId]) {
+      if (currentMarkersRef.current[clusterId]) {
         console.log(`Cluster marker ${clusterId} already exists, skipping creation`);
         return;
       }
@@ -657,27 +771,146 @@ const NFTDashboard = () => {
         });
       });
 
+      // Add double-click handler for maximum zoom
+      el.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        map.flyTo({
+          center: [cluster.centerLng, cluster.centerLat],
+          zoom: 18,
+          duration: 1000
+        });
+      });
+
       const marker = new Mapboxgl.Marker({
         element: el,
         draggable: false
       })
       .setLngLat([cluster.centerLng, cluster.centerLat])
       .addTo(map);
+      
+      // Mark the cluster marker as stable to prevent unnecessary updates
+      marker._isStable = true;
+      marker._lastUpdated = Date.now();
 
-      currentMarkers.current[clusterId] = marker;
+      console.log(`🎯 Before storing cluster ${clusterId} - currentMarkers ref:`, currentMarkersRef.current);
+      currentMarkersRef.current[clusterId] = marker;
+      console.log(`🎯 After storing cluster ${clusterId} - currentMarkers ref:`, currentMarkersRef.current);
       
       console.log(`Cluster marker created for ${cluster.nfts.length} NFTs at:`, [cluster.centerLng, cluster.centerLat]);
+      console.log(`Stored cluster marker in currentMarkers:`, Object.keys(currentMarkersRef.current));
     } catch (error) {
       console.error(`Error creating cluster ${clusterIndex}:`, error);
     }
-  };
+  }, [currentMarkers]);
+
+  // Function to create clusters when zoomed out
+  const createClusters = useCallback((nfts, map, markersRef) => {
+    const currentZoom = map.getZoom();
+    
+    // Simple, fast clustering based on zoom level
+    let clusterDistance;
+    if (currentZoom < 6) {
+      clusterDistance = 0.01; // ~1.1km - large clusters when very zoomed out
+    } else if (currentZoom < 8) {
+      clusterDistance = 0.005; // ~550m - medium clusters
+    } else {
+      clusterDistance = 0.002; // ~220m - small clusters
+    }
+    
+    console.log(`Creating clusters for ${nfts.length} NFTs with zoom: ${currentZoom}, distance: ${clusterDistance}`);
+    
+    const clusters = [];
+    const processed = new Set();
+    
+    // Fast clustering algorithm
+    for (let i = 0; i < nfts.length; i++) {
+      if (processed.has(i)) continue;
+      
+      const nft = nfts[i];
+      console.log(`🔍 Processing NFT ${i}: ${nft.id} at [${nft.longitude}, ${nft.latitude}]`);
+      const nftLng = parseFloat(nft.longitude);
+      const nftLat = parseFloat(nft.latitude);
+      
+      const cluster = {
+        centerLng: nftLng,
+        centerLat: nftLat,
+        nfts: [nft]
+      };
+      
+      // Find nearby NFTs to add to this cluster
+      for (let j = i + 1; j < nfts.length; j++) {
+        if (processed.has(j)) continue;
+        
+        const otherNft = nfts[j];
+        const otherLng = parseFloat(otherNft.longitude);
+        const otherLat = parseFloat(otherNft.latitude);
+        
+        const distance = Math.sqrt(
+          Math.pow(nftLng - otherLng, 2) + Math.pow(nftLat - otherLat, 2)
+        );
+        
+        if (distance < clusterDistance) {
+          cluster.nfts.push(otherNft);
+          processed.add(j);
+        }
+      }
+      
+      clusters.push(cluster);
+      processed.add(i);
+      console.log(`✅ Created cluster for NFT ${i} (${nft.id}) with ${cluster.nfts.length} NFTs`);
+    }
+    
+    console.log(`Created ${clusters.length} clusters:`, clusters.map(c => ({ count: c.nfts.length, center: [c.centerLng, c.centerLat] })));
+    console.log(`Processed ${processed.size} NFTs out of ${nfts.length} total NFTs`);
+    
+    // Create cluster markers
+    clusters.forEach((cluster, clusterIndex) => {
+      const clusterId = `cluster-${clusterIndex}`;
+      
+      console.log(`🎯 Creating cluster marker ${clusterId} for ${cluster.nfts.length} NFTs`);
+      
+      if (cluster.nfts.length === 1) {
+        // Single NFT - create individual marker
+        console.log(`🎯 Creating individual marker for single NFT: ${cluster.nfts[0].id}`);
+        createSingleMarker(cluster.nfts[0], map, 0, markersRef);
+      } else {
+        // Multiple NFTs - create cluster marker
+        console.log(`🎯 Creating cluster marker for ${cluster.nfts.length} NFTs`);
+        createClusterMarker(cluster, map, clusterIndex, markersRef);
+      }
+    });
+  }, [createSingleMarker, createClusterMarker]);
+
+  // Function to create individual markers when zoomed in
+  const createIndividualMarkers = useCallback((nfts, map, markersRef) => {
+    console.log(`🎯 createIndividualMarkers called with ${nfts.length} NFTs`);
+    nfts.forEach((nft, nftIndex) => {
+      console.log(`🎯 Processing NFT ${nftIndex}: ${nft.id}`);
+      createSingleMarker(nft, map, nftIndex, markersRef);
+    });
+  }, [createSingleMarker]);
+
+
 
   const updateMapMarkers = useCallback((mapType = 'main', forceUpdate = false) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
-    const currentMarkers = mapType === 'overlay' ? overlayMarkers : markers;
+    // Use global references directly instead of local variables
+    const currentMarkersRef = mapType === 'overlay' ? overlayMarkers : markers;
     
-    console.log(`updateMapMarkers called: mapType=${mapType}, forceUpdate=${forceUpdate}, markersCreated=${markersCreated}, markersLocked=${markersLocked}`);
-    console.log(`Pin marker protected: ${pinMarkerProtected}, pin marker exists: ${!!pinMarker}`);
+    const callId = Math.random().toString(36).substr(2, 9);
+    console.log(`[${callId}] updateMapMarkers called: mapType=${mapType}, forceUpdate=${forceUpdate}, markersCreated=${markersCreated}, markersLocked=${markersLocked}`);
+    console.log(`[${callId}] Pin marker protected: ${pinMarkerProtected}, pin marker exists: ${!!pinMarker}`);
+    console.log(`[${callId}] Current map reference:`, currentMap.current);
+    console.log(`[${callId}] Map type check:`, currentMap === overlayMap ? 'overlay' : 'main');
+    
+    // DEBOUNCE: Prevent multiple rapid calls
+    if (updateMapMarkers._lastCall && Date.now() - updateMapMarkers._lastCall < 100) {
+      console.log(`[${callId}] 🚫 Debouncing rapid call, skipping`);
+      return;
+    }
+    updateMapMarkers._lastCall = Date.now();
     
     // ULTRA-PROTECTION: Don't update markers if pin marker is protected
     if (pinMarkerProtected && pinMarker) {
@@ -705,6 +938,12 @@ const NFTDashboard = () => {
     // ZOOM-PROOF: Prevent any updates during zoom operations
     if (isUserMovingMap && !forceUpdate) {
       console.log('User is interacting with map - no marker updates allowed');
+      return;
+    }
+    
+    // AGGRESSIVE PROTECTION: If markers exist and are positioned correctly, don't update them
+    if (markersCreated && Object.keys(currentMarkersRef.current).length > 0 && !forceUpdate) {
+      console.log('🚫 Markers already exist and are positioned - preventing any updates');
       return;
     }
     
@@ -810,55 +1049,109 @@ const NFTDashboard = () => {
 
       // Create markers with zoom-based clustering
       const currentZoom = currentMap.current.getZoom();
-      const clusterThreshold = 10; // Zoom level below which to cluster (higher = more clustering)
       
       console.log(`Creating markers for ${nearbyNFTs.length} NFTs with zoom-based clustering (zoom: ${currentZoom.toFixed(2)})`);
+      console.log(`🔍 nearbyNFTs data:`, nearbyNFTs);
+      console.log(`🔍 nearbyNFTs length:`, nearbyNFTs.length);
       
-      // Check if markers are already created and prevent recreation
-      if (markersCreated && Object.keys(currentMarkers.current).length > 0 && !forceUpdate) {
-        console.log('🚫 Markers already exist, preventing recreation');
+      // Check if any markers were recently dragged
+      const hasRecentlyDraggedMarkers = Object.values(currentMarkersRef.current).some(marker => 
+        marker && marker._wasRecentlyDragged
+      );
+      
+      if (hasRecentlyDraggedMarkers) {
+        console.log(`[${callId}] 🚫 Recently dragged markers detected, skipping all marker updates`);
         return;
       }
       
-      // Prevent recreation if markers are locked or stable
-      if (markersLocked || markersStable || markersNeverUpdate) {
-        console.log('🚫 Markers are locked/stable, preventing recreation');
-          return;
-        }
-        
-      // Prevent recreation if any marker is being dragged
-      const isDragging = Object.values(currentMarkers.current).some(marker => 
-        marker._isDragging || marker._dragStart
-      );
-      if (isDragging) {
-        console.log('🚫 Marker is being dragged, preventing recreation');
+      // Only prevent recreation if we're not forcing an update
+      if (markersCreated && Object.keys(currentMarkersRef.current).length > 0 && !forceUpdate) {
+        console.log(`[${callId}] 🚫 Markers already exist, preventing recreation. Current markers:`, Object.keys(currentMarkersRef.current));
         return;
       }
       
-      // Prevent recreation if markers were recently updated (within last 5 seconds)
-      const now = Date.now();
-      const recentlyUpdated = Object.values(currentMarkers.current).some(marker => 
-        marker._lastUpdated && (now - marker._lastUpdated) < 5000
-      );
-      if (recentlyUpdated) {
-        console.log('🚫 Markers were recently updated, preventing recreation');
-          return;
-        }
+      // Allow updates when zoom level changes significantly
 
-      if (currentZoom < clusterThreshold) {
-        // Create clusters when zoomed out
-        console.log('🔍 Zoomed out - creating clusters');
-        createClusters(nearbyNFTs, currentMap.current);
-      } else {
-        // Create individual markers when zoomed in
-        console.log('🔍 Zoomed in - creating individual markers');
-        createIndividualMarkers(nearbyNFTs, currentMap.current);
+      // Only clear markers if we need to recreate them
+      const hasExistingMarkers = Object.keys(currentMarkersRef.current).length > 0;
+      const needsRecreation = forceUpdate || !hasExistingMarkers;
+      
+      // Additional check: if markers were just created (within last 500ms), don't clear them
+      const markersJustCreated = Object.values(currentMarkersRef.current).some(marker => 
+        marker._lastUpdated && (Date.now() - marker._lastUpdated) < 500
+      );
+      
+      if (markersJustCreated && !forceUpdate) {
+        console.log(`[${callId}] ✅ Markers were just created, skipping clearing`);
+        return;
       }
       
-      // Mark markers as created to prevent recreation
+      if (needsRecreation) {
+        console.log(`[${callId}] 🗑️ Clearing existing markers for recreation...`);
+        console.log(`[${callId}] 🗑️ Current markers before clearing:`, Object.keys(currentMarkersRef.current));
+        console.log(`[${callId}] 🗑️ needsRecreation: ${needsRecreation}, hasExistingMarkers: ${hasExistingMarkers}, forceUpdate: ${forceUpdate}`);
+        
+        // Remove all tracked markers from the map, but preserve recently dragged ones
+        Object.values(currentMarkersRef.current).forEach(marker => {
+          if (marker && typeof marker.remove === 'function') {
+            // Don't remove recently dragged markers
+            if (marker._wasRecentlyDragged) {
+              console.log(`🚫 Preserving recently dragged marker: ${marker._nftId || 'unknown'}`);
+              return;
+            }
+            marker.remove();
+          }
+        });
+        
+        // Also clear any orphaned markers that might exist in the DOM
+        const mapContainer = currentMap.current.getContainer();
+        const orphanedMarkers = mapContainer.querySelectorAll('.cluster-marker, .nft-marker');
+        console.log(`[${callId}] 🗑️ Found ${orphanedMarkers.length} orphaned markers to remove`);
+        orphanedMarkers.forEach(marker => {
+          if (marker && marker.parentNode) {
+            marker.parentNode.removeChild(marker);
+          }
+        });
+        
+        // Clear the markers object completely
+        console.log(`[${callId}] 🗑️ Before clearing - currentMarkers ref:`, currentMarkersRef.current);
+        console.log(`[${callId}] 🗑️ Before clearing - currentMarkers keys:`, Object.keys(currentMarkersRef.current));
+        currentMarkersRef.current = {};
+        console.log(`[${callId}] 🗑️ After clearing - currentMarkers ref:`, currentMarkersRef.current);
+        console.log(`[${callId}] 🗑️ After clearing - currentMarkers keys:`, Object.keys(currentMarkersRef.current));
+        
+        console.log(`[${callId}] 🗑️ Markers cleared, current count:`, Object.keys(currentMarkersRef.current).length);
+      } else {
+        console.log(`[${callId}] ✅ Markers already exist, skipping clearing`);
+        console.log(`[${callId}] ✅ Current markers:`, Object.keys(currentMarkersRef.current));
+        return; // Exit early if markers already exist and we don't need to recreate
+      }
+      
+      // Simple clustering logic
+      if (currentZoom < 10) {
+        // Zoomed out - create clusters
+        console.log(`[${callId}] 🔍 Zoomed out - creating clusters (zoom:`, currentZoom, ')');
+        createClusters(nearbyNFTs, currentMap.current, currentMarkersRef);
+        console.log(`[${callId}] 🔍 After cluster creation, markers:`, Object.keys(currentMarkersRef.current));
+        console.log(`[${callId}] 🔍 Total markers stored:`, Object.keys(currentMarkersRef.current).length);
+        console.log(`[${callId}] 🔍 currentMarkers ref after cluster creation:`, currentMarkersRef.current);
+      } else {
+        // Zoomed in - create individual markers
+        console.log(`[${callId}] 🔍 Zoomed in - creating individual markers (zoom:`, currentZoom, ')');
+        console.log(`[${callId}] 🔍 Number of NFTs to create individual markers for:`, nearbyNFTs.length);
+        createIndividualMarkers(nearbyNFTs, currentMap.current, currentMarkersRef);
+        console.log(`[${callId}] 🔍 After individual marker creation, markers:`, Object.keys(currentMarkersRef.current));
+        console.log(`[${callId}] 🔍 Total markers stored:`, Object.keys(currentMarkersRef.current).length);
+        console.log(`[${callId}] 🔍 currentMarkers ref after individual creation:`, currentMarkersRef.current);
+      }
+      
+      // Mark markers as created
+      console.log(`[${callId}] ✅ Setting markersCreated to true`);
       setMarkersCreated(true);
-      setMarkersLocked(true);
-      setMarkersStable(true);
+      
+      // AGGRESSIVE: Set markers to never update once they're positioned correctly
+      console.log(`[${callId}] 🔒 LOCKING markers to prevent any future updates`);
+      setMarkersNeverUpdate(true);
     } catch (error) {
       console.error('Error in updateMapMarkers:', error);
     } finally {
@@ -871,49 +1164,70 @@ const NFTDashboard = () => {
     }
   }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
 
-  // Add zoom event listener to update markers when zoom changes
-  const addZoomListener = useCallback((map) => {
-    if (map && !map._zoomListenerAdded) {
-      map.on('zoomend', () => {
-        const currentZoom = map.getZoom();
-        const clusterThreshold = 10;
-        
-        // Only update if zoom level crosses the clustering threshold
-        const shouldCluster = currentZoom < clusterThreshold;
-        const wasClustering = Object.keys(currentMarkers.current).some(key => key.startsWith('cluster-'));
-        
-        if (shouldCluster !== wasClustering) {
-          // Check if any markers were recently updated
-          const now = Date.now();
-          const recentlyUpdated = Object.values(currentMarkers.current).some(marker => 
-            marker._lastUpdated && (now - marker._lastUpdated) < 5000
-          );
-          
-          if (recentlyUpdated) {
-            console.log('🚫 Markers were recently updated, skipping zoom-based recreation');
-            return;
-          }
-          
-          console.log(`Zoom changed from ${wasClustering ? 'clustering' : 'individual'} to ${shouldCluster ? 'clustering' : 'individual'} mode`);
-          // Clear existing markers and recreate based on new zoom level
-          Object.values(currentMarkers.current).forEach(marker => marker.remove());
-          currentMarkers.current = {};
-          
-          // Reset marker states to allow recreation
-          setMarkersCreated(false);
-          setMarkersLocked(false);
-          setMarkersStable(false);
-          setMarkersNeverUpdate(false);
-          
-          // Recreate markers with new zoom level
-          updateMapMarkers('main', true);
-          } else {
-          console.log('Zoom changed but clustering mode unchanged, keeping existing markers');
-        }
-      });
-      map._zoomListenerAdded = true;
+  // Filter Functions - Fetch filtered data from API
+  const applyFilters = useCallback(async () => {
+    console.log('🔍 applyFilters called');
+    console.log('🔍 Current filter state:', { selectedCollection, selectedRarity, radiusFilter });
+    console.log('🔍 Current nearbyNFTs count:', nearbyNFTs.length);
+    
+    try {
+      setLoading(true);
+      
+      // Build query parameters for API
+      const params = {
+        latitude: userLocation?.latitude || userLocation?.lat,
+        longitude: userLocation?.longitude || userLocation?.lng,
+        radius: 999999999 // Very large radius to get ALL NFTs globally
+      };
+      
+      // Ensure we have valid coordinates
+      if (!params.latitude || !params.longitude) {
+        console.log('🔍 No valid coordinates, using existing nearbyNFTs');
+        setError('Location not available for filtering. Please enable location access.');
+        setLoading(false);
+        return;
+      }
+      
+      // Add collection filter if selected
+      if (selectedCollection) {
+        params.collection_id = selectedCollection;
+        console.log('🔍 Added collection filter:', selectedCollection);
+      }
+      
+      // Add rarity filter if selected
+      if (selectedRarity) {
+        params.rarity_level = selectedRarity;
+        console.log('🔍 Added rarity filter:', selectedRarity);
+      }
+      
+      // Fetch filtered data from API
+      console.log('🔍 Applying filters with params:', params);
+      console.log('🔍 Filter state:', { selectedCollection, selectedRarity, radiusFilter });
+      const response = await api.get('/nft/nearby', { params });
+      console.log('🔍 Filter API response:', response.data);
+      const filteredNFTs = response.data.nfts || [];
+      console.log('🔍 Filtered NFTs count:', filteredNFTs.length);
+      
+      // Update state with filtered results
+      setNearbyNFTs(filteredNFTs);
+      
+      // Update map markers with filtered results using the existing function
+      console.log('🔍 Resetting marker states for filter update');
+      setMarkersStable(false); // Reset stability when filters change
+      setMarkersLocked(false); // Reset lock when filters change
+      setMarkersNeverUpdate(false); // Reset never update when filters change
+      
+      console.log('🔍 Calling updateMapMarkers with filtered NFTs:', filteredNFTs.length);
+      updateMapMarkers('main', true); // Force update when filters change
+      
+      setSuccess(`Found ${filteredNFTs.length} NFTs matching your filters`);
+    } catch (error) {
+      console.error('Error applying filters:', error);
+      setError('Failed to apply filters');
+    } finally {
+      setLoading(false);
     }
-  }, [currentMarkers, updateMapMarkers, setMarkersCreated, setMarkersLocked, setMarkersStable, setMarkersNeverUpdate]);
+  }, [selectedCollection, selectedRarity, radiusFilter, nearbyNFTs, setLoading, setError, setNearbyNFTs, setSuccess, updateMapMarkers, userLocation?.lat, userLocation?.latitude, userLocation?.lng, userLocation?.longitude]);
 
   // Custom NFT Filter Control for Mapbox
   const createNFTFilterControl = useCallback(() => {
@@ -985,7 +1299,170 @@ const NFTDashboard = () => {
     }
     
     return new NFTFilterControl();
-  }, [setSelectedCollection, setSelectedRarity]);
+  }, [setSelectedCollection, setSelectedRarity, applyFilters]);
+
+  // Create custom 3D control panel
+  const createCustom3DControl = () => {
+    const control = {
+      onAdd: function(map) {
+        this._map = map;
+        this._container = document.createElement('div');
+        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
+        this._container.style.background = 'rgba(255, 255, 255, 0.9)';
+        this._container.style.borderRadius = '8px';
+        this._container.style.padding = '10px';
+        this._container.style.boxShadow = '0 2px 10px rgba(0,0,0,0.1)';
+        
+        // 3D Controls HTML
+        this._container.innerHTML = `
+          <div style="font-weight: bold; margin-bottom: 10px; color: #333;">🌍 3D Globe Controls</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button id="reset-view" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
+              🎯 Reset View
+            </button>
+            <button id="orbit-earth" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
+              🌎 Orbit Earth
+            </button>
+            <button id="toggle-terrain" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
+              🏔️ Toggle Terrain
+            </button>
+            <button id="toggle-buildings" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
+              🏢 Toggle Buildings
+            </button>
+            <button id="toggle-fog" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
+              🌫️ Toggle Fog
+            </button>
+            <div style="margin-top: 5px;">
+              <label style="font-size: 12px; color: #666;">Pitch: <span id="pitch-value">0°</span></label><br>
+              <input type="range" id="pitch-slider" min="0" max="85" value="0" style="width: 100%; margin-top: 2px;">
+            </div>
+            <div style="margin-top: 5px;">
+              <label style="font-size: 12px; color: #666;">Bearing: <span id="bearing-value">0°</span></label><br>
+              <input type="range" id="bearing-slider" min="0" max="360" value="0" style="width: 100%; margin-top: 2px;">
+            </div>
+          </div>
+        `;
+        
+        // Add event listeners
+        this._container.querySelector('#reset-view').addEventListener('click', () => {
+          map.flyTo({
+            center: [0, 0],
+            zoom: 1,
+            pitch: 0,
+            bearing: 0,
+            duration: 2000
+          });
+        });
+        
+        this._container.querySelector('#orbit-earth').addEventListener('click', () => {
+          let bearing = 0;
+          const orbit = () => {
+            bearing += 1;
+            map.setBearing(bearing);
+            if (bearing < 360) {
+              requestAnimationFrame(orbit);
+            }
+          };
+          orbit();
+        });
+        
+        let terrainEnabled = true;
+        this._container.querySelector('#toggle-terrain').addEventListener('click', () => {
+          try {
+            if (terrainEnabled) {
+              map.setTerrain(null);
+              terrainEnabled = false;
+              this._container.querySelector('#toggle-terrain').textContent = '🏔️ Enable Terrain';
+            } else {
+              map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
+              terrainEnabled = true;
+              this._container.querySelector('#toggle-terrain').textContent = '🏔️ Disable Terrain';
+            }
+          } catch (error) {
+            console.warn('Terrain toggle failed:', error.message);
+            this._container.querySelector('#toggle-terrain').textContent = '🏔️ Terrain Unavailable';
+          }
+        });
+        
+        let buildingsEnabled = true;
+        this._container.querySelector('#toggle-buildings').addEventListener('click', () => {
+          if (buildingsEnabled) {
+            map.setLayoutProperty('3d-buildings', 'visibility', 'none');
+            buildingsEnabled = false;
+            this._container.querySelector('#toggle-buildings').textContent = '🏢 Show Buildings';
+          } else {
+            map.setLayoutProperty('3d-buildings', 'visibility', 'visible');
+            buildingsEnabled = true;
+            this._container.querySelector('#toggle-buildings').textContent = '🏢 Hide Buildings';
+          }
+        });
+        
+        let fogEnabled = true;
+        this._container.querySelector('#toggle-fog').addEventListener('click', () => {
+          try {
+            if (fogEnabled) {
+              map.setFog(null);
+              fogEnabled = false;
+              this._container.querySelector('#toggle-fog').textContent = '🌫️ Enable Fog';
+            } else {
+              map.setFog({
+                color: 'rgb(186, 210, 235)',
+                'high-color': 'rgb(36, 92, 223)',
+                'horizon-blend': 0.02,
+                'space-color': 'rgb(11, 11, 25)',
+                'star-intensity': 0.6
+              });
+              fogEnabled = true;
+              this._container.querySelector('#toggle-fog').textContent = '🌫️ Disable Fog';
+            }
+          } catch (error) {
+            console.warn('Fog toggle failed:', error.message);
+            this._container.querySelector('#toggle-fog').textContent = '🌫️ Fog Unavailable';
+          }
+        });
+        
+        // Pitch slider
+        const pitchSlider = this._container.querySelector('#pitch-slider');
+        const pitchValue = this._container.querySelector('#pitch-value');
+        pitchSlider.addEventListener('input', (e) => {
+          const pitch = parseInt(e.target.value);
+          map.setPitch(pitch);
+          pitchValue.textContent = pitch + '°';
+        });
+        
+        // Bearing slider
+        const bearingSlider = this._container.querySelector('#bearing-slider');
+        const bearingValue = this._container.querySelector('#bearing-value');
+        bearingSlider.addEventListener('input', (e) => {
+          const bearing = parseInt(e.target.value);
+          map.setBearing(bearing);
+          bearingValue.textContent = bearing + '°';
+        });
+        
+        // Update sliders when map changes
+        map.on('pitch', () => {
+          const pitch = Math.round(map.getPitch());
+          pitchSlider.value = pitch;
+          pitchValue.textContent = pitch + '°';
+        });
+        
+        map.on('bearing', () => {
+          const bearing = Math.round(map.getBearing());
+          bearingSlider.value = bearing;
+          bearingValue.textContent = bearing + '°';
+        });
+        
+        return this._container;
+      },
+      
+      onRemove: function() {
+        this._container.parentNode.removeChild(this._container);
+        this._map = undefined;
+      }
+    };
+    
+    return control;
+  };
 
   const initializeMap = useCallback((container, mapType) => {
     const currentMap = mapType === 'overlay' ? overlayMap : map;
@@ -1018,7 +1495,23 @@ const NFTDashboard = () => {
         bearing: initialBearing,
         projection: 'globe', // Enable globe projection
         antialias: true, // Enable antialiasing for better 3D rendering
-        optimizeForTerrain: true // Optimize for 3D terrain
+        optimizeForTerrain: true, // Optimize for 3D terrain
+        // Advanced 3D settings
+        maxPitch: 85, // Allow extreme pitch angles
+        maxZoom: 22, // Maximum zoom level
+        minZoom: 0, // Minimum zoom level
+        maxBounds: [[-180, -85], [180, 85]], // Prevent over-rotation
+        // Enhanced 3D rendering
+        renderWorldCopies: false, // Don't render world copies for better performance
+        interactive: true, // Enable all interactions
+        // Advanced globe settings
+        globe: {
+          enableAtmosphere: true, // Enable atmospheric glow
+          atmosphereColor: '#87CEEB', // Sky blue atmosphere
+          atmosphereIntensity: 0.3, // Subtle atmosphere
+          enableStars: true, // Enable star field
+          starIntensity: 0.5 // Star visibility
+        }
       });
 
       console.log('Map created for', mapType);
@@ -1026,18 +1519,42 @@ const NFTDashboard = () => {
       currentMap.current.on('load', () => {
         console.log('Map loaded for', mapType);
         
-        // Add navigation control with enhanced options
-        currentMap.current.addControl(new Mapboxgl.NavigationControl({
+        // Add enhanced navigation control with 3D features
+        const navControl = new Mapboxgl.NavigationControl({
           showCompass: true,
           showZoom: true,
-          visualizePitch: true
-        }), 'top-right');
+          visualizePitch: true,
+          showFullscreen: true
+        });
+        currentMap.current.addControl(navControl, 'top-right');
+        
+        // Move all top controls down to avoid title overlay
+        setTimeout(() => {
+          // Move top-right controls (navigation, geolocate, fullscreen)
+          const topRightControls = currentMap.current.getContainer().querySelectorAll('.mapboxgl-ctrl-top-right');
+          topRightControls.forEach(control => {
+            control.style.top = '80px'; // Move down by title overlay height
+          });
+          
+          // Move top-left controls (custom 3D control)
+          const topLeftControls = currentMap.current.getContainer().querySelectorAll('.mapboxgl-ctrl-top-left');
+          topLeftControls.forEach(control => {
+            control.style.top = '80px'; // Move down by title overlay height
+          });
+        }, 100);
+        
+        // Note: TerrainControl and SkyControl are not standard Mapbox GL JS controls
+        // They require additional extensions. Using custom 3D control panel instead.
 
         // Add scale control
         currentMap.current.addControl(new Mapboxgl.ScaleControl({
           maxWidth: 100,
           unit: 'metric'
         }), 'bottom-left');
+        
+        // Add custom 3D control panel
+        const custom3DControl = createCustom3DControl();
+        currentMap.current.addControl(custom3DControl, 'top-left');
 
         // Add geolocate control
         currentMap.current.addControl(new Mapboxgl.GeolocateControl({
@@ -1051,25 +1568,44 @@ const NFTDashboard = () => {
         // Add fullscreen control
           currentMap.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
 
+        // Add double-click zoom functionality
+        currentMap.current.on('dblclick', (e) => {
+          console.log('Map double-clicked, zooming in to:', e.lngLat);
+          currentMap.current.flyTo({
+            center: [e.lngLat.lng, e.lngLat.lat],
+            zoom: 18,
+            duration: 1000
+          });
+        });
+
         // Add custom NFT filter control
         const nftFilterControl = createNFTFilterControl();
         currentMap.current.addControl(nftFilterControl, 'top-left');
 
-        // Add zoom listener for clustering
-        addZoomListener(currentMap.current);
+        // Zoom listener removed - markers stay locked to coordinates
+        // addZoomListener(currentMap.current);
 
-        // Add 3D buildings layer
+        // Add comprehensive 3D layers and effects
         try {
-          if (currentMap.current.getSource('composite') && currentMap.current.getLayer('building')) {
+          // Add 3D buildings with enhanced styling
+          if (currentMap.current.getSource('composite')) {
             currentMap.current.addLayer({
               id: '3d-buildings',
               source: 'composite',
               'source-layer': 'building',
               filter: ['==', 'extrude', 'true'],
               type: 'fill-extrusion',
-              minzoom: 15,
+              minzoom: 10,
               paint: {
-                'fill-extrusion-color': '#aaa',
+                'fill-extrusion-color': [
+                  'interpolate',
+                  ['linear'],
+                  ['get', 'height'],
+                  0, '#87CEEB',
+                  50, '#4682B4',
+                  100, '#4169E1',
+                  200, '#0000CD'
+                ],
                 'fill-extrusion-height': [
                   'case',
                   ['has', 'height'],
@@ -1082,13 +1618,48 @@ const NFTDashboard = () => {
                   ['get', 'min_height'],
                   0
                 ],
-                'fill-extrusion-opacity': 0.6
+                'fill-extrusion-opacity': 0.8
               }
             });
-            console.log('3D buildings layer added');
+            console.log('Enhanced 3D buildings layer added');
           }
+          
+          // Add 3D terrain with exaggeration (if supported)
+          try {
+            currentMap.current.addSource('mapbox-dem', {
+              type: 'raster-dem',
+              url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+              tileSize: 512,
+              maxzoom: 14
+            });
+            
+            // Add terrain layer
+            currentMap.current.setTerrain({
+              source: 'mapbox-dem',
+              exaggeration: 1.5
+            });
+            console.log('3D terrain added successfully');
+          } catch (terrainError) {
+            console.warn('3D terrain not supported:', terrainError.message);
+          }
+          
+          // Add fog for depth perception (if supported)
+          try {
+            currentMap.current.setFog({
+              color: 'rgb(186, 210, 235)',
+              'high-color': 'rgb(36, 92, 223)',
+              'horizon-blend': 0.02,
+              'space-color': 'rgb(11, 11, 25)',
+              'star-intensity': 0.6
+            });
+            console.log('Fog effects added successfully');
+          } catch (fogError) {
+            console.warn('Fog effects not supported:', fogError.message);
+          }
+          
+          console.log('3D terrain, fog, and enhanced buildings added');
         } catch (error) {
-          console.log('Could not add 3D buildings layer:', error.message);
+          console.log('Could not add 3D layers:', error.message);
         }
 
         // DISABLED: Zoom-based marker updates to prevent infinite loops
@@ -1098,37 +1669,50 @@ const NFTDashboard = () => {
         // Track user map movement to prevent marker updates during user interaction
         currentMap.current.on('movestart', () => {
           setIsUserMovingMap(true);
-          setMarkersStable(false); // Reset stability when user starts moving
-          console.log('User started moving map - markers no longer stable');
-          if (pinMarkerProtected && pinMarker) {
-            console.log('🚨 PIN MARKER IS PROTECTED - IGNORING MAP MOVEMENT');
-          }
+          console.log('User started moving map - BLOCKING marker updates');
         });
         
         currentMap.current.on('moveend', () => {
           setIsUserMovingMap(false);
-          console.log('User finished moving map - markers remain locked to coordinates');
-          // Markers stay locked to their exact coordinates - no updates
+          console.log('User finished moving map - allowing marker updates');
         });
         
-        // PREVENT ALL ZOOM-BASED UPDATES
         currentMap.current.on('zoomstart', () => {
-          console.log('Zoom started - preventing marker updates');
+          console.log('Zoom started - BLOCKING marker updates');
           setIsUserMovingMap(true);
-          setMarkersStable(false);
-          if (pinMarkerProtected && pinMarker) {
-            console.log('🚨 PIN MARKER IS PROTECTED - IGNORING ZOOM START');
-          }
+        });
+        
+        // Additional map interaction events
+        currentMap.current.on('dragstart', () => {
+          setIsUserMovingMap(true);
+          console.log('Map drag started - BLOCKING marker updates');
+        });
+        
+        currentMap.current.on('dragend', () => {
+          setIsUserMovingMap(false);
+          console.log('Map drag ended - allowing marker updates');
         });
         
         currentMap.current.on('zoomend', () => {
-          console.log('Zoom ended - markers remain locked to coordinates');
+          console.log('Zoom ended');
           setIsUserMovingMap(false);
+          
+          // Check if any markers were recently dragged
+          const hasRecentlyDraggedMarkers = Object.values(currentMarkers.current).some(marker => 
+            marker && marker._wasRecentlyDragged
+          );
+          
+          if (hasRecentlyDraggedMarkers) {
+            console.log('🚫 Recently dragged markers detected - skipping zoom end marker updates');
+            return;
+          }
+          
           // NO marker updates on zoom - markers stay at exact coordinates
           if (pinMarkerProtected && pinMarker) {
             console.log('🚨 PIN MARKER IS PROTECTED - IGNORING ZOOM END');
-        }
-      });
+            return;
+          }
+        });
 
       // Handle map errors
       currentMap.current.on('error', (e) => {
@@ -1157,7 +1741,7 @@ const NFTDashboard = () => {
       console.error('Error initializing map:', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker, addZoomListener, createNFTFilterControl]);
+  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker, createNFTFilterControl]);
 
 
   useEffect(() => {
@@ -1205,13 +1789,142 @@ const NFTDashboard = () => {
 
   // Request counter removed - no longer needed
 
+  // Set user in wallet context when user changes
+  useEffect(() => {
+    if (user) {
+      console.log('NFTDashboard: Setting user in wallet context:', user);
+      setUser(user);
+    } else {
+      console.log('NFTDashboard: No user, clearing wallet context');
+      setUser(null);
+    }
+  }, [user, setUser]);
+
+  // Initialize mini map when NFT details dialog opens
+  useEffect(() => {
+    if (openNFTDialog && selectedNFT) {
+      const initializeMiniMap = () => {
+        const mapContainer = document.getElementById('nft-details-mini-map');
+        if (mapContainer && !miniMap) {
+          // Clear any existing map first
+          if (miniMap && typeof miniMap.remove === 'function') {
+            try {
+              miniMap.remove();
+            } catch (error) {
+              console.warn('Error removing existing mini map:', error);
+            }
+          }
+          const miniMapInstance = new Mapboxgl.Map({
+            container: 'nft-details-mini-map',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: [parseFloat(selectedNFT.longitude), parseFloat(selectedNFT.latitude)],
+            zoom: 15,
+            interactive: true
+          });
+
+          // Add marker for NFT location
+          new Mapboxgl.Marker({ color: 'red' })
+            .setLngLat([parseFloat(selectedNFT.longitude), parseFloat(selectedNFT.latitude)])
+            .addTo(miniMapInstance);
+
+          // Add circle for collection radius
+          miniMapInstance.on('load', () => {
+            miniMapInstance.addSource('nft-radius', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [parseFloat(selectedNFT.longitude), parseFloat(selectedNFT.latitude)]
+                }
+              }
+            });
+
+            miniMapInstance.addLayer({
+              id: 'nft-radius-circle',
+              type: 'circle',
+              source: 'nft-radius',
+              paint: {
+                'circle-radius': {
+                  stops: [
+                    [0, 0],
+                    [20, selectedNFT.radius_meters || 50]
+                  ],
+                  base: 2
+                },
+                'circle-color': '#ff0000',
+                'circle-opacity': 0.2,
+                'circle-stroke-color': '#ff0000',
+                'circle-stroke-width': 2
+              }
+            });
+          });
+
+          setMiniMap(miniMapInstance);
+        }
+      };
+
+      // Small delay to ensure DOM is ready
+      setTimeout(initializeMiniMap, 100);
+    }
+
+    // Cleanup mini map when dialog closes
+    return () => {
+      if (miniMap && typeof miniMap.remove === 'function') {
+        try {
+          miniMap.remove();
+        } catch (error) {
+          console.warn('Error removing mini map:', error);
+        }
+        setMiniMap(null);
+      }
+    };
+  }, [openNFTDialog, selectedNFT]);
+
   // Auto-connect wallet using user's stored public key
   useEffect(() => {
-    if (user && user.public_key && !isConnected) {
-      console.log('Auto-connecting wallet with stored public key:', user.public_key);
-      connectWalletViewOnly(user.public_key);
+    if (user && user.public_key) {
+      console.log('NFTDashboard: User logged in with public key:', user.public_key);
+      console.log('NFTDashboard: Current wallet connection state:', { isConnected, publicKey });
+      
+      // Check if we need to reconnect (different user or not connected)
+      const needsReconnection = !isConnected || (publicKey && publicKey !== user.public_key);
+      const isDifferentUser = publicKey && publicKey !== user.public_key;
+      
+      if (isDifferentUser) {
+        console.log('NFTDashboard: Different user detected, clearing wallet completely');
+        clearWalletCompletely();
+      }
+      
+      if (needsReconnection) {
+        console.log('NFTDashboard: Wallet needs reconnection:', { needsReconnection, currentPublicKey: publicKey, userPublicKey: user.public_key });
+        
+        // Add a longer delay to allow wallet restoration to complete first
+        const connectTimeout = setTimeout(() => {
+          // Double-check that we still need to connect
+          if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+            console.log('NFTDashboard: Attempting wallet auto-connection...');
+            connectWalletViewOnly(user.public_key).catch(error => {
+              console.error('NFTDashboard: Auto-connection failed, will retry:', error);
+              // Retry once after a longer delay
+              setTimeout(() => {
+                if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+                  console.log('NFTDashboard: Retrying wallet auto-connection...');
+                  connectWalletViewOnly(user.public_key);
+                }
+              }, 1000);
+            });
+          } else {
+            console.log('NFTDashboard: Wallet already connected during timeout');
+          }
+        }, 1000); // Increased delay to allow wallet restoration
+        
+        return () => clearTimeout(connectTimeout);
+      } else {
+        console.log('NFTDashboard: Wallet already connected to correct user');
+      }
     }
-  }, [user, isConnected, connectWalletViewOnly]);
+  }, [user, isConnected, publicKey, connectWalletViewOnly, clearWalletCompletely]);
 
   // Auto-detect location on page load
   useEffect(() => {
@@ -1740,61 +2453,6 @@ const NFTDashboard = () => {
     }
   };
 
-  // Filter Functions - Fetch filtered data from API
-  const applyFilters = async () => {
-    console.log('applyFilters called');
-    try {
-      setLoading(true);
-      
-      // Build query parameters for API
-      const params = {
-        latitude: userLocation?.latitude || userLocation?.lat,
-        longitude: userLocation?.longitude || userLocation?.lng,
-        radius: 999999999 // Very large radius to get ALL NFTs globally
-      };
-      
-      // Ensure we have valid coordinates
-      if (!params.latitude || !params.longitude) {
-        setError('Location not available for filtering. Please enable location access.');
-        setLoading(false);
-        return;
-      }
-      
-      // Add collection filter if selected
-      if (selectedCollection) {
-        params.collection_id = selectedCollection;
-      }
-      
-      // Add rarity filter if selected
-      if (selectedRarity) {
-        params.rarity_level = selectedRarity;
-      }
-      
-      // Fetch filtered data from API
-      console.log('Applying filters with params:', params);
-      console.log('Filter state:', { selectedCollection, selectedRarity, radiusFilter });
-      const response = await api.get('/nft/nearby', { params });
-      console.log('Filter API response:', response.data);
-      const filteredNFTs = response.data.nfts || [];
-      
-      // Update state with filtered results
-      setNearbyNFTs(filteredNFTs);
-      
-      // Update map markers with filtered results using the existing function
-      setMarkersStable(false); // Reset stability when filters change
-      setMarkersLocked(false); // Reset lock when filters change
-      setMarkersNeverUpdate(false); // Reset never update when filters change
-      updateMapMarkers('main', true); // Force update when filters change
-      
-      setSuccess(`Found ${filteredNFTs.length} NFTs matching your filters`);
-    } catch (error) {
-      console.error('Error applying filters:', error);
-      setError('Failed to apply filters');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const navigateToFilteredArea = () => {
     if (nearbyNFTs.length === 0) return;
     
@@ -2124,24 +2782,53 @@ const NFTDashboard = () => {
       return;
     }
 
+    if (!isConnected || !publicKey) {
+      setError('Wallet not connected. Please connect your wallet to collect NFTs.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
+      // Real Stellar blockchain NFT collection
+      console.log('Collecting NFT on Stellar blockchain:', nft);
+      
+      // Check if NFT has a smart contract address
+      if (!nft.smart_contract_address) {
+        throw new Error('NFT does not have a smart contract address. Cannot collect on blockchain.');
+      }
+
+      // Use real NFT service to transfer NFT on Stellar blockchain
+      const result = await realNFTService.transferLocationNFT(
+        nft.smart_contract_address,
+        nft.token_id || nft.id, // Use token_id if available, fallback to id
+        nft.current_owner || nft.owner, // From current owner
+        publicKey, // To current user
+        userLocation.latitude,
+        userLocation.longitude
+      );
+
+      console.log('Real blockchain NFT collection successful:', result);
+
+      // Update database with blockchain transaction
       const response = await api.post('/nft/collect', {
         nft_id: nft.id,
         user_latitude: userLocation.latitude,
-        user_longitude: userLocation.longitude
+        user_longitude: userLocation.longitude,
+        blockchain_transaction_hash: result.transactionHash,
+        blockchain_ledger: result.ledger,
+        blockchain_network: 'testnet'
       });
 
-      setSuccess(response.data.message);
+      setSuccess(`NFT collected successfully! Transaction: ${result.transactionHash}`);
       fetchNearbyNFTs(); // Refresh nearby NFTs
       setCollectionFetched(false); // Reset flag to allow collection refresh
       fetchUserCollection(); // Refresh user collection
     } catch (err) {
-      console.error('Error collecting NFT:', err);
-      setError(err.response?.data?.error || 'Failed to collect NFT.');
+      console.error('Error collecting NFT on blockchain:', err);
+      setError(err.message || 'Failed to collect NFT on Stellar blockchain.');
     } finally {
       setLoading(false);
     }
@@ -2157,7 +2844,7 @@ const NFTDashboard = () => {
   };
 
   const handleOpenMap = () => {
-    console.log('Opening map dialog...');
+    console.log('Opening fullscreen map dialog...');
     setOpenMapDialog(true);
     
     // Force map initialization after dialog opens
@@ -2167,6 +2854,98 @@ const NFTDashboard = () => {
         initializeMap(overlayMapContainer.current, 'overlay');
       }
     }, 500);
+  };
+
+  // Handle search autocomplete
+  const handleSearchAutocomplete = async (query) => {
+    if (!query.trim() || query.length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+    
+    try {
+      console.log('Autocomplete search for:', query);
+      
+      // Use Mapbox Geocoding API for autocomplete
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${process.env.REACT_APP_MAPBOX_TOKEN}&limit=5&autocomplete=true`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Autocomplete search failed');
+      }
+      
+      const data = await response.json();
+      console.log('Autocomplete results:', data.features);
+      
+      if (data.features && data.features.length > 0) {
+        setSearchResults(data.features);
+        setShowSearchResults(true);
+      } else {
+        setSearchResults([]);
+        setShowSearchResults(false);
+      }
+    } catch (error) {
+      console.error('Autocomplete error:', error);
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  };
+
+  // Handle search functionality
+  const handleSearch = async (selectedResult = null) => {
+    try {
+      let result;
+      if (selectedResult) {
+        // Use the selected autocomplete result
+        result = selectedResult;
+      } else {
+        // Use Mapbox Geocoding API for new search
+        const query = searchQuery.trim();
+        if (!query) return;
+        
+        console.log('Searching for:', query);
+        
+        const response = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${process.env.REACT_APP_MAPBOX_TOKEN}&limit=1`
+        );
+        
+        if (!response.ok) {
+          throw new Error('Search failed');
+        }
+        
+        const data = await response.json();
+        if (data.features && data.features.length > 0) {
+          result = data.features[0];
+        } else {
+          throw new Error('No results found');
+        }
+      }
+      
+      const [lng, lat] = result.center;
+      
+      console.log('Navigating to:', result.place_name, 'at', lng, lat);
+      
+      // Navigate the overlay map to the search result
+      if (overlayMap.current) {
+        overlayMap.current.flyTo({
+          center: [lng, lat],
+          zoom: 12,
+          duration: 2000
+        });
+      } else {
+        console.error('Overlay map not available for navigation');
+      }
+      
+      // Clear search query and results
+      setSearchQuery('');
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } catch (error) {
+      console.error('Search error:', error);
+      setError('Search failed. Please try again.');
+    }
   };
 
   const handleCloseMap = () => {
@@ -2202,6 +2981,25 @@ const NFTDashboard = () => {
     };
   }, []);
 
+  // Handle click outside map search autocomplete
+  const handleMapSearchClickOutside = (event) => {
+    const searchContainer = document.querySelector('.map-search-container');
+    if (searchContainer && !searchContainer.contains(event.target)) {
+      setShowSearchResults(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleMapSearchClickOutside);
+    }, 100);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleMapSearchClickOutside);
+    };
+  }, []);
+
   // Only show loading spinner if we're actually loading and have no data
   if (loading && !nearbyNFTs.length && !userCollection.length && isConnected) {
     return (
@@ -2221,21 +3019,163 @@ const NFTDashboard = () => {
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      {/* Header with Location Controls */}
-      <Box sx={{ mb: 4 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        NFT Dashboard
-      </Typography>
+      {/* Enhanced Header with Dashboard Cards */}
+      <Box sx={{ 
+        background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+        borderRadius: 2,
+        p: 3,
+        mb: 4,
+        color: 'white'
+      }}>
+        <Typography variant="h4" component="h1" gutterBottom sx={{ color: 'white', mb: 3 }}>
+          🌍 NFT Dashboard
+        </Typography>
+        
+        {/* Compact Dashboard Cards */}
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          {/* Wallet Status Card */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Paper sx={{ 
+              p: 2, 
+              background: 'rgba(255, 255, 255, 0.1)', 
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <StellarIcon sx={{ color: 'white', mr: 1 }} />
+                <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                  Wallet Status
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 2 }}>
+                {isConnected ? "✅ Connected" : "❌ Not Connected"}
+              </Typography>
+              {!isConnected || !wallet?.publicKey ? (
+                <Button
+                  variant="contained"
+                  startIcon={<WalletIcon />}
+                  onClick={() => setOpenWalletDialog(true)}
+                  size="small"
+                  disabled={loading}
+                  sx={{ 
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                  }}
+                >
+                  {loading ? 'Connecting...' : 'Connect Wallet'}
+                </Button>
+              ) : (
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.8)', display: 'block', mb: 1 }}>
+                    {wallet?.publicKey?.substring(0, 12)}...
+                  </Typography>
+                  {balance !== null && (
+                    <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.8)', display: 'block', mb: 1 }}>
+                      Balance: {balance.toFixed(2)} XLM
+                    </Typography>
+                  )}
+                  <Button
+                    variant="outlined"
+                    onClick={disconnectWallet}
+                    size="small"
+                    color="error"
+                    sx={{ 
+                      borderColor: 'rgba(255, 255, 255, 0.5)',
+                      color: 'white',
+                      '&:hover': { borderColor: 'white' }
+                    }}
+                  >
+                    Disconnect
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Grid>
+
+          {/* My Collection Card */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Paper sx={{ 
+              p: 2, 
+              background: 'rgba(255, 255, 255, 0.1)', 
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <CollectionsIcon sx={{ color: 'white', mr: 1 }} />
+                <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                  My Collection
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 2 }}>
+                {userCollection.length} NFTs collected
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<CollectionsIcon />}
+                onClick={() => setTabValue(1)}
+                size="small"
+                disabled={!isConnected || !wallet?.publicKey}
+                sx={{ 
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                }}
+              >
+                View Collection
+              </Button>
+            </Paper>
+          </Grid>
+
+          {/* NFT Map Card */}
+          <Grid item xs={12} sm={6} md={4}>
+            <Paper sx={{ 
+              p: 2, 
+              background: 'rgba(255, 255, 255, 0.1)', 
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <MapIcon sx={{ color: 'white', mr: 1 }} />
+                <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                  NFT Map
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 2 }}>
+                {nearbyNFTs.length} NFTs nearby
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<MapIcon />}
+                onClick={handleOpenMap}
+                size="small"
+                disabled={!isConnected || !wallet?.publicKey || !userLocation}
+                sx={{ 
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                }}
+              >
+                Open Map
+              </Button>
+            </Paper>
+          </Grid>
+        </Grid>
         
         {/* Location Controls in Header */}
         {isConnected && wallet?.publicKey && (
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button
               variant="outlined"
               startIcon={<LocationIcon />}
               onClick={getUserLocation}
               size="small"
               disabled={loading}
+              sx={{ 
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+                color: 'white',
+                '&:hover': { borderColor: 'white', background: 'rgba(255, 255, 255, 0.1)' }
+              }}
             >
               {autoDetectingLocation ? 'Detecting...' : 'Get Location'}
             </Button>
@@ -2244,6 +3184,11 @@ const NFTDashboard = () => {
               startIcon={<LocationIcon />}
               onClick={() => setOpenLocationSettings(true)}
               size="small"
+              sx={{ 
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+                color: 'white',
+                '&:hover': { borderColor: 'white', background: 'rgba(255, 255, 255, 0.1)' }
+              }}
             >
               Location Settings
             </Button>
@@ -2253,11 +3198,16 @@ const NFTDashboard = () => {
               onClick={fetchNearbyNFTs}
               size="small"
               disabled={!userLocation}
+              sx={{ 
+                borderColor: 'rgba(255, 255, 255, 0.5)',
+                color: 'white',
+                '&:hover': { borderColor: 'white', background: 'rgba(255, 255, 255, 0.1)' }
+              }}
             >
               Find Nearby NFTs
             </Button>
             {userLocation && (
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)' }}>
                 📍 {userLocation.latitude.toFixed(4)}, {userLocation.longitude.toFixed(4)}
               </Typography>
             )}
@@ -2268,112 +3218,6 @@ const NFTDashboard = () => {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
-      {/* Main Dashboard Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Wallet Status Card */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardHeader
-              avatar={<StellarIcon color="primary" />}
-              title="Wallet Status"
-              subheader={isConnected ? "Connected" : "Not Connected"}
-            />
-            <CardContent sx={{ flexGrow: 1 }}>
-              {!isConnected || !wallet?.publicKey ? (
-                <Box textAlign="center">
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Connect your Stellar wallet to start collecting NFTs
-                  </Typography>
-                  <Button
-                    variant="contained"
-                    startIcon={<WalletIcon />}
-                    onClick={() => setOpenWalletDialog(true)}
-                    fullWidth
-                    disabled={loading}
-                  >
-                    {loading ? 'Connecting...' : 'Connect Wallet'}
-                  </Button>
-                </Box>
-              ) : (
-                <Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Wallet: {wallet?.publicKey?.substring(0, 12)}...
-                  </Typography>
-                  {balance !== null && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      Balance: {balance.toFixed(2)} XLM
-                    </Typography>
-                  )}
-                  <Button
-                    variant="outlined"
-                    onClick={disconnectWallet}
-                    fullWidth
-                    color="error"
-                  >
-                    Disconnect Wallet
-                  </Button>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* My Collection Card */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardHeader
-              avatar={<CollectionsIcon color="primary" />}
-              title="My Collection"
-              subheader={`${userCollection.length} NFTs collected`}
-            />
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {userCollection.length > 0 
-                  ? `You have collected ${userCollection.length} NFTs. View and manage your collection.`
-                  : "No NFTs collected yet. Start exploring to find and collect NFTs!"
-                }
-              </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<CollectionsIcon />}
-                  onClick={() => setTabValue(1)}
-                  fullWidth
-                  disabled={!isConnected || !wallet?.publicKey}
-                >
-                {userCollection.length > 0 ? 'View Collection' : 'View Collection'}
-                </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* NFT Map Card */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <CardHeader
-              avatar={<MapIcon color="primary" />}
-              title="NFT Map"
-              subheader={`${nearbyNFTs.length} NFTs nearby`}
-            />
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {nearbyNFTs.length > 0 
-                  ? `Explore ${nearbyNFTs.length} NFTs on the interactive 3D map. Find and collect NFTs in your area.`
-                  : "No NFTs found nearby. Make sure location services are enabled and you're in an area with pinned NFTs."
-                }
-              </Typography>
-                <Button
-                  variant="contained"
-                  startIcon={<MapIcon />}
-                  onClick={handleOpenMap}
-                  fullWidth
-                  disabled={!isConnected || !wallet?.publicKey || !userLocation}
-                >
-                {nearbyNFTs.length > 0 ? 'Open Map' : 'Open Map'}
-                </Button>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
 
       {/* Tabbed Content */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
@@ -2381,6 +3225,7 @@ const NFTDashboard = () => {
           <Tab label="Nearby NFTs" {...a11yProps(0)} />
           <Tab label="My Collection" {...a11yProps(1)} />
           <Tab label="NFT Map" {...a11yProps(2)} />
+          <Tab label="Stellar Wallet" {...a11yProps(3)} />
         </Tabs>
       </Box>
 
@@ -2404,14 +3249,14 @@ const NFTDashboard = () => {
             No NFTs found nearby. Make sure you have enabled location services and are within range of pinned NFTs.
           </Alert>
         ) : (
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             {nearbyNFTs.map((nft) => (
-              <Grid item xs={12} sm={6} md={4} key={nft.id}>
+              <Grid item xs={12} sm={6} md={3} lg={2} key={nft.id}>
                 <Card>
                   {nft.full_ipfs_url && (
                     <CardMedia
                       component="img"
-                      height="200"
+                      height="120"
                       image={nft.full_ipfs_url}
                       alt={nft.collection?.name || 'NFT'}
                       onError={(e) => {
@@ -2419,25 +3264,28 @@ const NFTDashboard = () => {
                       }}
                     />
                   )}
-                  <CardContent>
-                    <Typography variant="h6" component="div">
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold', mb: 0.5 }}>
                       {nft.collection?.name || 'Unknown NFT'}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Rarity: {nft.collection?.rarity_level || 'common'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Distance: {Math.round(nft.distance || 0)}m
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography variant="caption" color="text.secondary">
+                        {nft.collection?.rarity_level || 'common'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {Math.round(nft.distance || 0)}m
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
                       Radius: {nft.radius_meters}m
                     </Typography>
                   </CardContent>
-                  <CardActions>
+                  <CardActions sx={{ p: 1, pt: 0 }}>
                     <Button
                       size="small"
                       startIcon={<InfoIcon />}
                       onClick={() => handleNFTDetails(nft)}
+                      sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
                     >
                       Details
                     </Button>
@@ -2447,6 +3295,7 @@ const NFTDashboard = () => {
                       startIcon={<CollectIcon />}
                       onClick={() => handleCollectNFT(nft)}
                       disabled={!userLocation}
+                      sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
                     >
                       Collect
                     </Button>
@@ -2468,14 +3317,14 @@ const NFTDashboard = () => {
             You haven't collected any NFTs yet. Start exploring nearby NFTs to build your collection!
           </Alert>
         ) : (
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             {userCollection.map((item) => (
-              <Grid item xs={12} sm={6} md={4} key={item.id}>
+              <Grid item xs={12} sm={6} md={3} lg={2} key={item.id}>
                 <Card>
                   {item.full_ipfs_url && (
                     <CardMedia
                       component="img"
-                      height="200"
+                      height="120"
                       image={item.full_ipfs_url}
                       alt={item.collection?.name || 'NFT'}
                       onError={(e) => {
@@ -2483,25 +3332,28 @@ const NFTDashboard = () => {
                       }}
                     />
                   )}
-                  <CardContent>
-                    <Typography variant="h6" component="div">
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold', mb: 0.5 }}>
                       {item.collection?.name || 'Unknown NFT'}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Rarity: {item.collection?.rarity_level || 'common'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Collected: {new Date(item.collected_at).toLocaleDateString()}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Transfers: {item.transfer_count}
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.collection?.rarity_level || 'common'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.transfer_count} transfers
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {new Date(item.collected_at).toLocaleDateString()}
                     </Typography>
                   </CardContent>
-                  <CardActions>
+                  <CardActions sx={{ p: 1, pt: 0 }}>
                     <Button
                       size="small"
                       startIcon={<InfoIcon />}
                       onClick={() => handleNFTDetails(item.nft)}
+                      sx={{ fontSize: '0.75rem', minWidth: 'auto', px: 1 }}
                     >
                       Details
                     </Button>
@@ -2572,15 +3424,26 @@ const NFTDashboard = () => {
               Debug Map
             </Button>
             {(user?.role === 'nft_manager' || user?.role === 'admin') && (
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={<LocationIcon />}
-                onClick={() => setOpenPinDialog(true)}
-                disabled={loading}
-              >
-                Pin New NFT
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<LocationIcon />}
+                  onClick={() => setOpenPinDialog(true)}
+                  disabled={loading}
+                >
+                  Pin NFT (Database)
+                </Button>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<LocationIcon />}
+                  onClick={() => setOpenRealPinDialog(true)}
+                  disabled={loading}
+                >
+                  Pin NFT (Blockchain)
+                </Button>
+              </Box>
             )}
           </Box>
         </Box>
@@ -2704,8 +3567,19 @@ const NFTDashboard = () => {
         </Paper>
       </TabPanel>
 
+      {/* Stellar Wallet Tab */}
+      <TabPanel value={tabValue} index={3}>
+        <EnhancedNFTManager />
+      </TabPanel>
+
       {/* NFT Details Dialog */}
-      <Dialog open={openNFTDialog} onClose={() => setOpenNFTDialog(false)} maxWidth="md" fullWidth>
+      <Dialog 
+        open={openNFTDialog} 
+        onClose={() => setOpenNFTDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+        sx={{ zIndex: 1500 }}
+      >
         <DialogTitle>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Typography variant="h6">
@@ -2735,6 +3609,23 @@ const NFTDashboard = () => {
                     }}
                   />
                 )}
+                
+                {/* Mini Map for NFT Location */}
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    NFT Location
+                  </Typography>
+                  <Box 
+                    id="nft-details-mini-map"
+                    sx={{ 
+                      height: '200px', 
+                      width: '100%', 
+                      borderRadius: '8px',
+                      border: '1px solid #e0e0e0',
+                      overflow: 'hidden'
+                    }}
+                  />
+                </Box>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="h6" gutterBottom>
@@ -2786,6 +3677,57 @@ const NFTDashboard = () => {
                     <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
                       {selectedNFT.smart_contract_address}
                     </Typography>
+                    
+                    {/* Real Blockchain Data */}
+                    <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                      Blockchain Information
+                    </Typography>
+                    {selectedNFT.blockchain_transaction_hash && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Transaction Hash:</strong> {selectedNFT.blockchain_transaction_hash}
+                      </Typography>
+                    )}
+                    {selectedNFT.blockchain_ledger && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Ledger:</strong> {selectedNFT.blockchain_ledger}
+                      </Typography>
+                    )}
+                    {selectedNFT.blockchain_network && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Network:</strong> {selectedNFT.blockchain_network}
+                      </Typography>
+                    )}
+                    
+                    {/* Ownership Information */}
+                    <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                      Ownership
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Current Owner:</strong> {selectedNFT.current_owner || selectedNFT.owner || 'Unknown'}
+                    </Typography>
+                    {selectedNFT.transfer_count && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Transfer Count:</strong> {selectedNFT.transfer_count}
+                      </Typography>
+                    )}
+                    {selectedNFT.collected_at && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Collected:</strong> {new Date(selectedNFT.collected_at).toLocaleString()}
+                      </Typography>
+                    )}
+                    
+                    {/* Contract Functions */}
+                    <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                      Available Contract Functions
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Chip label="mint" size="small" color="primary" />
+                      <Chip label="transfer" size="small" color="primary" />
+                      <Chip label="approve" size="small" color="primary" />
+                      <Chip label="balanceOf" size="small" color="secondary" />
+                      <Chip label="ownerOf" size="small" color="secondary" />
+                      <Chip label="getLocationData" size="small" color="secondary" />
+                    </Box>
                   </>
                 )}
               </Grid>
@@ -2797,17 +3739,40 @@ const NFTDashboard = () => {
             Close
           </Button>
           {selectedNFT && (
-            <Button
-              variant="contained"
-              startIcon={<CollectIcon />}
-              onClick={() => {
-                handleCollectNFT(selectedNFT);
-                setOpenNFTDialog(false);
-              }}
-              disabled={!userLocation}
-            >
-              Collect NFT
-            </Button>
+            <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<CollectIcon />}
+                onClick={() => {
+                  handleCollectNFT(selectedNFT);
+                  setOpenNFTDialog(false);
+                }}
+                disabled={!userLocation}
+              >
+                Collect NFT
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<ZoomInIcon />}
+                onClick={() => {
+                  console.log('Zooming mini map to NFT location:', selectedNFT);
+                  
+                  if (miniMap) {
+                    console.log('Zooming mini map to NFT location');
+                    miniMap.flyTo({
+                      center: [parseFloat(selectedNFT.longitude), parseFloat(selectedNFT.latitude)],
+                      zoom: 18,
+                      duration: 1000
+                    });
+                    console.log('Zoomed mini map to:', parseFloat(selectedNFT.longitude), parseFloat(selectedNFT.latitude));
+                  } else {
+                    console.log('Mini map not available yet');
+                  }
+                }}
+              >
+                Zoom In
+              </Button>
+            </Box>
           )}
         </DialogActions>
       </Dialog>
@@ -2819,6 +3784,7 @@ const NFTDashboard = () => {
         maxWidth={false}
         fullWidth
         fullScreen
+        sx={{ zIndex: 1400 }}
         PaperProps={{
           sx: {
             margin: 0,
@@ -2839,10 +3805,139 @@ const NFTDashboard = () => {
           backdropFilter: 'blur(10px)',
           borderBottom: '1px solid rgba(0,0,0,0.1)'
         }}>
-          <Box display="flex" alignItems="center" justifyContent="space-between">
-            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+          <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold', mr: 2 }}>
               🗺️ NFT Map - 3D View
             </Typography>
+            
+            {/* Search Box with Autocomplete */}
+            <Box className="map-search-container" sx={{ flexGrow: 1, maxWidth: '400px', mx: 2, position: 'relative' }}>
+              <TextField
+                placeholder="Search addresses, places, cities..."
+                size="small"
+                fullWidth
+                variant="outlined"
+                value={searchQuery}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearchQuery(value);
+                  
+                  // Clear existing timeout
+                  if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                  }
+                  
+                  // Set new timeout for autocomplete
+                  const timeout = setTimeout(() => {
+                    handleSearchAutocomplete(value);
+                  }, 300);
+                  setSearchTimeout(timeout);
+                }}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSearch();
+                  }
+                }}
+                onFocus={() => {
+                  if (searchResults.length > 0) {
+                    setShowSearchResults(true);
+                  }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255, 255, 255, 1)',
+                    },
+                    '&.Mui-focused': {
+                      backgroundColor: 'rgba(255, 255, 255, 1)',
+                    }
+                  }
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <Box sx={{ display: 'flex', alignItems: 'center', mr: 1 }}>
+                      🔍
+                    </Box>
+                  ),
+                  endAdornment: searchQuery && (
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchResults([]);
+                        setShowSearchResults(false);
+                        if (searchTimeout) {
+                          clearTimeout(searchTimeout);
+                        }
+                      }}
+                      sx={{ mr: -1 }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  )
+                }}
+              />
+              
+              {/* Autocomplete Dropdown */}
+              {showSearchResults && searchResults.length > 0 && (
+                <Paper
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1001,
+                    maxHeight: '200px',
+                    overflow: 'auto',
+                    mt: 0.5,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    borderRadius: 1
+                  }}
+                >
+                  {searchResults.map((result, index) => (
+                    <Box
+                      key={index}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSearch(result);
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSearch(result);
+                      }}
+                      sx={{
+                        p: 1.5,
+                        cursor: 'pointer',
+                        borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none',
+                        '&:hover': {
+                          backgroundColor: '#f5f5f5'
+                        },
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                        {result.place_name}
+                      </Typography>
+                      {result.context && (
+                        <Typography variant="caption" color="text.secondary">
+                          {result.context.map(ctx => ctx.text).join(', ')}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Paper>
+              )}
+            </Box>
+            
             <Box>
               <Button
                 variant="contained"
@@ -2882,6 +3977,25 @@ const NFTDashboard = () => {
                 size="small"
               >
                 Update Markers
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<MyLocationIcon />}
+                onClick={() => {
+                  console.log('Zooming to user location in overlay map');
+                  if (overlayMap.current && userLocation) {
+                    overlayMap.current.flyTo({
+                      center: [userLocation.longitude, userLocation.latitude],
+                      zoom: 15,
+                      duration: 1000
+                    });
+                  }
+                }}
+                sx={{ mr: 1 }}
+                size="small"
+                disabled={!userLocation}
+              >
+                Zoom to Me
               </Button>
               <IconButton onClick={handleCloseMap} sx={{ ml: 1 }}>
                 <CloseIcon />
@@ -2939,7 +4053,13 @@ const NFTDashboard = () => {
       />
 
       {/* Pin NFT Dialog */}
-      <Dialog open={openPinDialog} onClose={() => setOpenPinDialog(false)} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={openPinDialog} 
+        onClose={() => setOpenPinDialog(false)} 
+        maxWidth="sm" 
+        fullWidth
+        sx={{ zIndex: 1500 }}
+      >
         <DialogTitle>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Typography variant="h6">Pin New NFT</Typography>
@@ -3132,6 +4252,7 @@ const NFTDashboard = () => {
         maxWidth="sm" 
         fullWidth
         PaperProps={{ sx: { maxHeight: '90vh' } }}
+        sx={{ zIndex: 1500 }}
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -3316,6 +4437,34 @@ const NFTDashboard = () => {
             </Button>
           )}
         </DialogActions>
+      </Dialog>
+
+      {/* Real PIN NFT Dialog - Stellar Blockchain */}
+      <Dialog 
+        open={openRealPinDialog} 
+        onClose={() => setOpenRealPinDialog(false)} 
+        maxWidth="lg" 
+        fullWidth
+        sx={{ zIndex: 1500 }}
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Typography variant="h6">Real PIN NFT - Stellar Blockchain</Typography>
+            <IconButton onClick={() => setOpenRealPinDialog(false)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <RealPinNFT 
+            onClose={() => setOpenRealPinDialog(false)}
+            onSuccess={(result) => {
+              console.log('Real NFT operation successful:', result);
+              setOpenRealPinDialog(false);
+              // Refresh the map or show success message
+            }}
+          />
+        </DialogContent>
       </Dialog>
     </Container>
   );

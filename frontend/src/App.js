@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { WalletProvider } from './contexts/WalletContext';
 import Navbar from './components/Navigation/Navbar';
 import HomePage from './components/Home/HomePage';
+import Features from './pages/Features';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -27,6 +28,8 @@ function App() {
                     <Navbar />
                     <Routes>
                         <Route path="/" element={<HomePage />} />
+                        <Route path="/features" element={<Features />} />
+                        <Route path="/contact" element={<HomePage />} />
                         <Route path="/login" element={<Login />} />
                         <Route path="/register" element={<Register />} />
                         <Route path="/dashboard" element={<Dashboard />} />

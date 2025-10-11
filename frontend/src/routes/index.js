@@ -7,10 +7,14 @@ import AdminDashboard from '../components/AdminDashboard';
 import RequestApiKey from '../components/RequestApiKey';
 import ProtectedRoute from '../components/ProtectedRoute';
 import Layout from '../components/Layout';
+import Features from '../pages/Features';
+import Home from '../pages/Home';
 
 const AppRoutes = () => {
     return (
         <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/features" element={<Features />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route element={<Layout />}>
@@ -39,7 +43,6 @@ const AppRoutes = () => {
                     } 
                 />
             </Route>
-            <Route path="/" element={<Navigate to="/login" replace />} />
         </Routes>
     );
 };
