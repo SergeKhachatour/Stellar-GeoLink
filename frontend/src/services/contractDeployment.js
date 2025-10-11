@@ -160,6 +160,7 @@ class ContractDeploymentService {
       
       // Create contract address
       const contractAddress = StellarSdk.Address.fromString(contractId);
+      console.log('Contract address created:', contractAddress.toString());
       
       // The contract exists on StellarExpert, so it's valid
       console.log('✅ Contract ID is valid - exists on StellarExpert');
@@ -171,6 +172,8 @@ class ContractDeploymentService {
       
       try {
         // Try to call the 'name' function to check if contract is initialized
+        // Create contract address from contract ID
+        const contractAddress = StellarSdk.Address.fromString(contractId);
         const testContract = new StellarSdk.Contract(contractAddress);
         const testTransaction = new StellarSdk.TransactionBuilder(adminAccount, {
           fee: StellarSdk.BASE_FEE,
@@ -200,6 +203,7 @@ class ContractDeploymentService {
           
         } catch (testError) {
           console.log('⚠️ Contract not initialized, attempting initialization...');
+          console.log('Test error:', testError.message);
           
           // Contract is not initialized, try to initialize it
           const initTransaction = new StellarSdk.TransactionBuilder(adminAccount, {
@@ -240,6 +244,7 @@ class ContractDeploymentService {
         
       } catch (error) {
         console.log('⚠️ Contract initialization check failed:', error.message);
+        console.log('Error details:', error);
         
         const result = {
           hash: 'initialization_failed',
