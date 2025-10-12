@@ -261,6 +261,13 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
         }
 
         const request = requestResult.rows[0];
+        
+        console.log('Request details:', {
+            id: request.id,
+            user_id: request.user_id,
+            request_type: request.request_type,
+            organization_name: request.organization_name
+        });
 
         // Update request status
         await client.query(
@@ -308,7 +315,11 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
             }
 
             // Create the appropriate provider/consumer record
-            if (request.request_type === 'wallet_provider') {
+            // Default to 'data_consumer' if request_type is null/undefined
+            const requestType = request.request_type || 'data_consumer';
+            console.log('Processing request type:', requestType);
+            
+            if (requestType === 'wallet_provider') {
                 // Check if wallet_provider already exists for this user
                 const existingProvider = await client.query(
                     'SELECT id FROM wallet_providers WHERE user_id = $1',
