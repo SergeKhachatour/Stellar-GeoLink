@@ -93,7 +93,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const [locationUpdateDialog, setLocationUpdateDialog] = useState(false);
   const [mapContainer, setMapContainer] = useState(null);
   const [map, setMap] = useState(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -139,11 +138,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   }, [isConnected, loadUserNFTs]);
 
-  // Auto-get location when component mounts
-  useEffect(() => {
-    getCurrentLocation();
-  }, [getCurrentLocation]);
-
   const getCurrentLocation = useCallback(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -165,6 +159,11 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   }, [userRadius]);
 
+  // Auto-get location when component mounts
+  useEffect(() => {
+    getCurrentLocation();
+  }, [getCurrentLocation]);
+
   // Initialize map for location update dialog
   const initializeLocationMap = useCallback(() => {
     if (!mapContainer || map) return;
@@ -184,7 +183,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       });
 
       newMap.on('load', () => {
-        setMapLoaded(true);
         
         // Create a draggable marker
         const marker = new mapboxgl.Marker({ 
@@ -261,7 +259,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       try {
         map.remove();
         setMap(null);
-        setMapLoaded(false);
       } catch (error) {
         console.error('Error cleaning up map:', error);
       }

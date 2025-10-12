@@ -70,7 +70,6 @@ const WalletLocationsManager = () => {
     const [showSearchResults, setShowSearchResults] = useState(false);
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [userLocation, setUserLocation] = useState(null);
     
     // Wallet connection state
     const [openWalletDialog, setOpenWalletDialog] = useState(false);
@@ -84,11 +83,7 @@ const WalletLocationsManager = () => {
         );
     });
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         try {
             setLoading(true);
             
@@ -157,7 +152,180 @@ const WalletLocationsManager = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Add wallet and NFT markers to map
+    const addWalletMarkers = useCallback(() => {
+        if (!map.current || !filteredLocations.length) return;
+
+        // Clear existing markers
+        const markers = document.querySelectorAll('.wallet-marker, .nft-marker');
+        markers.forEach(marker => marker.remove());
+
+        filteredLocations.forEach(location => {
+            // Validate and convert coordinates
+            const lat = parseFloat(location.latitude);
+            const lng = parseFloat(location.longitude);
+            
+            // Skip locations with invalid coordinates
+            if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+                console.warn('Skipping location with invalid coordinates:', location);
+                return;
+            }
+            
+            const el = document.createElement('div');
+            
+            // Determine if this is an NFT or wallet
+            const isNFT = location.collection_id || location.token_id;
+            
+            if (isNFT) {
+                // NFT marker styling - square like NFT Manager
+                el.className = 'nft-marker';
+                el.style.cssText = `
+                    background-image: url('${location.full_ipfs_url || 'https://via.placeholder.com/50x50/4caf50/ffffff?text=NFT'}');
+                    background-size: cover;
+                    background-position: center;
+                    width: 50px;
+                    height: 50px;
+                    border-radius: 8px;
+                    border: 3px solid #4caf50;
+                    cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                    position: relative;
+                    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+                `;
+                
+                // Add hover effect without scaling
+                el.addEventListener('mouseenter', () => {
+                    el.style.boxShadow = '0 6px 20px rgba(0,0,0,0.6)';
+                    el.style.borderColor = '#66bb6a';
+                });
+                el.addEventListener('mouseleave', () => {
+                    el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+                    el.style.borderColor = '#4caf50';
+                });
+                
+                // Add NFT indicator
+                const indicator = document.createElement('div');
+                indicator.style.cssText = `
+                    position: absolute;
+                    top: -8px;
+                    right: -8px;
+                    width: 16px;
+                    height: 16px;
+                    background-color: #ff9800;
+                    border-radius: 50%;
+                    border: 3px solid white;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 10px;
+                    font-weight: bold;
+                    color: white;
+                `;
+                indicator.textContent = 'N';
+                el.appendChild(indicator);
+            } else {
+                // Wallet marker styling
+                el.className = 'wallet-marker';
+                el.style.cssText = `
+                    background-color: ${location.location_enabled ? '#4caf50' : '#f44336'};
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    border: 2px solid white;
+                    cursor: pointer;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                `;
+            }
+
+            new Mapboxgl.Marker(el)
+                .setLngLat([lng, lat])
+                .setPopup(new Mapboxgl.Popup({ 
+                    offset: 25,
+                    maxWidth: '500px',
+                    className: 'custom-popup',
+                    closeButton: true,
+                    closeOnClick: false,
+                    anchor: 'bottom'
+                })
+                    .setHTML(isNFT ? `
+                        <div style="padding: 20px; max-width: 400px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                            <div style="display: flex; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #e0e0e0;">
+                                <span style="font-size: 24px; margin-right: 12px;">🎨</span>
+                                <h3 style="margin: 0; color: #333; font-size: 18px; font-weight: 600;">NFT Collection</h3>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                                <div>
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Name</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.name || 'Unnamed NFT'}</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Collection</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.collection?.name || 'Unknown Collection'}</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Token ID</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">#${location.token_id || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Radius</p>
+                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.radius_meters || 100}m</p>
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 16px;">
+                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Location</p>
+                                <p style="margin: 0; font-size: 14px; color: #333; font-family: monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+                            </div>
+                            
+                            ${location.description ? `
+                                <div style="margin-bottom: 16px;">
+                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Description</p>
+                                    <p style="margin: 0; font-size: 14px; color: #333; line-height: 1.4;">${location.description}</p>
+                                </div>
+                            ` : ''}
+                            
+                            <div style="margin-bottom: 16px; text-align: center;">
+                                <img src="${location.full_ipfs_url || 'https://via.placeholder.com/300x300'}" 
+                                     style="width: 100%; max-width: 300px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" 
+                                     alt="NFT Image" />
+                            </div>
+                            
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
+                                <button onclick="window.open('https://stellar.expert/explorer/testnet/contract/${location.smart_contract_address}', '_blank')" 
+                                        style="background: linear-gradient(135deg, #4caf50, #45a049); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3); transition: all 0.2s ease;">
+                                    📄 View Contract
+                                </button>
+                                <button onclick="window.open('https://stellar.expert/explorer/testnet/tx/${location.transaction_hash}', '_blank')" 
+                                        style="background: linear-gradient(135deg, #2196f3, #1976d2); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3); transition: all 0.2s ease;">
+                                    🔗 View Transaction
+                                </button>
+                                <button onclick="navigator.clipboard.writeText('${lat}, ${lng}')" 
+                                        style="background: linear-gradient(135deg, #ff9800, #f57c00); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3); transition: all 0.2s ease;">
+                                    📋 Copy Coords
+                                </button>
+                            </div>
+                        </div>
+                    ` : `
+                        <div style="padding: 8px;">
+                            <h4 style="margin: 0 0 8px 0; color: #333;">${location.blockchain} Wallet</h4>
+                            <p style="margin: 4px 0; font-size: 14px;"><strong>Type:</strong> ${location.wallet_type}</p>
+                            <p style="margin: 4px 0; font-size: 14px;"><strong>Provider:</strong> ${location.provider_name}</p>
+                            <p style="margin: 4px 0; font-size: 14px;"><strong>Status:</strong> ${location.location_enabled ? 'Active' : 'Disabled'}</p>
+                            <p style="margin: 4px 0; font-size: 14px;"><strong>Location:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+                            ${location.description ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Description:</strong> ${location.description}</p>` : ''}
+                        </div>
+                    `))
+                .addTo(map.current);
+        });
+    }, [filteredLocations]);
 
     // Initialize map with enhanced features
     const initializeMap = useCallback(() => {
@@ -298,173 +466,6 @@ const WalletLocationsManager = () => {
         map.current.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
     };
 
-    // Add wallet and NFT markers to map
-    const addWalletMarkers = useCallback(() => {
-        if (!map.current || !filteredLocations.length) return;
-
-        // Clear existing markers
-        const markers = document.querySelectorAll('.wallet-marker, .nft-marker');
-        markers.forEach(marker => marker.remove());
-
-        filteredLocations.forEach(location => {
-            // Validate and convert coordinates
-            const lat = parseFloat(location.latitude);
-            const lng = parseFloat(location.longitude);
-            
-            // Skip locations with invalid coordinates
-            if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
-                console.warn('Skipping location with invalid coordinates:', location);
-                return;
-            }
-            
-            const el = document.createElement('div');
-            
-            // Determine if this is an NFT or wallet
-            const isNFT = location.collection_id || location.token_id;
-            
-            if (isNFT) {
-                // NFT marker styling - square like NFT Manager
-                el.className = 'nft-marker';
-                el.style.cssText = `
-                    background-image: url('${location.full_ipfs_url || 'https://via.placeholder.com/50x50/4caf50/ffffff?text=NFT'}');
-                    background-size: cover;
-                    background-position: center;
-                    width: 50px;
-                    height: 50px;
-                    border-radius: 8px;
-                    border: 3px solid #4caf50;
-                    cursor: pointer;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-                    position: relative;
-                    transition: box-shadow 0.2s ease, border-color 0.2s ease;
-                `;
-                
-                // Add hover effect without scaling
-                el.addEventListener('mouseenter', () => {
-                    el.style.boxShadow = '0 6px 20px rgba(0,0,0,0.6)';
-                    el.style.borderColor = '#66bb6a';
-                });
-                el.addEventListener('mouseleave', () => {
-                    el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-                    el.style.borderColor = '#4caf50';
-                });
-                
-                // Add NFT indicator
-                const indicator = document.createElement('div');
-                indicator.style.cssText = `
-                    position: absolute;
-                    top: -8px;
-                    right: -8px;
-                    width: 16px;
-                    height: 16px;
-                    background-color: #ff9800;
-                    border-radius: 50%;
-                    border: 3px solid white;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 10px;
-                    font-weight: bold;
-                    color: white;
-                `;
-                indicator.textContent = 'N';
-                el.appendChild(indicator);
-            } else {
-                // Wallet marker styling
-                el.className = 'wallet-marker';
-                el.style.cssText = `
-                    background-color: ${location.location_enabled ? '#4caf50' : '#f44336'};
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 50%;
-                    border: 2px solid white;
-                    cursor: pointer;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-                `;
-            }
-
-            const marker = new Mapboxgl.Marker(el)
-                .setLngLat([lng, lat])
-                .setPopup(new Mapboxgl.Popup({ 
-                    offset: 25,
-                    maxWidth: '500px',
-                    className: 'custom-popup',
-                    closeButton: true,
-                    closeOnClick: false,
-                    anchor: 'bottom'
-                })
-                    .setHTML(isNFT ? `
-                        <div style="padding: 20px; max-width: 400px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                            <div style="display: flex; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #e0e0e0;">
-                                <span style="font-size: 24px; margin-right: 12px;">🎨</span>
-                                <h3 style="margin: 0; color: #333; font-size: 18px; font-weight: 600;">NFT Collection</h3>
-                            </div>
-                            
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-                                <div>
-                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Name</p>
-                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.name || 'Unnamed NFT'}</p>
-                                </div>
-                                <div>
-                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Collection</p>
-                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.collection?.name || 'Unknown Collection'}</p>
-                                </div>
-                                <div>
-                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Token ID</p>
-                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">#${location.token_id || 'N/A'}</p>
-                                </div>
-                                <div>
-                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Radius</p>
-                                    <p style="margin: 0; font-size: 16px; font-weight: 500; color: #333;">${location.radius_meters || 100}m</p>
-                                </div>
-                            </div>
-                            
-                            <div style="margin-bottom: 16px;">
-                                <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Location</p>
-                                <p style="margin: 0; font-size: 14px; color: #333; font-family: monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
-                            </div>
-                            
-                            ${location.description ? `
-                                <div style="margin-bottom: 16px;">
-                                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px;">Description</p>
-                                    <p style="margin: 0; font-size: 14px; color: #333; line-height: 1.4;">${location.description}</p>
-                                </div>
-                            ` : ''}
-                            
-                            <div style="margin-bottom: 16px; text-align: center;">
-                                <img src="${location.full_ipfs_url || 'https://via.placeholder.com/300x300'}" 
-                                     style="width: 100%; max-width: 300px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" 
-                                     alt="NFT Image" />
-                            </div>
-                            
-                            <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
-                                <button onclick="window.open('https://stellar.expert/explorer/testnet/contract/${location.smart_contract_address}', '_blank')" 
-                                        style="background: linear-gradient(135deg, #4caf50, #45a049); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3); transition: all 0.2s ease;">
-                                    📄 View Contract
-                                </button>
-                                <button onclick="window.open('https://stellar.expert/explorer/testnet/tx/${location.transaction_hash}', '_blank')" 
-                                        style="background: linear-gradient(135deg, #2196f3, #1976d2); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3); transition: all 0.2s ease;">
-                                    🔗 View Transaction
-                                </button>
-                                <button onclick="navigator.clipboard.writeText('${lat}, ${lng}')" 
-                                        style="background: linear-gradient(135deg, #ff9800, #f57c00); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3); transition: all 0.2s ease;">
-                                    📋 Copy Coords
-                                </button>
-                            </div>
-                        </div>
-                    ` : `
-                        <div style="padding: 8px;">
-                            <h4 style="margin: 0 0 8px 0; color: #333;">${location.blockchain} Wallet</h4>
-                            <p style="margin: 4px 0; font-size: 14px;"><strong>Type:</strong> ${location.wallet_type}</p>
-                            <p style="margin: 4px 0; font-size: 14px;"><strong>Provider:</strong> ${location.provider_name}</p>
-                            <p style="margin: 4px 0; font-size: 14px;"><strong>Status:</strong> ${location.location_enabled ? 'Active' : 'Disabled'}</p>
-                            <p style="margin: 4px 0; font-size: 14px;"><strong>Location:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
-                            ${location.description ? `<p style="margin: 4px 0; font-size: 14px;"><strong>Description:</strong> ${location.description}</p>` : ''}
-                        </div>
-                    `))
-                .addTo(map.current);
-        });
-    }, [filteredLocations]);
 
     // Autocomplete functionality
     const handleSearchInput = async (value) => {
@@ -580,7 +581,6 @@ const WalletLocationsManager = () => {
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
-                setUserLocation({ latitude, longitude });
                 map.current.flyTo({
                     center: [longitude, latitude],
                     zoom: 15,
@@ -636,7 +636,8 @@ const WalletLocationsManager = () => {
         if (mapLoaded && map.current) {
             addWalletMarkers();
         }
-    }, [filteredLocations, mapLoaded, addWalletMarkers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filteredLocations, mapLoaded]);
 
     // Cleanup map on unmount
     useEffect(() => {
