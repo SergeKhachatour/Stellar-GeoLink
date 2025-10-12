@@ -183,14 +183,10 @@ class RealNFTService {
       // Load minter account
       const minterAccount = await this.server.loadAccount(minterKeypair.publicKey());
 
-      // Generate unique token ID
-      const tokenId = contract.totalMinted + 1;
-
-      // Create transaction
-      const transaction = new StellarSdk.TransactionBuilder(minterAccount, {
-        fee: StellarSdk.BASE_FEE,
-        networkPassphrase: this.networkPassphrase
-      });
+      // Generate a unique token ID using timestamp to avoid conflicts
+      // This ensures we don't collide with existing tokens
+      const baseTokenId = Math.floor(Date.now() / 1000) % 1000000; // Use timestamp-based ID
+      console.log('✅ Using timestamp-based token ID:', baseTokenId);
 
       // Prepare metadata with IPFS URL
       const fullImageUrl = this.buildIPFSUrl(metadata.ipfs_hash, metadata.filename);
@@ -203,7 +199,7 @@ class RealNFTService {
         location: {
           latitude: location.latitude.toString(), // Store as string to preserve decimal precision
           longitude: location.longitude.toString(),
-          radius: location.radius || 100 // Default 100m radius
+          radius: location.radius || 100 // Use provided radius
         },
         created_at: Date.now()
       };
@@ -229,63 +225,96 @@ class RealNFTService {
           throw new Error(`Failed to create contract instance: ${addressError.message}`);
         }
       }
-      
-      // Add mint operation using the contract's call method (align with contract signature)
-      // Contract mint signature:
-      // mint(env, to: Address, token_id: u32, name: String, symbol: String, uri: String, latitude: i64, longitude: i64, radius: u32)
-      transaction.addOperation(
-        mintContract.call(
-          'mint',
-          // to
-          StellarSdk.xdr.ScVal.scvAddress(
-            StellarSdk.Address.fromString(recipient).toScAddress()
-          ),
-          // token_id
-          StellarSdk.xdr.ScVal.scvU32(tokenId),
-          // name
-          StellarSdk.xdr.ScVal.scvString(nftMetadata.name),
-          // symbol (use SGL)
-          StellarSdk.xdr.ScVal.scvString('SGL'),
-          // uri
-          StellarSdk.xdr.ScVal.scvString(nftMetadata.image_url),
-          // latitude
-          (() => {
-            const latString = location.latitude.toString();
-            console.log('Latitude conversion:', {
-              original: location.latitude,
-              string: latString,
-              final: latString
-            });
-            return StellarSdk.xdr.ScVal.scvString(latString);
-          })(),
-          // longitude
-          (() => {
-            const lngString = location.longitude.toString();
-            console.log('Longitude conversion:', {
-              original: location.longitude,
-              string: lngString,
-              final: lngString
-            });
-            return StellarSdk.xdr.ScVal.scvString(lngString);
-          })(),
-          // radius
-          StellarSdk.xdr.ScVal.scvU32(nftMetadata.location.radius)
-        )
-      );
 
-      // Set timeout
-      transaction.setTimeout(30);
+      // Try minting with retry logic in case of token ID conflicts
+      let result;
+      let tokenId = baseTokenId;
+      let attempts = 0;
+      const maxAttempts = 5;
 
-      // Build, prepare (add footprint), sign and submit transaction
-      const builtTransaction = transaction.build();
-      const preparedTransaction = await this.sorobanServer.prepareTransaction(builtTransaction);
-      preparedTransaction.sign(minterKeypair);
+      while (attempts < maxAttempts) {
+        try {
+          console.log(`🔄 Attempting to mint with token ID: ${tokenId} (attempt ${attempts + 1}/${maxAttempts})`);
+          
+          // Create transaction
+          const transaction = new StellarSdk.TransactionBuilder(minterAccount, {
+            fee: StellarSdk.BASE_FEE,
+            networkPassphrase: this.networkPassphrase
+          });
+          
+          // Add mint operation using the contract's call method (align with contract signature)
+          // Contract mint signature:
+          // mint(env, to: Address, token_id: u32, name: String, symbol: String, uri: String, latitude: String, longitude: String, radius: u32)
+          transaction.addOperation(
+            mintContract.call(
+              'mint',
+              // to
+              StellarSdk.xdr.ScVal.scvAddress(
+                StellarSdk.Address.fromString(recipient).toScAddress()
+              ),
+              // token_id
+              StellarSdk.xdr.ScVal.scvU32(tokenId),
+              // name
+              StellarSdk.xdr.ScVal.scvString(nftMetadata.name),
+              // symbol (use SGL)
+              StellarSdk.xdr.ScVal.scvString('SGL'),
+              // uri
+              StellarSdk.xdr.ScVal.scvString(nftMetadata.image_url),
+              // latitude
+              (() => {
+                const latString = location.latitude.toString();
+                console.log('Latitude conversion:', {
+                  original: location.latitude,
+                  string: latString,
+                  final: latString
+                });
+                return StellarSdk.xdr.ScVal.scvString(latString);
+              })(),
+              // longitude
+              (() => {
+                const lngString = location.longitude.toString();
+                console.log('Longitude conversion:', {
+                  original: location.longitude,
+                  string: lngString,
+                  final: lngString
+                });
+                return StellarSdk.xdr.ScVal.scvString(lngString);
+              })(),
+              // radius
+              StellarSdk.xdr.ScVal.scvU32(nftMetadata.location.radius)
+            )
+          );
 
-      // Submit transaction to Soroban RPC
-      const result = await this.sorobanServer.sendTransaction(preparedTransaction);
+          // Set timeout
+          transaction.setTimeout(30);
 
-      // Update contract stats
-      contract.totalMinted += 1;
+          // Build, prepare (add footprint), sign and submit transaction
+          const builtTransaction = transaction.build();
+          const preparedTransaction = await this.sorobanServer.prepareTransaction(builtTransaction);
+          preparedTransaction.sign(minterKeypair);
+
+          // Submit transaction to Soroban RPC
+          result = await this.sorobanServer.sendTransaction(preparedTransaction);
+          
+          console.log(`✅ Successfully minted NFT with token ID: ${tokenId}`);
+          break; // Success, exit retry loop
+          
+        } catch (mintError) {
+          attempts++;
+          console.log(`❌ Mint attempt ${attempts} failed:`, mintError.message);
+          
+          if (attempts >= maxAttempts) {
+            throw new Error(`Failed to mint NFT after ${maxAttempts} attempts. Last error: ${mintError.message}`);
+          }
+          
+          // Try a different token ID for next attempt
+          tokenId = baseTokenId + attempts + Math.floor(Math.random() * 1000);
+          console.log(`🔄 Retrying with new token ID: ${tokenId}`);
+        }
+      }
+
+      // Update contract stats (use actual token ID for tracking)
+      contract.totalMinted = Math.max(contract.totalMinted || 0, tokenId);
       this.contracts.set(contractId, contract);
 
       console.log('NFT minted successfully:', result);

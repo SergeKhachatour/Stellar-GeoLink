@@ -97,23 +97,71 @@ router.get('/api-keys', authenticateAdmin, async (req, res) => {
         
         // Try to query the table, but handle any errors gracefully
         try {
+            // Use a single query with proper JOINs to avoid duplicates
             const result = await pool.query(`
-                SELECT 
+                SELECT DISTINCT
                     ak.*,
                     u.email,
                     u.first_name,
                     u.last_name,
                     u.role,
                     u.organization,
-                    wp.name as provider_name,
-                    dc.organization_name as consumer_organization
+                    COALESCE(wp.name, dc.organization_name) as organization_name,
+                    CASE 
+                        WHEN wp.id IS NOT NULL THEN 'Wallet Provider'
+                        WHEN dc.id IS NOT NULL THEN 'Data Consumer'
+                        ELSE 'Unknown'
+                    END as key_type
                 FROM api_keys ak
                 LEFT JOIN users u ON ak.user_id = u.id
                 LEFT JOIN wallet_providers wp ON wp.api_key_id = ak.id
-                LEFT JOIN data_consumers dc ON dc.user_id = u.id
+                LEFT JOIN data_consumers dc ON dc.user_id = ak.user_id
                 ORDER BY ak.created_at DESC
             `);
-            res.json(result.rows);
+            
+            // Remove duplicates based on api_key value (keep the most recent one)
+            const uniqueKeys = result.rows.reduce((acc, key) => {
+                const existingKey = acc.find(k => k.api_key === key.api_key);
+                if (!existingKey) {
+                    acc.push(key);
+                } else if (new Date(key.created_at) > new Date(existingKey.created_at)) {
+                    // Replace with more recent key
+                    const index = acc.findIndex(k => k.api_key === key.api_key);
+                    acc[index] = key;
+                }
+                return acc;
+            }, []);
+            
+            // For pending keys, only show the most recent inactive key per user
+            const pendingKeys = uniqueKeys.filter(key => key.status === false && !key.rejection_reason);
+            const userLatestPending = {};
+            pendingKeys.forEach(key => {
+                if (!userLatestPending[key.user_id] || 
+                    new Date(key.created_at) > new Date(userLatestPending[key.user_id].created_at)) {
+                    userLatestPending[key.user_id] = key;
+                }
+            });
+            
+            // For active keys, only show the most recent active key per user
+            const activeKeys = uniqueKeys.filter(key => key.status === true);
+            const userLatestActive = {};
+            activeKeys.forEach(key => {
+                if (!userLatestActive[key.user_id] || 
+                    new Date(key.created_at) > new Date(userLatestActive[key.user_id].created_at)) {
+                    userLatestActive[key.user_id] = key;
+                }
+            });
+            
+            // Combine latest pending, latest active, and all rejected keys
+            const latestPendingKeys = Object.values(userLatestPending);
+            const latestActiveKeys = Object.values(userLatestActive);
+            const rejectedKeys = uniqueKeys.filter(key => key.status === false && key.rejection_reason);
+            const finalKeys = [...latestPendingKeys, ...latestActiveKeys, ...rejectedKeys];
+            
+            // Sort by creation date
+            finalKeys.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            res.json(finalKeys);
         } catch (queryError) {
             console.log('Query failed, trying simpler query:', queryError.message);
             // If the complex query fails, try a simpler one
@@ -225,27 +273,59 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
         );
 
         if (status === 'approved') {
-            const apiKey = crypto.randomBytes(32).toString('hex');
-            
-            // Insert into the main api_keys table
-            const apiKeyResult = await client.query(
-                `INSERT INTO api_keys (user_id, api_key, name, created_at)
-                 VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-                 RETURNING id`,
-                [request.user_id, apiKey, request.organization_name]
+            // Find existing API key for this user (get the most recent one)
+            const existingApiKey = await client.query(
+                `SELECT id, api_key FROM api_keys 
+                 WHERE user_id = $1 
+                 ORDER BY created_at DESC 
+                 LIMIT 1`,
+                [request.user_id]
             );
 
-            // Also create the appropriate provider/consumer record
+            let apiKeyId;
+            let apiKey;
+
+            if (existingApiKey.rows.length > 0) {
+                // Update existing API key status to active
+                apiKeyId = existingApiKey.rows[0].id;
+                apiKey = existingApiKey.rows[0].api_key;
+                
+                await client.query(
+                    `UPDATE api_keys SET status = true, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1`,
+                    [apiKeyId]
+                );
+            } else {
+                // Create new API key if none exists (fallback)
+                apiKey = crypto.randomBytes(32).toString('hex');
+                const apiKeyResult = await client.query(
+                    `INSERT INTO api_keys (user_id, api_key, name, status, created_at)
+                     VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP)
+                     RETURNING id`,
+                    [request.user_id, apiKey, request.organization_name]
+                );
+                apiKeyId = apiKeyResult.rows[0].id;
+            }
+
+            // Create the appropriate provider/consumer record
             if (request.request_type === 'wallet_provider') {
                 await client.query(
                     `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
-                     VALUES ($1, $2, $3, true)`,
-                    [request.user_id, request.organization_name, apiKeyResult.rows[0].id]
+                     VALUES ($1, $2, $3, true)
+                     ON CONFLICT (user_id) DO UPDATE SET
+                         name = EXCLUDED.name,
+                         api_key_id = EXCLUDED.api_key_id,
+                         status = EXCLUDED.status`,
+                    [request.user_id, request.organization_name, apiKeyId]
                 );
             } else {
+                // For data_consumers, create the consumer record and link to API key
                 await client.query(
-                    `INSERT INTO data_consumers (user_id, organization_name, created_at)
-                     VALUES ($1, $2, CURRENT_TIMESTAMP)`,
+                    `INSERT INTO data_consumers (user_id, organization_name, status, created_at)
+                     VALUES ($1, $2, true, CURRENT_TIMESTAMP)
+                     ON CONFLICT (user_id) DO UPDATE SET
+                         organization_name = EXCLUDED.organization_name,
+                         status = EXCLUDED.status`,
                     [request.user_id, request.organization_name]
                 );
             }
@@ -281,6 +361,52 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
             constraint: error.constraint
         });
         res.status(500).json({ error: 'Failed to process request', details: error.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Clean up duplicate API keys
+router.post('/cleanup-duplicates', authenticateAdmin, async (req, res) => {
+    try {
+        const client = await pool.connect();
+        await client.query('BEGIN');
+
+        // Find and remove duplicate API keys (keep the most recent one)
+        const duplicateKeys = await client.query(`
+            SELECT api_key, COUNT(*) as count, 
+                   ARRAY_AGG(id ORDER BY created_at DESC) as ids
+            FROM api_keys 
+            GROUP BY api_key 
+            HAVING COUNT(*) > 1
+        `);
+
+        let cleanedCount = 0;
+        for (const duplicate of duplicateKeys.rows) {
+            const ids = duplicate.ids;
+            const keepId = ids[0]; // Keep the most recent (first in DESC order)
+            const deleteIds = ids.slice(1); // Delete the rest
+
+            for (const deleteId of deleteIds) {
+                // Delete related records first
+                await client.query('DELETE FROM wallet_providers WHERE api_key_id = $1', [deleteId]);
+                
+                // Delete the API key
+                await client.query('DELETE FROM api_keys WHERE id = $1', [deleteId]);
+                cleanedCount++;
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ 
+            message: `Cleaned up ${cleanedCount} duplicate API keys`,
+            duplicatesFound: duplicateKeys.rows.length,
+            keysRemoved: cleanedCount
+        });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error cleaning up duplicates:', error);
+        res.status(500).json({ error: 'Failed to clean up duplicates' });
     } finally {
         client.release();
     }

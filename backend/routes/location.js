@@ -23,9 +23,11 @@ const authenticateApiKey = async (req, res, next) => {
             return next();
         }
 
-        // Then check data_consumers
+        // Then check data_consumers (they use api_keys table)
         const consumerResult = await pool.query(
-            'SELECT id FROM data_consumers WHERE api_key = $1 AND status = true',
+            `SELECT dc.id FROM data_consumers dc
+             JOIN api_keys ak ON ak.user_id = dc.user_id
+             WHERE ak.api_key = $1 AND dc.status = true`,
             [apiKey]
         );
 
@@ -245,6 +247,22 @@ router.get('/wallet-locations', authenticateApiKey, async (req, res) => {
         res.json(result.rows);
     } catch (error) {
         console.error('Error fetching wallet locations:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET endpoint for wallet types list
+router.get('/types/list', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, name, description, created_at
+            FROM wallet_types
+            ORDER BY name ASC
+        `);
+        
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching wallet types:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

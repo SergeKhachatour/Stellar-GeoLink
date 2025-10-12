@@ -25,17 +25,26 @@ import {
   Radio,
   RadioGroup,
   FormControlLabel,
-  FormLabel
+  FormLabel,
+  InputAdornment,
+  Paper
 } from '@mui/material';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import {
   Add as AddIcon,
   Send as SendIcon,
   Create as CreateIcon,
   LocationOn as LocationIcon,
-  CloudUpload as UploadIcon
+  CloudUpload as UploadIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import realNFTService from '../../services/realNFTService';
+
+// Mapbox Token
+const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
+mapboxgl.accessToken = MAPBOX_TOKEN;
 
 const RealPinNFT = ({ onClose, onSuccess }) => {
   const {
@@ -77,7 +86,21 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     radius: 100
   });
   
+  const [userRadius, setUserRadius] = useState(100);
+  
   const [successMessage, setSuccessMessage] = useState('');
+  const [mintError, setMintError] = useState('');
+
+  const [errorDialog, setErrorDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  const [locationUpdateDialog, setLocationUpdateDialog] = useState(false);
+  const [mapContainer, setMapContainer] = useState(null);
+  const [map, setMap] = useState(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [currentMarkerPosition, setCurrentMarkerPosition] = useState(null);
 
   // Dialog states
   const [deployDialog, setDeployDialog] = useState(false);
@@ -118,6 +141,219 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       loadUserNFTs();
     }
   }, [isConnected, loadUserNFTs]);
+
+  // Auto-get location when component mounts
+  useEffect(() => {
+    getCurrentLocation();
+  }, []);
+
+  const getCurrentLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            radius: userRadius
+          });
+          setSuccessMessage('Location automatically detected!');
+        },
+        (error) => {
+          console.log('Automatic location detection failed:', error.message);
+          setMintError('Please enable location services or manually set your location');
+        }
+      );
+    } else {
+      setMintError('Geolocation is not supported by this browser');
+    }
+  };
+
+  // Initialize map for location update dialog
+  const initializeLocationMap = useCallback(() => {
+    if (!mapContainer || map) return;
+
+    try {
+      if (!mapboxgl) {
+        console.error('Mapbox GL JS not loaded');
+        setMintError('Mapbox GL JS is not loaded. Please refresh the page.');
+        return;
+      }
+
+      const newMap = new mapboxgl.Map({
+        container: mapContainer,
+        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        center: location ? [location.longitude, location.latitude] : [-74.5, 40],
+        zoom: location ? 15 : 2
+      });
+
+      newMap.on('load', () => {
+        setMapLoaded(true);
+        
+        // Create a draggable marker
+        const marker = new mapboxgl.Marker({ 
+          color: '#ff9800',
+          draggable: true 
+        });
+        
+        // Set initial position
+        if (location && location.latitude && location.longitude) {
+          marker.setLngLat([location.longitude, location.latitude]);
+        } else {
+          marker.setLngLat([-74.5, 40]); // Default to New York
+        }
+        
+        marker.addTo(newMap);
+        
+        // Store marker reference for later use
+        newMap._draggableMarker = marker;
+
+        // Add click handler for new location selection
+        newMap.on('click', (e) => {
+          // Move the draggable marker to clicked location
+          marker.setLngLat([e.lngLat.lng, e.lngLat.lat]);
+          // Update current marker position
+          setCurrentMarkerPosition({
+            latitude: e.lngLat.lat,
+            longitude: e.lngLat.lng
+          });
+        });
+        
+        // Add drag end handler to update location
+        marker.on('dragend', () => {
+          const lngLat = marker.getLngLat();
+          setCurrentMarkerPosition({
+            latitude: lngLat.lat,
+            longitude: lngLat.lng
+          });
+          console.log('Marker moved to:', lngLat.lng, lngLat.lat);
+        });
+        
+        // Initialize current marker position
+        const initialLngLat = marker.getLngLat();
+        setCurrentMarkerPosition({
+          latitude: initialLngLat.lat,
+          longitude: initialLngLat.lng
+        });
+      });
+
+      newMap.on('error', (e) => {
+        console.error('Map error:', e);
+        setMintError('Failed to load map. Please check your Mapbox token.');
+      });
+
+      setMap(newMap);
+    } catch (error) {
+      console.error('Error initializing map:', error);
+      setMintError('Failed to initialize map. Please refresh the page.');
+    }
+  }, [mapContainer, location]);
+
+  // Initialize map when dialog opens
+  useEffect(() => {
+    if (locationUpdateDialog && mapContainer) {
+      const timer = setTimeout(() => {
+        initializeLocationMap();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [locationUpdateDialog, mapContainer, initializeLocationMap]);
+
+  // Cleanup map when dialog closes
+  useEffect(() => {
+    if (!locationUpdateDialog && map) {
+      try {
+        map.remove();
+        setMap(null);
+        setMapLoaded(false);
+      } catch (error) {
+        console.error('Error cleaning up map:', error);
+      }
+    }
+  }, [locationUpdateDialog, map]);
+
+  // Search functionality for address lookup
+  const handleAddressSearch = async () => {
+    if (!searchQuery.trim()) return;
+
+    try {
+      const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN;
+      if (!mapboxToken) {
+        setMintError('Mapbox token not configured. Please contact administrator.');
+        return;
+      }
+
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${mapboxToken}&limit=5`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Geocoding API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.features && data.features.length > 0) {
+        setSearchResults(data.features);
+        setShowSearchResults(true);
+      } else {
+        setMintError('No locations found for your search.');
+      }
+    } catch (error) {
+      console.error('Address search failed:', error);
+      setMintError('Address search failed. Please try again.');
+    }
+  };
+
+  // Handle search result selection
+  const handleSearchResultClick = (result) => {
+    try {
+      const [lng, lat] = result.center;
+      
+      if (map) {
+        map.flyTo({
+          center: [lng, lat],
+          zoom: 15,
+          duration: 1000
+        });
+        
+        // Move the draggable marker to the search result location
+        if (map._draggableMarker) {
+          map._draggableMarker.setLngLat([lng, lat]);
+          setCurrentMarkerPosition({
+            latitude: lat,
+            longitude: lng
+          });
+        }
+      }
+      
+      setShowSearchResults(false);
+      setSearchQuery('');
+    } catch (error) {
+      console.error('Error handling search result:', error);
+      setMintError('Failed to update map location. Please try again.');
+    }
+  };
+
+  // Handle location update confirmation
+  const handleLocationUpdate = () => {
+    try {
+      if (map && map._draggableMarker) {
+        const markerPosition = map._draggableMarker.getLngLat();
+        setLocation({
+          latitude: markerPosition.lat,
+          longitude: markerPosition.lng,
+          radius: userRadius
+        });
+        setLocationUpdateDialog(false);
+        setSuccessMessage('Location updated successfully!');
+      } else {
+        setMintError('Map not loaded. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error updating location:', error);
+      setMintError('Failed to update location. Please try again.');
+    }
+  };
 
   const handleDeployContract = async () => {
     try {
@@ -203,14 +439,61 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   };
 
+  // Form validation function
+  const validateMintForm = () => {
+    const errors = [];
+    
+    if (!mintForm.name || mintForm.name.trim() === '') {
+      errors.push('NFT name is required');
+    }
+    
+    if (!mintForm.ipfsHash || mintForm.ipfsHash.trim() === '') {
+      errors.push('IPFS hash is required');
+    }
+    
+    if (!location || !location.latitude || !location.longitude) {
+      errors.push('Location is required. Please get your current location first.');
+    }
+    
+    if (!userRadius || userRadius <= 0) {
+      errors.push('Radius must be greater than 0');
+    }
+    
+    if (!secretKey) {
+      errors.push('Secret key is required');
+    }
+    
+    return errors;
+  };
+
   const handleMintNFT = async () => {
     try {
+      // Validate form before proceeding
+      const validationErrors = validateMintForm();
+      if (validationErrors.length > 0) {
+        setMintError(validationErrors.join('. '));
+        return;
+      }
+
       if (!secretKey) {
         throw new Error('Secret key required for minting');
       }
 
-      if (!selectedContract) {
-        throw new Error('Please select a contract');
+      // Auto-select or create contract if none selected
+      let contractId = selectedContract;
+      if (!contractId) {
+        console.log('No contract selected, auto-initializing...');
+        const StellarSdk = await import('@stellar/stellar-sdk');
+        const keypair = StellarSdk.Keypair.fromSecret(secretKey);
+        
+        // Auto-initialize the default contract
+        const contractInfo = await realNFTService.deployLocationNFTContract(
+          keypair,
+          'StellarGeoLinkNFT'
+        );
+        contractId = contractInfo.contractId;
+        setSelectedContract(contractId);
+        console.log('✅ Auto-initialized contract:', contractId);
       }
 
       const StellarSdk = await import('@stellar/stellar-sdk');
@@ -218,7 +501,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       
       // Mint NFT with location validation
       const result = await realNFTService.mintLocationNFT(
-        selectedContract,
+        contractId,
         publicKey, // Mint to current user
         {
           name: mintForm.name,
@@ -233,9 +516,34 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
 
       console.log('NFT minted successfully:', result);
       
-      // Show success message with StellarExpert link
-      setSuccessMessage(`✅ NFT minted successfully on Stellar testnet! Token ID: ${result.tokenId}, Name: ${mintForm.name}, Contract: ${selectedContract}. View on StellarExpert: https://stellar.expert/explorer/testnet/contract/${selectedContract}`);
-      setTimeout(() => setSuccessMessage(''), 8000); // Clear after 8 seconds
+      // Create success overlay with transaction details
+      const successData = {
+        tokenId: result.tokenId,
+        name: mintForm.name,
+        contractId: contractId,
+        transactionHash: result.hash,
+        status: result.status,
+        ledger: result.latestLedger,
+        location: location,
+        imageUrl: realNFTService.buildIPFSUrl(mintForm.ipfsHash, mintForm.filename),
+        stellarExpertUrl: `https://stellar.expert/explorer/testnet/tx/${result.hash}`,
+        contractUrl: `https://stellar.expert/explorer/testnet/contract/${contractId}`
+      };
+      
+      // Pass success data to parent component
+      console.log('Passing success data to parent:', successData);
+      onSuccess(successData);
+      
+      // Also persist to localStorage for restoration
+      localStorage.setItem('nftMintSuccess', JSON.stringify(successData));
+      
+      // Add NFT to database for nearby display
+      try {
+        await addNFTToDatabase(successData);
+      } catch (dbError) {
+        console.warn('Failed to add NFT to database:', dbError);
+        // Don't fail the whole operation if database add fails
+      }
       
       // Reset form
       setMintForm({
@@ -249,11 +557,22 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       // Reload user NFTs to show the new one
       await loadUserNFTs();
       
-      onSuccess && onSuccess(result);
       onClose && onClose();
     } catch (error) {
       console.error('Failed to mint NFT:', error);
       console.error(`❌ NFT minting failed: ${error.message}`);
+      
+      // Show detailed error dialog with user-friendly message
+      setErrorDialog({
+        title: 'NFT Minting Failed',
+        message: getErrorMessage(error),
+        details: error.message,
+        suggestions: getErrorSuggestions(error),
+        onRetry: () => {
+          setErrorDialog(null);
+          handleMintNFT();
+        }
+      });
     }
   };
 
@@ -329,21 +648,82 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   };
 
-  const getCurrentLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            radius: 100
-          });
+
+  const addNFTToDatabase = async (nftData) => {
+    try {
+      // Use the configured API base URL
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      const response = await fetch(`${apiBaseURL}/nft/pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        (error) => {
-          console.error('Error getting location:', error);
-        }
-      );
+        body: JSON.stringify({
+          collection_id: 1, // Default collection for blockchain NFTs
+          latitude: nftData.location.latitude,
+          longitude: nftData.location.longitude,
+          radius_meters: nftData.location.radius,
+          ipfs_hash: mintForm.ipfsHash,
+          smart_contract_address: nftData.contractId,
+          rarity_requirements: {
+            token_id: nftData.tokenId,
+            transaction_hash: nftData.transactionHash,
+            blockchain: 'stellar_testnet'
+          },
+          is_active: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Database error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ NFT added to database:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to add NFT to database:', error);
+      throw error;
     }
+  };
+
+  const getErrorMessage = (error) => {
+    if (error.message.includes('Error(Contract, #2)')) {
+      return 'Token ID already exists. The system will automatically retry with a new ID.';
+    }
+    if (error.message.includes('insufficient')) {
+      return 'Insufficient XLM balance. Please fund your account with testnet XLM.';
+    }
+    if (error.message.includes('network')) {
+      return 'Network connection failed. Please check your internet connection.';
+    }
+    if (error.message.includes('contract')) {
+      return 'Contract error. The contract may not be properly initialized.';
+    }
+    return 'An unexpected error occurred during NFT minting.';
+  };
+
+  const getErrorSuggestions = (error) => {
+    if (error.message.includes('insufficient')) {
+      return [
+        'Fund your account with testnet XLM using the "Fund Account" button',
+        'Visit Stellar Laboratory to get testnet XLM',
+        'Check your wallet balance'
+      ];
+    }
+    if (error.message.includes('contract')) {
+      return [
+        'Try clicking "Verify Contract Ready" first',
+        'Ensure the contract is properly deployed',
+        'Check the contract on StellarExpert'
+      ];
+    }
+    return [
+      'Check your internet connection',
+      'Try again in a few moments',
+      'Contact support if the issue persists'
+    ];
   };
 
   if (!isConnected) {
@@ -454,9 +834,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         </Typography>
       </Alert>
 
-      {error && (
+      {mintError && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
+          {mintError}
         </Alert>
       )}
 
@@ -466,89 +846,24 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         </Alert>
       )}
 
-      {/* Contract Management */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Contract Management
+      {/* Simplified Contract Status */}
+      {selectedContract && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            <strong>✅ Contract Ready:</strong> {contracts.find(c => c.contractId === selectedContract)?.name || 'StellarGeoLinkNFT'}
           </Typography>
-          {selectedContract && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              <Typography variant="body2">
-                <strong>Selected Contract:</strong> {contracts.find(c => c.contractId === selectedContract)?.name || selectedContract}
-              </Typography>
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                <strong>Contract ID:</strong> {selectedContract}
-              </Typography>
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                <a 
-                  href={`https://stellar.expert/explorer/testnet/contract/${selectedContract}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  style={{ color: '#1976d2', textDecoration: 'underline' }}
-                >
-                  🔗 View on StellarExpert Testnet (Simulated Contract)
-                </a>
-              </Typography>
-            </Alert>
-          )}
-          
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Select Contract ({contracts.length} available)</InputLabel>
-                <Select
-                  value={selectedContract}
-                  onChange={(e) => {
-                    console.log('Contract selection changed:', e.target.value);
-                    setSelectedContract(e.target.value);
-                  }}
-                  sx={{ zIndex: 10000 }}
-                  MenuProps={{
-                    sx: { zIndex: 10000 }
-                  }}
-                >
-                  {contracts.length === 0 ? (
-                    <MenuItem disabled>No contracts available - Deploy a contract first</MenuItem>
-                  ) : (
-                    contracts.map((contract) => (
-                      <MenuItem key={contract.contractId} value={contract.contractId}>
-                        {contract.name} ({contract.contractId})
-                      </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Button
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={handleInitializeContract}
-                fullWidth
-                disabled={!selectedContract}
-                sx={{ mb: 1 }}
-              >
-                Verify Contract Ready
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setDeployDialog(true)}
-                fullWidth
-              >
-                Deploy New Contract
-              </Button>
-            </Grid>
-          </Grid>
-
-          {contracts.length === 0 && (
-            <Alert severity="info">
-              No contracts deployed. Deploy a new contract to get started.
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            <a 
+              href={`https://stellar.expert/explorer/testnet/contract/${selectedContract}`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              style={{ color: '#1976d2', textDecoration: 'underline' }}
+            >
+              🔗 View on StellarExpert
+            </a>
+          </Typography>
+        </Alert>
+      )}
 
       {/* NFT Action Selection */}
       <Card sx={{ mb: 3 }}>
@@ -585,11 +900,12 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
             <Typography variant="h6" gutterBottom>
               Mint New NFT
             </Typography>
-            {!selectedContract && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                Please select a contract from the dropdown above to enable minting.
-              </Alert>
-            )}
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>🚀 One-Click Minting:</strong> Just fill in the details below and click "Mint NFT". 
+                The system will automatically handle contract setup and initialization.
+              </Typography>
+            </Alert>
             
             <Grid container spacing={2}>
               <Grid item xs={12}>
@@ -598,8 +914,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   value={mintForm.name}
                   onChange={(e) => setMintForm({ ...mintForm, name: e.target.value })}
                   fullWidth
-                  disabled={!selectedContract}
-                  helperText={!selectedContract ? "Please select a contract first" : ""}
+                  required
+                  error={!mintForm.name || mintForm.name.trim() === ''}
+                  helperText={(!mintForm.name || mintForm.name.trim() === '') ? 'NFT name is required' : 'Enter a unique name for your NFT'}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -610,7 +927,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   multiline
                   rows={3}
                   fullWidth
-                  disabled={!selectedContract}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -619,7 +935,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   value={mintForm.ipfsHash}
                   onChange={(e) => setMintForm({ ...mintForm, ipfsHash: e.target.value })}
                   fullWidth
-                  disabled={!selectedContract}
+                  required
+                  error={!mintForm.ipfsHash || mintForm.ipfsHash.trim() === ''}
+                  helperText={(!mintForm.ipfsHash || mintForm.ipfsHash.trim() === '') ? 'IPFS hash is required' : 'Enter the IPFS hash for your NFT image'}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -628,7 +946,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   value={mintForm.filename}
                   onChange={(e) => setMintForm({ ...mintForm, filename: e.target.value })}
                   fullWidth
-                  disabled={!selectedContract}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -637,23 +954,40 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   value={mintForm.serverUrl}
                   onChange={(e) => setMintForm({ ...mintForm, serverUrl: e.target.value })}
                   fullWidth
-                  disabled={!selectedContract}
                 />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label="Radius (meters)"
+                  type="number"
+                  value={userRadius}
+                  onChange={(e) => setUserRadius(parseInt(e.target.value) || 100)}
+                  fullWidth
+                  required
+                  error={!userRadius || userRadius <= 0}
+                  inputProps={{ min: 1, max: 10000 }}
+                  helperText={(!userRadius || userRadius <= 0) ? 'Radius must be greater than 0' : 'Collection radius in meters (1-10000)'}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Button
+                  variant="outlined"
+                  startIcon={<LocationIcon />}
+                  onClick={() => setLocationUpdateDialog(true)}
+                  fullWidth
+                >
+                  {location.latitude ? 'Update Location' : 'Set Location'}
+                </Button>
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Location: {location.latitude ? `${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}` : 'Not set'}
+                  {location.latitude && (
+                    <span> | Radius: {location.radius}m</span>
+                  )}
                 </Typography>
-                <Button
-                  variant="outlined"
-                  startIcon={<LocationIcon />}
-                  onClick={getCurrentLocation}
-                  fullWidth
-                >
-                  {location.latitude ? 'Update Location' : 'Set Location from Map Pin'}
-                </Button>
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                  Note: For NFT minting, drop a pin on the map to set the location, then click this button to use that location.
+                  Location is automatically detected. Click "Update Location" to change it using the interactive map.
                 </Typography>
               </Grid>
               <Grid item xs={12}>
@@ -661,11 +995,17 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   variant="contained"
                   startIcon={<CreateIcon />}
                   onClick={handleMintNFT}
-                  disabled={loading || !selectedContract}
+                  disabled={loading || validateMintForm().length > 0}
                   fullWidth
+                  size="large"
                 >
                   {loading ? <CircularProgress size={20} /> : 'Mint NFT'}
                 </Button>
+                {validateMintForm().length > 0 && (
+                  <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                    Missing: {validateMintForm().join(', ')}
+                  </Typography>
+                )}
               </Grid>
             </Grid>
           </CardContent>
@@ -797,6 +1137,172 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
           <Button onClick={() => setDeployDialog(false)}>Cancel</Button>
           <Button onClick={handleDeployContract} variant="contained" disabled={loading}>
             {loading ? <CircularProgress size={20} /> : 'Initialize Contract'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+
+      {/* Error Dialog */}
+      <Dialog
+        open={!!errorDialog}
+        onClose={() => setErrorDialog(null)}
+        maxWidth="sm"
+        fullWidth
+        sx={{ zIndex: 10000 }}
+      >
+        <DialogTitle sx={{ color: 'error.main' }}>
+          ❌ {errorDialog?.title}
+        </DialogTitle>
+        <DialogContent>
+          {errorDialog && (
+            <Box>
+              <Typography variant="body1" sx={{ mb: 2 }}>
+                {errorDialog.message}
+              </Typography>
+              
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                <strong>Technical Details:</strong>
+                <br />
+                <code style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
+                  {errorDialog.details}
+                </code>
+              </Typography>
+
+              <Typography variant="h6" gutterBottom>
+                💡 Suggestions:
+              </Typography>
+              <ul>
+                {errorDialog.suggestions?.map((suggestion, index) => (
+                  <li key={index}>
+                    <Typography variant="body2">{suggestion}</Typography>
+                  </li>
+                ))}
+              </ul>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setErrorDialog(null)}>
+            Close
+          </Button>
+          <Button 
+            onClick={errorDialog?.onRetry} 
+            variant="contained" 
+            color="primary"
+          >
+            Retry
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Location Update Dialog */}
+      <Dialog
+        open={locationUpdateDialog}
+        onClose={() => setLocationUpdateDialog(false)}
+        maxWidth="lg"
+        fullWidth
+        sx={{ zIndex: 10000 }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 2 }}>
+          📍 Update NFT Location
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Search for an address or click on the map to set your NFT location
+            </Typography>
+            
+            {/* Address Search */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+              <TextField
+                size="small"
+                placeholder="Search for an address..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleAddressSearch()}
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon />
+                    </InputAdornment>
+                  )
+                }}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleAddressSearch}
+                disabled={!searchQuery.trim()}
+              >
+                Search
+              </Button>
+            </Box>
+
+            {/* Search Results */}
+            {showSearchResults && searchResults.length > 0 && (
+              <Paper sx={{ mb: 2, maxHeight: 200, overflow: 'auto' }}>
+                {searchResults.map((result, index) => (
+                  <Box
+                    key={index}
+                    sx={{
+                      p: 1.5,
+                      cursor: 'pointer',
+                      borderBottom: '1px solid #eee',
+                      '&:hover': { backgroundColor: '#f5f5f5' },
+                      '&:last-child': { borderBottom: 'none' }
+                    }}
+                    onClick={() => handleSearchResultClick(result)}
+                  >
+                    <Typography variant="body2" fontWeight="bold">
+                      {result.place_name}
+                    </Typography>
+                  </Box>
+                ))}
+              </Paper>
+            )}
+
+            {/* Map Container */}
+            <Box
+              ref={setMapContainer}
+              sx={{
+                height: '400px',
+                width: '100%',
+                borderRadius: 1,
+                overflow: 'hidden',
+                border: '1px solid #ddd'
+              }}
+            />
+
+            {/* Current Location Display */}
+            <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+              <Typography variant="body2" fontWeight="bold">
+                Selected Location:
+              </Typography>
+              {currentMarkerPosition ? (
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  {currentMarkerPosition.latitude.toFixed(6)}, {currentMarkerPosition.longitude.toFixed(6)}
+                </Typography>
+              ) : (
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                </Typography>
+              )}
+              <Typography variant="caption" color="text.secondary">
+                Drag the orange marker or click on the map to select a new location
+              </Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLocationUpdateDialog(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleLocationUpdate}
+            disabled={!map}
+          >
+            Update Location
           </Button>
         </DialogActions>
       </Dialog>

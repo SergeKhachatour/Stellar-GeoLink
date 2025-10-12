@@ -217,6 +217,7 @@ const NFTDashboard = () => {
   const [markersLocked, setMarkersLocked] = useState(false);
   const [markersNeverUpdate, setMarkersNeverUpdate] = useState(false);
   const [showPinSuccess, setShowPinSuccess] = useState(false);
+  const [successOverlay, setSuccessOverlay] = useState(null);
   const requestCooldown = 3000; // 3 seconds cooldown between requests
   // Trigger new deployment - ESLint errors fixed, ready for production build
   const mapContainer = useRef(null);
@@ -555,7 +556,7 @@ const NFTDashboard = () => {
         img.style.borderRadius = '8px'; // Square with rounded corners
         img.style.objectFit = 'cover';
         img.onerror = () => {
-          console.log('Image failed to load:', this.src);
+          console.log('Image failed to load:', img.src);
           el.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
           el.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
         };
@@ -2063,6 +2064,21 @@ const NFTDashboard = () => {
       // Clear success animation on unmount
       setShowPinSuccess(false);
     };
+  }, []);
+
+  // Check for success overlay in localStorage on component mount
+  useEffect(() => {
+    const saved = localStorage.getItem('nftMintSuccess');
+    if (saved) {
+      try {
+        const successData = JSON.parse(saved);
+        console.log('Success overlay found in NFTDashboard:', successData);
+        setSuccessOverlay(successData);
+      } catch (error) {
+        console.error('Error parsing saved success data:', error);
+        localStorage.removeItem('nftMintSuccess');
+      }
+    }
   }, []);
 
 
@@ -4461,10 +4477,130 @@ const NFTDashboard = () => {
             onSuccess={(result) => {
               console.log('Real NFT operation successful:', result);
               setOpenRealPinDialog(false);
+              // Set success overlay in parent component
+              setSuccessOverlay(result);
               // Refresh the map or show success message
             }}
           />
         </DialogContent>
+      </Dialog>
+
+      {/* Success Overlay Dialog */}
+      <Dialog
+        open={!!successOverlay}
+        onClose={() => {
+          setSuccessOverlay(null);
+          localStorage.removeItem('nftMintSuccess');
+        }}
+        maxWidth="md"
+        fullWidth
+        sx={{ zIndex: 10000 }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 2 }}>
+          🎉 NFT Successfully Minted!
+        </DialogTitle>
+        <DialogContent>
+          {successOverlay && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h6" gutterBottom color="primary">
+                {successOverlay.name}
+              </Typography>
+              
+              <Grid container spacing={3} sx={{ mt: 2 }}>
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        📊 Transaction Details
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Token ID:</strong> {successOverlay.tokenId}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Status:</strong> {successOverlay.status}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Ledger:</strong> {successOverlay.ledger || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Hash:</strong> 
+                        <br />
+                        <code style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
+                          {successOverlay.transactionHash || 'N/A'}
+                        </code>
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                
+                <Grid item xs={12} sm={6}>
+                  <Card variant="outlined">
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        📍 Location Details
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Latitude:</strong> {successOverlay.location?.latitude?.toFixed(6) || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Longitude:</strong> {successOverlay.location?.longitude?.toFixed(6) || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Radius:</strong> {successOverlay.location?.radius || 'N/A'}m
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>Contract:</strong> 
+                        <br />
+                        <code style={{ fontSize: '0.8em', wordBreak: 'break-all' }}>
+                          {successOverlay.contractId || 'N/A'}
+                        </code>
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  href={successOverlay.stellarExpertUrl || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  disabled={!successOverlay.stellarExpertUrl}
+                  sx={{ minWidth: 200 }}
+                >
+                  🔗 View on StellarExpert
+                </Button>
+                <Button
+                  variant="outlined"
+                  href={successOverlay.contractUrl || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  disabled={!successOverlay.contractUrl}
+                  sx={{ minWidth: 200 }}
+                >
+                  📄 View Contract
+                </Button>
+              </Box>
+
+              <Alert severity="success" sx={{ mt: 3 }}>
+                <Typography variant="body2">
+                  <strong>✅ Success!</strong> Your NFT has been minted on the Stellar testnet and added to the database. 
+                  It will now appear in nearby NFT searches within the specified radius.
+                </Typography>
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setSuccessOverlay(null);
+            localStorage.removeItem('nftMintSuccess');
+          }} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
       </Dialog>
     </Container>
   );
