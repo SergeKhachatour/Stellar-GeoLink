@@ -67,6 +67,7 @@ const WalletLocationsManager = () => {
     const [selectedLocation, setSelectedLocation] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const fetchingRef = useRef(false);
     const [showSearchResults, setShowSearchResults] = useState(false);
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -84,7 +85,13 @@ const WalletLocationsManager = () => {
     });
 
     const fetchData = useCallback(async () => {
+        if (fetchingRef.current) {
+            console.log('fetchData already running, skipping...');
+            return;
+        }
+        
         try {
+            fetchingRef.current = true;
             setLoading(true);
             
             // Fetch data with error handling for each endpoint
@@ -151,6 +158,7 @@ const WalletLocationsManager = () => {
             setError('Failed to fetch wallet locations and NFTs');
         } finally {
             setLoading(false);
+            fetchingRef.current = false;
         }
     }, []);
 
@@ -369,7 +377,8 @@ const WalletLocationsManager = () => {
                 duration: 1000
             });
         });
-    }, [addWalletMarkers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Add 3D effects and globe styling
     const add3DEffects = () => {
