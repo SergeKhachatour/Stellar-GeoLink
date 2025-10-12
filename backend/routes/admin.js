@@ -266,7 +266,9 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
             id: request.id,
             user_id: request.user_id,
             request_type: request.request_type,
-            organization_name: request.organization_name
+            organization_name: request.organization_name,
+            organization: request.organization,
+            all_columns: Object.keys(request)
         });
 
         // Update request status
@@ -317,7 +319,9 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
             // Create the appropriate provider/consumer record
             // Default to 'data_consumer' if request_type is null/undefined
             const requestType = request.request_type || 'data_consumer';
+            const organizationName = request.organization_name || request.organization || 'Unknown Organization';
             console.log('Processing request type:', requestType);
+            console.log('Organization name:', organizationName);
             
             if (requestType === 'wallet_provider') {
                 // Check if wallet_provider already exists for this user
@@ -330,16 +334,16 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                     // Update existing provider
                     await client.query(
                         `UPDATE wallet_providers 
-                         SET name = $1, api_key_id = $2, status = true
+                         SET name = $1, api_key_id = $2
                          WHERE user_id = $3`,
-                        [request.organization_name, apiKeyId, request.user_id]
+                        [organizationName, apiKeyId, request.user_id]
                     );
                 } else {
                     // Insert new provider
                     await client.query(
-                        `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
-                         VALUES ($1, $2, $3, true)`,
-                        [request.user_id, request.organization_name, apiKeyId]
+                        `INSERT INTO wallet_providers (user_id, name, api_key_id)
+                         VALUES ($1, $2, $3)`,
+                        [request.user_id, organizationName, apiKeyId]
                     );
                 }
             } else {
@@ -350,20 +354,22 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                 );
                 
                 if (existingConsumer.rows.length > 0) {
-                    // Update existing consumer
+                    // Update existing consumer - only update if values are different
                     await client.query(
                         `UPDATE data_consumers 
                          SET organization_name = $1, status = true
-                         WHERE user_id = $2`,
-                        [request.organization_name, request.user_id]
+                         WHERE user_id = $2 AND (organization_name != $1 OR status != true)`,
+                        [organizationName, request.user_id]
                     );
+                    console.log('Updated existing data_consumer for user:', request.user_id);
                 } else {
                     // Insert new consumer
                     await client.query(
                         `INSERT INTO data_consumers (user_id, organization_name, status, created_at)
                          VALUES ($1, $2, true, CURRENT_TIMESTAMP)`,
-                        [request.user_id, request.organization_name]
+                        [request.user_id, organizationName]
                     );
+                    console.log('Created new data_consumer for user:', request.user_id);
                 }
             }
         } else if (status === 'pending') {
