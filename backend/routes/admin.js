@@ -309,25 +309,51 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
 
             // Create the appropriate provider/consumer record
             if (request.request_type === 'wallet_provider') {
-                await client.query(
-                    `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
-                     VALUES ($1, $2, $3, true)
-                     ON CONFLICT (user_id) DO UPDATE SET
-                         name = EXCLUDED.name,
-                         api_key_id = EXCLUDED.api_key_id,
-                         status = EXCLUDED.status`,
-                    [request.user_id, request.organization_name, apiKeyId]
+                // Check if wallet_provider already exists for this user
+                const existingProvider = await client.query(
+                    'SELECT id FROM wallet_providers WHERE user_id = $1',
+                    [request.user_id]
                 );
+                
+                if (existingProvider.rows.length > 0) {
+                    // Update existing provider
+                    await client.query(
+                        `UPDATE wallet_providers 
+                         SET name = $1, api_key_id = $2, status = true
+                         WHERE user_id = $3`,
+                        [request.organization_name, apiKeyId, request.user_id]
+                    );
+                } else {
+                    // Insert new provider
+                    await client.query(
+                        `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
+                         VALUES ($1, $2, $3, true)`,
+                        [request.user_id, request.organization_name, apiKeyId]
+                    );
+                }
             } else {
-                // For data_consumers, create the consumer record and link to API key
-                await client.query(
-                    `INSERT INTO data_consumers (user_id, organization_name, status, created_at)
-                     VALUES ($1, $2, true, CURRENT_TIMESTAMP)
-                     ON CONFLICT (user_id) DO UPDATE SET
-                         organization_name = EXCLUDED.organization_name,
-                         status = EXCLUDED.status`,
-                    [request.user_id, request.organization_name]
+                // For data_consumers, check if consumer already exists for this user
+                const existingConsumer = await client.query(
+                    'SELECT id FROM data_consumers WHERE user_id = $1',
+                    [request.user_id]
                 );
+                
+                if (existingConsumer.rows.length > 0) {
+                    // Update existing consumer
+                    await client.query(
+                        `UPDATE data_consumers 
+                         SET organization_name = $1, status = true
+                         WHERE user_id = $2`,
+                        [request.organization_name, request.user_id]
+                    );
+                } else {
+                    // Insert new consumer
+                    await client.query(
+                        `INSERT INTO data_consumers (user_id, organization_name, status, created_at)
+                         VALUES ($1, $2, true, CURRENT_TIMESTAMP)`,
+                        [request.user_id, request.organization_name]
+                    );
+                }
             }
         } else if (status === 'pending') {
             // If resetting to pending, we need to clean up any created API keys and related records
