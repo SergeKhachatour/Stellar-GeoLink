@@ -331,13 +331,19 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                 );
                 
                 if (existingProvider.rows.length > 0) {
-                    // Update existing provider
+                    // Update only the most recent provider record for this user
                     await client.query(
                         `UPDATE wallet_providers 
                          SET name = $1, api_key_id = $2
-                         WHERE user_id = $3`,
+                         WHERE id = (
+                             SELECT id FROM wallet_providers 
+                             WHERE user_id = $3 
+                             ORDER BY created_at DESC 
+                             LIMIT 1
+                         )`,
                         [organizationName, apiKeyId, request.user_id]
                     );
+                    console.log('Updated most recent wallet_provider for user:', request.user_id);
                 } else {
                     // Insert new provider
                     await client.query(
@@ -345,6 +351,7 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                          VALUES ($1, $2, $3)`,
                         [request.user_id, organizationName, apiKeyId]
                     );
+                    console.log('Created new wallet_provider for user:', request.user_id);
                 }
             } else {
                 // For data_consumers, check if consumer already exists for this user
@@ -354,14 +361,19 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                 );
                 
                 if (existingConsumer.rows.length > 0) {
-                    // Update existing consumer - only update if values are different
+                    // Update only the most recent consumer record for this user
                     await client.query(
                         `UPDATE data_consumers 
                          SET organization_name = $1, status = true
-                         WHERE user_id = $2 AND (organization_name != $1 OR status != true)`,
+                         WHERE id = (
+                             SELECT id FROM data_consumers 
+                             WHERE user_id = $2 
+                             ORDER BY created_at DESC 
+                             LIMIT 1
+                         )`,
                         [organizationName, request.user_id]
                     );
-                    console.log('Updated existing data_consumer for user:', request.user_id);
+                    console.log('Updated most recent data_consumer for user:', request.user_id);
                 } else {
                     // Insert new consumer
                     await client.query(
