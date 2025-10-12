@@ -18,16 +18,11 @@ import {
     ToggleButton,
     Chip,
     TextField,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
     IconButton,
     Alert,
     CircularProgress,
     Card,
     CardContent,
-    Grid,
     InputAdornment
 } from '@mui/material';
 import { 
@@ -38,9 +33,7 @@ import {
     Fullscreen as FullscreenIcon,
     FullscreenExit as FullscreenExitIcon,
     Close as CloseIcon,
-    FilterList as FilterListIcon,
     Refresh as RefreshIcon,
-    ZoomIn as ZoomInIcon,
     AccountBalanceWallet as WalletIcon
 } from '@mui/icons-material';
 import Mapboxgl from 'mapbox-gl';
@@ -54,7 +47,7 @@ const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_T
 Mapboxgl.accessToken = MAPBOX_TOKEN;
 
 const WalletLocationsManager = () => {
-    const { isConnected, connectWallet, disconnectWallet, publicKey } = useWallet();
+    const { isConnected, disconnectWallet, publicKey } = useWallet();
     const [locations, setLocations] = useState([]);
     const [walletTypes, setWalletTypes] = useState([]);
     const [filters, setFilters] = useState({
@@ -72,12 +65,12 @@ const WalletLocationsManager = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [selectedLocation, setSelectedLocation] = useState(null);
-    const [userLocation, setUserLocation] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
     const [searchSuggestions, setSearchSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
+    const [userLocation, setUserLocation] = useState(null);
     
     // Wallet connection state
     const [openWalletDialog, setOpenWalletDialog] = useState(false);
@@ -208,7 +201,7 @@ const WalletLocationsManager = () => {
                 duration: 1000
             });
         });
-    }, []);
+    }, [addWalletMarkers]);
 
     // Add 3D effects and globe styling
     const add3DEffects = () => {
@@ -306,7 +299,7 @@ const WalletLocationsManager = () => {
     };
 
     // Add wallet and NFT markers to map
-    const addWalletMarkers = () => {
+    const addWalletMarkers = useCallback(() => {
         if (!map.current || !filteredLocations.length) return;
 
         // Clear existing markers
@@ -471,7 +464,7 @@ const WalletLocationsManager = () => {
                     `))
                 .addTo(map.current);
         });
-    };
+    }, [filteredLocations]);
 
     // Autocomplete functionality
     const handleSearchInput = async (value) => {
@@ -643,7 +636,7 @@ const WalletLocationsManager = () => {
         if (mapLoaded && map.current) {
             addWalletMarkers();
         }
-    }, [filteredLocations, mapLoaded]);
+    }, [filteredLocations, mapLoaded, addWalletMarkers]);
 
     // Cleanup map on unmount
     useEffect(() => {

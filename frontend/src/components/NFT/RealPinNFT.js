@@ -32,7 +32,6 @@ import {
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
-  Add as AddIcon,
   Send as SendIcon,
   Create as CreateIcon,
   LocationOn as LocationIcon,
@@ -52,7 +51,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     publicKey,
     secretKey,
     loading,
-    error,
     fundAccount,
     upgradeToFullAccess
   } = useWallet();
@@ -92,7 +90,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const [mintError, setMintError] = useState('');
 
   const [errorDialog, setErrorDialog] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
   const [locationUpdateDialog, setLocationUpdateDialog] = useState(false);
   const [mapContainer, setMapContainer] = useState(null);
   const [map, setMap] = useState(null);
@@ -145,9 +142,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   // Auto-get location when component mounts
   useEffect(() => {
     getCurrentLocation();
-  }, []);
+  }, [getCurrentLocation]);
 
-  const getCurrentLocation = () => {
+  const getCurrentLocation = useCallback(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -166,7 +163,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     } else {
       setMintError('Geolocation is not supported by this browser');
     }
-  };
+  }, [userRadius]);
 
   // Initialize map for location update dialog
   const initializeLocationMap = useCallback(() => {
@@ -246,7 +243,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       console.error('Error initializing map:', error);
       setMintError('Failed to initialize map. Please refresh the page.');
     }
-  }, [mapContainer, location]);
+  }, [mapContainer, location, map]);
 
   // Initialize map when dialog opens
   useEffect(() => {
@@ -399,45 +396,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   };
 
-  const handleInitializeContract = async () => {
-    try {
-      if (!secretKey) {
-        throw new Error('Secret key not available. Please ensure your wallet is properly connected with full access.');
-      }
-
-      if (!selectedContract) {
-        throw new Error('Please select a contract to initialize.');
-      }
-
-      const StellarSdk = await import('@stellar/stellar-sdk');
-      const keypair = StellarSdk.Keypair.fromSecret(secretKey);
-      
-      console.log('Initializing contract:', selectedContract);
-      
-      // Get contract deployment service
-      const contractDeploymentService = await import('../../services/contractDeployment');
-      const deploymentService = contractDeploymentService.default;
-      await deploymentService.initialize();
-      
-      // Initialize the contract
-      const result = await deploymentService.initializeContract(
-        selectedContract,
-        keypair,
-        'StellarGeoLinkNFT',
-        'SGL'
-      );
-
-      console.log('Contract initialized:', result);
-      
-      // Show success message
-      setSuccessMessage(`✅ Contract is ready for use! The contract is already deployed and functional for minting NFTs!`);
-      setTimeout(() => setSuccessMessage(''), 8000); // Clear after 8 seconds
-      
-    } catch (error) {
-      console.error('Failed to initialize contract:', error);
-      console.error(`❌ Contract initialization failed: ${error.message}`);
-    }
-  };
 
   // Form validation function
   const validateMintForm = () => {
