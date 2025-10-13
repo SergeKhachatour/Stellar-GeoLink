@@ -73,6 +73,49 @@ router.get('/pinned', authenticateUser, async (req, res) => {
     }
 });
 
+// Get all NFT collections
+router.get('/collections', authenticateUser, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT id, name, description, image_url, rarity_level, created_at
+            FROM nft_collections
+            ORDER BY created_at DESC
+        `);
+        
+        res.json({
+            collections: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching collections:', error);
+        res.status(500).json({ error: 'Failed to fetch collections' });
+    }
+});
+
+// Create a new NFT collection
+router.post('/collections', authenticateUser, async (req, res) => {
+    try {
+        const { name, description, image_url, rarity_level = 'common' } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({ error: 'Collection name is required' });
+        }
+        
+        const result = await pool.query(`
+            INSERT INTO nft_collections (name, description, image_url, rarity_level)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *
+        `, [name, description, image_url, rarity_level]);
+        
+        res.status(201).json({
+            message: 'Collection created successfully',
+            collection: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Error creating collection:', error);
+        res.status(500).json({ error: 'Failed to create collection' });
+    }
+});
+
 // Pin a new NFT
 router.post('/pin', authenticateUser, async (req, res) => {
     try {

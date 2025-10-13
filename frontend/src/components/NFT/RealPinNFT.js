@@ -98,6 +98,17 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [currentMarkerPosition, setCurrentMarkerPosition] = useState(null);
 
+  // Collection states
+  const [collections, setCollections] = useState([]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [showNewCollectionDialog, setShowNewCollectionDialog] = useState(false);
+  const [newCollectionForm, setNewCollectionForm] = useState({
+    name: '',
+    description: '',
+    image_url: '',
+    rarity_level: 'common'
+  });
+
   // Dialog states
   const [deployDialog, setDeployDialog] = useState(false);
   const [upgradeDialog, setUpgradeDialog] = useState(false);
@@ -130,11 +141,35 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
     }
   }, [selectedContract, publicKey]);
 
-  // Load contracts and user NFTs on mount
+  // Fetch collections
+  const fetchCollections = async () => {
+    try {
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      const response = await fetch(`${apiBaseURL}/nft/collections`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCollections(data.collections || []);
+        // Auto-select first collection if available
+        if (data.collections && data.collections.length > 0) {
+          setSelectedCollectionId(data.collections[0].id.toString());
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch collections:', error);
+    }
+  };
+
+  // Load contracts, user NFTs, and collections on mount
   useEffect(() => {
     if (isConnected) {
       loadContracts();
       loadUserNFTs();
+      fetchCollections();
     }
   }, [isConnected, loadUserNFTs]);
 
@@ -604,6 +639,33 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   };
 
 
+  // Create new collection
+  const createNewCollection = async () => {
+    try {
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      const response = await fetch(`${apiBaseURL}/nft/collections`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(newCollectionForm)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setCollections(prev => [data.collection, ...prev]);
+        setSelectedCollectionId(data.collection.id.toString());
+        setShowNewCollectionDialog(false);
+        setNewCollectionForm({ name: '', description: '', image_url: '', rarity_level: 'common' });
+      } else {
+        throw new Error('Failed to create collection');
+      }
+    } catch (error) {
+      console.error('Failed to create collection:', error);
+    }
+  };
+
   const addNFTToDatabase = async (nftData) => {
     try {
       // Use the configured API base URL
@@ -615,7 +677,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          // collection_id will be auto-created by backend if not provided
+          collection_id: selectedCollectionId ? parseInt(selectedCollectionId) : null,
           latitude: nftData.location.latitude,
           longitude: nftData.location.longitude,
           radius_meters: nftData.location.radius,
@@ -910,6 +972,33 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   onChange={(e) => setMintForm({ ...mintForm, serverUrl: e.target.value })}
                   fullWidth
                 />
+              </Grid>
+              
+              {/* Collection Selection */}
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel>Collection</InputLabel>
+                  <Select
+                    value={selectedCollectionId}
+                    onChange={(e) => {
+                      if (e.target.value === 'new') {
+                        setShowNewCollectionDialog(true);
+                      } else {
+                        setSelectedCollectionId(e.target.value);
+                      }
+                    }}
+                    label="Collection"
+                  >
+                    {collections.map((collection) => (
+                      <MenuItem key={collection.id} value={collection.id.toString()}>
+                        {collection.name} ({collection.rarity_level})
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="new">
+                      <em>+ Create New Collection</em>
+                    </MenuItem>
+                  </Select>
+                </FormControl>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -1258,6 +1347,73 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
             disabled={!map}
           >
             Update Location
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* New Collection Dialog */}
+      <Dialog
+        open={showNewCollectionDialog}
+        onClose={() => setShowNewCollectionDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Create New Collection</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid item xs={12}>
+              <TextField
+                label="Collection Name"
+                value={newCollectionForm.name}
+                onChange={(e) => setNewCollectionForm({ ...newCollectionForm, name: e.target.value })}
+                fullWidth
+                required
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Description"
+                value={newCollectionForm.description}
+                onChange={(e) => setNewCollectionForm({ ...newCollectionForm, description: e.target.value })}
+                multiline
+                rows={3}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label="Image URL"
+                value={newCollectionForm.image_url}
+                onChange={(e) => setNewCollectionForm({ ...newCollectionForm, image_url: e.target.value })}
+                fullWidth
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel>Rarity Level</InputLabel>
+                <Select
+                  value={newCollectionForm.rarity_level}
+                  onChange={(e) => setNewCollectionForm({ ...newCollectionForm, rarity_level: e.target.value })}
+                  label="Rarity Level"
+                >
+                  <MenuItem value="common">Common</MenuItem>
+                  <MenuItem value="rare">Rare</MenuItem>
+                  <MenuItem value="legendary">Legendary</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowNewCollectionDialog(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={createNewCollection}
+            disabled={!newCollectionForm.name.trim()}
+          >
+            Create Collection
           </Button>
         </DialogActions>
       </Dialog>
