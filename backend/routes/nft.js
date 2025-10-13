@@ -154,6 +154,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
             radius_meters = 10,
             ipfs_hash,
             filename, // Extract filename from request
+            server_url, // Extract server URL from request
             smart_contract_address,
             rarity_requirements = {},
             is_active = true
@@ -201,22 +202,37 @@ router.post('/pin', authenticateUser, async (req, res) => {
 
         console.log('🔗 Constructing IPFS URL:', { ipfs_hash, filename, fullIpfsHash });
 
+        // Construct full image URL for display
+        let fullImageUrl = null;
+        if (server_url && ipfs_hash) {
+            if (filename) {
+                fullImageUrl = `${server_url}${ipfs_hash}/${filename}`;
+            } else {
+                fullImageUrl = `${server_url}${ipfs_hash}`;
+            }
+        }
+        console.log('🖼️ Full image URL:', fullImageUrl);
+
         const result = await pool.query(`
             INSERT INTO pinned_nfts (
                 collection_id, latitude, longitude, radius_meters, 
-                ipfs_hash, smart_contract_address, rarity_requirements, 
+                ipfs_hash, server_url, smart_contract_address, rarity_requirements, 
                 is_active, pinned_by_user, pinned_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
             RETURNING *
         `, [
             finalCollectionId, latitude, longitude, radius_meters,
-            fullIpfsHash, smart_contract_address, JSON.stringify(rarity_requirements),
+            fullIpfsHash, server_url, smart_contract_address, JSON.stringify(rarity_requirements),
             is_active, req.user.public_key
         ]);
 
+        // Add the full image URL to the response
+        const nftResponse = result.rows[0];
+        nftResponse.full_image_url = fullImageUrl;
+
         res.status(201).json({
             message: 'NFT pinned successfully',
-            nft: result.rows[0]
+            nft: nftResponse
         });
     } catch (error) {
         console.error('Error pinning NFT:', error);
@@ -227,6 +243,42 @@ router.post('/pin', authenticateUser, async (req, res) => {
             constraint: error.constraint
         });
         res.status(500).json({ error: 'Failed to pin NFT' });
+    }
+});
+
+// Helper function to construct full image URL for NFT
+const constructImageUrl = (nft) => {
+    if (nft.server_url && nft.ipfs_hash) {
+        // Extract just the hash part from ipfs_hash (remove ipfs:// prefix if present)
+        const hash = nft.ipfs_hash.replace(/^ipfs:\/\//, '');
+        return `${nft.server_url}${hash}`;
+    }
+    return null;
+};
+
+// Get all pinned NFTs with full image URLs
+router.get('/pinned', authenticateUser, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT pn.*, nc.name as collection_name, nc.description as collection_description
+            FROM pinned_nfts pn
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE pn.is_active = true
+            ORDER BY pn.pinned_at DESC
+        `);
+
+        // Add full image URLs to each NFT
+        const nftsWithUrls = result.rows.map(nft => ({
+            ...nft,
+            full_image_url: constructImageUrl(nft)
+        }));
+
+        res.json({
+            nfts: nftsWithUrls
+        });
+    } catch (error) {
+        console.error('Error fetching pinned NFTs:', error);
+        res.status(500).json({ error: 'Failed to fetch pinned NFTs' });
     }
 });
 
