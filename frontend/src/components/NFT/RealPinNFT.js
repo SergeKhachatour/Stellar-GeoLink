@@ -157,7 +157,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       if (response.ok) {
         const data = await response.json();
         console.log('📦 Collections data:', data);
+        console.log('📦 Collections array:', data.collections);
         setCollections(data.collections || []);
+        console.log('📦 Collections state set to:', data.collections);
         // Auto-select first collection if available
         if (data.collections && data.collections.length > 0) {
           setSelectedCollectionId(data.collections[0].id.toString());
@@ -181,6 +183,11 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       fetchCollections();
     }
   }, [isConnected, loadUserNFTs]);
+
+  // Debug collections state changes
+  useEffect(() => {
+    console.log('🔄 Collections state changed:', collections);
+  }, [collections]);
 
   const getCurrentLocation = useCallback(() => {
     if (navigator.geolocation) {
@@ -1006,6 +1013,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                     }}
                     label="Collection"
                   >
+                    {console.log('🎨 Rendering dropdown with collections:', collections)}
                     {collections.map((collection) => (
                       <MenuItem key={collection.id} value={collection.id.toString()}>
                         {collection.name} ({collection.rarity_level})
