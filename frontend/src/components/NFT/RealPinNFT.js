@@ -158,12 +158,18 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         const data = await response.json();
         console.log('📦 Collections data:', data);
         console.log('📦 Collections array:', data.collections);
-        setCollections(data.collections || []);
-        console.log('📦 Collections state set to:', data.collections);
+        
+        // Handle both response formats: {collections: [...]} or direct array
+        const collectionsArray = data.collections || data;
+        console.log('📦 Final collections array:', collectionsArray);
+        
+        setCollections(collectionsArray || []);
+        console.log('📦 Collections state set to:', collectionsArray);
+        
         // Auto-select first collection if available
-        if (data.collections && data.collections.length > 0) {
-          setSelectedCollectionId(data.collections[0].id.toString());
-          console.log('✅ Auto-selected collection:', data.collections[0].id);
+        if (collectionsArray && collectionsArray.length > 0) {
+          setSelectedCollectionId(collectionsArray[0].id.toString());
+          console.log('✅ Auto-selected collection:', collectionsArray[0].id);
         }
       } else {
         console.error('❌ Collections fetch failed:', response.status, response.statusText);
