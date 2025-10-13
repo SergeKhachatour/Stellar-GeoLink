@@ -724,7 +724,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
           radius_meters: nftData.location.radius,
           ipfs_hash: mintForm.ipfsHash,
           filename: mintForm.filename, // Send filename to backend
-          server_url: mintForm.serverUrl, // Send server URL to backend
+          // server_url: mintForm.serverUrl, // Temporarily disabled for Azure deployment
           smart_contract_address: nftData.contractId,
           rarity_requirements: {
             token_id: nftData.tokenId,
