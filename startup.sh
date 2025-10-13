@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Azure Web App startup script
-echo "Starting Stellar-GeoLink application..."
+# Azure Linux App Service startup script
+echo "Starting Stellar-GeoLink application on Linux..."
 
 # Navigate to backend directory
 cd backend
