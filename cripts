@@ -1,0 +1,5 @@
+[33mf29429b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31mStellar-GeoLink/main[m[33m)[m Re-enable server_url field for full IPFS gateway support
+[33mca18964[m Temporarily disable server_url for Azure deployment compatibility
+[33m98fea6c[m Add debugging logs to track filename and IPFS hash concatenation
+[33ma7e3267[m Fix IPFS hash storage format - store hash/filename without ipfs:// prefix
+[33m8e78e11[m Add server_url support for IPFS gateway configuration - store server URL and construct full image URLs

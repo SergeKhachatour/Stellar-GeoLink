@@ -162,7 +162,7 @@ const PublicWalletMap = () => {
                 // Determine API URL based on environment
                 const apiUrl = window.location.hostname.includes('azurewebsites.net') 
                     ? `${window.location.protocol}//${window.location.hostname}/api/locations/public`
-                    : 'http://localhost:4000/api/locations/public';
+                    : 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api/locations/public';
                 
                 const response = await fetch(apiUrl, {
                     method: 'GET',
