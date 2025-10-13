@@ -190,17 +190,17 @@ router.post('/pin', authenticateUser, async (req, res) => {
             return res.status(400).json({ error: 'Invalid coordinates' });
         }
 
-        // Construct full IPFS URL by concatenating hash with filename
+        // Construct IPFS hash with filename (without ipfs:// prefix)
         let fullIpfsHash = ipfs_hash;
         if (filename) {
-            // If filename is provided, create full IPFS URL
-            fullIpfsHash = `ipfs://${ipfs_hash}/${filename}`;
+            // If filename is provided, append it to the hash
+            fullIpfsHash = `${ipfs_hash}/${filename}`;
         } else {
             // If no filename, just use the hash as is
             fullIpfsHash = ipfs_hash;
         }
 
-        console.log('🔗 Constructing IPFS URL:', { ipfs_hash, filename, fullIpfsHash });
+        console.log('🔗 Constructing IPFS hash with filename:', { ipfs_hash, filename, fullIpfsHash });
 
         // Construct full image URL for display
         let fullImageUrl = null;
@@ -249,9 +249,8 @@ router.post('/pin', authenticateUser, async (req, res) => {
 // Helper function to construct full image URL for NFT
 const constructImageUrl = (nft) => {
     if (nft.server_url && nft.ipfs_hash) {
-        // Extract just the hash part from ipfs_hash (remove ipfs:// prefix if present)
-        const hash = nft.ipfs_hash.replace(/^ipfs:\/\//, '');
-        return `${nft.server_url}${hash}`;
+        // The ipfs_hash now contains hash/filename, so we can use it directly
+        return `${nft.server_url}${nft.ipfs_hash}`;
     }
     return null;
 };
