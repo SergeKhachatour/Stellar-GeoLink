@@ -203,6 +203,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
 
         console.log('🔗 Constructing IPFS hash with filename:', { ipfs_hash, filename, fullIpfsHash });
         console.log('📝 Request body received:', req.body);
+        console.log('📦 Full request payload:', JSON.stringify(req.body, null, 2));
 
         // Construct full image URL for display
         let fullImageUrl = null;
@@ -215,18 +216,38 @@ router.post('/pin', authenticateUser, async (req, res) => {
         }
         console.log('🖼️ Full image URL:', fullImageUrl);
 
-        const result = await pool.query(`
+        // Log the SQL query and parameters
+        const sqlQuery = `
             INSERT INTO pinned_nfts (
                 collection_id, latitude, longitude, radius_meters, 
                 ipfs_hash, server_url, smart_contract_address, rarity_requirements, 
                 is_active, pinned_by_user, pinned_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
             RETURNING *
-        `, [
+        `;
+        
+        const queryParams = [
             finalCollectionId, latitude, longitude, radius_meters,
             fullIpfsHash, server_url, smart_contract_address, JSON.stringify(rarity_requirements),
             is_active, req.user.public_key
-        ]);
+        ];
+
+        console.log('🗄️ SQL Query:', sqlQuery);
+        console.log('📊 Query Parameters:', queryParams);
+        console.log('🔍 Parameter Details:', {
+            finalCollectionId,
+            latitude,
+            longitude,
+            radius_meters,
+            fullIpfsHash,
+            server_url,
+            smart_contract_address,
+            rarity_requirements: JSON.stringify(rarity_requirements),
+            is_active,
+            user_public_key: req.user.public_key
+        });
+
+        const result = await pool.query(sqlQuery, queryParams);
 
         // Add the full image URL to the response
         const nftResponse = result.rows[0];
@@ -237,14 +258,20 @@ router.post('/pin', authenticateUser, async (req, res) => {
             nft: nftResponse
         });
     } catch (error) {
-        console.error('Error pinning NFT:', error);
-        console.error('Error details:', {
+        console.error('❌ Error pinning NFT:', error);
+        console.error('❌ Error details:', {
             message: error.message,
             code: error.code,
             detail: error.detail,
-            constraint: error.constraint
+            constraint: error.constraint,
+            stack: error.stack
         });
-        res.status(500).json({ error: 'Failed to pin NFT' });
+        console.error('❌ Full error object:', JSON.stringify(error, null, 2));
+        res.status(500).json({ 
+            error: 'Failed to pin NFT',
+            details: error.message,
+            code: error.code
+        });
     }
 });
 
