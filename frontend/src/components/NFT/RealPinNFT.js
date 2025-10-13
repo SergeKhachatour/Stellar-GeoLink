@@ -1020,7 +1020,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                 <FormControl fullWidth>
                   <InputLabel>Collection</InputLabel>
                   <Select
-                    key={`collection-select-${Date.now()}-${collections.length}-${selectedCollectionId}`}
                     value={selectedCollectionId || ''}
                     onChange={(e) => {
                       console.log('🔄 Collection selection changed:', e.target.value, 'type:', typeof e.target.value);
@@ -1034,7 +1033,6 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                     }}
                     label="Collection"
                     disabled={loadingCollections || collections.length === 0}
-                    displayEmpty
                   >
                     {console.log('🎨 Rendering dropdown with collections:', collections)}
                     {console.log('🎯 Current selectedCollectionId:', selectedCollectionId, 'type:', typeof selectedCollectionId)}
