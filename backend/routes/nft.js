@@ -153,6 +153,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
             longitude,
             radius_meters = 10,
             ipfs_hash,
+            filename, // Extract filename from request
             smart_contract_address,
             rarity_requirements = {},
             is_active = true
@@ -188,6 +189,18 @@ router.post('/pin', authenticateUser, async (req, res) => {
             return res.status(400).json({ error: 'Invalid coordinates' });
         }
 
+        // Construct full IPFS URL by concatenating hash with filename
+        let fullIpfsHash = ipfs_hash;
+        if (filename) {
+            // If filename is provided, create full IPFS URL
+            fullIpfsHash = `ipfs://${ipfs_hash}/${filename}`;
+        } else {
+            // If no filename, just use the hash as is
+            fullIpfsHash = ipfs_hash;
+        }
+
+        console.log('🔗 Constructing IPFS URL:', { ipfs_hash, filename, fullIpfsHash });
+
         const result = await pool.query(`
             INSERT INTO pinned_nfts (
                 collection_id, latitude, longitude, radius_meters, 
@@ -197,7 +210,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
             RETURNING *
         `, [
             finalCollectionId, latitude, longitude, radius_meters,
-            ipfs_hash, smart_contract_address, JSON.stringify(rarity_requirements),
+            fullIpfsHash, smart_contract_address, JSON.stringify(rarity_requirements),
             is_active, req.user.public_key
         ]);
 
