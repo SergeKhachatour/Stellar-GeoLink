@@ -191,6 +191,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
         }
 
         // Construct IPFS hash with filename (without ipfs:// prefix)
+        // This ensures the database stores: bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_44.png
         let fullIpfsHash = ipfs_hash;
         if (filename) {
             // If filename is provided, append it to the hash
