@@ -1033,6 +1033,11 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                     }}
                     label="Collection"
                     disabled={loadingCollections || collections.length === 0}
+                    MenuProps={{
+                      style: {
+                        zIndex: 9999
+                      }
+                    }}
                   >
                     {console.log('🎨 Rendering dropdown with collections:', collections)}
                     {console.log('🎯 Current selectedCollectionId:', selectedCollectionId, 'type:', typeof selectedCollectionId)}
