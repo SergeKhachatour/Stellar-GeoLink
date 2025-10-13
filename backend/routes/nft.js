@@ -76,17 +76,21 @@ router.get('/pinned', authenticateUser, async (req, res) => {
 // Get all NFT collections
 router.get('/collections', authenticateUser, async (req, res) => {
     try {
+        console.log('🔍 GET /collections - Fetching collections from database');
         const result = await pool.query(`
             SELECT id, name, description, image_url, rarity_level, created_at
             FROM nft_collections
             ORDER BY created_at DESC
         `);
         
+        console.log('📦 Found collections:', result.rows.length, 'collections');
+        console.log('📦 Collections data:', result.rows);
+        
         res.json({
             collections: result.rows
         });
     } catch (error) {
-        console.error('Error fetching collections:', error);
+        console.error('❌ Error fetching collections:', error);
         res.status(500).json({ error: 'Failed to fetch collections' });
     }
 });
@@ -94,11 +98,17 @@ router.get('/collections', authenticateUser, async (req, res) => {
 // Create a new NFT collection
 router.post('/collections', authenticateUser, async (req, res) => {
     try {
+        console.log('🔍 POST /collections - Creating new collection');
+        console.log('📦 Request body:', req.body);
+        
         const { name, description, image_url, rarity_level = 'common' } = req.body;
         
         if (!name) {
+            console.log('❌ Collection name is required');
             return res.status(400).json({ error: 'Collection name is required' });
         }
+        
+        console.log('📝 Inserting collection:', { name, description, image_url, rarity_level });
         
         const result = await pool.query(`
             INSERT INTO nft_collections (name, description, image_url, rarity_level)
@@ -106,12 +116,14 @@ router.post('/collections', authenticateUser, async (req, res) => {
             RETURNING *
         `, [name, description, image_url, rarity_level]);
         
+        console.log('✅ Collection created successfully:', result.rows[0]);
+        
         res.status(201).json({
             message: 'Collection created successfully',
             collection: result.rows[0]
         });
     } catch (error) {
-        console.error('Error creating collection:', error);
+        console.error('❌ Error creating collection:', error);
         res.status(500).json({ error: 'Failed to create collection' });
     }
 });

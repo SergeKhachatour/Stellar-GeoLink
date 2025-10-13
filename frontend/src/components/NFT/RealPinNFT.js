@@ -145,22 +145,31 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const fetchCollections = async () => {
     try {
       const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      console.log('🔍 Fetching collections from:', `${apiBaseURL}/nft/collections`);
       const response = await fetch(`${apiBaseURL}/nft/collections`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
+      console.log('📡 Collections response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('📦 Collections data:', data);
         setCollections(data.collections || []);
         // Auto-select first collection if available
         if (data.collections && data.collections.length > 0) {
           setSelectedCollectionId(data.collections[0].id.toString());
+          console.log('✅ Auto-selected collection:', data.collections[0].id);
         }
+      } else {
+        console.error('❌ Collections fetch failed:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('Error details:', errorText);
       }
     } catch (error) {
-      console.error('Failed to fetch collections:', error);
+      console.error('❌ Failed to fetch collections:', error);
     }
   };
 
@@ -643,6 +652,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const createNewCollection = async () => {
     try {
       const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      console.log('🔍 Creating collection:', newCollectionForm);
+      console.log('📡 API URL:', `${apiBaseURL}/nft/collections`);
+      
       const response = await fetch(`${apiBaseURL}/nft/collections`, {
         method: 'POST',
         headers: {
@@ -652,17 +664,22 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         body: JSON.stringify(newCollectionForm)
       });
 
+      console.log('📡 Create collection response status:', response.status);
+
       if (response.ok) {
         const data = await response.json();
+        console.log('✅ Collection created:', data);
         setCollections(prev => [data.collection, ...prev]);
         setSelectedCollectionId(data.collection.id.toString());
         setShowNewCollectionDialog(false);
         setNewCollectionForm({ name: '', description: '', image_url: '', rarity_level: 'common' });
       } else {
-        throw new Error('Failed to create collection');
+        const errorText = await response.text();
+        console.error('❌ Create collection failed:', response.status, errorText);
+        throw new Error(`Failed to create collection: ${response.status}`);
       }
     } catch (error) {
-      console.error('Failed to create collection:', error);
+      console.error('❌ Failed to create collection:', error);
     }
   };
 
