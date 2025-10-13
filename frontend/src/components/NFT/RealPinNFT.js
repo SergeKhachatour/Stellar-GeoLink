@@ -168,8 +168,9 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         
         // Auto-select first collection if available
         if (collectionsArray && collectionsArray.length > 0) {
-          setSelectedCollectionId(collectionsArray[0].id.toString());
-          console.log('✅ Auto-selected collection:', collectionsArray[0].id);
+          const firstCollectionId = collectionsArray[0].id.toString();
+          setSelectedCollectionId(firstCollectionId);
+          console.log('✅ Auto-selected collection:', firstCollectionId, 'type:', typeof firstCollectionId);
         }
       } else {
         console.error('❌ Collections fetch failed:', response.status, response.statusText);
@@ -1011,15 +1012,19 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                   <Select
                     value={selectedCollectionId}
                     onChange={(e) => {
+                      console.log('🔄 Collection selection changed:', e.target.value, 'type:', typeof e.target.value);
                       if (e.target.value === 'new') {
+                        console.log('➕ Opening new collection dialog');
                         setShowNewCollectionDialog(true);
                       } else {
+                        console.log('✅ Setting selected collection to:', e.target.value);
                         setSelectedCollectionId(e.target.value);
                       }
                     }}
                     label="Collection"
                   >
                     {console.log('🎨 Rendering dropdown with collections:', collections)}
+                    {console.log('🎯 Current selectedCollectionId:', selectedCollectionId, 'type:', typeof selectedCollectionId)}
                     {collections.map((collection) => (
                       <MenuItem key={collection.id} value={collection.id.toString()}>
                         {collection.name} ({collection.rarity_level})
