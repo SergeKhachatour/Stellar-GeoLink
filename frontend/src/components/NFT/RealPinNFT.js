@@ -172,11 +172,8 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         if (collectionsArray && collectionsArray.length > 0) {
           const firstCollectionId = collectionsArray[0].id.toString();
           console.log('✅ Auto-selecting collection:', firstCollectionId, 'type:', typeof firstCollectionId);
-          // Use setTimeout to ensure state update happens after render
-          setTimeout(() => {
-            setSelectedCollectionId(firstCollectionId);
-            console.log('✅ Collection ID set to:', firstCollectionId);
-          }, 100);
+          setSelectedCollectionId(firstCollectionId);
+          console.log('✅ Collection ID set to:', firstCollectionId);
         }
       } else {
         console.error('❌ Collections fetch failed:', response.status, response.statusText);
@@ -1023,7 +1020,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                 <FormControl fullWidth>
                   <InputLabel>Collection</InputLabel>
                   <Select
-                    key={`collection-select-${collections.length}-${selectedCollectionId}`}
+                    key={`collection-select-${Date.now()}-${collections.length}-${selectedCollectionId}`}
                     value={selectedCollectionId || ''}
                     onChange={(e) => {
                       console.log('🔄 Collection selection changed:', e.target.value, 'type:', typeof e.target.value);
@@ -1037,9 +1034,15 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                     }}
                     label="Collection"
                     disabled={loadingCollections || collections.length === 0}
+                    displayEmpty
                   >
                     {console.log('🎨 Rendering dropdown with collections:', collections)}
                     {console.log('🎯 Current selectedCollectionId:', selectedCollectionId, 'type:', typeof selectedCollectionId)}
+                    {collections.length === 0 && (
+                      <MenuItem value="" disabled>
+                        Loading collections...
+                      </MenuItem>
+                    )}
                     {collections.map((collection) => (
                       <MenuItem key={collection.id} value={collection.id.toString()}>
                         {collection.name} ({collection.rarity_level})
