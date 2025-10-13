@@ -104,8 +104,28 @@ router.post('/pin', authenticateUser, async (req, res) => {
         } = req.body;
 
         // Validate required fields
-        if (!collection_id || !latitude || !longitude || !ipfs_hash) {
+        if (!latitude || !longitude || !ipfs_hash) {
             return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Handle collection_id - create default collection if not provided
+        let finalCollectionId = collection_id;
+        if (!collection_id) {
+            // Check if default collection exists, if not create it
+            const defaultCollection = await pool.query(`
+                SELECT id FROM nft_collections WHERE name = 'Blockchain NFTs' LIMIT 1
+            `);
+            
+            if (defaultCollection.rows.length === 0) {
+                const newCollection = await pool.query(`
+                    INSERT INTO nft_collections (name, description, rarity_level)
+                    VALUES ('Blockchain NFTs', 'NFTs minted on the blockchain', 'common')
+                    RETURNING id
+                `);
+                finalCollectionId = newCollection.rows[0].id;
+            } else {
+                finalCollectionId = defaultCollection.rows[0].id;
+            }
         }
 
         // Validate coordinates
@@ -121,7 +141,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             RETURNING *
         `, [
-            collection_id, latitude, longitude, radius_meters,
+            finalCollectionId, latitude, longitude, radius_meters,
             ipfs_hash, smart_contract_address, JSON.stringify(rarity_requirements),
             is_active, req.user.public_key
         ]);

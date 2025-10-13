@@ -615,7 +615,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          collection_id: 1, // Default collection for blockchain NFTs
+          // collection_id will be auto-created by backend if not provided
           latitude: nftData.location.latitude,
           longitude: nftData.location.longitude,
           radius_meters: nftData.location.radius,
