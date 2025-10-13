@@ -735,6 +735,12 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         })
       });
 
+      console.log('📤 Sending to database:', {
+        ipfs_hash: mintForm.ipfsHash,
+        filename: mintForm.filename,
+        server_url: mintForm.serverUrl
+      });
+
       if (!response.ok) {
         throw new Error(`Database error: ${response.status}`);
       }

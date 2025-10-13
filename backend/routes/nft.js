@@ -201,6 +201,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
         }
 
         console.log('🔗 Constructing IPFS hash with filename:', { ipfs_hash, filename, fullIpfsHash });
+        console.log('📝 Request body received:', req.body);
 
         // Construct full image URL for display
         let fullImageUrl = null;
