@@ -102,6 +102,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const [collections, setCollections] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
   const [showNewCollectionDialog, setShowNewCollectionDialog] = useState(false);
+  const [loadingCollections, setLoadingCollections] = useState(false);
   const [newCollectionForm, setNewCollectionForm] = useState({
     name: '',
     description: '',
@@ -144,6 +145,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   // Fetch collections
   const fetchCollections = async () => {
     try {
+      setLoadingCollections(true);
       const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
       console.log('🔍 Fetching collections from:', `${apiBaseURL}/nft/collections`);
       const response = await fetch(`${apiBaseURL}/nft/collections`, {
@@ -179,6 +181,8 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
       }
     } catch (error) {
       console.error('❌ Failed to fetch collections:', error);
+    } finally {
+      setLoadingCollections(false);
     }
   };
 
@@ -1010,7 +1014,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                 <FormControl fullWidth>
                   <InputLabel>Collection</InputLabel>
                   <Select
-                    value={selectedCollectionId}
+                    value={selectedCollectionId || ''}
                     onChange={(e) => {
                       console.log('🔄 Collection selection changed:', e.target.value, 'type:', typeof e.target.value);
                       if (e.target.value === 'new') {
@@ -1022,6 +1026,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                       }
                     }}
                     label="Collection"
+                    disabled={loadingCollections || collections.length === 0}
                   >
                     {console.log('🎨 Rendering dropdown with collections:', collections)}
                     {console.log('🎯 Current selectedCollectionId:', selectedCollectionId, 'type:', typeof selectedCollectionId)}
