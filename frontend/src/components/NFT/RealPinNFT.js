@@ -171,8 +171,12 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         // Auto-select first collection if available
         if (collectionsArray && collectionsArray.length > 0) {
           const firstCollectionId = collectionsArray[0].id.toString();
-          setSelectedCollectionId(firstCollectionId);
-          console.log('✅ Auto-selected collection:', firstCollectionId, 'type:', typeof firstCollectionId);
+          console.log('✅ Auto-selecting collection:', firstCollectionId, 'type:', typeof firstCollectionId);
+          // Use setTimeout to ensure state update happens after render
+          setTimeout(() => {
+            setSelectedCollectionId(firstCollectionId);
+            console.log('✅ Collection ID set to:', firstCollectionId);
+          }, 100);
         }
       } else {
         console.error('❌ Collections fetch failed:', response.status, response.statusText);
@@ -199,6 +203,11 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   useEffect(() => {
     console.log('🔄 Collections state changed:', collections);
   }, [collections]);
+
+  // Debug selectedCollectionId changes
+  useEffect(() => {
+    console.log('🎯 SelectedCollectionId changed:', selectedCollectionId, 'type:', typeof selectedCollectionId);
+  }, [selectedCollectionId]);
 
   const getCurrentLocation = useCallback(() => {
     if (navigator.geolocation) {
@@ -1014,6 +1023,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
                 <FormControl fullWidth>
                   <InputLabel>Collection</InputLabel>
                   <Select
+                    key={`collection-select-${collections.length}-${selectedCollectionId}`}
                     value={selectedCollectionId || ''}
                     onChange={(e) => {
                       console.log('🔄 Collection selection changed:', e.target.value, 'type:', typeof e.target.value);
