@@ -544,7 +544,8 @@ const HomePage = () => {
                         align="center" 
                         gutterBottom
                         sx={{ 
-                            fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' }
+                            fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' },
+                            color: 'white'
                         }}
                     >
                         Ready to Transform Your Asset Tracking?
@@ -555,7 +556,8 @@ const HomePage = () => {
                         sx={{ 
                             mb: { xs: 3, md: 4 }, 
                             opacity: 0.9,
-                            fontSize: { xs: '0.9rem', md: '1rem' }
+                            fontSize: { xs: '0.9rem', md: '1rem' },
+                            color: 'white'
                         }}
                     >
                         Join hundreds of companies already using Stellar GeoLink to track their most valuable assets
@@ -570,14 +572,20 @@ const HomePage = () => {
                     }}>
                         <Button 
                             variant="contained" 
-                            color="secondary" 
+                            color="primary" 
                             size="large"
                             component={RouterLink}
                             to="/register"
                             sx={{ 
                                 px: { xs: 4, md: 6 }, 
                                 py: 2,
-                                width: { xs: '100%', sm: 'auto' }
+                                width: { xs: '100%', sm: 'auto' },
+                                backgroundColor: '#FFD700',
+                                color: '#000000',
+                                '&:hover': {
+                                    backgroundColor: '#E6C200',
+                                    boxShadow: '0 4px 8px rgba(0,0,0,0.15)'
+                                }
                             }}
                         >
                             Start Free Trial
@@ -591,7 +599,14 @@ const HomePage = () => {
                             sx={{ 
                                 px: { xs: 4, md: 6 }, 
                                 py: 2,
-                                width: { xs: '100%', sm: 'auto' }
+                                width: { xs: '100%', sm: 'auto' },
+                                borderColor: '#FFFFFF',
+                                color: '#FFFFFF',
+                                '&:hover': {
+                                    borderColor: '#FFD700',
+                                    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                                    color: '#FFD700'
+                                }
                             }}
                         >
                             Contact Sales
