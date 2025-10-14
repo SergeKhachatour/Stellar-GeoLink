@@ -36,8 +36,8 @@ const Features = () => {
             {/* Hero Section */}
             <Box
                 sx={{
-                    background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
-                    color: 'white',
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
                     py: { xs: 6, md: 8 },
                     textAlign: 'center'
                 }}
@@ -51,7 +51,6 @@ const Features = () => {
                         width: { xs: 200, sm: 250, md: 275 },
                         height: { xs: 75, sm: 90, md: 100 },
                         mb: 3,
-                        filter: 'brightness(0) invert(1)',
                         zIndex: 2,
                         position: 'relative'
                     }}
@@ -63,7 +62,7 @@ const Features = () => {
                             fontWeight: 'bold', 
                             mb: 2,
                             fontSize: { xs: '1.75rem', sm: '2.5rem', md: '3rem' },
-                            color: 'white'
+                            color: 'black'
                         }}
                     >
                         Stellar GeoLink Features
@@ -75,7 +74,7 @@ const Features = () => {
                             maxWidth: '800px', 
                             mx: 'auto',
                             fontSize: { xs: '1rem', sm: '1.25rem', md: '1.5rem' },
-                            color: 'white'
+                            color: 'black'
                         }}
                     >
                         Comprehensive blockchain-powered geolocation services for blockchain nodes and transactions. 
