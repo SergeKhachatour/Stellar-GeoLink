@@ -312,7 +312,7 @@ const WalletLocationsManager = () => {
                                     📄 View Contract
                                 </button>
                                 <button onclick="window.open('https://stellar.expert/explorer/testnet/tx/${location.transaction_hash}', '_blank')" 
-                                        style="background: linear-gradient(135deg, #2196f3, #1976d2); color: white; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3); transition: all 0.2s ease;">
+                                        style="background: linear-gradient(135deg, #FFD700, #FFA500); color: black; border: none; padding: 10px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgba(255, 215, 0, 0.3); transition: all 0.2s ease;">
                                     🔗 View Transaction
                                 </button>
                                 <button onclick="navigator.clipboard.writeText('${lat}, ${lng}')" 

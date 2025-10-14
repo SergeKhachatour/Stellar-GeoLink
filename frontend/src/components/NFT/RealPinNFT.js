@@ -923,7 +923,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
               href={`https://stellar.expert/explorer/testnet/contract/${selectedContract}`} 
               target="_blank" 
               rel="noopener noreferrer"
-              style={{ color: '#1976d2', textDecoration: 'underline' }}
+              style={{ color: '#FFD700', textDecoration: 'underline' }}
             >
               🔗 View on StellarExpert
             </a>

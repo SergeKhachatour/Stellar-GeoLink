@@ -533,7 +533,7 @@ const HomePage = () => {
 
             {/* Call to Action */}
             <Box sx={{ 
-                background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)', 
+                background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)', 
                 color: 'white', 
                 py: { xs: 6, md: 8 } 
             }}>

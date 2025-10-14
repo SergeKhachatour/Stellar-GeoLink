@@ -1588,7 +1588,7 @@ const EnhancedNFTDashboard = () => {
         // Advanced globe settings
         globe: {
           enableAtmosphere: true, // Enable atmospheric glow
-          atmosphereColor: '#87CEEB', // Sky blue atmosphere
+          atmosphereColor: '#FFD700', // Stellar gold atmosphere
           atmosphereIntensity: 0.3, // Subtle atmosphere
           enableStars: true, // Enable star field
           starIntensity: 0.5 // Star visibility
@@ -3158,7 +3158,7 @@ const EnhancedNFTDashboard = () => {
     <Container maxWidth="xl" sx={{ mt: { xs: 2, md: 4 }, mb: { xs: 2, md: 4 } }}>
       {/* Header with Dashboard Cards */}
       <Box sx={{ 
-        background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
+        background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',
         borderRadius: 2,
         p: { xs: 2, md: 3 },
         mb: { xs: 3, md: 4 },
