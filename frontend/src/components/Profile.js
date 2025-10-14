@@ -1,11 +1,9 @@
 // Enhanced Profile Component - Cache Bust v1.1
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Container,
-    Paper,
     Typography,
     Box,
-    TextField,
     Alert,
     CircularProgress,
     Grid,
@@ -49,7 +47,7 @@ const Profile = () => {
             fetchNftStats();
             fetchWalletInfo();
         }
-    }, [user]);
+    }, [user, fetchWalletInfo]);
 
     const fetchProfile = async () => {
         try {
@@ -74,7 +72,7 @@ const Profile = () => {
         }
     };
 
-    const fetchWalletInfo = async () => {
+    const fetchWalletInfo = useCallback(async () => {
         try {
             if (user?.public_key) {
                 setWalletInfo({
@@ -85,7 +83,7 @@ const Profile = () => {
         } catch (err) {
             console.error('Failed to fetch wallet info:', err);
         }
-    };
+    }, [user?.public_key]);
 
     if (loading) {
         return (

@@ -143,7 +143,7 @@ export const WalletProvider = ({ children }) => {
       setAccount(null);
       setError(null);
     }
-  }, [currentUser, loadAccountInfo]);
+  }, [currentUser, loadAccountInfo, isConnected, publicKey]);
 
   // Clear wallet state when user logs out
   useEffect(() => {

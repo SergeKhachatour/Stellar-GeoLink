@@ -1949,7 +1949,6 @@ const NFTDashboard = () => {
       
       // Check if there's saved wallet data in localStorage
       const savedPublicKey = localStorage.getItem('stellar_public_key');
-      const savedSecretKey = localStorage.getItem('stellar_secret_key');
       
       if (savedPublicKey && !isConnected) {
         console.log('NFTDashboard: Found saved wallet data, attempting auto-connection with saved public key:', savedPublicKey);
@@ -1977,7 +1976,7 @@ const NFTDashboard = () => {
       console.log('NFTDashboard: Wallet connected, resetting manual disconnect flag');
       setHasManuallyDisconnected(false);
     }
-  }, [isConnected, hasManuallyDisconnected]);
+  }, [isConnected, hasManuallyDisconnected, setHasManuallyDisconnected]);
 
   // Auto-detect location on page load
   useEffect(() => {
