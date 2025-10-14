@@ -62,7 +62,8 @@ const Features = () => {
                         sx={{ 
                             fontWeight: 'bold', 
                             mb: 2,
-                            fontSize: { xs: '1.75rem', sm: '2.5rem', md: '3rem' }
+                            fontSize: { xs: '1.75rem', sm: '2.5rem', md: '3rem' },
+                            color: 'white'
                         }}
                     >
                         Stellar GeoLink Features
@@ -73,7 +74,8 @@ const Features = () => {
                             opacity: 0.9, 
                             maxWidth: '800px', 
                             mx: 'auto',
-                            fontSize: { xs: '1rem', sm: '1.25rem', md: '1.5rem' }
+                            fontSize: { xs: '1rem', sm: '1.25rem', md: '1.5rem' },
+                            color: 'white'
                         }}
                     >
                         Comprehensive blockchain-powered geolocation services for blockchain nodes and transactions. 
