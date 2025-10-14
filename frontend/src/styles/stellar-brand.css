@@ -1,0 +1,277 @@
+/* Stellar Brand Styling - Official Stellar Development Foundation Colors */
+
+/* Stellar Brand Color Palette */
+.stellar-yellow {
+  background-color: #FFD700;
+  color: #000000;
+}
+
+.stellar-gold {
+  background-color: #FFA500;
+  color: #000000;
+}
+
+.stellar-black {
+  background-color: #000000;
+  color: #FFFFFF;
+}
+
+.stellar-white {
+  background-color: #FFFFFF;
+  color: #000000;
+}
+
+.stellar-dark-gray {
+  background-color: #1a1a1a;
+  color: #FFFFFF;
+}
+
+.stellar-light-gray {
+  background-color: #f5f5f5;
+  color: #000000;
+}
+
+/* Text Colors */
+.text-stellar-black {
+  color: #000000;
+}
+
+.text-stellar-white {
+  color: #FFFFFF;
+}
+
+.text-stellar-yellow {
+  color: #FFD700;
+}
+
+.text-stellar-gold {
+  color: #FFA500;
+}
+
+.text-stellar-gray {
+  color: #666666;
+}
+
+/* Button Styles */
+.btn-stellar-primary {
+  background-color: #FFD700;
+  color: #000000;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-stellar-primary:hover {
+  background-color: #E6C200;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+.btn-stellar-secondary {
+  background-color: #FFA500;
+  color: #000000;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-stellar-secondary:hover {
+  background-color: #CC8400;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+.btn-stellar-outline {
+  background-color: transparent;
+  color: #000000;
+  border: 2px solid #FFD700;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-stellar-outline:hover {
+  background-color: #FFD700;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+.btn-stellar-dark {
+  background-color: #000000;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-stellar-dark:hover {
+  background-color: #1a1a1a;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+/* Card Styles */
+.card-stellar {
+  background-color: #FFFFFF;
+  border: 1px solid #f5f5f5;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.card-stellar:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  transform: translateY(-2px);
+}
+
+.card-stellar-dark {
+  background-color: #1a1a1a;
+  color: #FFFFFF;
+  border: 1px solid #333333;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+}
+
+.card-stellar-dark:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  transform: translateY(-2px);
+}
+
+/* Navigation Styles */
+.nav-stellar {
+  background-color: #000000;
+  color: #FFFFFF;
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.nav-stellar a {
+  color: #FFFFFF;
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.nav-stellar a:hover {
+  background-color: #FFD700;
+  color: #000000;
+}
+
+/* Status Indicators */
+.status-success {
+  background-color: #28a745;
+  color: #FFFFFF;
+}
+
+.status-warning {
+  background-color: #fd7e14;
+  color: #FFFFFF;
+}
+
+.status-error {
+  background-color: #dc3545;
+  color: #FFFFFF;
+}
+
+.status-info {
+  background-color: #007bff;
+  color: #FFFFFF;
+}
+
+/* Form Elements */
+.form-stellar input,
+.form-stellar select,
+.form-stellar textarea {
+  border: 2px solid #f5f5f5;
+  border-radius: 8px;
+  padding: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.form-stellar input:focus,
+.form-stellar select:focus,
+.form-stellar textarea:focus {
+  border-color: #FFD700;
+  box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.1);
+  outline: none;
+}
+
+/* Gradient Backgrounds */
+.gradient-stellar {
+  background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+  color: #000000;
+}
+
+.gradient-stellar-dark {
+  background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+  color: #FFFFFF;
+}
+
+/* Utility Classes */
+.shadow-stellar {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.shadow-stellar-lg {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.border-stellar {
+  border: 2px solid #FFD700;
+}
+
+.border-stellar-light {
+  border: 1px solid #f5f5f5;
+}
+
+.rounded-stellar {
+  border-radius: 12px;
+}
+
+.rounded-stellar-sm {
+  border-radius: 8px;
+}
+
+/* Animation Classes */
+.animate-stellar {
+  transition: all 0.2s ease;
+}
+
+.animate-stellar:hover {
+  transform: translateY(-2px);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .btn-stellar-primary,
+  .btn-stellar-secondary,
+  .btn-stellar-outline,
+  .btn-stellar-dark {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .card-stellar,
+  .card-stellar-dark {
+    padding: 1rem;
+  }
+  
+  .nav-stellar {
+    padding: 0.75rem 1rem;
+  }
+}

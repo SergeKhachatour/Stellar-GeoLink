@@ -37,8 +37,8 @@ const HomePage = () => {
             {/* Hero Section */}
             <Box
                 sx={{
-                    background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
-                    color: 'white',
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
                     py: { xs: 6, md: 10 },
                     mb: { xs: 4, md: 6 },
                     position: 'relative',
@@ -91,14 +91,20 @@ const HomePage = () => {
                             }}>
                                 <Button 
                                     variant="contained" 
-                                    color="secondary" 
+                                    color="primary" 
                                     size="large"
                                     component={RouterLink}
                                     to="/register"
                                     sx={{ 
                                         px: { xs: 3, md: 4 }, 
                                         py: 1.5,
-                                        width: { xs: '100%', sm: 'auto' }
+                                        width: { xs: '100%', sm: 'auto' },
+                                        backgroundColor: '#000000',
+                                        color: '#FFFFFF',
+                                        '&:hover': {
+                                            backgroundColor: '#1a1a1a',
+                                            boxShadow: '0 4px 8px rgba(0,0,0,0.15)'
+                                        }
                                     }}
                                 >
                                     Get Started Free
@@ -112,7 +118,13 @@ const HomePage = () => {
                                     sx={{ 
                                         px: { xs: 3, md: 4 }, 
                                         py: 1.5,
-                                        width: { xs: '100%', sm: 'auto' }
+                                        width: { xs: '100%', sm: 'auto' },
+                                        borderColor: '#000000',
+                                        color: '#000000',
+                                        '&:hover': {
+                                            borderColor: '#000000',
+                                            backgroundColor: 'rgba(0, 0, 0, 0.1)'
+                                        }
                                     }}
                                 >
                                     Sign In

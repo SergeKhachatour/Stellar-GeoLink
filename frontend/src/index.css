@@ -5,6 +5,22 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #FFFFFF;
+  color: #000000;
+}
+
+/* Stellar Brand Color Variables */
+:root {
+  --stellar-yellow: #FFD700;
+  --stellar-gold: #FFA500;
+  --stellar-black: #000000;
+  --stellar-white: #FFFFFF;
+  --stellar-dark-gray: #1a1a1a;
+  --stellar-light-gray: #f5f5f5;
+  --stellar-blue: #007bff;
+  --stellar-green: #28a745;
+  --stellar-red: #dc3545;
+  --stellar-orange: #fd7e14;
 }
 
 code {
