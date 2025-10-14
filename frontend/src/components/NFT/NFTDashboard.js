@@ -1968,7 +1968,7 @@ const NFTDashboard = () => {
         console.log('NFTDashboard: No saved wallet data found or wallet already connected');
       }
     }
-  }, [user, isConnected, publicKey, connectWalletViewOnly, clearWalletCompletely]);
+  }, [user, isConnected, publicKey, connectWalletViewOnly, clearWalletCompletely, hasManuallyDisconnected]);
 
   // Reset manual disconnect flag when wallet connects
   useEffect(() => {

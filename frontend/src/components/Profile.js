@@ -41,6 +41,19 @@ const Profile = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
+    const fetchWalletInfo = useCallback(async () => {
+        try {
+            if (user?.public_key) {
+                setWalletInfo({
+                    publicKey: user.public_key,
+                    isConnected: true
+                });
+            }
+        } catch (err) {
+            console.error('Failed to fetch wallet info:', err);
+        }
+    }, [user?.public_key]);
+
     useEffect(() => {
         fetchProfile();
         if (user?.role === 'nft_manager') {
@@ -71,19 +84,6 @@ const Profile = () => {
             console.error('Failed to fetch NFT stats:', err);
         }
     };
-
-    const fetchWalletInfo = useCallback(async () => {
-        try {
-            if (user?.public_key) {
-                setWalletInfo({
-                    publicKey: user.public_key,
-                    isConnected: true
-                });
-            }
-        } catch (err) {
-            console.error('Failed to fetch wallet info:', err);
-        }
-    }, [user?.public_key]);
 
     if (loading) {
         return (
