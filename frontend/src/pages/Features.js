@@ -586,10 +586,10 @@ const Features = () => {
             <Box sx={{ bgcolor: 'grey.900', color: 'white', py: 6 }}>
                 <Container maxWidth="lg">
                     <Box sx={{ textAlign: 'center' }}>
-                        <Typography variant="h4" component="h3" sx={{ fontWeight: 'bold', mb: 2 }}>
+                        <Typography variant="h4" component="h3" sx={{ fontWeight: 'bold', mb: 2, color: 'white' }}>
                             Ready to Get Started?
                         </Typography>
-                        <Typography variant="body1" sx={{ opacity: 0.8, mb: 4 }}>
+                        <Typography variant="body1" sx={{ opacity: 0.8, mb: 4, color: 'white' }}>
                             Experience the power of blockchain-powered asset tracking
                         </Typography>
                         <Box
