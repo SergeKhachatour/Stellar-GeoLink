@@ -5,6 +5,7 @@ import Register from '../components/Register';
 import UserDashboard from '../components/UserDashboard';
 import AdminDashboard from '../components/AdminDashboard';
 import RequestApiKey from '../components/RequestApiKey';
+import Profile from '../components/Profile';
 import ProtectedRoute from '../components/ProtectedRoute';
 import Layout from '../components/Layout';
 import Features from '../pages/Features';
@@ -39,6 +40,14 @@ const AppRoutes = () => {
                     element={
                         <ProtectedRoute>
                             <RequestApiKey />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/profile" 
+                    element={
+                        <ProtectedRoute>
+                            <Profile />
                         </ProtectedRoute>
                     } 
                 />

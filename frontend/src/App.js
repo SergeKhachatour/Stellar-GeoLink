@@ -17,6 +17,8 @@ import ApiKeyManagement from './components/ApiKeyManagement';
 import DataConsumerDashboard from './components/DataConsumerDashboard';
 import WalletProviderDashboard from './components/WalletProviderDashboard';
 import NFTDashboard from './components/NFT/NFTDashboard';
+import EnhancedNFTDashboard from './components/NFT/EnhancedNFTDashboard';
+import Profile from './components/Profile';
 
 function App() {
     return (
@@ -58,6 +60,14 @@ function App() {
                             } 
                         />
                         <Route 
+                            path="/enhanced-nft-dashboard" 
+                            element={
+                                <ProtectedRoute roles={['nft_manager', 'admin']}>
+                                    <EnhancedNFTDashboard />
+                                </ProtectedRoute>
+                            } 
+                        />
+                        <Route 
                             path="/admin" 
                             element={
                                 <ProtectedRoute roles={['admin']}>
@@ -70,6 +80,14 @@ function App() {
                             element={
                                 <ProtectedRoute>
                                     <ApiKeyManagement />
+                                </ProtectedRoute>
+                            } 
+                        />
+                        <Route 
+                            path="/profile" 
+                            element={
+                                <ProtectedRoute>
+                                    <Profile />
                                 </ProtectedRoute>
                             } 
                         />

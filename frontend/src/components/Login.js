@@ -60,9 +60,17 @@ const Login = () => {
 
     return (
         <Container maxWidth="sm">
-            <Box sx={{ mt: 8 }}>
-                <Paper sx={{ p: 4 }}>
-                    <Typography variant="h4" align="center" gutterBottom>
+            <Box sx={{ mt: { xs: 4, md: 8 }, mb: { xs: 4, md: 8 } }}>
+                <Paper sx={{ p: { xs: 2, md: 4 } }}>
+                    <Typography 
+                        variant="h4" 
+                        align="center" 
+                        gutterBottom
+                        sx={{ 
+                            fontSize: { xs: '1.75rem', md: '2rem' },
+                            mb: { xs: 2, md: 3 }
+                        }}
+                    >
                         Login to GeoLink
                     </Typography>
                     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -79,6 +87,11 @@ const Login = () => {
                             })}
                             error={!!validationErrors.email}
                             helperText={validationErrors.email}
+                            sx={{
+                                '& .MuiInputBase-input': {
+                                    fontSize: { xs: '1rem', md: '1rem' }
+                                }
+                            }}
                         />
                         <TextField
                             fullWidth
@@ -92,6 +105,11 @@ const Login = () => {
                             })}
                             error={!!validationErrors.password}
                             helperText={validationErrors.password}
+                            sx={{
+                                '& .MuiInputBase-input': {
+                                    fontSize: { xs: '1rem', md: '1rem' }
+                                }
+                            }}
                         />
                         <FormControlLabel
                             control={
@@ -102,13 +120,24 @@ const Login = () => {
                                 />
                             }
                             label="Remember me"
+                            sx={{ 
+                                mt: 1,
+                                '& .MuiFormControlLabel-label': {
+                                    fontSize: { xs: '0.9rem', md: '1rem' }
+                                }
+                            }}
                         />
                         <Button
                             fullWidth
                             variant="contained"
                             color="primary"
                             type="submit"
-                            sx={{ mt: 3, mb: 2 }}
+                            sx={{ 
+                                mt: 3, 
+                                mb: 2,
+                                py: { xs: 1.5, md: 1.5 },
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }}
                             disabled={loading}
                         >
                             {loading ? 'Logging in...' : 'Login'}
@@ -118,6 +147,7 @@ const Login = () => {
                                 component={Link} 
                                 to="/register" 
                                 variant="body2"
+                                sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
                             >
                                 Don't have an account? Sign Up
                             </MuiLink>

@@ -4,6 +4,29 @@ const pool = require('../config/database');
 const { verifyLocation } = require('../utils/locationUtils');
 const { authenticateUser } = require('../middleware/authUser');
 
+// Helper function to get user's public key from database
+const getUserPublicKey = async (userId) => {
+    console.log('getUserPublicKey: Looking up user ID:', userId);
+    const userResult = await pool.query(
+        'SELECT public_key FROM users WHERE id = $1',
+        [userId]
+    );
+    
+    console.log('getUserPublicKey: Query result:', userResult.rows);
+    
+    if (userResult.rows.length === 0) {
+        throw new Error('User not found');
+    }
+    
+    const publicKey = userResult.rows[0].public_key;
+    console.log('getUserPublicKey: Found public key:', publicKey);
+    if (!publicKey) {
+        throw new Error('User has no public key set');
+    }
+    
+    return publicKey;
+};
+
 // Get all NFT collections
 router.get('/collections', authenticateUser, async (req, res) => {
     try {
@@ -147,6 +170,14 @@ router.post('/pin', authenticateUser, async (req, res) => {
             });
         }
 
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const {
             collection_id,
             latitude,
@@ -229,7 +260,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
         const queryParams = [
             finalCollectionId, latitude, longitude, radius_meters,
             fullIpfsHash, server_url, smart_contract_address, JSON.stringify(rarity_requirements),
-            is_active, req.user.public_key
+            is_active, userPublicKey
         ];
 
         console.log('🗄️ SQL Query:', sqlQuery);
@@ -244,7 +275,7 @@ router.post('/pin', authenticateUser, async (req, res) => {
             smart_contract_address,
             rarity_requirements: JSON.stringify(rarity_requirements),
             is_active,
-            user_public_key: req.user.public_key
+            user_public_key: userPublicKey
         });
 
         const result = await pool.query(sqlQuery, queryParams);
@@ -433,6 +464,14 @@ router.get('/nearby', authenticateUser, async (req, res) => {
 // Collect an NFT
 router.post('/collect', authenticateUser, async (req, res) => {
     try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const { nft_id, user_latitude, user_longitude } = req.body;
 
         if (!nft_id || !user_latitude || !user_longitude) {
@@ -468,7 +507,7 @@ router.post('/collect', authenticateUser, async (req, res) => {
         const existingCollection = await pool.query(`
             SELECT * FROM user_nft_ownership 
             WHERE nft_id = $1 AND user_public_key = $2 AND is_active = true
-        `, [nft_id, req.user.public_key]);
+        `, [nft_id, userPublicKey]);
 
         if (existingCollection.rows.length > 0) {
             return res.status(400).json({ error: 'NFT already collected' });
@@ -480,14 +519,14 @@ router.post('/collect', authenticateUser, async (req, res) => {
                 user_public_key, nft_id, current_owner, collected_at
             ) VALUES ($1, $2, $3, NOW())
             RETURNING *
-        `, [req.user.public_key, nft_id, req.user.public_key]);
+        `, [userPublicKey, nft_id, userPublicKey]);
 
         // Add transfer record
         await pool.query(`
             INSERT INTO nft_transfers (
                 nft_id, from_user, to_user, transfer_type, transferred_at
             ) VALUES ($1, NULL, $2, 'collect', NOW())
-        `, [nft_id, req.user.public_key]);
+        `, [nft_id, userPublicKey]);
 
         res.json({
             message: 'NFT collected successfully',
@@ -537,6 +576,17 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
             });
         }
 
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            console.log('Getting public key for user ID:', req.user.id);
+            userPublicKey = await getUserPublicKey(req.user.id);
+            console.log('Retrieved public key:', userPublicKey);
+        } catch (error) {
+            console.error('Error getting user public key:', error.message);
+            return res.status(400).json({ error: error.message });
+        }
+
         const result = await pool.query(`
             SELECT uno.*, pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level
             FROM user_nft_ownership uno
@@ -544,7 +594,7 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
             WHERE uno.user_public_key = $1 AND uno.is_active = true
             ORDER BY uno.collected_at DESC
-        `, [req.user.public_key]);
+        `, [userPublicKey]);
 
         const formattedCollection = result.rows.map(item => ({
             ...item,
@@ -589,6 +639,14 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
 // Transfer NFT to another user
 router.post('/transfer', authenticateUser, async (req, res) => {
     try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const { nft_id, to_user_public_key, transfer_type = 'transfer' } = req.body;
 
         if (!nft_id || !to_user_public_key) {
@@ -599,7 +657,7 @@ router.post('/transfer', authenticateUser, async (req, res) => {
         const ownershipResult = await pool.query(`
             SELECT * FROM user_nft_ownership 
             WHERE nft_id = $1 AND user_public_key = $2 AND is_active = true
-        `, [nft_id, req.user.public_key]);
+        `, [nft_id, userPublicKey]);
 
         if (ownershipResult.rows.length === 0) {
             return res.status(404).json({ error: 'NFT not found in your collection' });
@@ -619,13 +677,13 @@ router.post('/transfer', authenticateUser, async (req, res) => {
             INSERT INTO nft_transfers (
                 nft_id, from_user, to_user, transfer_type, transferred_at
             ) VALUES ($1, $2, $3, $4, NOW())
-        `, [nft_id, req.user.public_key, to_user_public_key, transfer_type]);
+        `, [nft_id, userPublicKey, to_user_public_key, transfer_type]);
 
         res.json({
             message: 'NFT transferred successfully',
             transfer: {
                 nft_id,
-                from_user: req.user.public_key,
+                from_user: userPublicKey,
                 to_user: to_user_public_key,
                 transfer_type
             }
@@ -676,6 +734,14 @@ router.get('/collection/:id', authenticateUser, async (req, res) => {
 // Unpin NFT from location (soft delete)
 router.delete('/unpin/:id', authenticateUser, async (req, res) => {
     try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const { id } = req.params;
 
         // Check if user has permission to unpin (must be the one who pinned it or admin/nft_manager)
@@ -688,7 +754,7 @@ router.delete('/unpin/:id', authenticateUser, async (req, res) => {
         }
 
         const nft = nftResult.rows[0];
-        if (nft.pinned_by_user !== req.user.public_key && !['admin', 'nft_manager'].includes(req.user.role)) {
+        if (nft.pinned_by_user !== userPublicKey && !['admin', 'nft_manager'].includes(req.user.user.role)) {
             return res.status(403).json({ error: 'Not authorized to unpin this NFT' });
         }
 
@@ -768,6 +834,14 @@ router.get('/rarity-stats', authenticateUser, async (req, res) => {
 // Get NFT transfer history
 router.get('/transfers', authenticateUser, async (req, res) => {
     try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const { nft_id, limit = 50, offset = 0 } = req.query;
 
         let query = `
@@ -787,10 +861,10 @@ router.get('/transfers', authenticateUser, async (req, res) => {
         }
 
         // If not admin/nft_manager, only show user's transfers
-        if (!['admin', 'nft_manager'].includes(req.user.role)) {
+        if (!['admin', 'nft_manager'].includes(req.user.user.role)) {
             paramCount++;
             query += ` AND (nt.from_user = $${paramCount} OR nt.to_user = $${paramCount})`;
-            params.push(req.user.public_key);
+            params.push(userPublicKey);
         }
 
         query += ` ORDER BY nt.transferred_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;

@@ -106,7 +106,8 @@ export const WalletProvider = ({ children }) => {
     console.log('WalletContext: Checking saved wallet data:', { 
       savedPublicKey: savedPublicKey ? 'exists' : 'none',
       savedSecretKey: savedSecretKey ? 'exists' : 'none',
-      userPublicKey: currentUser.public_key 
+      userPublicKey: currentUser.public_key,
+      currentWalletState: { isConnected, publicKey }
     });
 
     // Only restore if we have saved data and it matches the current user
@@ -246,6 +247,7 @@ export const WalletProvider = ({ children }) => {
   // Connect wallet with public key only (for viewing)
   const connectWalletViewOnly = async (publicKeyInput) => {
     try {
+      console.log('WalletContext: connectWalletViewOnly called with:', publicKeyInput);
       if (!(await initializeStellar())) {
         throw new Error('Failed to initialize Stellar SDK');
       }
@@ -280,6 +282,7 @@ export const WalletProvider = ({ children }) => {
         console.warn('Failed to update public key in backend:', err);
       }
 
+      console.log('WalletContext: connectWalletViewOnly completed successfully');
     } catch (err) {
       console.error('Error connecting wallet:', err);
       setError(err.message || 'Failed to connect wallet');

@@ -126,18 +126,27 @@ const Register = () => {
 
     return (
         <Container maxWidth="sm">
-            <Paper sx={{ p: 4, mt: 4 }}>
-                <Typography variant="h5" gutterBottom align="center">
-                    Create Account
-                </Typography>
-                
-                {submitError && (
-                    <Alert severity="error" sx={{ mb: 2 }}>
-                        {submitError}
-                    </Alert>
-                )}
+            <Box sx={{ mt: { xs: 2, md: 4 }, mb: { xs: 2, md: 4 } }}>
+                <Paper sx={{ p: { xs: 2, md: 4 } }}>
+                    <Typography 
+                        variant="h5" 
+                        gutterBottom 
+                        align="center"
+                        sx={{ 
+                            fontSize: { xs: '1.5rem', md: '1.75rem' },
+                            mb: { xs: 2, md: 3 }
+                        }}
+                    >
+                        Create Account
+                    </Typography>
+                    
+                    {submitError && (
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                            {submitError}
+                        </Alert>
+                    )}
 
-                <Box component="form" onSubmit={handleSubmit}>
+                    <Box component="form" onSubmit={handleSubmit}>
                     <TextField
                         margin="normal"
                         required
@@ -149,6 +158,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.email}
                         helperText={errors.email}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     <TextField
@@ -162,6 +176,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.password}
                         helperText={errors.password}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     <TextField
@@ -175,6 +194,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.confirmPassword}
                         helperText={errors.confirmPassword}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     <TextField
@@ -187,6 +211,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.firstName}
                         helperText={errors.firstName}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     <TextField
@@ -199,6 +228,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.lastName}
                         helperText={errors.lastName}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     <FormControl fullWidth margin="normal">
@@ -208,6 +242,11 @@ const Register = () => {
                             value={formData.role}
                             onChange={handleChange}
                             label="Role"
+                            sx={{
+                                '& .MuiSelect-select': {
+                                    fontSize: { xs: '1rem', md: '1rem' }
+                                }
+                            }}
                         >
                             {roles.map(role => (
                                 <MenuItem key={role.value} value={role.value}>
@@ -227,6 +266,11 @@ const Register = () => {
                         onChange={handleChange}
                         error={!!errors.organization}
                         helperText={errors.organization}
+                        sx={{
+                            '& .MuiInputBase-input': {
+                                fontSize: { xs: '1rem', md: '1rem' }
+                            }
+                        }}
                     />
 
                     {formData.role === 'data_consumer' && (
@@ -242,6 +286,11 @@ const Register = () => {
                             onChange={handleChange}
                             error={!!errors.useCase}
                             helperText={errors.useCase || "Please provide a detailed description of how you plan to use our API (minimum 50 characters)"}
+                            sx={{
+                                '& .MuiInputBase-input': {
+                                    fontSize: { xs: '1rem', md: '1rem' }
+                                }
+                            }}
                         />
                     )}
 
@@ -250,26 +299,39 @@ const Register = () => {
                         fullWidth
                         variant="contained"
                         disabled={isSubmitting}
-                        sx={{ mt: 3, mb: 2 }}
+                        sx={{ 
+                            mt: 3, 
+                            mb: 2,
+                            py: { xs: 1.5, md: 1.5 },
+                            fontSize: { xs: '1rem', md: '1rem' }
+                        }}
                     >
                         {isSubmitting ? 'Registering...' : 'Register'}
                     </Button>
 
                     <Box sx={{ mt: 2, textAlign: 'center' }}>
-                        <Typography variant="body2" color="textSecondary">
+                        <Typography 
+                            variant="body2" 
+                            color="textSecondary"
+                            sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                        >
                             Already have an account?{' '}
                             <Button
                                 component={RouterLink}
                                 to="/login"
                                 color="primary"
-                                sx={{ textTransform: 'none' }}
+                                sx={{ 
+                                    textTransform: 'none',
+                                    fontSize: { xs: '0.9rem', md: '1rem' }
+                                }}
                             >
                                 Sign in
                             </Button>
                         </Typography>
                     </Box>
-                </Box>
-            </Paper>
+                    </Box>
+                </Paper>
+            </Box>
         </Container>
     );
 };

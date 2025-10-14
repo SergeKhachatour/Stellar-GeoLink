@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 // import * as turf from '@turf/turf'; // Removed unused import
 import {
   Box,
@@ -156,7 +157,8 @@ function a11yProps(index) {
   };
 }
 
-const NFTDashboard = () => {
+const EnhancedNFTDashboard = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { wallet, disconnectWallet, isConnected, balance, connectWalletViewOnly, clearWalletCompletely, publicKey, setUser } = useWallet();
   
@@ -176,6 +178,75 @@ const NFTDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Enhanced UI/UX states
+  const [mapStyle, setMapStyle] = useState('streets');
+  const [mapView, setMapView] = useState('2d');
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false);
+  const [mapLayers, setMapLayers] = useState({
+    traffic: false,
+    buildings: true,
+    terrain: false,
+    satellite: false
+  });
+  const [mapFilters, setMapFilters] = useState({
+    distance: 5000,
+    rarity: 'all',
+    collection: 'all'
+  });
+
+  // Advanced map control functions
+  const handleMapStyleChange = (style) => {
+    setMapStyle(style);
+    if (map) {
+      const styleMap = {
+        'streets': 'mapbox://styles/mapbox/streets-v12',
+        'satellite': 'mapbox://styles/mapbox/satellite-v9',
+        'dark': 'mapbox://styles/mapbox/dark-v11',
+        'light': 'mapbox://styles/mapbox/light-v11',
+        'outdoors': 'mapbox://styles/mapbox/outdoors-v12'
+      };
+      map.setStyle(styleMap[style]);
+    }
+  };
+
+  const handleMapViewChange = (view) => {
+    setMapView(view);
+    if (map) {
+      if (view === '3d') {
+        map.easeTo({ pitch: 60, bearing: -17.6, duration: 1000 });
+      } else {
+        map.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+      }
+    }
+  };
+
+  const handleLayerToggle = (layer) => {
+    setMapLayers(prev => ({
+      ...prev,
+      [layer]: !prev[layer]
+    }));
+    
+    if (map) {
+      const layerId = `layer-${layer}`;
+      if (map.getLayer(layerId)) {
+        const visibility = mapLayers[layer] ? 'none' : 'visible';
+        map.setLayoutProperty(layerId, 'visibility', visibility);
+      }
+    }
+  };
+
+  const handleFilterChange = (filter, value) => {
+    setMapFilters(prev => ({
+      ...prev,
+      [filter]: value
+    }));
+    
+    // Apply filters to nearby NFTs
+    if (filter === 'distance') {
+      fetchNearbyNFTs();
+    }
+  };
   const [userLocation, setUserLocation] = useState(null);
   const [selectedNFT, setSelectedNFT] = useState(null);
   const [openNFTDialog, setOpenNFTDialog] = useState(false);
@@ -214,7 +285,6 @@ const NFTDashboard = () => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchTimeout, setSearchTimeout] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [mapView, setMapView] = useState('3d'); // '2d', '3d', 'satellite'
   // const [showFilters, setShowFilters] = useState(false); // Removed unused variables
   const [selectedCollection, setSelectedCollection] = useState('');
   const [selectedRarity, setSelectedRarity] = useState('');
@@ -3113,72 +3183,197 @@ const NFTDashboard = () => {
               fontSize: { xs: '1.5rem', sm: '2rem', md: '2.125rem' }
             }}
           >
-            🌍 NFT Dashboard
+            🚀 Enhanced NFT Dashboard
           </Typography>
-          <Button
-            variant="contained"
-            href="/enhanced-nft-dashboard"
+          <Box 
+            display="flex" 
+            gap={2} 
+            alignItems="center"
             sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              color: 'white',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
-              },
-              fontSize: { xs: '0.875rem', md: '1rem' },
-              px: { xs: 2, md: 3 }
+              flexDirection: { xs: 'column', sm: 'row' },
+              width: { xs: '100%', sm: 'auto' }
             }}
-            startIcon={<WalletIcon />}
           >
-            🚀 Enhanced Dashboard
-          </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: 'white',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                }
+              }}
+              startIcon={<MapIcon />}
+            >
+              {showAdvancedTools ? 'Hide' : 'Show'} Advanced Tools
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/dashboard/nft')}
+              sx={{
+                backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                color: 'white',
+                border: '1px solid rgba(76, 175, 80, 0.9)',
+                '&:hover': {
+                  backgroundColor: 'rgba(76, 175, 80, 1)',
+                  border: '1px solid rgba(76, 175, 80, 1)',
+                }
+              }}
+              startIcon={<ArrowBackIos />}
+            >
+              🏠 Back to Main Dashboard
+            </Button>
+          </Box>
         </Box>
+
+        {/* Advanced Tools Panel */}
+        {showAdvancedTools && (
+          <Paper sx={{ 
+            p: 3, 
+            mb: 3,
+            background: 'rgba(255, 255, 255, 0.1)', 
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: 2
+          }}>
+            <Typography variant="h6" sx={{ color: 'white', mb: 2 }}>
+              🛠️ Advanced Map Tools
+            </Typography>
+            
+            <Grid container spacing={3}>
+              {/* Map Style Controls */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+                  Map Style
+                </Typography>
+                <Box display="flex" gap={1} flexWrap="wrap">
+                  {['streets', 'satellite', 'dark', 'light', 'outdoors'].map((style) => (
+                    <Button
+                      key={style}
+                      variant={mapStyle === style ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleMapStyleChange(style)}
+                      sx={{
+                        color: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                        '&.MuiButton-contained': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        }
+                      }}
+                    >
+                      {style.charAt(0).toUpperCase() + style.slice(1)}
+                    </Button>
+                  ))}
+                </Box>
+              </Grid>
+
+              {/* Map View Controls */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+                  Map View
+                </Typography>
+                <Box display="flex" gap={1}>
+                  <Button
+                    variant={mapView === '2d' ? 'contained' : 'outlined'}
+                    size="small"
+                    onClick={() => handleMapViewChange('2d')}
+                    sx={{
+                      color: 'white',
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                      '&.MuiButton-contained': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      }
+                    }}
+                  >
+                    2D View
+                  </Button>
+                  <Button
+                    variant={mapView === '3d' ? 'contained' : 'outlined'}
+                    size="small"
+                    onClick={() => handleMapViewChange('3d')}
+                    sx={{
+                      color: 'white',
+                      borderColor: 'rgba(255, 255, 255, 0.3)',
+                      '&.MuiButton-contained': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      }
+                    }}
+                  >
+                    3D View
+                  </Button>
+                </Box>
+              </Grid>
+
+              {/* Layer Controls */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+                  Map Layers
+                </Typography>
+                <Box display="flex" gap={1} flexWrap="wrap">
+                  {Object.entries(mapLayers).map(([layer, enabled]) => (
+                    <Button
+                      key={layer}
+                      variant={enabled ? 'contained' : 'outlined'}
+                      size="small"
+                      onClick={() => handleLayerToggle(layer)}
+                      sx={{
+                        color: 'white',
+                        borderColor: 'rgba(255, 255, 255, 0.3)',
+                        '&.MuiButton-contained': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        }
+                      }}
+                    >
+                      {layer.charAt(0).toUpperCase() + layer.slice(1)}
+                    </Button>
+                  ))}
+                </Box>
+              </Grid>
+
+              {/* Filter Controls */}
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle1" sx={{ color: 'white', mb: 1 }}>
+                  Search Filters
+                </Typography>
+                <Box display="flex" gap={2} alignItems="center">
+                  <Typography variant="body2" sx={{ color: 'white' }}>
+                    Distance: {mapFilters.distance / 1000}km
+                  </Typography>
+                  <input
+                    type="range"
+                    min="1000"
+                    max="50000"
+                    step="1000"
+                    value={mapFilters.distance}
+                    onChange={(e) => handleFilterChange('distance', parseInt(e.target.value))}
+                    style={{ flex: 1, margin: '0 10px' }}
+                  />
+                </Box>
+              </Grid>
+            </Grid>
+          </Paper>
+        )}
         
         {/* Compact Dashboard Cards */}
-        <Grid container spacing={{ xs: 1, md: 2 }} sx={{ mb: { xs: 2, md: 3 } }}>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
           {/* Wallet Status Card */}
           <Grid item xs={12} sm={6} md={4}>
             <Paper sx={{ 
-              p: { xs: 1.5, md: 2 }, 
+              p: 2, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
               border: '1px solid rgba(255, 255, 255, 0.2)',
               borderRadius: 2
             }}>
-              <Box sx={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                mb: 1,
-                flexDirection: { xs: 'column', sm: 'row' },
-                textAlign: { xs: 'center', sm: 'left' }
-              }}>
-                <StellarIcon sx={{ 
-                  color: 'white', 
-                  mr: { xs: 0, sm: 1 }, 
-                  mb: { xs: 0.5, sm: 0 },
-                  fontSize: { xs: 18, md: 20 }
-                }} />
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    color: 'white', 
-                    fontWeight: 'bold',
-                    fontSize: { xs: '0.9rem', md: '1rem' }
-                  }}
-                >
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                <StellarIcon sx={{ color: 'white', mr: 1 }} />
+                <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
                   Wallet Status
                 </Typography>
               </Box>
-              <Typography 
-                variant="body2" 
-                sx={{ 
-                  color: 'rgba(255, 255, 255, 0.8)', 
-                  mb: 2,
-                  fontSize: { xs: '0.8rem', md: '0.875rem' },
-                  textAlign: { xs: 'center', sm: 'left' }
-                }}
-              >
+              <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.8)', mb: 2 }}>
                 {isConnected ? "✅ Connected" : "❌ Not Connected"}
               </Typography>
               {!isConnected || !wallet?.publicKey ? (
@@ -3511,8 +3706,14 @@ const NFTDashboard = () => {
               startIcon={<LocationIcon />}
               onClick={getUserLocation}
               disabled={loading}
+              sx={{
+                background: 'linear-gradient(45deg, #4CAF50 30%, #8BC34A 90%)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #388E3C 30%, #689F38 90%)',
+                }
+              }}
             >
-              Get My Location
+              📍 Get My Location
             </Button>
             <Button
               variant="outlined"
@@ -3523,8 +3724,16 @@ const NFTDashboard = () => {
                 }
               }}
               disabled={!userLocation || loading}
+              sx={{
+                borderColor: '#2196F3',
+                color: '#2196F3',
+                '&:hover': {
+                  borderColor: '#1976D2',
+                  backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                }
+              }}
             >
-              Refresh NFTs
+              🔄 Refresh NFTs
             </Button>
             <Button
               variant="outlined"
@@ -3538,8 +3747,16 @@ const NFTDashboard = () => {
                 }
               }}
               disabled={loading}
+              sx={{
+                borderColor: '#FF9800',
+                color: '#FF9800',
+                '&:hover': {
+                  borderColor: '#F57C00',
+                  backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                }
+              }}
             >
-              Initialize Map
+              🗺️ Initialize Map
             </Button>
             <Button
               variant="outlined"
@@ -3550,8 +3767,31 @@ const NFTDashboard = () => {
                 console.log('Nearby NFTs:', nearbyNFTs.length);
               }}
               size="small"
+              sx={{
+                borderColor: '#607D8B',
+                color: '#607D8B',
+                '&:hover': {
+                  borderColor: '#455A64',
+                  backgroundColor: 'rgba(96, 125, 139, 0.1)',
+                }
+              }}
             >
-              Debug Map
+              🔧 Debug Map
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<FilterListIcon />}
+              onClick={() => setShowAdvancedTools(!showAdvancedTools)}
+              sx={{
+                borderColor: '#9C27B0',
+                color: '#9C27B0',
+                '&:hover': {
+                  borderColor: '#7B1FA2',
+                  backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                }
+              }}
+            >
+              🛠️ {showAdvancedTools ? 'Hide' : 'Show'} Advanced Tools
             </Button>
             {(user?.role === 'nft_manager' || user?.role === 'admin') && (
               <Box sx={{ display: 'flex', gap: 1 }}>
@@ -4720,4 +4960,4 @@ const NFTDashboard = () => {
   );
 };
 
-export default NFTDashboard;
+export default EnhancedNFTDashboard;

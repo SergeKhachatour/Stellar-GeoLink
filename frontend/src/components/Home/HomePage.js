@@ -39,35 +39,67 @@ const HomePage = () => {
                 sx={{
                     background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
                     color: 'white',
-                    py: 10,
-                    mb: 6,
+                    py: { xs: 6, md: 10 },
+                    mb: { xs: 4, md: 6 },
                     position: 'relative',
                     overflow: 'hidden'
                 }}
             >
                 <Container maxWidth="lg">
-                    <Grid container spacing={6} alignItems="center">
+                    <Grid container spacing={{ xs: 4, md: 6 }} alignItems="center">
                         <Grid item xs={12} md={6}>
-                            <Box sx={{ textAlign: 'center', mb: 4 }}>
-                                <Typography variant="h2" component="h1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                            <Box sx={{ textAlign: { xs: 'center', md: 'left' }, mb: { xs: 3, md: 4 } }}>
+                                <Typography 
+                                    variant="h2" 
+                                    component="h1" 
+                                    sx={{ 
+                                        fontWeight: 'bold', 
+                                        mb: 1,
+                                        fontSize: { xs: '2rem', sm: '2.5rem', md: '3rem' }
+                                    }}
+                                >
                                     Stellar GeoLink
                                 </Typography>
-                                <Typography variant="h4" component="h2" sx={{ opacity: 0.9 }}>
+                                <Typography 
+                                    variant="h4" 
+                                    component="h2" 
+                                    sx={{ 
+                                        opacity: 0.9,
+                                        fontSize: { xs: '1.25rem', sm: '1.5rem', md: '2rem' }
+                                    }}
+                                >
                                     Track Stellar Assets in Real-Time
                                 </Typography>
                             </Box>
-                            <Typography variant="h6" paragraph sx={{ mb: 4, opacity: 0.9 }}>
+                            <Typography 
+                                variant="h6" 
+                                paragraph 
+                                sx={{ 
+                                    mb: { xs: 3, md: 4 }, 
+                                    opacity: 0.9,
+                                    fontSize: { xs: '1rem', md: '1.25rem' }
+                                }}
+                            >
                                 The premier platform for real-time location tracking of Stellar-based Real World Assets (RWAs). 
                                 Bridge the physical and digital worlds with blockchain-powered geolocation services.
                             </Typography>
-                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                            <Box sx={{ 
+                                display: 'flex', 
+                                gap: 2, 
+                                flexWrap: 'wrap',
+                                justifyContent: { xs: 'center', md: 'flex-start' }
+                            }}>
                                 <Button 
                                     variant="contained" 
                                     color="secondary" 
                                     size="large"
                                     component={RouterLink}
                                     to="/register"
-                                    sx={{ px: 4, py: 1.5 }}
+                                    sx={{ 
+                                        px: { xs: 3, md: 4 }, 
+                                        py: 1.5,
+                                        width: { xs: '100%', sm: 'auto' }
+                                    }}
                                 >
                                     Get Started Free
                                 </Button>
@@ -77,7 +109,11 @@ const HomePage = () => {
                                     size="large"
                                     component={RouterLink}
                                     to="/login"
-                                    sx={{ px: 4, py: 1.5 }}
+                                    sx={{ 
+                                        px: { xs: 3, md: 4 }, 
+                                        py: 1.5,
+                                        width: { xs: '100%', sm: 'auto' }
+                                    }}
                                 >
                                     Sign In
                                 </Button>
@@ -90,8 +126,8 @@ const HomePage = () => {
                                     src="/images/Stellar_Logo.png"
                                     alt="Stellar Logo"
                                     sx={{ 
-                                        width: 275, 
-                                        height: 100, 
+                                        width: { xs: 200, sm: 250, md: 275 }, 
+                                        height: { xs: 75, sm: 90, md: 100 }, 
                                         mb: 3,
                                         filter: 'brightness(0) invert(1)',
                                         zIndex: 2,
@@ -101,16 +137,27 @@ const HomePage = () => {
                                 <Paper 
                                     elevation={10} 
                                     sx={{ 
-                                        p: 3, 
+                                        p: { xs: 2, md: 3 }, 
                                         backgroundColor: 'rgba(255,255,255,0.1)', 
                                         backdropFilter: 'blur(10px)',
-                                        borderRadius: 3
+                                        borderRadius: 3,
+                                        mx: { xs: 2, md: 0 }
                                     }}
                                 >
-                                    <Typography variant="h6" gutterBottom>
+                                    <Typography 
+                                        variant="h6" 
+                                        gutterBottom
+                                        sx={{ fontSize: { xs: '1.1rem', md: '1.25rem' } }}
+                                    >
                                         🚀 Live Asset Tracking
                                     </Typography>
-                                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                                    <Typography 
+                                        variant="body2" 
+                                        sx={{ 
+                                            opacity: 0.9,
+                                            fontSize: { xs: '0.875rem', md: '0.9rem' }
+                                        }}
+                                    >
                                         Monitor your Stellar-based assets across the globe with precision and security
                                     </Typography>
                                 </Paper>
@@ -121,96 +168,171 @@ const HomePage = () => {
             </Box>
 
             {/* Core Features Section */}
-            <Container maxWidth="lg" sx={{ mb: 8 }}>
-                <Typography variant="h3" component="h2" align="center" gutterBottom sx={{ mb: 6 }}>
+            <Container maxWidth="lg" sx={{ mb: { xs: 6, md: 8 } }}>
+                <Typography 
+                    variant="h3" 
+                    component="h2" 
+                    align="center" 
+                    gutterBottom 
+                    sx={{ 
+                        mb: { xs: 4, md: 6 },
+                        fontSize: { xs: '1.75rem', sm: '2rem', md: '2.5rem' }
+                    }}
+                >
                     Core Features
                 </Typography>
-                <Grid container spacing={4}>
+                <Grid container spacing={{ xs: 3, md: 4 }}>
                     <Grid item xs={12} md={4}>
-                        <Card sx={{ height: '100%', p: 2 }}>
+                        <Card sx={{ height: '100%', p: { xs: 1.5, md: 2 } }}>
                             <CardContent>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                    <LocationOn color="primary" sx={{ fontSize: 40, mr: 2 }} />
-                                    <Typography variant="h5" component="h3">
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    mb: 2,
+                                    flexDirection: { xs: 'column', sm: 'row' },
+                                    textAlign: { xs: 'center', sm: 'left' }
+                                }}>
+                                    <LocationOn color="primary" sx={{ fontSize: { xs: 30, md: 40 }, mr: { xs: 0, sm: 2 }, mb: { xs: 1, sm: 0 } }} />
+                                    <Typography 
+                                        variant="h5" 
+                                        component="h3"
+                                        sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                    >
                                         Real-Time Tracking
                                     </Typography>
                                 </Box>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Monitor your Stellar-based assets with GPS precision. Get instant location updates 
                                     and track movement patterns in real-time.
                                 </Typography>
                                 <List dense>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Speed fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Sub-second location updates" />
+                                        <ListItemText 
+                                            primary="Sub-second location updates" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Timeline fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Historical movement tracking" />
+                                        <ListItemText 
+                                            primary="Historical movement tracking" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Map fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Interactive map visualization" />
+                                        <ListItemText 
+                                            primary="Interactive map visualization" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
                                 </List>
                             </CardContent>
                         </Card>
                     </Grid>
                     <Grid item xs={12} md={4}>
-                        <Card sx={{ height: '100%', p: 2 }}>
+                        <Card sx={{ height: '100%', p: { xs: 1.5, md: 2 } }}>
                             <CardContent>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                    <Security color="primary" sx={{ fontSize: 40, mr: 2 }} />
-                                    <Typography variant="h5" component="h3">
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    mb: 2,
+                                    flexDirection: { xs: 'column', sm: 'row' },
+                                    textAlign: { xs: 'center', sm: 'left' }
+                                }}>
+                                    <Security color="primary" sx={{ fontSize: { xs: 30, md: 40 }, mr: { xs: 0, sm: 2 }, mb: { xs: 1, sm: 0 } }} />
+                                    <Typography 
+                                        variant="h5" 
+                                        component="h3"
+                                        sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                    >
                                         Geofencing & Alerts
                                     </Typography>
                                 </Box>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Set up virtual boundaries and receive instant notifications when assets 
                                     enter or exit designated areas.
                                 </Typography>
                                 <List dense>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Notifications fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Custom geofence zones" />
+                                        <ListItemText 
+                                            primary="Custom geofence zones" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Shield fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Security breach alerts" />
+                                        <ListItemText 
+                                            primary="Security breach alerts" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Public fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Multi-zone monitoring" />
+                                        <ListItemText 
+                                            primary="Multi-zone monitoring" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
                                 </List>
                             </CardContent>
                         </Card>
                     </Grid>
                     <Grid item xs={12} md={4}>
-                        <Card sx={{ height: '100%', p: 2 }}>
+                        <Card sx={{ height: '100%', p: { xs: 1.5, md: 2 } }}>
                             <CardContent>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                    <Analytics color="primary" sx={{ fontSize: 40, mr: 2 }} />
-                                    <Typography variant="h5" component="h3">
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    mb: 2,
+                                    flexDirection: { xs: 'column', sm: 'row' },
+                                    textAlign: { xs: 'center', sm: 'left' }
+                                }}>
+                                    <Analytics color="primary" sx={{ fontSize: { xs: 30, md: 40 }, mr: { xs: 0, sm: 2 }, mb: { xs: 1, sm: 0 } }} />
+                                    <Typography 
+                                        variant="h5" 
+                                        component="h3"
+                                        sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                    >
                                         Advanced Analytics
                                     </Typography>
                                 </Box>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Comprehensive analytics dashboard with detailed insights into asset 
                                     performance, usage patterns, and optimization opportunities.
                                 </Typography>
                                 <List dense>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Dashboard fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Real-time dashboards" />
+                                        <ListItemText 
+                                            primary="Real-time dashboards" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><AccountBalance fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Asset value tracking" />
+                                        <ListItemText 
+                                            primary="Asset value tracking" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><Api fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="API integrations" />
+                                        <ListItemText 
+                                            primary="API integrations" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
                                 </List>
                             </CardContent>
@@ -220,18 +342,34 @@ const HomePage = () => {
             </Container>
 
             {/* Use Cases Section */}
-            <Box sx={{ bgcolor: 'grey.50', py: 8 }}>
+            <Box sx={{ bgcolor: 'grey.50', py: { xs: 6, md: 8 } }}>
                 <Container maxWidth="lg">
-                    <Typography variant="h3" component="h2" align="center" gutterBottom sx={{ mb: 6 }}>
+                    <Typography 
+                        variant="h3" 
+                        component="h2" 
+                        align="center" 
+                        gutterBottom 
+                        sx={{ 
+                            mb: { xs: 4, md: 6 },
+                            fontSize: { xs: '1.75rem', sm: '2rem', md: '2.5rem' }
+                        }}
+                    >
                         Use Cases
                     </Typography>
-                    <Grid container spacing={4}>
+                    <Grid container spacing={{ xs: 3, md: 4 }}>
                         <Grid item xs={12} md={6}>
-                            <Paper sx={{ p: 4, height: '100%' }}>
-                                <Typography variant="h5" gutterBottom>
+                            <Paper sx={{ p: { xs: 2, md: 4 }, height: '100%' }}>
+                                <Typography 
+                                    variant="h5" 
+                                    gutterBottom
+                                    sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                >
                                     🏭 Supply Chain Management
                                 </Typography>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Track products from manufacturing to delivery. Monitor temperature, 
                                     humidity, and location throughout the entire supply chain.
                                 </Typography>
@@ -243,11 +381,18 @@ const HomePage = () => {
                             </Paper>
                         </Grid>
                         <Grid item xs={12} md={6}>
-                            <Paper sx={{ p: 4, height: '100%' }}>
-                                <Typography variant="h5" gutterBottom>
+                            <Paper sx={{ p: { xs: 2, md: 4 }, height: '100%' }}>
+                                <Typography 
+                                    variant="h5" 
+                                    gutterBottom
+                                    sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                >
                                     🏠 Real Estate Assets
                                 </Typography>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Tokenize and track real estate properties. Monitor property conditions, 
                                     tenant activities, and maintenance schedules.
                                 </Typography>
@@ -259,11 +404,18 @@ const HomePage = () => {
                             </Paper>
                         </Grid>
                         <Grid item xs={12} md={6}>
-                            <Paper sx={{ p: 4, height: '100%' }}>
-                                <Typography variant="h5" gutterBottom>
+                            <Paper sx={{ p: { xs: 2, md: 4 }, height: '100%' }}>
+                                <Typography 
+                                    variant="h5" 
+                                    gutterBottom
+                                    sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                >
                                     🚗 Vehicle Fleet Management
                                 </Typography>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Monitor fleet vehicles, optimize routes, and ensure driver safety. 
                                     Track fuel consumption and maintenance schedules.
                                 </Typography>
@@ -275,11 +427,18 @@ const HomePage = () => {
                             </Paper>
                         </Grid>
                         <Grid item xs={12} md={6}>
-                            <Paper sx={{ p: 4, height: '100%' }}>
-                                <Typography variant="h5" gutterBottom>
+                            <Paper sx={{ p: { xs: 2, md: 4 }, height: '100%' }}>
+                                <Typography 
+                                    variant="h5" 
+                                    gutterBottom
+                                    sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                >
                                     💎 High-Value Assets
                                 </Typography>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Secure tracking of precious metals, artwork, and luxury items. 
                                     Ensure authenticity and prevent theft with blockchain verification.
                                 </Typography>
@@ -295,42 +454,63 @@ const HomePage = () => {
             </Box>
 
             {/* Benefits Section */}
-            <Container maxWidth="lg" sx={{ py: 8 }}>
-                <Typography variant="h3" component="h2" align="center" gutterBottom sx={{ mb: 6 }}>
+            <Container maxWidth="lg" sx={{ py: { xs: 6, md: 8 } }}>
+                <Typography 
+                    variant="h3" 
+                    component="h2" 
+                    align="center" 
+                    gutterBottom 
+                    sx={{ 
+                        mb: { xs: 4, md: 6 },
+                        fontSize: { xs: '1.75rem', sm: '2rem', md: '2.5rem' }
+                    }}
+                >
                     Why Choose Stellar GeoLink?
                 </Typography>
-                <Grid container spacing={4}>
+                <Grid container spacing={{ xs: 3, md: 4 }}>
                     <Grid item xs={12} md={4}>
-                        <Box sx={{ textAlign: 'center', p: 3 }}>
-                            <Security sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
-                            <Typography variant="h5" gutterBottom>
+                        <Box sx={{ textAlign: 'center', p: { xs: 2, md: 3 } }}>
+                            <Security sx={{ fontSize: { xs: 40, md: 60 }, color: 'primary.main', mb: 2 }} />
+                            <Typography 
+                                variant="h5" 
+                                gutterBottom
+                                sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                            >
                                 Enterprise Security
                             </Typography>
-                            <Typography>
+                            <Typography sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}>
                                 Bank-grade security with API key management, encrypted communications, 
                                 and blockchain-verified data integrity.
                             </Typography>
                         </Box>
                     </Grid>
                     <Grid item xs={12} md={4}>
-                        <Box sx={{ textAlign: 'center', p: 3 }}>
-                            <Speed sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
-                            <Typography variant="h5" gutterBottom>
+                        <Box sx={{ textAlign: 'center', p: { xs: 2, md: 3 } }}>
+                            <Speed sx={{ fontSize: { xs: 40, md: 60 }, color: 'primary.main', mb: 2 }} />
+                            <Typography 
+                                variant="h5" 
+                                gutterBottom
+                                sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                            >
                                 Lightning Fast
                             </Typography>
-                            <Typography>
+                            <Typography sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}>
                                 Built on Stellar's high-performance blockchain for instant transactions 
                                 and real-time updates with minimal fees.
                             </Typography>
                         </Box>
                     </Grid>
                     <Grid item xs={12} md={4}>
-                        <Box sx={{ textAlign: 'center', p: 3 }}>
-                            <Api sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
-                            <Typography variant="h5" gutterBottom>
+                        <Box sx={{ textAlign: 'center', p: { xs: 2, md: 3 } }}>
+                            <Api sx={{ fontSize: { xs: 40, md: 60 }, color: 'primary.main', mb: 2 }} />
+                            <Typography 
+                                variant="h5" 
+                                gutterBottom
+                                sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                            >
                                 Developer Friendly
                             </Typography>
-                            <Typography>
+                            <Typography sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}>
                                 Comprehensive REST APIs, SDKs, and documentation for seamless 
                                 integration with your existing systems.
                             </Typography>
@@ -343,23 +523,50 @@ const HomePage = () => {
             <Box sx={{ 
                 background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)', 
                 color: 'white', 
-                py: 8 
+                py: { xs: 6, md: 8 } 
             }}>
                 <Container maxWidth="lg">
-                    <Typography variant="h4" component="h2" align="center" gutterBottom>
+                    <Typography 
+                        variant="h4" 
+                        component="h2" 
+                        align="center" 
+                        gutterBottom
+                        sx={{ 
+                            fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' }
+                        }}
+                    >
                         Ready to Transform Your Asset Tracking?
                     </Typography>
-                    <Typography align="center" paragraph sx={{ mb: 4, opacity: 0.9 }}>
+                    <Typography 
+                        align="center" 
+                        paragraph 
+                        sx={{ 
+                            mb: { xs: 3, md: 4 }, 
+                            opacity: 0.9,
+                            fontSize: { xs: '0.9rem', md: '1rem' }
+                        }}
+                    >
                         Join hundreds of companies already using Stellar GeoLink to track their most valuable assets
                     </Typography>
-                    <Box sx={{ textAlign: 'center' }}>
+                    <Box sx={{ 
+                        textAlign: 'center',
+                        display: 'flex',
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        justifyContent: 'center',
+                        gap: 2,
+                        alignItems: 'center'
+                    }}>
                         <Button 
                             variant="contained" 
                             color="secondary" 
                             size="large"
                             component={RouterLink}
                             to="/register"
-                            sx={{ px: 6, py: 2, mr: 2 }}
+                            sx={{ 
+                                px: { xs: 4, md: 6 }, 
+                                py: 2,
+                                width: { xs: '100%', sm: 'auto' }
+                            }}
                         >
                             Start Free Trial
                         </Button>
@@ -369,7 +576,11 @@ const HomePage = () => {
                             size="large"
                             component={RouterLink}
                             to="/contact"
-                            sx={{ px: 6, py: 2 }}
+                            sx={{ 
+                                px: { xs: 4, md: 6 }, 
+                                py: 2,
+                                width: { xs: '100%', sm: 'auto' }
+                            }}
                         >
                             Contact Sales
                         </Button>

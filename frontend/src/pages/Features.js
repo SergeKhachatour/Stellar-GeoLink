@@ -38,7 +38,7 @@ const Features = () => {
                 sx={{
                     background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
                     color: 'white',
-                    py: 8,
+                    py: { xs: 6, md: 8 },
                     textAlign: 'center'
                 }}
             >
@@ -48,18 +48,34 @@ const Features = () => {
                     src="/images/Stellar_Logo.png"
                     alt="Stellar Logo"
                     sx={{
-                        width: 275,
-                        height: 100,
+                        width: { xs: 200, sm: 250, md: 275 },
+                        height: { xs: 75, sm: 90, md: 100 },
                         mb: 3,
                         filter: 'brightness(0) invert(1)',
                         zIndex: 2,
                         position: 'relative'
                     }}
                 />
-                    <Typography variant="h2" component="h1" sx={{ fontWeight: 'bold', mb: 2 }}>
+                    <Typography 
+                        variant="h2" 
+                        component="h1" 
+                        sx={{ 
+                            fontWeight: 'bold', 
+                            mb: 2,
+                            fontSize: { xs: '1.75rem', sm: '2.5rem', md: '3rem' }
+                        }}
+                    >
                         Stellar GeoLink Features
                     </Typography>
-                    <Typography variant="h5" sx={{ opacity: 0.9, maxWidth: '800px', mx: 'auto' }}>
+                    <Typography 
+                        variant="h5" 
+                        sx={{ 
+                            opacity: 0.9, 
+                            maxWidth: '800px', 
+                            mx: 'auto',
+                            fontSize: { xs: '1rem', sm: '1.25rem', md: '1.5rem' }
+                        }}
+                    >
                         Comprehensive blockchain-powered geolocation services for blockchain nodes and transactions. 
                         Track, monitor, and visualize node locations with precision and security on the Stellar network.
                     </Typography>
@@ -67,74 +83,133 @@ const Features = () => {
             </Box>
 
             {/* Core Features */}
-            <Container maxWidth="lg" sx={{ py: 8 }}>
-                <Typography variant="h3" component="h2" align="center" gutterBottom sx={{ mb: 6 }}>
+            <Container maxWidth="lg" sx={{ py: { xs: 6, md: 8 } }}>
+                <Typography 
+                    variant="h3" 
+                    component="h2" 
+                    align="center" 
+                    gutterBottom 
+                    sx={{ 
+                        mb: { xs: 4, md: 6 },
+                        fontSize: { xs: '1.75rem', sm: '2rem', md: '2.5rem' }
+                    }}
+                >
                     Core Features
                 </Typography>
-                <Grid container spacing={4}>
+                <Grid container spacing={{ xs: 3, md: 4 }}>
                     <Grid item xs={12} md={6}>
-                        <Card sx={{ height: '100%', p: 3 }}>
+                        <Card sx={{ height: '100%', p: { xs: 2, md: 3 } }}>
                             <CardContent>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                                    <LocationOn color="primary" sx={{ fontSize: 50, mr: 2 }} />
-                                    <Typography variant="h4" component="h3">
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    mb: { xs: 2, md: 3 },
+                                    flexDirection: { xs: 'column', sm: 'row' },
+                                    textAlign: { xs: 'center', sm: 'left' }
+                                }}>
+                                    <LocationOn color="primary" sx={{ fontSize: { xs: 40, md: 50 }, mr: { xs: 0, sm: 2 }, mb: { xs: 1, sm: 0 } }} />
+                                    <Typography 
+                                        variant="h4" 
+                                        component="h3"
+                                        sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                    >
                                         Real-Time Node Tracking
                                     </Typography>
                                 </Box>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Monitor blockchain nodes with GPS precision and blockchain verification. 
                                     Get instant location updates and track node status patterns in real-time.
                                 </Typography>
                                 <List dense>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Sub-second node location updates" />
+                                        <ListItemText 
+                                            primary="Sub-second node location updates" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Historical node status tracking" />
+                                        <ListItemText 
+                                            primary="Historical node status tracking" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Interactive map visualization" />
+                                        <ListItemText 
+                                            primary="Interactive map visualization" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Blockchain-verified coordinates" />
+                                        <ListItemText 
+                                            primary="Blockchain-verified coordinates" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
                                 </List>
                             </CardContent>
                         </Card>
                     </Grid>
                     <Grid item xs={12} md={6}>
-                        <Card sx={{ height: '100%', p: 3 }}>
+                        <Card sx={{ height: '100%', p: { xs: 2, md: 3 } }}>
                             <CardContent>
-                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                                    <Security color="primary" sx={{ fontSize: 50, mr: 2 }} />
-                                    <Typography variant="h4" component="h3">
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    mb: { xs: 2, md: 3 },
+                                    flexDirection: { xs: 'column', sm: 'row' },
+                                    textAlign: { xs: 'center', sm: 'left' }
+                                }}>
+                                    <Security color="primary" sx={{ fontSize: { xs: 40, md: 50 }, mr: { xs: 0, sm: 2 }, mb: { xs: 1, sm: 0 } }} />
+                                    <Typography 
+                                        variant="h4" 
+                                        component="h3"
+                                        sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+                                    >
                                         Geofencing & Security
                                     </Typography>
                                 </Box>
-                                <Typography paragraph>
+                                <Typography 
+                                    paragraph
+                                    sx={{ fontSize: { xs: '0.9rem', md: '1rem' } }}
+                                >
                                     Set up virtual boundaries and receive instant notifications when nodes 
                                     enter or exit designated areas. Enterprise-grade security features.
                                 </Typography>
                                 <List dense>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Custom geofence zones" />
+                                        <ListItemText 
+                                            primary="Custom geofence zones" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Security breach alerts" />
+                                        <ListItemText 
+                                            primary="Security breach alerts" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="Multi-zone monitoring" />
+                                        <ListItemText 
+                                            primary="Multi-zone monitoring" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
-                                    <ListItem>
+                                    <ListItem sx={{ px: 0 }}>
                                         <ListItemIcon><CheckCircle color="success" fontSize="small" /></ListItemIcon>
-                                        <ListItemText primary="API key management" />
+                                        <ListItemText 
+                                            primary="API key management" 
+                                            primaryTypographyProps={{ fontSize: { xs: '0.85rem', md: '0.9rem' } }}
+                                        />
                                     </ListItem>
                                 </List>
                             </CardContent>
