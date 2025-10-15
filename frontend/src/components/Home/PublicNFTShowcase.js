@@ -156,7 +156,7 @@ const PublicNFTShowcase = () => {
     } finally {
       setLoading(false);
     }
-  }, [addCardNFTMarkers]);
+  }, []);
 
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {
@@ -249,7 +249,7 @@ const PublicNFTShowcase = () => {
       console.error('Card map initialization error:', err);
       setError('Failed to initialize card map.');
     }
-  }, [createMarkersDirectly, nfts.length]);
+  }, []);
 
   // Initialize fullscreen map
   const initializeFullscreenMap = useCallback(() => {
@@ -363,7 +363,7 @@ const PublicNFTShowcase = () => {
       console.error('Fullscreen map initialization error:', err);
       setError('Failed to initialize fullscreen map.');
     }
-  }, [createFullscreenMarkersDirectly, filteredNFTs.length, nfts]);
+  }, []);
 
   // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
   const createSingleMarker = useCallback((nft, map, nftIndex = 0) => {
