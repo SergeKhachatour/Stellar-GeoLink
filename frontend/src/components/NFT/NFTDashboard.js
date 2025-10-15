@@ -3092,7 +3092,9 @@ const NFTDashboard = () => {
         borderRadius: 2,
         p: { xs: 2, md: 3 },
         mb: { xs: 3, md: 4 },
-        color: 'white'
+        color: 'white',
+        border: '2px solid #FFD700',
+        boxShadow: '0 4px 20px rgba(255, 215, 0, 0.3)'
       }}>
         <Box 
           display="flex" 
@@ -3142,8 +3144,9 @@ const NFTDashboard = () => {
               p: { xs: 1.5, md: 2 }, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: 2
+              border: '1px solid #FFD700',
+              borderRadius: 2,
+              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
             }}>
               <Box sx={{ 
                 display: 'flex', 
@@ -3228,8 +3231,9 @@ const NFTDashboard = () => {
               p: 2, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: 2
+              border: '1px solid #FFD700',
+              borderRadius: 2,
+              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <CollectionsIcon sx={{ color: 'white', mr: 1 }} />
@@ -3262,8 +3266,9 @@ const NFTDashboard = () => {
               p: 2, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: 2
+              border: '1px solid #FFD700',
+              borderRadius: 2,
+              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <MapIcon sx={{ color: 'white', mr: 1 }} />
