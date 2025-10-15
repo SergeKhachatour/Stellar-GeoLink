@@ -23,7 +23,7 @@ const NFTCollectionAnalytics = () => {
   const [error, setError] = useState('');
   const [tabValue, setTabValue] = useState(0);
   const [reportType, setReportType] = useState('summary');
-  const [startDate, setStartDate] = useState('');
+  const [startDate] = useState('');
   const [endDate] = useState('');
 
   const fetchAnalytics = async () => {
