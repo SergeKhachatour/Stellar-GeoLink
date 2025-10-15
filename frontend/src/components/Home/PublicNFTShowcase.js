@@ -586,9 +586,9 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear any existing markers
-    const existingMarkers = document.querySelectorAll('.nft-marker');
-    console.log('🚀 Clearing', existingMarkers.length, 'existing markers');
+    // Clear any existing small map markers only
+    const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
+    console.log('🚀 Clearing', existingMarkers.length, 'existing small map markers');
     existingMarkers.forEach(marker => marker.remove());
     
     // Create markers directly
@@ -599,6 +599,7 @@ const PublicNFTShowcase = () => {
         // Create marker element with NFT image
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
+        markerEl.setAttribute('data-map', 'small');
         markerEl.style.width = '40px';
         markerEl.style.height = '40px';
         markerEl.style.borderRadius = '8px';
@@ -683,8 +684,8 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear any existing markers
-    const existingMarkers = document.querySelectorAll('.nft-marker');
+    // Clear any existing fullscreen markers only
+    const existingMarkers = document.querySelectorAll('.nft-marker[data-map="fullscreen"]');
     console.log('🚀 Clearing', existingMarkers.length, 'existing fullscreen markers');
     existingMarkers.forEach(marker => marker.remove());
     
@@ -696,6 +697,7 @@ const PublicNFTShowcase = () => {
         // Create marker element with NFT image
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
+        markerEl.setAttribute('data-map', 'fullscreen');
         markerEl.style.width = '50px';
         markerEl.style.height = '50px';
         markerEl.style.borderRadius = '8px';
