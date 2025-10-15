@@ -3092,9 +3092,7 @@ const NFTDashboard = () => {
         borderRadius: 2,
         p: { xs: 2, md: 3 },
         mb: { xs: 3, md: 4 },
-        color: 'white',
-        border: '2px solid #FFD700',
-        boxShadow: '0 4px 20px rgba(255, 215, 0, 0.3)'
+        color: 'white'
       }}>
         <Box 
           display="flex" 
@@ -3120,15 +3118,16 @@ const NFTDashboard = () => {
             variant="contained"
             href="/enhanced-nft-dashboard"
             sx={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              color: 'white',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+              color: 'black',
+              border: '1px solid #FFD700',
               '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.5)',
+                background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)',
               },
               fontSize: { xs: '0.875rem', md: '1rem' },
-              px: { xs: 2, md: 3 }
+              px: { xs: 2, md: 3 },
+              fontWeight: 'bold'
             }}
             startIcon={<WalletIcon />}
           >
@@ -3144,9 +3143,8 @@ const NFTDashboard = () => {
               p: { xs: 1.5, md: 2 }, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid #FFD700',
-              borderRadius: 2,
-              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
             }}>
               <Box sx={{ 
                 display: 'flex', 
@@ -3231,9 +3229,8 @@ const NFTDashboard = () => {
               p: 2, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid #FFD700',
-              borderRadius: 2,
-              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <CollectionsIcon sx={{ color: 'white', mr: 1 }} />
@@ -3266,9 +3263,8 @@ const NFTDashboard = () => {
               p: 2, 
               background: 'rgba(255, 255, 255, 0.1)', 
               backdropFilter: 'blur(10px)',
-              border: '1px solid #FFD700',
-              borderRadius: 2,
-              boxShadow: '0 2px 8px rgba(255, 215, 0, 0.2)'
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: 2
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                 <MapIcon sx={{ color: 'white', mr: 1 }} />
