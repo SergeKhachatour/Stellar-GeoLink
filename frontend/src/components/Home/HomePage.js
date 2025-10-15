@@ -184,7 +184,11 @@ const HomePage = () => {
             <PublicNFTShowcase />
 
             {/* Core Features Section */}
-            <Container maxWidth="lg" sx={{ mb: { xs: 6, md: 8 } }}>
+            <Box sx={{ 
+                background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+                py: { xs: 6, md: 8 }
+            }}>
+                <Container maxWidth="lg" sx={{ mb: { xs: 6, md: 8 } }}>
                 <Typography 
                     variant="h3" 
                     component="h2" 
@@ -534,6 +538,7 @@ const HomePage = () => {
                     </Grid>
                 </Grid>
             </Container>
+            </Box>
 
             {/* Call to Action */}
             <Box sx={{ 
