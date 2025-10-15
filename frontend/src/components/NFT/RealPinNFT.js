@@ -40,6 +40,7 @@ import {
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import realNFTService from '../../services/realNFTService';
+import api from '../../services/api';
 
 // Mapbox Token
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
@@ -146,46 +147,26 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const fetchCollections = async () => {
     try {
       setLoadingCollections(true);
-      // Use the same API URL logic as services/api.js
-      const getApiBaseURL = () => {
-        if (window.location.hostname.includes('azurewebsites.net')) {
-          return `${window.location.protocol}//${window.location.hostname}/api`;
-        }
-        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-      };
-      const apiBaseURL = getApiBaseURL();
-      console.log('🔍 Fetching collections from:', `${apiBaseURL}/nft/collections`);
-      const response = await fetch(`${apiBaseURL}/nft/collections`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      console.log('🔍 Fetching collections using centralized API service');
+      const response = await api.get('/nft/collections');
       
       console.log('📡 Collections response status:', response.status);
+      console.log('📦 Collections data:', response.data);
+      console.log('📦 Collections array:', response.data.collections);
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('📦 Collections data:', data);
-        console.log('📦 Collections array:', data.collections);
+      // Handle both response formats: {collections: [...]} or direct array
+      const collectionsArray = response.data.collections || response.data;
+      console.log('📦 Final collections array:', collectionsArray);
+      
+      setCollections(collectionsArray || []);
+      console.log('📦 Collections state set to:', collectionsArray);
         
-        // Handle both response formats: {collections: [...]} or direct array
-        const collectionsArray = data.collections || data;
-        console.log('📦 Final collections array:', collectionsArray);
-        
-        setCollections(collectionsArray || []);
-        console.log('📦 Collections state set to:', collectionsArray);
-        
-        // Auto-select first collection if available
-        if (collectionsArray && collectionsArray.length > 0) {
-          const firstCollectionId = collectionsArray[0].id.toString();
-          console.log('✅ Auto-selecting collection:', firstCollectionId, 'type:', typeof firstCollectionId);
-          setSelectedCollectionId(firstCollectionId);
-          console.log('✅ Collection ID set to:', firstCollectionId);
-        }
-      } else {
-        console.error('❌ Collections fetch failed:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('Error details:', errorText);
+      // Auto-select first collection if available
+      if (collectionsArray && collectionsArray.length > 0) {
+        const firstCollectionId = collectionsArray[0].id.toString();
+        console.log('✅ Auto-selecting collection:', firstCollectionId, 'type:', typeof firstCollectionId);
+        setSelectedCollectionId(firstCollectionId);
+        console.log('✅ Collection ID set to:', firstCollectionId);
       }
     } catch (error) {
       console.error('❌ Failed to fetch collections:', error);
@@ -682,40 +663,17 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   // Create new collection
   const createNewCollection = async () => {
     try {
-      // Use the same API URL logic as services/api.js
-      const getApiBaseURL = () => {
-        if (window.location.hostname.includes('azurewebsites.net')) {
-          return `${window.location.protocol}//${window.location.hostname}/api`;
-        }
-        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-      };
-      const apiBaseURL = getApiBaseURL();
       console.log('🔍 Creating collection:', newCollectionForm);
-      console.log('📡 API URL:', `${apiBaseURL}/nft/collections`);
+      console.log('📡 Using centralized API service');
       
-      const response = await fetch(`${apiBaseURL}/nft/collections`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(newCollectionForm)
-      });
+      const response = await api.post('/nft/collections', newCollectionForm);
 
       console.log('📡 Create collection response status:', response.status);
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Collection created:', data);
-        setCollections(prev => [data.collection, ...prev]);
-        setSelectedCollectionId(data.collection.id.toString());
-        setShowNewCollectionDialog(false);
-        setNewCollectionForm({ name: '', description: '', image_url: '', rarity_level: 'common' });
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Create collection failed:', response.status, errorText);
-        throw new Error(`Failed to create collection: ${response.status}`);
-      }
+      console.log('✅ Collection created:', response.data);
+      setCollections(prev => [response.data.collection, ...prev]);
+      setSelectedCollectionId(response.data.collection.id.toString());
+      setShowNewCollectionDialog(false);
+      setNewCollectionForm({ name: '', description: '', image_url: '', rarity_level: 'common' });
     } catch (error) {
       console.error('❌ Failed to create collection:', error);
     }
@@ -723,21 +681,8 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
 
   const addNFTToDatabase = async (nftData) => {
     try {
-      // Use the same API URL logic as services/api.js
-      const getApiBaseURL = () => {
-        if (window.location.hostname.includes('azurewebsites.net')) {
-          return `${window.location.protocol}//${window.location.hostname}/api`;
-        }
-        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-      };
-      const apiBaseURL = getApiBaseURL();
-      const response = await fetch(`${apiBaseURL}/nft/pin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
+      console.log('📡 Using centralized API service for NFT pinning');
+      const response = await api.post('/nft/pin', {
           collection_id: selectedCollectionId ? parseInt(selectedCollectionId) : null,
           latitude: nftData.location.latitude,
           longitude: nftData.location.longitude,
@@ -752,8 +697,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
             blockchain: 'stellar_testnet'
           },
           is_active: true
-        })
-      });
+        });
 
       console.log('📤 Sending to database:', {
         ipfs_hash: mintForm.ipfsHash,
@@ -761,13 +705,8 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
         server_url: mintForm.serverUrl
       });
 
-      if (!response.ok) {
-        throw new Error(`Database error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ NFT added to database:', result);
-      return result;
+      console.log('✅ NFT added to database:', response.data);
+      return response.data;
     } catch (error) {
       console.error('❌ Failed to add NFT to database:', error);
       throw error;
