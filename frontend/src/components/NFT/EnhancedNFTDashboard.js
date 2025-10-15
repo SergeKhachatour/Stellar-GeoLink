@@ -1326,9 +1326,9 @@ const EnhancedNFTDashboard = () => {
         this._container.innerHTML = `
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; cursor: pointer;" id="collections-header">
             <div style="font-weight: bold; color: #333;">📚 Collections</div>
-            <div style="font-size: 14px; color: #666;" id="collections-toggle">▼</div>
+            <div style="font-size: 14px; color: #666;" id="collections-toggle">▶</div>
           </div>
-          <div id="collections-content" style="display: flex; flex-direction: column; gap: 10px;">
+          <div id="collections-content" style="display: none; flex-direction: column; gap: 10px;">
             <div style="margin-bottom: 10px;">
               <label style="display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Collection</label>
               <select id="nft-collection-filter" style="width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">
@@ -1415,9 +1415,9 @@ const EnhancedNFTDashboard = () => {
         this._container.innerHTML = `
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; cursor: pointer;" id="3d-controls-header">
             <div style="font-weight: bold; color: #333;">🌍 3D Globe Controls</div>
-            <div style="font-size: 14px; color: #666;" id="3d-controls-toggle">▼</div>
+            <div style="font-size: 14px; color: #666;" id="3d-controls-toggle">▶</div>
           </div>
-          <div id="3d-controls-content" style="display: flex; flex-direction: column; gap: 8px;">
+          <div id="3d-controls-content" style="display: none; flex-direction: column; gap: 8px;">
             <button id="reset-view" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer;">
               🎯 Reset View
             </button>
