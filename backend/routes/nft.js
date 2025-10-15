@@ -1123,4 +1123,88 @@ router.get('/reports', authenticateUser, async (req, res) => {
     }
 });
 
+// Public endpoint to get all active NFTs (no authentication required)
+router.get('/public', async (req, res) => {
+    try {
+        console.log('🌍 GET /public - Fetching all public NFTs');
+        
+        // Check if NFT tables exist
+        const tableCheck = await pool.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('pinned_nfts', 'nft_collections')
+            );
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            console.log('NFT tables do not exist, returning empty result');
+            return res.json({
+                nfts: [],
+                count: 0
+            });
+        }
+        
+        const result = await pool.query(`
+            SELECT 
+                pn.id,
+                pn.name,
+                pn.description,
+                pn.latitude,
+                pn.longitude,
+                pn.radius_meters,
+                pn.image_url,
+                pn.ipfs_hash,
+                pn.created_at,
+                nc.name as collection_name,
+                nc.description as collection_description,
+                nc.image_url as collection_image_url,
+                nc.rarity_level
+            FROM pinned_nfts pn
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE pn.is_active = true
+            ORDER BY pn.created_at DESC
+        `);
+        
+        console.log('📍 Found public NFTs:', result.rows.length);
+        
+        const formattedNFTs = result.rows.map(nft => ({
+            id: nft.id,
+            name: nft.name,
+            description: nft.description,
+            latitude: parseFloat(nft.latitude),
+            longitude: parseFloat(nft.longitude),
+            radius_meters: nft.radius_meters,
+            image_url: nft.image_url,
+            ipfs_hash: nft.ipfs_hash,
+            created_at: nft.created_at,
+            collection: {
+                name: nft.collection_name,
+                description: nft.collection_description,
+                image_url: nft.collection_image_url,
+                rarity_level: nft.rarity_level
+            }
+        }));
+        
+        res.json({
+            nfts: formattedNFTs,
+            count: formattedNFTs.length
+        });
+    } catch (error) {
+        console.error('❌ Error fetching public NFTs:', error);
+        console.error('Error details:', {
+            message: error.message,
+            code: error.code,
+            detail: error.detail,
+            constraint: error.constraint
+        });
+        
+        // Return empty result instead of 500 error
+        res.json({
+            nfts: [],
+            count: 0
+        });
+    }
+});
+
 module.exports = router;

@@ -30,6 +30,7 @@ import {
     Api,
     Dashboard
 } from '@mui/icons-material';
+import PublicNFTShowcase from './PublicNFTShowcase';
 
 const HomePage = () => {
     return (
@@ -178,6 +179,9 @@ const HomePage = () => {
                     </Grid>
                 </Container>
             </Box>
+
+            {/* Public NFT Showcase */}
+            <PublicNFTShowcase />
 
             {/* Core Features Section */}
             <Container maxWidth="lg" sx={{ mb: { xs: 6, md: 8 } }}>
