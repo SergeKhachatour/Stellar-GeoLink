@@ -3197,11 +3197,13 @@ const EnhancedNFTDashboard = () => {
               variant="outlined"
               onClick={() => setShowAdvancedTools(!showAdvancedTools)}
               sx={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                color: '#FFD700',
+                border: '1px solid #FFD700',
                 '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  backgroundColor: 'rgba(255, 215, 0, 0.2)',
+                  border: '1px solid #FFA500',
+                  color: '#FFA500'
                 }
               }}
               startIcon={<MapIcon />}
@@ -3384,8 +3386,13 @@ const EnhancedNFTDashboard = () => {
                   size="small"
                   disabled={loading}
                   sx={{ 
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
+                    '&:hover': { 
+                      background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                      boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                    },
+                    fontWeight: 'bold'
                   }}
                 >
                   {loading ? 'Connecting...' : 'Connect Wallet'}
@@ -3443,8 +3450,13 @@ const EnhancedNFTDashboard = () => {
                 size="small"
                 disabled={!isConnected || !wallet?.publicKey}
                 sx={{ 
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  color: 'black',
+                  '&:hover': { 
+                    background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                    boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                  },
+                  fontWeight: 'bold'
                 }}
               >
                 View Collection
@@ -3477,8 +3489,13 @@ const EnhancedNFTDashboard = () => {
                 size="small"
                 disabled={!isConnected || !wallet?.publicKey || !userLocation}
                 sx={{ 
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  color: 'black',
+                  '&:hover': { 
+                    background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                    boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                  },
+                  fontWeight: 'bold'
                 }}
               >
                 Open Map
@@ -3783,11 +3800,12 @@ const EnhancedNFTDashboard = () => {
               startIcon={<FilterListIcon />}
               onClick={() => setShowAdvancedTools(!showAdvancedTools)}
               sx={{
-                borderColor: '#9C27B0',
-                color: '#9C27B0',
+                borderColor: '#FFD700',
+                color: '#FFD700',
                 '&:hover': {
-                  borderColor: '#7B1FA2',
-                  backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                  borderColor: '#FFA500',
+                  backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                  color: '#FFA500'
                 }
               }}
             >
@@ -3797,19 +3815,35 @@ const EnhancedNFTDashboard = () => {
               <Box sx={{ display: 'flex', gap: 1 }}>
                 <Button
                   variant="contained"
-                  color="secondary"
                   startIcon={<LocationIcon />}
                   onClick={() => setOpenPinDialog(true)}
                   disabled={loading}
+                  sx={{
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
+                    '&:hover': { 
+                      background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                      boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                    },
+                    fontWeight: 'bold'
+                  }}
                 >
                   Pin NFT (Database)
                 </Button>
                 <Button
                   variant="contained"
-                  color="primary"
                   startIcon={<LocationIcon />}
                   onClick={() => setOpenRealPinDialog(true)}
                   disabled={loading}
+                  sx={{
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
+                    '&:hover': { 
+                      background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                      boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                    },
+                    fontWeight: 'bold'
+                  }}
                 >
                   Pin NFT (Blockchain)
                 </Button>

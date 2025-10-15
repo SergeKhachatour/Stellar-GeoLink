@@ -3189,8 +3189,13 @@ const NFTDashboard = () => {
                   size="small"
                   disabled={loading}
                   sx={{ 
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                    background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                    color: 'black',
+                    '&:hover': { 
+                      background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                      boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                    },
+                    fontWeight: 'bold'
                   }}
                 >
                   {loading ? 'Connecting...' : 'Connect Wallet'}
@@ -3248,8 +3253,13 @@ const NFTDashboard = () => {
                 size="small"
                 disabled={!isConnected || !wallet?.publicKey}
                 sx={{ 
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  color: 'black',
+                  '&:hover': { 
+                    background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                    boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                  },
+                  fontWeight: 'bold'
                 }}
               >
                 View Collection
@@ -3282,8 +3292,13 @@ const NFTDashboard = () => {
                 size="small"
                 disabled={!isConnected || !wallet?.publicKey || !userLocation}
                 sx={{ 
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  '&:hover': { background: 'rgba(255, 255, 255, 0.3)' }
+                  background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                  color: 'black',
+                  '&:hover': { 
+                    background: 'linear-gradient(135deg, #FFA500 0%, #E6C200 100%)',
+                    boxShadow: '0 4px 12px rgba(255, 215, 0, 0.4)'
+                  },
+                  fontWeight: 'bold'
                 }}
               >
                 Open Map
