@@ -146,7 +146,14 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const fetchCollections = async () => {
     try {
       setLoadingCollections(true);
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      // Use the same API URL logic as services/api.js
+      const getApiBaseURL = () => {
+        if (window.location.hostname.includes('azurewebsites.net')) {
+          return `${window.location.protocol}//${window.location.hostname}/api`;
+        }
+        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      };
+      const apiBaseURL = getApiBaseURL();
       console.log('🔍 Fetching collections from:', `${apiBaseURL}/nft/collections`);
       const response = await fetch(`${apiBaseURL}/nft/collections`, {
         headers: {
@@ -675,7 +682,14 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   // Create new collection
   const createNewCollection = async () => {
     try {
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      // Use the same API URL logic as services/api.js
+      const getApiBaseURL = () => {
+        if (window.location.hostname.includes('azurewebsites.net')) {
+          return `${window.location.protocol}//${window.location.hostname}/api`;
+        }
+        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      };
+      const apiBaseURL = getApiBaseURL();
       console.log('🔍 Creating collection:', newCollectionForm);
       console.log('📡 API URL:', `${apiBaseURL}/nft/collections`);
       
@@ -709,8 +723,14 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
 
   const addNFTToDatabase = async (nftData) => {
     try {
-      // Use the configured API base URL
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      // Use the same API URL logic as services/api.js
+      const getApiBaseURL = () => {
+        if (window.location.hostname.includes('azurewebsites.net')) {
+          return `${window.location.protocol}//${window.location.hostname}/api`;
+        }
+        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      };
+      const apiBaseURL = getApiBaseURL();
       const response = await fetch(`${apiBaseURL}/nft/pin`, {
         method: 'POST',
         headers: {
