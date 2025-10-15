@@ -156,7 +156,7 @@ const PublicNFTShowcase = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [addCardNFTMarkers]);
 
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {
@@ -249,7 +249,7 @@ const PublicNFTShowcase = () => {
       console.error('Card map initialization error:', err);
       setError('Failed to initialize card map.');
     }
-  }, []);
+  }, [createMarkersDirectly, nfts.length]);
 
   // Initialize fullscreen map
   const initializeFullscreenMap = useCallback(() => {
@@ -363,7 +363,7 @@ const PublicNFTShowcase = () => {
       console.error('Fullscreen map initialization error:', err);
       setError('Failed to initialize fullscreen map.');
     }
-  }, []);
+  }, [createFullscreenMarkersDirectly, filteredNFTs.length, nfts]);
 
   // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
   const createSingleMarker = useCallback((nft, map, nftIndex = 0) => {
@@ -661,7 +661,7 @@ const PublicNFTShowcase = () => {
     });
     
     console.log('🚀 Direct marker creation completed');
-  }, [nfts]);
+  }, []);
 
   // Simple direct marker creation for fullscreen map - bypasses all complex logic
   const createFullscreenMarkersDirectly = useCallback(() => {
@@ -761,7 +761,7 @@ const PublicNFTShowcase = () => {
   }, [nfts, filteredNFTs]);
 
   // Add NFT markers to card map
-  const addCardNFTMarkers = (forceCreation = false) => {
+  const addCardNFTMarkers = useCallback((forceCreation = false) => {
     console.log('🔍 addCardNFTMarkers called - DEBUGGING MARKER CREATION', { forceCreation });
     console.log('🔍 Map state:', { 
       hasMap: !!map.current, 
@@ -827,7 +827,7 @@ const PublicNFTShowcase = () => {
     console.log('✅ All card markers added successfully');
     
     console.log('All card markers added');
-  };
+  }, [nfts, isUserMovingMap, createSingleMarker]);
 
 
   // Handle dialog open
