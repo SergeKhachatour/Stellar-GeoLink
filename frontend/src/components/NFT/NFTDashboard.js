@@ -1282,9 +1282,9 @@ const NFTDashboard = () => {
         `;
         
         // Add collapsible functionality for Collections
-        const collectionsHeader = this._container.querySelector('#collections-header');
-        const collectionsContent = this._container.querySelector('#collections-content');
-        const collectionsToggle = this._container.querySelector('#collections-toggle');
+        const collectionsHeader = this._container.querySelector('[id="collections-header"]');
+        const collectionsContent = this._container.querySelector('[id="collections-content"]');
+        const collectionsToggle = this._container.querySelector('[id="collections-toggle"]');
         
         collectionsHeader.addEventListener('click', () => {
           const isVisible = collectionsContent.style.display !== 'none';
@@ -1375,9 +1375,9 @@ const NFTDashboard = () => {
         `;
         
         // Add collapsible functionality
-        const header = this._container.querySelector('#3d-controls-header');
-        const content = this._container.querySelector('#3d-controls-content');
-        const toggle = this._container.querySelector('#3d-controls-toggle');
+        const header = this._container.querySelector('[id="3d-controls-header"]');
+        const content = this._container.querySelector('[id="3d-controls-content"]');
+        const toggle = this._container.querySelector('[id="3d-controls-toggle"]');
         
         header.addEventListener('click', () => {
           const isVisible = content.style.display !== 'none';
