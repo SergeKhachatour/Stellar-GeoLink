@@ -156,6 +156,7 @@ const PublicNFTShowcase = () => {
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize card map (interactive)
@@ -249,6 +250,7 @@ const PublicNFTShowcase = () => {
       console.error('Card map initialization error:', err);
       setError('Failed to initialize card map.');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Initialize fullscreen map
@@ -363,6 +365,7 @@ const PublicNFTShowcase = () => {
       console.error('Fullscreen map initialization error:', err);
       setError('Failed to initialize fullscreen map.');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
