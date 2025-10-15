@@ -19,6 +19,7 @@ import WalletProviderDashboard from './components/WalletProviderDashboard';
 import NFTDashboard from './components/NFT/NFTDashboard';
 import EnhancedNFTDashboard from './components/NFT/EnhancedNFTDashboard';
 import Profile from './components/Profile';
+import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytics';
 
 function App() {
     return (
@@ -88,6 +89,14 @@ function App() {
                             element={
                                 <ProtectedRoute>
                                     <Profile />
+                                </ProtectedRoute>
+                            } 
+                        />
+                        <Route 
+                            path="/analytics" 
+                            element={
+                                <ProtectedRoute roles={['nft_manager', 'admin']}>
+                                    <NFTCollectionAnalytics />
                                 </ProtectedRoute>
                             } 
                         />

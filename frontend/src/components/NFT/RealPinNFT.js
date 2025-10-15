@@ -146,7 +146,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const fetchCollections = async () => {
     try {
       setLoadingCollections(true);
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api';
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
       console.log('🔍 Fetching collections from:', `${apiBaseURL}/nft/collections`);
       const response = await fetch(`${apiBaseURL}/nft/collections`, {
         headers: {
@@ -675,7 +675,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   // Create new collection
   const createNewCollection = async () => {
     try {
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api';
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
       console.log('🔍 Creating collection:', newCollectionForm);
       console.log('📡 API URL:', `${apiBaseURL}/nft/collections`);
       
@@ -710,7 +710,7 @@ const RealPinNFT = ({ onClose, onSuccess }) => {
   const addNFTToDatabase = async (nftData) => {
     try {
       // Use the configured API base URL
-      const apiBaseURL = process.env.REACT_APP_API_URL || 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api';
+      const apiBaseURL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
       const response = await fetch(`${apiBaseURL}/nft/pin`, {
         method: 'POST',
         headers: {

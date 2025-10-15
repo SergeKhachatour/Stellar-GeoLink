@@ -90,6 +90,11 @@ const Navbar = () => {
                                 <ListItemText primary="Admin" />
                             </ListItemButton>
                         )}
+                        {(user.role === 'nft_manager' || user.role === 'admin') && (
+                            <ListItemButton component={RouterLink} to="/analytics" onClick={handleDrawerToggle}>
+                                <ListItemText primary="📊 Analytics" />
+                            </ListItemButton>
+                        )}
                         <Divider />
                         <ListItem>
                             <ListItemText primary={user.email} secondary="Logged in" />
@@ -196,6 +201,16 @@ const Navbar = () => {
                                             size="small"
                                         >
                                             Admin
+                                        </Button>
+                                    )}
+                                    {(user.role === 'nft_manager' || user.role === 'admin') && (
+                                        <Button 
+                                            color="inherit" 
+                                            component={RouterLink} 
+                                            to="/analytics"
+                                            size="small"
+                                        >
+                                            📊 Analytics
                                         </Button>
                                     )}
                                     <IconButton

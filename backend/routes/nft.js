@@ -472,7 +472,14 @@ router.post('/collect', authenticateUser, async (req, res) => {
             return res.status(400).json({ error: error.message });
         }
 
-        const { nft_id, user_latitude, user_longitude } = req.body;
+        const { 
+            nft_id, 
+            user_latitude, 
+            user_longitude, 
+            blockchain_transaction_hash,
+            blockchain_ledger,
+            blockchain_network 
+        } = req.body;
 
         if (!nft_id || !user_latitude || !user_longitude) {
             return res.status(400).json({ error: 'Missing required fields' });
@@ -498,8 +505,10 @@ router.post('/collect', authenticateUser, async (req, res) => {
 
         if (!verification.isWithinRange) {
             return res.status(400).json({ 
-                error: 'Not within collection radius',
-                verification 
+                error: `You are ${Math.round(verification.distance)}m away from the NFT. You need to be within ${nft.radius_meters}m to collect it.`,
+                verification,
+                required_radius: nft.radius_meters,
+                current_distance: Math.round(verification.distance)
             });
         }
 
@@ -510,7 +519,12 @@ router.post('/collect', authenticateUser, async (req, res) => {
         `, [nft_id, userPublicKey]);
 
         if (existingCollection.rows.length > 0) {
-            return res.status(400).json({ error: 'NFT already collected' });
+            return res.status(400).json({ 
+                error: 'You already own this NFT',
+                nft_name: nft.name || 'Unknown NFT',
+                collection_name: nft.collection_name || 'Unknown Collection',
+                collected_at: existingCollection.rows[0].collected_at
+            });
         }
 
         // Add to user collection
@@ -521,12 +535,13 @@ router.post('/collect', authenticateUser, async (req, res) => {
             RETURNING *
         `, [userPublicKey, nft_id, userPublicKey]);
 
-        // Add transfer record
+        // Add transfer record with blockchain transaction details
         await pool.query(`
             INSERT INTO nft_transfers (
-                nft_id, from_user, to_user, transfer_type, transferred_at
-            ) VALUES ($1, NULL, $2, 'collect', NOW())
-        `, [nft_id, userPublicKey]);
+                nft_id, from_user, to_user, transfer_type, transferred_at,
+                transaction_hash, smart_contract_tx
+            ) VALUES ($1, NULL, $2, 'collect', NOW(), $3, $4)
+        `, [nft_id, userPublicKey, blockchain_transaction_hash, blockchain_ledger]);
 
         res.json({
             message: 'NFT collected successfully',
@@ -647,7 +662,14 @@ router.post('/transfer', authenticateUser, async (req, res) => {
             return res.status(400).json({ error: error.message });
         }
 
-        const { nft_id, to_user_public_key, transfer_type = 'transfer' } = req.body;
+        const { 
+            nft_id, 
+            to_user_public_key, 
+            transfer_type = 'transfer',
+            blockchain_transaction_hash,
+            blockchain_ledger,
+            blockchain_network 
+        } = req.body;
 
         if (!nft_id || !to_user_public_key) {
             return res.status(400).json({ error: 'NFT ID and recipient public key are required' });
@@ -665,19 +687,29 @@ router.post('/transfer', authenticateUser, async (req, res) => {
 
         const ownership = ownershipResult.rows[0];
 
-        // Update ownership
+        // Deactivate current ownership
         await pool.query(`
             UPDATE user_nft_ownership 
-            SET user_public_key = $1, current_owner = $1, transfer_count = transfer_count + 1, updated_at = NOW()
-            WHERE id = $2
-        `, [to_user_public_key, ownership.id]);
+            SET is_active = false, updated_at = NOW()
+            WHERE id = $1
+        `, [ownership.id]);
 
-        // Add transfer record
+        // Create new ownership record for recipient
+        const newOwnershipResult = await pool.query(`
+            INSERT INTO user_nft_ownership (
+                user_public_key, nft_id, current_owner, collected_at,
+                transfer_count
+            ) VALUES ($1, $2, $3, NOW(), $4)
+            RETURNING *
+        `, [to_user_public_key, nft_id, to_user_public_key, (ownership.transfer_count || 0) + 1]);
+
+        // Add transfer record with blockchain transaction details
         await pool.query(`
             INSERT INTO nft_transfers (
-                nft_id, from_user, to_user, transfer_type, transferred_at
-            ) VALUES ($1, $2, $3, $4, NOW())
-        `, [nft_id, userPublicKey, to_user_public_key, transfer_type]);
+                nft_id, from_user, to_user, transfer_type, transferred_at,
+                transaction_hash, smart_contract_tx
+            ) VALUES ($1, $2, $3, $4, NOW(), $5, $6)
+        `, [nft_id, userPublicKey, to_user_public_key, transfer_type, blockchain_transaction_hash, blockchain_ledger]);
 
         res.json({
             message: 'NFT transferred successfully',
@@ -685,8 +717,11 @@ router.post('/transfer', authenticateUser, async (req, res) => {
                 nft_id,
                 from_user: userPublicKey,
                 to_user: to_user_public_key,
-                transfer_type
-            }
+                transfer_type,
+                blockchain_transaction_hash,
+                blockchain_ledger
+            },
+            new_ownership: newOwnershipResult.rows[0]
         });
     } catch (error) {
         console.error('Error transferring NFT:', error);
@@ -881,6 +916,210 @@ router.get('/transfers', authenticateUser, async (req, res) => {
     } catch (error) {
         console.error('Error fetching transfer history:', error);
         res.status(500).json({ error: 'Failed to fetch transfer history' });
+    }
+});
+
+// Get NFT collection analytics
+router.get('/analytics', authenticateUser, async (req, res) => {
+    try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
+        // Collection statistics
+        const collectionStats = await pool.query(`
+            SELECT 
+                COUNT(*) as total_collected,
+                COUNT(DISTINCT pn.collection_id) as unique_collections,
+                COUNT(CASE WHEN nc.rarity_level = 'legendary' THEN 1 END) as legendary_count,
+                COUNT(CASE WHEN nc.rarity_level = 'rare' THEN 1 END) as rare_count,
+                COUNT(CASE WHEN nc.rarity_level = 'common' THEN 1 END) as common_count,
+                AVG(uno.transfer_count) as avg_transfer_count,
+                MAX(uno.collected_at) as last_collection_date
+            FROM user_nft_ownership uno
+            JOIN pinned_nfts pn ON uno.nft_id = pn.id
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE uno.user_public_key = $1 AND uno.is_active = true
+        `, [userPublicKey]);
+
+        // Collection timeline (last 30 days)
+        const timelineStats = await pool.query(`
+            SELECT 
+                DATE(uno.collected_at) as collection_date,
+                COUNT(*) as nfts_collected
+            FROM user_nft_ownership uno
+            WHERE uno.user_public_key = $1 
+                AND uno.is_active = true 
+                AND uno.collected_at >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(uno.collected_at)
+            ORDER BY collection_date DESC
+        `, [userPublicKey]);
+
+        // Rarity distribution
+        const rarityStats = await pool.query(`
+            SELECT 
+                nc.rarity_level,
+                COUNT(*) as count,
+                ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+            FROM user_nft_ownership uno
+            JOIN pinned_nfts pn ON uno.nft_id = pn.id
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE uno.user_public_key = $1 AND uno.is_active = true
+            GROUP BY nc.rarity_level
+            ORDER BY 
+                CASE nc.rarity_level 
+                    WHEN 'legendary' THEN 1 
+                    WHEN 'rare' THEN 2 
+                    WHEN 'common' THEN 3 
+                END
+        `, [userPublicKey]);
+
+        // Transfer history
+        const transferHistory = await pool.query(`
+            SELECT 
+                nt.*,
+                pn.latitude,
+                pn.longitude,
+                nc.name as collection_name,
+                nc.rarity_level
+            FROM nft_transfers nt
+            JOIN pinned_nfts pn ON nt.nft_id = pn.id
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE nt.from_user = $1 OR nt.to_user = $1
+            ORDER BY nt.transferred_at DESC
+            LIMIT 50
+        `, [userPublicKey]);
+
+        // Geographic distribution
+        const geoStats = await pool.query(`
+            SELECT 
+                ROUND(pn.latitude::numeric, 2) as lat_rounded,
+                ROUND(pn.longitude::numeric, 2) as lng_rounded,
+                COUNT(*) as nft_count,
+                STRING_AGG(DISTINCT nc.name, ', ') as collections
+            FROM user_nft_ownership uno
+            JOIN pinned_nfts pn ON uno.nft_id = pn.id
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE uno.user_public_key = $1 AND uno.is_active = true
+            GROUP BY ROUND(pn.latitude::numeric, 2), ROUND(pn.longitude::numeric, 2)
+            ORDER BY nft_count DESC
+            LIMIT 20
+        `, [userPublicKey]);
+
+        res.json({
+            collection_stats: collectionStats.rows[0],
+            timeline: timelineStats.rows,
+            rarity_distribution: rarityStats.rows,
+            transfer_history: transferHistory.rows,
+            geographic_distribution: geoStats.rows
+        });
+    } catch (error) {
+        console.error('Error fetching NFT analytics:', error);
+        res.status(500).json({ error: 'Failed to fetch analytics' });
+    }
+});
+
+// Get NFT collection reports
+router.get('/reports', authenticateUser, async (req, res) => {
+    try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
+        const { report_type = 'summary', start_date, end_date } = req.query;
+
+        let dateFilter = '';
+        let queryParams = [userPublicKey];
+        
+        if (start_date && end_date) {
+            dateFilter = 'AND uno.collected_at BETWEEN $2 AND $3';
+            queryParams.push(start_date, end_date);
+        }
+
+        switch (report_type) {
+            case 'summary':
+                const summaryReport = await pool.query(`
+                    SELECT 
+                        'Total NFTs Collected' as metric,
+                        COUNT(*) as value
+                    FROM user_nft_ownership uno
+                    WHERE uno.user_public_key = $1 AND uno.is_active = true ${dateFilter}
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        'Unique Collections' as metric,
+                        COUNT(DISTINCT pn.collection_id) as value
+                    FROM user_nft_ownership uno
+                    JOIN pinned_nfts pn ON uno.nft_id = pn.id
+                    WHERE uno.user_public_key = $1 AND uno.is_active = true ${dateFilter}
+                    
+                    UNION ALL
+                    
+                    SELECT 
+                        'Total Transfers' as metric,
+                        COUNT(*) as value
+                    FROM nft_transfers nt
+                    WHERE (nt.from_user = $1 OR nt.to_user = $1) ${dateFilter.replace('uno.collected_at', 'nt.transferred_at')}
+                `, queryParams);
+                
+                res.json({ report_type: 'summary', data: summaryReport.rows });
+                break;
+
+            case 'rarity_breakdown':
+                const rarityReport = await pool.query(`
+                    SELECT 
+                        COALESCE(nc.rarity_level, 'unknown') as rarity_level,
+                        COUNT(*) as count,
+                        ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
+                    FROM user_nft_ownership uno
+                    JOIN pinned_nfts pn ON uno.nft_id = pn.id
+                    LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+                    WHERE uno.user_public_key = $1 AND uno.is_active = true ${dateFilter}
+                    GROUP BY nc.rarity_level
+                    ORDER BY 
+                        CASE nc.rarity_level 
+                            WHEN 'legendary' THEN 1 
+                            WHEN 'rare' THEN 2 
+                            WHEN 'common' THEN 3 
+                            ELSE 4
+                        END
+                `, queryParams);
+                
+                res.json({ report_type: 'rarity_breakdown', data: rarityReport.rows });
+                break;
+
+            case 'transfer_activity':
+                const transferReport = await pool.query(`
+                    SELECT 
+                        DATE(nt.transferred_at) as transfer_date,
+                        COUNT(*) as transfers_count,
+                        COUNT(CASE WHEN nt.from_user = $1 THEN 1 END) as sent_count,
+                        COUNT(CASE WHEN nt.to_user = $1 THEN 1 END) as received_count
+                    FROM nft_transfers nt
+                    WHERE (nt.from_user = $1 OR nt.to_user = $1) ${dateFilter.replace('uno.collected_at', 'nt.transferred_at')}
+                    GROUP BY DATE(nt.transferred_at)
+                    ORDER BY transfer_date DESC
+                    LIMIT 30
+                `, queryParams);
+                
+                res.json({ report_type: 'transfer_activity', data: transferReport.rows });
+                break;
+
+            default:
+                res.status(400).json({ error: 'Invalid report type. Use: summary, rarity_breakdown, or transfer_activity' });
+        }
+    } catch (error) {
+        console.error('Error generating NFT report:', error);
+        res.status(500).json({ error: 'Failed to generate report' });
     }
 });
 

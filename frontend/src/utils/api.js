@@ -8,7 +8,7 @@ const getApiBaseURL = () => {
         return `${window.location.protocol}//${window.location.hostname}/api`;
     }
     // For local development
-    return process.env.REACT_APP_API_URL || 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api';
+    return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 };
 
 const api = axios.create({

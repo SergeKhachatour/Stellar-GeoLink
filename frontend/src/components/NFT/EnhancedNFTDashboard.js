@@ -1585,11 +1585,16 @@ const EnhancedNFTDashboard = () => {
     }
 
     console.log('Initializing map for', mapType, 'with container:', container);
+    console.log('Mapbox token check:', process.env.REACT_APP_MAPBOX_TOKEN ? 'Token exists' : 'No token found');
+    console.log('Token value:', process.env.REACT_APP_MAPBOX_TOKEN ? process.env.REACT_APP_MAPBOX_TOKEN.substring(0, 10) + '...' : 'undefined');
 
     if (!process.env.REACT_APP_MAPBOX_TOKEN) {
+      console.error('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
       setError('Mapbox token not configured. Please set REACT_APP_MAPBOX_TOKEN in your .env file.');
       return;
     }
+
+    console.log('Mapbox token found, initializing map...');
 
     // Start with globe view (zoom level 1) and animate to user location
     const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0]; // Center of globe
@@ -2152,13 +2157,18 @@ const EnhancedNFTDashboard = () => {
         // Check if container exists and is visible
         if (overlayMapContainer.current && overlayMapContainer.current.offsetParent !== null && !overlayMap.current) {
           console.log('Container found and visible, initializing map...');
-          initializeMap(overlayMapContainer.current, 'overlay');
-        } else if (attempt < 3) {
+          try {
+            initializeMap(overlayMapContainer.current, 'overlay');
+          } catch (error) {
+            console.error('Map initialization failed:', error);
+            setError('Failed to initialize map. Please check your Mapbox token.');
+          }
+        } else if (attempt < 5) {
           console.log(`Container not ready, retrying in ${attempt * 300}ms...`);
           setTimeout(() => attemptInitialization(attempt + 1), attempt * 300);
         } else {
-          console.warn('Overlay map initialization skipped - container not ready');
-          // Don't show error, just skip the map initialization
+          console.warn('Overlay map initialization failed after 5 attempts - container not ready');
+          setError('Map failed to load. Please refresh the page and try again.');
         }
       };
       
