@@ -612,7 +612,7 @@ router.get('/wallet-locations', authenticateAdmin, async (req, res) => {
                 wp.name as provider_name,
                 wt.name as wallet_type
             FROM wallet_locations wl
-            JOIN wallet_providers wp ON wp.id = wl.provider_id
+            JOIN wallet_providers wp ON wp.id = wl.wallet_provider_id
             JOIN wallet_types wt ON wt.id = wl.wallet_type_id
             WHERE wl.location_enabled = true
         `);
@@ -620,6 +620,367 @@ router.get('/wallet-locations', authenticateAdmin, async (req, res) => {
     } catch (error) {
         console.error('Error fetching wallet locations:', error);
         res.status(500).json({ error: 'Failed to fetch wallet locations' });
+    }
+});
+
+/**
+ * @swagger
+ * /api/admin/market-analysis:
+ *   get:
+ *     summary: Get comprehensive market analysis for admin
+ *     description: Provides detailed market analysis including NFT data for admin dashboard
+ *     tags: [Admin]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 30
+ *         description: Analysis period in days
+ *     responses:
+ *       200:
+ *         description: Market analysis completed
+ */
+router.get('/market-analysis', authenticateAdmin, async (req, res) => {
+    try {
+        const { days = 30 } = req.query;
+        
+        console.log('📊 Fetching comprehensive market analysis for admin...');
+        console.log('📊 Analysis period:', days, 'days');
+        console.log('📊 User ID:', req.user.id);
+        
+        // Get global statistics
+        const globalStats = await pool.query(`
+            SELECT 
+                COUNT(*) as total_locations,
+                COUNT(DISTINCT public_key) as unique_wallets,
+                COUNT(DISTINCT wallet_provider_id) as active_providers,
+                COUNT(DISTINCT wallet_provider_id) as total_providers
+            FROM wallet_locations
+            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+            AND last_updated > NOW() - INTERVAL '${parseInt(days)} days'
+        `);
+        
+        // Get NFT market overview
+        const nftMarketOverview = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT pn.id) as total_nfts,
+                COUNT(DISTINCT pn.collection_id) as total_collections,
+                COUNT(DISTINCT pn.pinned_by_user) as unique_nft_managers,
+                COUNT(CASE WHEN pn.is_active = true THEN 1 END) as active_nfts,
+                COUNT(CASE WHEN pn.created_at > NOW() - INTERVAL '${parseInt(days)} days' THEN 1 END) as recent_nfts,
+                AVG(pn.radius_meters) as avg_radius
+            FROM pinned_nfts pn
+            WHERE pn.created_at > NOW() - INTERVAL '${parseInt(days)} days'
+        `);
+        
+        // Get provider market share
+        const providerMarketShare = await pool.query(`
+            SELECT 
+                wp.id as provider_id,
+                u.email as provider_name,
+                COUNT(wl.id) as location_count,
+                COUNT(DISTINCT wl.public_key) as unique_wallets,
+                COUNT(CASE WHEN wl.latitude IS NOT NULL AND wl.longitude IS NOT NULL THEN 1 END) as coverage_area,
+                MAX(wl.last_updated) as last_activity
+            FROM wallet_providers wp
+            JOIN users u ON u.id = wp.user_id
+            LEFT JOIN wallet_locations wl ON wl.wallet_provider_id = wp.id 
+                AND wl.latitude IS NOT NULL AND wl.longitude IS NOT NULL
+                AND wl.last_updated > NOW() - INTERVAL '${parseInt(days)} days'
+            WHERE wp.status = true
+            GROUP BY wp.id, u.email
+            ORDER BY location_count DESC
+            LIMIT 10
+        `);
+        
+        // Get NFT collection performance
+        const nftCollectionPerformance = await pool.query(`
+            SELECT 
+                nc.id as collection_id,
+                nc.name as collection_name,
+                nc.description,
+                COUNT(pn.id) as nft_count,
+                COUNT(CASE WHEN pn.is_active = true THEN 1 END) as active_nfts,
+                AVG(pn.radius_meters) as avg_radius,
+                MIN(pn.created_at) as first_nft,
+                MAX(pn.created_at) as latest_nft,
+                COUNT(DISTINCT pn.pinned_by_user) as unique_managers
+            FROM nft_collections nc
+            LEFT JOIN pinned_nfts pn ON pn.collection_id = nc.id
+            WHERE pn.created_at > NOW() - INTERVAL '${parseInt(days)} days'
+            GROUP BY nc.id, nc.name, nc.description
+            ORDER BY nft_count DESC
+            LIMIT 15
+        `);
+        
+        // Get NFT rarity distribution
+        const nftRarityDistribution = await pool.query(`
+            SELECT 
+                pn.rarity_requirements->>'rarity_level' as rarity_level,
+                COUNT(*) as count,
+                CAST((COUNT(*)::FLOAT / (SELECT COUNT(*) FROM pinned_nfts WHERE created_at > NOW() - INTERVAL '${parseInt(days)} days')) * 100 AS DECIMAL(10,2)) as percentage
+            FROM pinned_nfts pn
+            WHERE pn.created_at > NOW() - INTERVAL '${parseInt(days)} days'
+            AND pn.rarity_requirements->>'rarity_level' IS NOT NULL
+            GROUP BY pn.rarity_requirements->>'rarity_level'
+            ORDER BY count DESC
+        `);
+        
+        // Get growth trends
+        const growthTrends = await pool.query(`
+            SELECT 
+                DATE_TRUNC('day', last_updated) as date,
+                COUNT(*) as daily_locations,
+                COUNT(DISTINCT public_key) as daily_unique_wallets
+            FROM wallet_locations
+            WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+            AND last_updated > NOW() - INTERVAL '${parseInt(days)} days'
+            GROUP BY DATE_TRUNC('day', last_updated)
+            ORDER BY date DESC
+            LIMIT 30
+        `);
+        
+        // Get NFT activity trends
+        const nftActivityTrends = await pool.query(`
+            SELECT 
+                DATE_TRUNC('day', pn.created_at) as date,
+                COUNT(*) as daily_nfts,
+                COUNT(DISTINCT pn.collection_id) as daily_collections,
+                COUNT(DISTINCT pn.pinned_by_user) as daily_managers
+            FROM pinned_nfts pn
+            WHERE pn.created_at > NOW() - INTERVAL '${parseInt(days)} days'
+            GROUP BY DATE_TRUNC('day', pn.created_at)
+            ORDER BY date DESC
+            LIMIT 30
+        `);
+        
+        // Calculate market share percentages
+        const totalLocations = parseInt(globalStats.rows[0]?.total_locations || 0);
+        const providerData = providerMarketShare.rows.map(provider => ({
+            ...provider,
+            market_share_percent: totalLocations > 0 ? 
+                ((parseInt(provider.location_count) / totalLocations) * 100).toFixed(2) : '0.00'
+        }));
+        
+        console.log('✅ Admin market analysis completed successfully');
+        
+        res.json({
+            global_statistics: {
+                total_locations: totalLocations,
+                unique_wallets: parseInt(globalStats.rows[0]?.unique_wallets || 0),
+                active_providers: parseInt(globalStats.rows[0]?.active_providers || 0),
+                total_providers: parseInt(globalStats.rows[0]?.total_providers || 0)
+            },
+            nft_market_overview: {
+                total_nfts: parseInt(nftMarketOverview.rows[0]?.total_nfts || 0),
+                total_collections: parseInt(nftMarketOverview.rows[0]?.total_collections || 0),
+                unique_nft_managers: parseInt(nftMarketOverview.rows[0]?.unique_nft_managers || 0),
+                active_nfts: parseInt(nftMarketOverview.rows[0]?.active_nfts || 0),
+                recent_nfts: parseInt(nftMarketOverview.rows[0]?.recent_nfts || 0),
+                avg_radius: parseFloat(nftMarketOverview.rows[0]?.avg_radius || 0)
+            },
+            provider_market_share: providerData,
+            nft_collection_performance: nftCollectionPerformance.rows,
+            nft_rarity_distribution: nftRarityDistribution.rows,
+            growth_trends: growthTrends.rows,
+            nft_activity_trends: nftActivityTrends.rows,
+            analysis_period_days: parseInt(days)
+        });
+        
+    } catch (error) {
+        console.error('❌ Error getting admin market analysis:', error);
+        res.status(500).json({ 
+            error: 'Internal server error',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
+
+// Get detailed wallet providers data
+router.get('/wallet-providers-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
+
+        const query = `
+            SELECT 
+                wp.id,
+                wp.name,
+                u.email as contact_email,
+                wp.api_key_id,
+                wp.created_at,
+                COUNT(wl.id) as location_count
+            FROM wallet_providers wp
+            LEFT JOIN users u ON wp.user_id = u.id
+            LEFT JOIN wallet_locations wl ON wp.id = wl.wallet_provider_id
+            GROUP BY wp.id, wp.name, u.email, wp.api_key_id, wp.created_at
+            ORDER BY wp.created_at DESC
+            LIMIT $1 OFFSET $2
+        `;
+
+        const result = await pool.query(query, [limit, offset]);
+        
+        // Get total count
+        const countQuery = 'SELECT COUNT(*) FROM wallet_providers';
+        const countResult = await pool.query(countQuery);
+        const total = parseInt(countResult.rows[0].count);
+
+        res.json({
+            data: result.rows,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching wallet providers details:', error);
+        res.status(500).json({ error: 'Failed to fetch wallet providers details' });
+    }
+});
+
+// Get detailed users data
+router.get('/users-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
+
+        const query = `
+            SELECT 
+                id,
+                email,
+                first_name,
+                last_name,
+                role,
+                created_at,
+                updated_at,
+                last_login,
+                organization
+            FROM users
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+        `;
+
+        const result = await pool.query(query, [limit, offset]);
+        
+        // Get total count
+        const countQuery = 'SELECT COUNT(*) FROM users';
+        const countResult = await pool.query(countQuery);
+        const total = parseInt(countResult.rows[0].count);
+
+        res.json({
+            data: result.rows,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching users details:', error);
+        res.status(500).json({ error: 'Failed to fetch users details' });
+    }
+});
+
+// Get detailed API calls data
+router.get('/api-calls-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
+
+        const query = `
+            SELECT 
+                aul.id,
+                aul.endpoint,
+                aul.method,
+                aul.status_code,
+                aul.response_time,
+                aul.created_at,
+                aul.ip_address,
+                aul.user_agent,
+                aul.wallet_provider_id,
+                aul.data_consumer_id,
+                wp.name as provider_name,
+                dc.email as consumer_email
+            FROM api_usage_logs aul
+            LEFT JOIN wallet_providers wp ON aul.wallet_provider_id = wp.id
+            LEFT JOIN data_consumers dc ON aul.data_consumer_id = dc.id
+            ORDER BY aul.created_at DESC
+            LIMIT $1 OFFSET $2
+        `;
+
+        const result = await pool.query(query, [limit, offset]);
+        
+        // Get total count
+        const countQuery = 'SELECT COUNT(*) FROM api_usage_logs';
+        const countResult = await pool.query(countQuery);
+        const total = parseInt(countResult.rows[0].count);
+
+        res.json({
+            data: result.rows,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching API calls details:', error);
+        res.status(500).json({ error: 'Failed to fetch API calls details' });
+    }
+});
+
+// Get detailed locations data
+router.get('/locations-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const offset = (page - 1) * limit;
+
+        const query = `
+            SELECT 
+                wl.id,
+                wl.public_key,
+                wl.latitude,
+                wl.longitude,
+                wl.description,
+                wl.location_enabled,
+                wl.last_updated,
+                wl.created_at,
+                wp.name as provider_name,
+                wt.name as wallet_type,
+                wl.tracking_status
+            FROM wallet_locations wl
+            LEFT JOIN wallet_providers wp ON wl.wallet_provider_id = wp.id
+            LEFT JOIN wallet_types wt ON wl.wallet_type_id = wt.id
+            ORDER BY wl.created_at DESC
+            LIMIT $1 OFFSET $2
+        `;
+
+        const result = await pool.query(query, [limit, offset]);
+        
+        // Get total count
+        const countQuery = 'SELECT COUNT(*) FROM wallet_locations';
+        const countResult = await pool.query(countQuery);
+        const total = parseInt(countResult.rows[0].count);
+
+        res.json({
+            data: result.rows,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching locations details:', error);
+        res.status(500).json({ error: 'Failed to fetch locations details' });
     }
 });
 

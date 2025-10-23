@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 // Database configuration using environment variables
 const poolConfig = {
   host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
+  port: parseInt(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME || 'GeoLink',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,

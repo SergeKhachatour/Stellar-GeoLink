@@ -95,6 +95,7 @@ const PublicNFTShowcase = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredNFTs, setFilteredNFTs] = useState([]);
   const [selectedNFT, setSelectedNFT] = useState(null);
+  const [fetchInProgress, setFetchInProgress] = useState(false);
   const [nftDetailsOpen, setNftDetailsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -110,22 +111,22 @@ const PublicNFTShowcase = () => {
 
   // Fetch all public NFTs using the same approach as NFT Dashboard
   const fetchPublicNFTs = useCallback(async () => {
+    if (fetchInProgress) {
+      console.log('Fetch already in progress, skipping...');
+      return;
+    }
+    
     try {
+      setFetchInProgress(true);
       setLoading(true);
       setError('');
       
-      // Use the same endpoint as NFT Dashboard but with a default location (center of globe)
-      const response = await api.get('/nft/nearby', {
-        params: {
-          latitude: 0, // Center of globe
-          longitude: 0, // Center of globe
-          radius: 999999999 // Very large radius to get ALL NFTs globally
-        }
-      });
+      // Use the public endpoint that doesn't require authentication
+      const response = await api.get('/nft/public');
       
       console.log('Public NFTs API response:', response.data);
       
-      // Process the NFTs to add full IPFS URLs (same as NFT Dashboard)
+      // Process the NFTs to add full IPFS URLs
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
         full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
@@ -155,9 +156,9 @@ const PublicNFTShowcase = () => {
       setError('Failed to load NFT locations. Please try again.');
     } finally {
       setLoading(false);
+      setFetchInProgress(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchInProgress]);
 
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {
@@ -1011,7 +1012,7 @@ const PublicNFTShowcase = () => {
     };
     
     initializeAndFetch();
-  }, [fetchPublicNFTs, initializeCardMap]);
+  }, []); // Remove dependencies to prevent infinite loop
 
   // Initialize fullscreen map when dialog opens
   useEffect(() => {
@@ -1020,7 +1021,7 @@ const PublicNFTShowcase = () => {
         initializeFullscreenMap();
       }, 100);
     }
-  }, [open, initializeFullscreenMap]);
+  }, [open]); // Remove initializeFullscreenMap dependency
 
   // Add markers to fullscreen map when it's ready and dialog is open
   useEffect(() => {
@@ -1076,7 +1077,7 @@ const PublicNFTShowcase = () => {
       console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
-  }, [nfts, createMarkersDirectly, createFullscreenMarkersDirectly]);
+  }, [nfts.length]); // Only depend on nfts.length to prevent infinite loops
 
   // Add markers when map becomes available and NFTs exist
   useEffect(() => {
@@ -1095,7 +1096,7 @@ const PublicNFTShowcase = () => {
       console.log('✅ Map availability: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
-  }, [nfts.length, createMarkersDirectly, createFullscreenMarkersDirectly]);
+  }, [nfts.length]); // Only depend on nfts.length to prevent infinite loops
 
   // Update fullscreen markers when search results change
   useEffect(() => {

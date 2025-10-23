@@ -72,6 +72,9 @@ const Navbar = () => {
                         <ListItemButton component={RouterLink} to="/features" onClick={handleDrawerToggle}>
                             <ListItemText primary="Features" />
                         </ListItemButton>
+                        <ListItemButton component={RouterLink} to="/api-docs" onClick={handleDrawerToggle}>
+                            <ListItemText primary="📚 API Documentation" />
+                        </ListItemButton>
                         <ListItemButton component={RouterLink} to="/register" onClick={handleDrawerToggle}>
                             <ListItemText primary="Sign Up" />
                         </ListItemButton>
@@ -161,6 +164,14 @@ const Navbar = () => {
                                         size="small"
                                     >
                                         Features
+                                    </Button>
+                                    <Button 
+                                        color="inherit" 
+                                        component={RouterLink} 
+                                        to="/api-docs"
+                                        size="small"
+                                    >
+                                        📚 API Docs
                                     </Button>
                                     <Button 
                                         color="inherit" 

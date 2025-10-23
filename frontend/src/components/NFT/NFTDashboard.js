@@ -298,7 +298,7 @@ const NFTDashboard = () => {
     setMapLoading(true);
     try {
       console.log('Fetching ALL NFTs globally with location:', userLocation);
-      const response = await api.get('/nft/nearby', {
+      const response = await api.get('/nft/dashboard/nearby', {
         params: {
           latitude: userLocation.latitude,
           longitude: userLocation.longitude,
@@ -350,7 +350,7 @@ const NFTDashboard = () => {
     setError('');
     try {
       console.log('Fetching ALL NFTs globally with provided location:', location);
-      const response = await api.get('/nft/nearby', {
+      const response = await api.get('/nft/dashboard/nearby', {
         params: {
           latitude: location.latitude,
           longitude: location.longitude,

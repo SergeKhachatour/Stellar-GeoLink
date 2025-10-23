@@ -87,6 +87,16 @@ api.interceptors.response.use(
         });
         
         if (error.response?.status === 401) {
+            // Prevent infinite loops by checking if this is already a refresh request
+            if (error.config.url?.includes('/auth/refresh-token')) {
+                // This is a refresh token request that failed, don't try to refresh again
+                localStorage.removeItem('token');
+                localStorage.removeItem('refreshToken');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+                return Promise.reject(error);
+            }
+            
             // Try to refresh the token
             const refreshToken = localStorage.getItem('refreshToken');
             if (refreshToken) {
@@ -121,7 +131,7 @@ export const authApi = {
     register: (userData) => api.post('/auth/register', userData),
     verifyToken: () => api.get('/auth/verify'),
     logout: () => api.post('/auth/logout'),
-    refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken })
+    refresh: (refreshToken) => api.post('/auth/refresh-token', { refreshToken })
 };
 
 export const locationApi = {

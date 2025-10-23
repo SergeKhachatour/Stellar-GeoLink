@@ -10,21 +10,40 @@ import {
     CardContent,
     Grid,
     IconButton,
-    Tooltip
+    Tooltip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Paper
 } from '@mui/material';
-import { DataUsage, Key, ContentCopy } from '@mui/icons-material';
+import { DataUsage, Key, ContentCopy, Close as CloseIcon } from '@mui/icons-material';
 import api from '../utils/api';
-import ApiKeyRequestForm from './ApiKeyRequestForm';
+import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
+import SharedMap from './SharedMap';
 import { Link } from 'react-router-dom';
 
 const DataConsumerDashboard = () => {
     const [apiKey, setApiKey] = useState(null);
     const [apiUsage, setApiUsage] = useState(null);
     const [, setRequestHistory] = useState([]);
+    const [marketAnalysis, setMarketAnalysis] = useState(null);
+    const [walletLocations, setWalletLocations] = useState([]);
+    const [nfts, setNfts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [requestFormOpen, setRequestFormOpen] = useState(false);
+    const [selectedNFT, setSelectedNFT] = useState(null);
+    const [openNFTDialog, setOpenNFTDialog] = useState(false);
+    const [zoomTarget, setZoomTarget] = useState(null);
+    const [selectedAnalytics, setSelectedAnalytics] = useState(null);
+    const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
 
     useEffect(() => {
         fetchDashboardData();
@@ -32,19 +51,75 @@ const DataConsumerDashboard = () => {
 
     const fetchDashboardData = async () => {
         try {
-            const [keyRes, usageRes, historyRes] = await Promise.all([
+            setLoading(true);
+            setError('');
+            
+            // Fetch basic data first
+            const [keyRes, usageRes, historyRes, locationsRes, nftsRes] = await Promise.all([
                 api.get('/user/api-keys'),
                 api.get('/user/api-usage'),
-                api.get('/user/api-key-requests')
+                api.get('/user/api-key-requests'),
+                api.get('/location/dashboard/wallet-locations'),
+                api.get('/nft/public')
             ]);
             
             setApiKey(keyRes.data[0] || null);
             setApiUsage(usageRes.data);
             setRequestHistory(historyRes.data);
+            setWalletLocations(locationsRes.data);
+            setNfts(nftsRes.data.nfts || []);
+            
+            // Try to fetch market analysis separately
+            try {
+                const marketRes = await api.get('/data-consumer/market-analysis');
+                setMarketAnalysis(marketRes.data);
+            } catch (marketErr) {
+                console.warn('Market analysis not available:', marketErr);
+                setMarketAnalysis(null);
+            }
+            
         } catch (err) {
+            console.error('Failed to load dashboard data:', err);
             setError('Failed to load dashboard data');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleNFTDetails = (nft) => {
+        setSelectedNFT(nft);
+        setOpenNFTDialog(true);
+    };
+
+    // Analytics details handler
+    const handleAnalyticsClick = async (analyticsData, title, page = 1) => {
+        setSelectedAnalytics({ data: analyticsData, title, loading: true });
+        setOpenAnalyticsDialog(true);
+        
+        try {
+            let endpoint = '';
+            if (title.includes('Total Wallets') || title.includes('Unique Wallets')) {
+                endpoint = '/data-consumer/wallet-locations-details';
+            } else if (title.includes('Active Providers')) {
+                endpoint = '/data-consumer/wallet-providers-details';
+            } else if (title.includes('Total Locations')) {
+                endpoint = '/data-consumer/locations-details';
+            }
+            
+            if (endpoint) {
+                const response = await api.get(`${endpoint}?page=${page}&limit=10`);
+                setSelectedAnalytics({ 
+                    data: response.data.data, 
+                    pagination: response.data.pagination,
+                    title, 
+                    loading: false 
+                });
+            } else {
+                setSelectedAnalytics({ data: analyticsData, title, loading: false });
+            }
+        } catch (error) {
+            console.error('Error fetching detailed data:', error);
+            setSelectedAnalytics({ data: analyticsData, title, loading: false, error: 'Failed to load detailed data' });
         }
     };
 
@@ -178,6 +253,193 @@ const DataConsumerDashboard = () => {
                         </CardContent>
                     </Card>
                 </Grid>
+
+                {/* Market Analysis Section */}
+                <Grid item xs={12}>
+                    <Typography variant="h5" gutterBottom sx={{ mt: 3, mb: 2 }}>
+                        📊 Market Analysis
+                    </Typography>
+                </Grid>
+                
+                {marketAnalysis ? (
+                    <>
+                        <Grid item xs={12} md={3}>
+                            <Card 
+                                sx={{ cursor: 'pointer', '&:hover': { boxShadow: 3 } }}
+                                onClick={() => handleAnalyticsClick(marketAnalysis.global_statistics, 'Total Wallets Details')}
+                            >
+                                <CardContent>
+                                    <Typography variant="h6" color="primary">Total Wallets</Typography>
+                                    <Typography variant="h4">{marketAnalysis.global_statistics?.unique_wallets || 0}</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        
+                        <Grid item xs={12} md={3}>
+                            <Card 
+                                sx={{ cursor: 'pointer', '&:hover': { boxShadow: 3 } }}
+                                onClick={() => handleAnalyticsClick(marketAnalysis.global_statistics, 'Active Providers Details')}
+                            >
+                                <CardContent>
+                                    <Typography variant="h6" color="secondary">Active Providers</Typography>
+                                    <Typography variant="h4">{marketAnalysis.global_statistics?.active_providers || 0}</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        
+                        <Grid item xs={12} md={3}>
+                            <Card 
+                                sx={{ cursor: 'pointer', '&:hover': { boxShadow: 3 } }}
+                                onClick={() => handleAnalyticsClick(marketAnalysis.global_statistics, 'Total Locations Details')}
+                            >
+                                <CardContent>
+                                    <Typography variant="h6" color="success.main">Total Locations</Typography>
+                                    <Typography variant="h4">{marketAnalysis.global_statistics?.total_locations || 0}</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        
+                        <Grid item xs={12} md={3}>
+                            <Card 
+                                sx={{ cursor: 'pointer', '&:hover': { boxShadow: 3 } }}
+                                onClick={() => handleAnalyticsClick(marketAnalysis, 'Analysis Period Details')}
+                            >
+                                <CardContent>
+                                    <Typography variant="h6" color="info.main">Analysis Period</Typography>
+                                    <Typography variant="h4">{marketAnalysis.analysis_period_days || 30} days</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        
+                        {/* NFT Market Data */}
+                        {marketAnalysis.nft_market_data && (
+                            <>
+                                <Grid item xs={12} md={3}>
+                                    <Card 
+                                        sx={{ 
+                                            bgcolor: 'primary.light', 
+                                            color: 'primary.contrastText',
+                                            cursor: 'pointer', 
+                                            '&:hover': { boxShadow: 3 } 
+                                        }}
+                                        onClick={() => handleAnalyticsClick(marketAnalysis.nft_market_data, 'Total NFTs Details')}
+                                    >
+                                        <CardContent>
+                                            <Typography variant="h6">Total NFTs</Typography>
+                                            <Typography variant="h4">{marketAnalysis.nft_market_data.total_nfts || 0}</Typography>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                                
+                                <Grid item xs={12} md={3}>
+                                    <Card 
+                                        sx={{ 
+                                            bgcolor: 'primary.light', 
+                                            color: 'primary.contrastText',
+                                            cursor: 'pointer', 
+                                            '&:hover': { boxShadow: 3 } 
+                                        }}
+                                        onClick={() => handleAnalyticsClick(marketAnalysis.nft_market_data, 'Collections Details')}
+                                    >
+                                        <CardContent>
+                                            <Typography variant="h6">Collections</Typography>
+                                            <Typography variant="h4">{marketAnalysis.nft_market_data.total_collections || 0}</Typography>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                                
+                                <Grid item xs={12} md={3}>
+                                    <Card 
+                                        sx={{ 
+                                            bgcolor: 'primary.light', 
+                                            color: 'primary.contrastText',
+                                            cursor: 'pointer', 
+                                            '&:hover': { boxShadow: 3 } 
+                                        }}
+                                        onClick={() => handleAnalyticsClick(marketAnalysis.nft_market_data, 'NFT Managers Details')}
+                                    >
+                                        <CardContent>
+                                            <Typography variant="h6">NFT Managers</Typography>
+                                            <Typography variant="h4">{marketAnalysis.nft_market_data.unique_nft_managers || 0}</Typography>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                                
+                                <Grid item xs={12} md={3}>
+                                    <Card 
+                                        sx={{ 
+                                            bgcolor: 'primary.light', 
+                                            color: 'primary.contrastText',
+                                            cursor: 'pointer', 
+                                            '&:hover': { boxShadow: 3 } 
+                                        }}
+                                        onClick={() => handleAnalyticsClick(marketAnalysis.nft_market_data, 'Active NFTs Details')}
+                                    >
+                                        <CardContent>
+                                            <Typography variant="h6">Active NFTs</Typography>
+                                            <Typography variant="h4">{marketAnalysis.nft_market_data.active_nfts || 0}</Typography>
+                                        </CardContent>
+                                    </Card>
+                                </Grid>
+                            </>
+                        )}
+                    </>
+                ) : (
+                    <Grid item xs={12}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="body1" color="textSecondary" align="center">
+                                    Market analysis data is not available at the moment. 
+                                    This feature requires location data to be available in the system.
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                )}
+
+                {/* Market Overview Map */}
+                <Grid item xs={12}>
+                    <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
+                        📍 Market Overview Map
+                    </Typography>
+                    <SharedMap 
+                        locations={[
+                            // Wallet locations
+                            ...walletLocations
+                                .filter(location => location.latitude && location.longitude && 
+                                    !isNaN(parseFloat(location.latitude)) && !isNaN(parseFloat(location.longitude)))
+                                .map(location => ({
+                                    latitude: parseFloat(location.latitude),
+                                    longitude: parseFloat(location.longitude),
+                                    public_key: location.public_key,
+                                    description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
+                                    type: 'wallet'
+                                })),
+                            // NFTs
+                            ...nfts
+                                .filter(nft => nft.latitude && nft.longitude && 
+                                    !isNaN(parseFloat(nft.latitude)) && !isNaN(parseFloat(nft.longitude)))
+                                .map(nft => ({
+                                    latitude: parseFloat(nft.latitude),
+                                    longitude: parseFloat(nft.longitude),
+                                    id: nft.id,
+                                    name: nft.name || 'NFT',
+                                    description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
+                                    type: 'nft',
+                                    image_url: nft.image_url,
+                                    ipfs_hash: nft.ipfs_hash,
+                                    server_url: nft.server_url,
+                                    full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+                                    collection: nft.collection
+                                }))
+                        ]}
+                        title="Market Overview - Wallets & NFTs"
+                        height="600px"
+                        showControls={true}
+                        onNFTDetails={handleNFTDetails}
+                        zoomTarget={zoomTarget}
+                    />
+                </Grid>
             </Grid>
 
             <ApiKeyRequestForm
@@ -185,6 +447,275 @@ const DataConsumerDashboard = () => {
                 onClose={() => setRequestFormOpen(false)}
                 onSuccess={fetchDashboardData}
             />
+
+            {/* NFT Details Dialog */}
+            <Dialog
+                open={openNFTDialog}
+                onClose={() => setOpenNFTDialog(false)}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogTitle>
+                    NFT Details
+                    <IconButton
+                        aria-label="close"
+                        onClick={() => setOpenNFTDialog(false)}
+                        sx={{ position: 'absolute', right: 8, top: 8 }}
+                    >
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent>
+                    {selectedNFT && (
+                        <Box>
+                            <Grid container spacing={3}>
+                                <Grid item xs={12} md={6}>
+                                    {selectedNFT.full_ipfs_url && (
+                                        <img
+                                            src={selectedNFT.full_ipfs_url}
+                                            alt={selectedNFT.name || 'NFT'}
+                                            style={{
+                                                width: '100%',
+                                                height: 'auto',
+                                                borderRadius: '8px',
+                                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                                            }}
+                                        />
+                                    )}
+                                </Grid>
+                                <Grid item xs={12} md={6}>
+                                    <Typography variant="h6" gutterBottom>
+                                        {selectedNFT.name || 'Unnamed NFT'}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                                        Collection: {selectedNFT.collection?.name || 'Unknown'}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                                        Location: {selectedNFT.latitude}, {selectedNFT.longitude}
+                                    </Typography>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        sx={{ mt: 1 }}
+                                        onClick={() => {
+                                            setZoomTarget({
+                                                latitude: parseFloat(selectedNFT.latitude),
+                                                longitude: parseFloat(selectedNFT.longitude)
+                                            });
+                                            setOpenNFTDialog(false);
+                                        }}
+                                    >
+                                        🔍 Zoom to Location
+                                    </Button>
+                                    {selectedNFT.description && (
+                                        <Typography variant="body2" sx={{ mt: 2 }}>
+                                            {selectedNFT.description}
+                                        </Typography>
+                                    )}
+                                </Grid>
+                            </Grid>
+                        </Box>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Analytics Details Dialog */}
+            <Dialog
+                open={openAnalyticsDialog}
+                onClose={() => setOpenAnalyticsDialog(false)}
+                maxWidth="lg"
+                fullWidth
+                fullScreen={window.innerWidth < 900}
+                sx={{
+                    '& .MuiDialog-paper': {
+                        margin: window.innerWidth < 900 ? 0 : '32px',
+                        maxHeight: window.innerWidth < 900 ? '100vh' : '90vh',
+                        width: window.innerWidth < 900 ? '100vw' : 'auto'
+                    }
+                }}
+            >
+                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {selectedAnalytics?.title || 'Analytics Details'}
+                    <IconButton onClick={() => setOpenAnalyticsDialog(false)}>
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent>
+                    {selectedAnalytics && (
+                        <Box>
+                            {selectedAnalytics.loading ? (
+                                <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                                    <CircularProgress />
+                                </Box>
+                            ) : selectedAnalytics.error ? (
+                                <Alert severity="error" sx={{ mt: 2 }}>
+                                    {selectedAnalytics.error}
+                                </Alert>
+                            ) : selectedAnalytics.pagination ? (
+                                // Show detailed data in table format
+                                <Box sx={{ mt: 2 }}>
+                                    {/* Mobile Card View */}
+                                    <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                                        {selectedAnalytics.data.map((row, index) => (
+                                            <Card key={index} sx={{ mb: 2, p: 2 }}>
+                                                {Object.entries(row).map(([key, value]) => (
+                                                    <Box key={key} sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', minWidth: '40%' }}>
+                                                            {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:
+                                                        </Typography>
+                                                        <Typography variant="body2" sx={{ textAlign: 'right', wordBreak: 'break-word', maxWidth: '60%' }}>
+                                                            {typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
+                                                             typeof value === 'number' ? value.toLocaleString() :
+                                                             value ? String(value) : '-'}
+                                                        </Typography>
+                                                    </Box>
+                                                ))}
+                                            </Card>
+                                        ))}
+                                    </Box>
+
+                                    {/* Desktop Table View */}
+                                    <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+                                        <TableContainer 
+                                            component={Paper} 
+                                            sx={{ 
+                                                maxHeight: 500,
+                                                overflow: 'auto',
+                                                '& .MuiTable-root': {
+                                                    minWidth: 800
+                                                }
+                                            }}
+                                        >
+                                            <Table stickyHeader size="small">
+                                                <TableHead>
+                                                    <TableRow>
+                                                        {selectedAnalytics.data.length > 0 && Object.keys(selectedAnalytics.data[0]).map((key) => (
+                                                            <TableCell 
+                                                                key={key}
+                                                                sx={{ 
+                                                                    fontWeight: 'bold',
+                                                                    backgroundColor: 'primary.main',
+                                                                    color: 'primary.contrastText',
+                                                                    minWidth: 100,
+                                                                    fontSize: '0.875rem',
+                                                                    padding: '8px 12px'
+                                                                }}
+                                                            >
+                                                                {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                            </TableCell>
+                                                        ))}
+                                                    </TableRow>
+                                                </TableHead>
+                                                <TableBody>
+                                                    {selectedAnalytics.data.map((row, index) => (
+                                                        <TableRow key={index} hover>
+                                                            {Object.values(row).map((value, cellIndex) => (
+                                                                <TableCell 
+                                                                    key={cellIndex}
+                                                                    sx={{ 
+                                                                        wordBreak: 'break-word',
+                                                                        maxWidth: 150,
+                                                                        overflow: 'hidden',
+                                                                        textOverflow: 'ellipsis',
+                                                                        fontSize: '0.875rem',
+                                                                        padding: '8px 12px'
+                                                                    }}
+                                                                    title={typeof value === 'string' && value.length > 20 ? String(value) : undefined}
+                                                                >
+                                                                    {typeof value === 'boolean' ? (value ? 'Yes' : 'No') :
+                                                                     typeof value === 'number' ? value.toLocaleString() :
+                                                                     value ? String(value) : '-'}
+                                                                </TableCell>
+                                                            ))}
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </TableContainer>
+                                    </Box>
+                                    
+                                    {/* Pagination controls */}
+                                    {selectedAnalytics.pagination && (
+                                        <Box sx={{ 
+                                            display: 'flex', 
+                                            flexDirection: { xs: 'column', sm: 'row' },
+                                            justifyContent: 'space-between', 
+                                            alignItems: 'center', 
+                                            mt: 2,
+                                            gap: 2,
+                                            p: { xs: 1, sm: 0 }
+                                        }}>
+                                            <Typography 
+                                                variant="body2" 
+                                                color="text.secondary" 
+                                                sx={{ 
+                                                    textAlign: { xs: 'center', sm: 'left' },
+                                                    fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                                                }}
+                                            >
+                                                Page {selectedAnalytics.pagination.page} of {selectedAnalytics.pagination.pages} 
+                                                ({selectedAnalytics.pagination.total} total items)
+                                            </Typography>
+                                            <Box sx={{ 
+                                                display: 'flex', 
+                                                gap: 1,
+                                                width: { xs: '100%', sm: 'auto' },
+                                                justifyContent: { xs: 'center', sm: 'flex-end' }
+                                            }}>
+                                                <Button 
+                                                    disabled={selectedAnalytics.pagination.page <= 1}
+                                                    onClick={() => handleAnalyticsClick(selectedAnalytics.data, selectedAnalytics.title, selectedAnalytics.pagination.page - 1)}
+                                                    size="small"
+                                                    variant="outlined"
+                                                    sx={{ 
+                                                        minWidth: { xs: '80px', sm: 'auto' },
+                                                        fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                                                    }}
+                                                >
+                                                    Previous
+                                                </Button>
+                                                <Button 
+                                                    disabled={selectedAnalytics.pagination.page >= selectedAnalytics.pagination.pages}
+                                                    onClick={() => handleAnalyticsClick(selectedAnalytics.data, selectedAnalytics.title, selectedAnalytics.pagination.page + 1)}
+                                                    size="small"
+                                                    variant="outlined"
+                                                    sx={{ 
+                                                        minWidth: { xs: '80px', sm: 'auto' },
+                                                        fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                                                    }}
+                                                >
+                                                    Next
+                                                </Button>
+                                            </Box>
+                                        </Box>
+                                    )}
+                                </Box>
+                            ) : (
+                                // Show summary data in card format
+                                <Box sx={{ mt: 2 }}>
+                                    <Grid container spacing={2}>
+                                        {Object.entries(selectedAnalytics.data).map(([key, value]) => (
+                                            <Grid item xs={12} sm={6} md={4} key={key}>
+                                                <Card sx={{ p: 2, height: '100%' }}>
+                                                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                                        {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                    </Typography>
+                                                    <Typography variant="h6" color="primary">
+                                                        {typeof value === 'number' ? value.toLocaleString() : 
+                                                         typeof value === 'object' && value !== null ? 
+                                                         (Array.isArray(value) ? `${value.length} items` : 'Object') :
+                                                         String(value || '-')}
+                                                    </Typography>
+                                                </Card>
+                                            </Grid>
+                                        ))}
+                                    </Grid>
+                                </Box>
+                            )}
+                        </Box>
+                    )}
+                </DialogContent>
+            </Dialog>
         </Container>
     );
 };

@@ -23,6 +23,12 @@ const options = {
                     in: 'header',
                     name: 'x-api-key',
                     description: 'API key for authentication'
+                },
+                BearerAuth: {
+                    type: 'http',
+                    scheme: 'bearer',
+                    bearerFormat: 'JWT',
+                    description: 'JWT token for authentication'
                 }
             }
         },

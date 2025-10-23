@@ -13,7 +13,7 @@ class MonitoringService {
             FROM wallet_locations wl
             JOIN wallet_providers wp ON wp.id = wl.wallet_provider_id
             WHERE 
-                wl.tracking_status = 'active'
+                wl.tracking_status = true
                 AND wl.last_updated < NOW() - INTERVAL '1 hour'
         `);
 

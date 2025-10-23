@@ -4,6 +4,52 @@ const pool = require('../config/database');
 const { verifyLocation } = require('../utils/locationUtils');
 const { authenticateUser } = require('../middleware/authUser');
 
+// API key authentication middleware for data consumers
+const authenticateApiKey = async (req, res, next) => {
+    const apiKey = req.header('X-API-Key');
+    
+    if (!apiKey) {
+        return res.status(401).json({ error: 'API key required' });
+    }
+
+    try {
+        // First check wallet_providers (using JOIN with api_keys table)
+        const providerResult = await pool.query(
+            `SELECT wp.id, wp.user_id FROM wallet_providers wp
+             JOIN api_keys ak ON ak.id = wp.api_key_id
+             WHERE ak.api_key = $1 AND wp.status = true`,
+            [apiKey]
+        );
+
+        if (providerResult.rows.length > 0) {
+            req.providerId = providerResult.rows[0].id;
+            req.userId = providerResult.rows[0].user_id;
+            req.userType = 'wallet_provider';
+            return next();
+        }
+
+        // Then check data_consumers (they use api_keys table directly)
+        const consumerResult = await pool.query(
+            `SELECT dc.id, ak.user_id FROM data_consumers dc
+             JOIN api_keys ak ON ak.user_id = dc.user_id
+             WHERE ak.api_key = $1 AND dc.status = true`,
+            [apiKey]
+        );
+
+        if (consumerResult.rows.length > 0) {
+            req.consumerId = consumerResult.rows[0].id;
+            req.userId = consumerResult.rows[0].user_id;
+            req.userType = 'data_consumer';
+            return next();
+        }
+
+        return res.status(401).json({ error: 'Invalid or inactive API key' });
+    } catch (error) {
+        console.error('API key authentication error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
 // Helper function to get user's public key from database
 const getUserPublicKey = async (userId) => {
     console.log('getUserPublicKey: Looking up user ID:', userId);
@@ -412,8 +458,162 @@ router.delete('/pinned/:id', authenticateUser, async (req, res) => {
     }
 });
 
-// Get nearby NFTs
-router.get('/nearby', authenticateUser, async (req, res) => {
+/**
+ * @swagger
+ * /api/nft/nearby:
+ *   get:
+ *     summary: Get nearby NFTs
+ *     description: Retrieve NFTs within a specified radius of given coordinates
+ *     tags: [NFT]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: latitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Latitude coordinate (-90 to 90)
+ *         example: 34.230478
+ *       - in: query
+ *         name: longitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Longitude coordinate (-180 to 180)
+ *         example: -118.2321694
+ *       - in: query
+ *         name: radius
+ *         required: false
+ *         schema:
+ *           type: integer
+ *           default: 1000
+ *         description: Search radius in meters
+ *         example: 20000000
+ *     responses:
+ *       200:
+ *         description: Nearby NFTs retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 nfts:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                         example: 1
+ *                       name:
+ *                         type: string
+ *                         example: "Stellar Location NFT"
+ *                       description:
+ *                         type: string
+ *                         example: "A unique NFT representing a location"
+ *                       latitude:
+ *                         type: number
+ *                         example: 34.230478
+ *                       longitude:
+ *                         type: number
+ *                         example: -118.2321694
+ *                       ipfs_hash:
+ *                         type: string
+ *                         example: "QmHash123..."
+ *                       collection:
+ *                         type: object
+ *                         properties:
+ *                           name:
+ *                             type: string
+ *                             example: "Location Collection"
+ *                           description:
+ *                             type: string
+ *                             example: "Collection of location NFTs"
+ *                           image_url:
+ *                             type: string
+ *                             example: "https://example.com/image.jpg"
+ *                           rarity_level:
+ *                             type: string
+ *                             example: "rare"
+ *                       distance:
+ *                         type: number
+ *                         example: 150.5
+ *                 count:
+ *                   type: integer
+ *                   example: 5
+ *                 search_center:
+ *                   type: object
+ *                   properties:
+ *                     latitude:
+ *                       type: number
+ *                       example: 34.230478
+ *                     longitude:
+ *                       type: number
+ *                       example: -118.2321694
+ *                 radius:
+ *                   type: integer
+ *                   example: 20000000
+ *       400:
+ *         description: Missing required parameters
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       500:
+ *         description: Internal server error
+ */
+// Get nearby NFTs (JWT authenticated for dashboard use)
+router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
+    try {
+        const { latitude, longitude, radius = 1000 } = req.query;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({ error: 'Latitude and longitude are required' });
+        }
+
+        // Get NFTs within radius using PostGIS if available, otherwise use simple distance calculation
+        const result = await pool.query(`
+            SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
+                   ST_Distance(
+                       ST_Point($2, $1)::geography,
+                       ST_Point(pn.longitude, pn.latitude)::geography
+                   ) as distance
+            FROM pinned_nfts pn
+            LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            WHERE pn.is_active = true
+            AND ST_DWithin(
+                ST_Point($2, $1)::geography,
+                ST_Point(pn.longitude, pn.latitude)::geography,
+                $3
+            )
+            ORDER BY distance ASC
+        `, [latitude, longitude, radius]);
+
+        const formattedNFTs = result.rows.map(nft => ({
+            ...nft,
+            collection: {
+                name: nft.collection_name,
+                description: nft.description,
+                image_url: nft.image_url,
+                rarity_level: nft.rarity_level
+            }
+        }));
+
+        res.json({
+            nfts: formattedNFTs,
+            count: formattedNFTs.length,
+            search_center: { latitude: parseFloat(latitude), longitude: parseFloat(longitude) },
+            radius: parseInt(radius)
+        });
+    } catch (error) {
+        console.error('Error fetching nearby NFTs:', error);
+        res.status(500).json({ error: 'Failed to fetch nearby NFTs' });
+    }
+});
+
+// Get nearby NFTs (API key authenticated for external consumers)
+router.get('/nearby', authenticateApiKey, async (req, res) => {
     try {
         const { latitude, longitude, radius = 1000 } = req.query;
 
@@ -1123,10 +1323,120 @@ router.get('/reports', authenticateUser, async (req, res) => {
     }
 });
 
+// Simple test endpoint to check database
+router.get('/test', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT COUNT(*) as count FROM pinned_nfts
+        `);
+        
+        // Check is_active values
+        const activeResult = await pool.query(`
+            SELECT is_active, COUNT(*) as count 
+            FROM pinned_nfts 
+            GROUP BY is_active
+        `);
+        
+        // Get sample data
+        const sampleResult = await pool.query(`
+            SELECT id, name, is_active, latitude, longitude 
+            FROM pinned_nfts 
+            LIMIT 3
+        `);
+        
+        res.json({ 
+            pinned_nfts_count: result.rows[0].count,
+            is_active_distribution: activeResult.rows,
+            sample_data: sampleResult.rows,
+            message: 'Database connection working'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Test endpoint to get NFTs without filters
+router.get('/test-nfts', async (req, res) => {
+    try {
+        console.log('🧪 TEST: Getting NFTs without filters...');
+        
+        const result = await pool.query(`
+            SELECT 
+                pn.id,
+                pn.name,
+                pn.description,
+                pn.latitude,
+                pn.longitude,
+                pn.radius_meters,
+                pn.image_url,
+                pn.ipfs_hash,
+                pn.created_at,
+                pn.is_active
+            FROM pinned_nfts pn
+            ORDER BY pn.created_at DESC
+        `);
+        
+        console.log('🧪 TEST: Found NFTs:', result.rows.length);
+        
+        res.json({
+            nfts: result.rows,
+            count: result.rows.length
+        });
+    } catch (error) {
+        console.error('🧪 TEST Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Debug endpoint to check database structure
+router.get('/debug', async (req, res) => {
+    try {
+        console.log('🔍 DEBUG: Checking database structure...');
+        
+        // Check all tables
+        const tablesResult = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name LIKE '%nft%'
+            ORDER BY table_name;
+        `);
+        
+        console.log('🔍 Available NFT tables:', tablesResult.rows);
+        
+        // Check each table for data
+        const results = {};
+        for (const table of tablesResult.rows) {
+            const tableName = table.table_name;
+            try {
+                const countResult = await pool.query(`SELECT COUNT(*) as count FROM ${tableName}`);
+                const sampleResult = await pool.query(`SELECT * FROM ${tableName} LIMIT 3`);
+                results[tableName] = {
+                    count: countResult.rows[0].count,
+                    sample: sampleResult.rows
+                };
+                console.log(`🔍 ${tableName}: ${countResult.rows[0].count} records`);
+            } catch (err) {
+                results[tableName] = { error: err.message };
+                console.log(`🔍 ${tableName}: ERROR - ${err.message}`);
+            }
+        }
+        
+        res.json({
+            tables: tablesResult.rows,
+            data: results
+        });
+    } catch (error) {
+        console.error('🔍 DEBUG Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Public endpoint to get all active NFTs (no authentication required)
 router.get('/public', async (req, res) => {
     try {
         console.log('🌍 GET /public - Fetching all public NFTs');
+        console.log('🌍 Public endpoint called at:', new Date().toISOString());
         
         // Check if NFT tables exist
         const tableCheck = await pool.query(`
@@ -1145,21 +1455,49 @@ router.get('/public', async (req, res) => {
             });
         }
         
+        // First, let's check if there are any NFTs at all (without filtering)
+        const allNFTsCheck = await pool.query(`
+            SELECT COUNT(*) as total_count FROM pinned_nfts
+        `);
+        console.log('📍 Total NFTs in database:', allNFTsCheck.rows[0].total_count);
+        
+        // Check if there are any NFTs at all
+        if (allNFTsCheck.rows[0].total_count == 0) {
+            console.log('📍 No NFTs found in pinned_nfts table');
+            
+            // Check if there are NFTs in user_nft_ownership table
+            const ownershipCheck = await pool.query(`
+                SELECT COUNT(*) as total_count FROM user_nft_ownership
+            `);
+            console.log('📍 NFTs in user_nft_ownership:', ownershipCheck.rows[0].total_count);
+            
+            return res.json({
+                nfts: [],
+                count: 0,
+                debug: 'No NFTs found in pinned_nfts table',
+                ownership_count: ownershipCheck.rows[0].total_count
+            });
+        }
+        
+        // Check is_active values
+        const activeCheck = await pool.query(`
+            SELECT is_active, COUNT(*) as count 
+            FROM pinned_nfts 
+            GROUP BY is_active
+        `);
+        console.log('📍 is_active distribution:', activeCheck.rows);
+        
+        // First, let's check what columns exist in pinned_nfts
+        const columnCheck = await pool.query(`
+            SELECT column_name, data_type 
+            FROM information_schema.columns 
+            WHERE table_name = 'pinned_nfts' 
+            ORDER BY ordinal_position
+        `);
+        console.log('📍 pinned_nfts columns:', columnCheck.rows);
+        
         const result = await pool.query(`
-            SELECT 
-                pn.id,
-                pn.name,
-                pn.description,
-                pn.latitude,
-                pn.longitude,
-                pn.radius_meters,
-                pn.image_url,
-                pn.ipfs_hash,
-                pn.created_at,
-                nc.name as collection_name,
-                nc.description as collection_description,
-                nc.image_url as collection_image_url,
-                nc.rarity_level
+            SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level
             FROM pinned_nfts pn
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
             WHERE pn.is_active = true
@@ -1167,21 +1505,43 @@ router.get('/public', async (req, res) => {
         `);
         
         console.log('📍 Found public NFTs:', result.rows.length);
+        console.log('📍 Raw NFT data:', result.rows.slice(0, 2));
         
-        const formattedNFTs = result.rows.map(nft => ({
-            id: nft.id,
-            name: nft.name,
-            description: nft.description,
-            latitude: parseFloat(nft.latitude),
-            longitude: parseFloat(nft.longitude),
-            radius_meters: nft.radius_meters,
-            image_url: nft.image_url,
-            ipfs_hash: nft.ipfs_hash,
-            created_at: nft.created_at,
+        // If no active NFTs found, try to get any NFTs (fallback)
+        let nftsToFormat = result.rows;
+        if (result.rows.length === 0) {
+            console.log('📍 No active NFTs found, trying fallback query...');
+            const fallbackResult = await pool.query(`
+                SELECT 
+                    pn.id,
+                    pn.name,
+                    pn.description,
+                    pn.latitude,
+                    pn.longitude,
+                    pn.radius_meters,
+                    pn.image_url,
+                    pn.ipfs_hash,
+                    pn.created_at,
+                    pn.is_active,
+                    nc.name as collection_name,
+                    nc.description as collection_description,
+                    nc.image_url as collection_image_url,
+                    nc.rarity_level
+                FROM pinned_nfts pn
+                LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+                ORDER BY pn.created_at DESC
+                LIMIT 10
+            `);
+            console.log('📍 Fallback query found:', fallbackResult.rows.length, 'NFTs');
+            nftsToFormat = fallbackResult.rows;
+        }
+        
+        const formattedNFTs = nftsToFormat.map(nft => ({
+            ...nft,
             collection: {
                 name: nft.collection_name,
-                description: nft.collection_description,
-                image_url: nft.collection_image_url,
+                description: nft.description,
+                image_url: nft.image_url,
                 rarity_level: nft.rarity_level
             }
         }));

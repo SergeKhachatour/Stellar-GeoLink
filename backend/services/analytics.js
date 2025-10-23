@@ -7,11 +7,11 @@ class AnalyticsService {
                 SELECT 
                     COUNT(DISTINCT public_key) as total_wallets,
                     COUNT(DISTINCT blockchain) as blockchain_count,
-                    COUNT(*) FILTER (WHERE tracking_status = 'active') as active_wallets,
+                    COUNT(*) FILTER (WHERE tracking_status = true) as active_wallets,
                     COUNT(*) FILTER (WHERE last_updated > NOW() - INTERVAL '24 hours') as updated_24h,
                     AVG(EXTRACT(EPOCH FROM (NOW() - last_updated))) as avg_update_age,
-                    COUNT(*) FILTER (WHERE tracking_status = 'paused') as paused_wallets,
-                    COUNT(*) FILTER (WHERE tracking_status = 'disabled') as disabled_wallets
+                    COUNT(*) FILTER (WHERE tracking_status = false) as paused_wallets,
+                    COUNT(*) FILTER (WHERE location_enabled = false) as disabled_wallets
                 FROM wallet_locations
                 WHERE wallet_provider_id = $1
             ),

@@ -368,7 +368,7 @@ const EnhancedNFTDashboard = () => {
     setMapLoading(true);
     try {
       console.log('Fetching ALL NFTs globally with location:', userLocation);
-      const response = await api.get('/nft/nearby', {
+      const response = await api.get('/nft/dashboard/nearby', {
         params: {
           latitude: userLocation.latitude,
           longitude: userLocation.longitude,
@@ -420,7 +420,7 @@ const EnhancedNFTDashboard = () => {
     setError('');
     try {
       console.log('Fetching ALL NFTs globally with provided location:', location);
-      const response = await api.get('/nft/nearby', {
+      const response = await api.get('/nft/dashboard/nearby', {
         params: {
           latitude: location.latitude,
           longitude: location.longitude,
@@ -1284,7 +1284,7 @@ const EnhancedNFTDashboard = () => {
       // Fetch filtered data from API
       console.log('🔍 Applying filters with params:', params);
       console.log('🔍 Filter state:', { selectedCollection, selectedRarity, radiusFilter });
-      const response = await api.get('/nft/nearby', { params });
+      const response = await api.get('/nft/dashboard/nearby', { params });
       console.log('🔍 Filter API response:', response.data);
       const filteredNFTs = response.data.nfts || [];
       console.log('🔍 Filtered NFTs count:', filteredNFTs.length);

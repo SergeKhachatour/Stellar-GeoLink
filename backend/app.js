@@ -1,8 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./config/swagger');
+const { swaggerUi, swaggerSpec, swaggerUiOptions } = require('./swagger-ui-config');
 const trackApiUsage = require('./middleware/apiTracking');
 const locationRoutes = require('./routes/location');
 const adminRoutes = require('./routes/admin');
@@ -15,6 +14,9 @@ const walletProviderRoutes = require('./routes/walletProvider');
 const nftRoutes = require('./routes/nft');
 const locationVerificationRoutes = require('./routes/locationVerification');
 const nftAnalyticsRoutes = require('./routes/nftAnalytics');
+const geospatialRoutes = require('./routes/geospatial');
+const adminGeospatialRoutes = require('./routes/adminGeospatial');
+const dataConsumerRoutes = require('./routes/dataConsumer');
 // const configRoutes = require('./routes/config');
 const { rateLimiter } = require('./middleware/rateLimiter');
 const { authenticateUser } = require('./middleware/authUser');
@@ -36,7 +38,7 @@ app.use(rateLimiter);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
 
 app.use('/api/location', locationRoutes);
 app.use('/api/admin', adminRoutes);
@@ -49,6 +51,9 @@ app.use('/api/wallet-provider', walletProviderRoutes);
 app.use('/api/nft', nftRoutes);
 app.use('/api/location-verification', locationVerificationRoutes);
 app.use('/api/nft-analytics', nftAnalyticsRoutes);
+app.use('/api/geospatial', geospatialRoutes);
+app.use('/api/admin/geospatial', adminGeospatialRoutes);
+app.use('/api/data-consumer', dataConsumerRoutes);
 // app.use('/api/config', configRoutes);
 
 // Debug endpoint to check environment variables and database connection

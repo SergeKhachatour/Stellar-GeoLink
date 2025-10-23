@@ -1,0 +1,344 @@
+{
+  "info": {
+    "name": "Stellar GeoLink API",
+    "description": "Complete API collection for Stellar GeoLink - Wallet Providers and Data Consumers",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{api_key}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net",
+      "type": "string"
+    },
+    {
+      "key": "local_url",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "YOUR_API_KEY_HERE",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Location Management",
+      "item": [
+        {
+          "name": "Update Wallet Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"GABC123...\",\n  \"blockchain\": \"Stellar\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"wallet_type_id\": 1,\n  \"description\": \"User wallet location\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/location/update",
+              "host": ["{{base_url}}"],
+              "path": ["api", "location", "update"]
+            },
+            "description": "Update or create a wallet location entry. Requires wallet_provider role."
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{api_key}}",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"public_key\": \"GABC123...\",\n  \"blockchain\": \"Stellar\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"wallet_type_id\": 1,\n  \"description\": \"User wallet location\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/location/update",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "location", "update"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Location updated successfully\",\n  \"data\": {\n    \"id\": 1,\n    \"public_key\": \"GABC123...\",\n    \"latitude\": 40.7128,\n    \"longitude\": -74.0060,\n    \"last_updated\": \"2024-01-15T10:30:00Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Nearby Wallets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/location/nearby?lat=40.7128&lon=-74.0060&radius=1000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "location", "nearby"],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "40.7128",
+                  "description": "Latitude of the center point"
+                },
+                {
+                  "key": "lon",
+                  "value": "-74.0060",
+                  "description": "Longitude of the center point"
+                },
+                {
+                  "key": "radius",
+                  "value": "1000",
+                  "description": "Search radius in meters"
+                }
+              ]
+            },
+            "description": "Find wallets near a specific location. Available to data consumers."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallet Provider",
+      "item": [
+        {
+          "name": "Update Privacy Settings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"GABC123...\",\n  \"privacy_enabled\": true,\n  \"visibility_enabled\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet-provider/privacy-settings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet-provider", "privacy-settings"]
+            },
+            "description": "Update privacy settings for a specific wallet. Requires wallet_provider role."
+          }
+        },
+        {
+          "name": "Update Visibility Settings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"GABC123...\",\n  \"is_visible\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet-provider/visibility-settings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet-provider", "visibility-settings"]
+            },
+            "description": "Update visibility settings for a specific wallet. Requires wallet_provider role."
+          }
+        },
+        {
+          "name": "Get User Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/wallet-provider/user-locations?public_key=GABC123...",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet-provider", "user-locations"],
+              "query": [
+                {
+                  "key": "public_key",
+                  "value": "GABC123...",
+                  "description": "Stellar wallet public key"
+                }
+              ]
+            },
+            "description": "Retrieve location history for a specific wallet. Requires wallet_provider role."
+          }
+        }
+      ]
+    },
+    {
+      "name": "NFT Management",
+      "item": [
+        {
+          "name": "Get Nearby NFTs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/nft/nearby?latitude=34.2304971&longitude=-118.2321404&radius=1000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "nft", "nearby"],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "34.2304971",
+                  "description": "Latitude coordinate"
+                },
+                {
+                  "key": "longitude",
+                  "value": "-118.2321404",
+                  "description": "Longitude coordinate"
+                },
+                {
+                  "key": "radius",
+                  "value": "1000",
+                  "description": "Search radius in meters"
+                }
+              ]
+            },
+            "description": "Find NFTs near a specific location. Available to data consumers."
+          }
+        },
+        {
+          "name": "Get Public NFTs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{api_key}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/nft/public",
+              "host": ["{{base_url}}"],
+              "path": ["api", "nft", "public"]
+            },
+            "description": "Get all public NFTs (no authentication required)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticate user and get JWT token."
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"wallet_provider\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Register a new user account."
+          }
+        }
+      ]
+    }
+  ]
+}

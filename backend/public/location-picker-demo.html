@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoLink Location Picker Demo</title>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #FFD700, #FFA500);
+            color: #000;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 20px;
+        }
+        .demo-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+        .demo-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .location-picker-container {
+            position: relative;
+            margin: 10px 0;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .location-picker-map {
+            height: 300px;
+            width: 100%;
+            background: #f5f5f5;
+            position: relative;
+        }
+        .location-picker-controls {
+            padding: 15px;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .location-picker-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .location-picker-button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .location-picker-button:hover {
+            background: #0056b3;
+        }
+        .coordinates-display {
+            font-family: monospace;
+            font-size: 14px;
+            color: #666;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .api-example {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+            font-family: monospace;
+            font-size: 14px;
+            border-left: 4px solid #007bff;
+        }
+        .endpoint-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .endpoint-info h4 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ GeoLink Interactive Location Picker</h1>
+            <p>Test location-based API endpoints with real-world coordinates</p>
+        </div>
+        
+        <div class="content">
+            <div class="endpoint-info">
+                <h4>📍 Location-Based API Endpoints</h4>
+                <p>Use the interactive map below to select coordinates for testing these endpoints:</p>
+                <ul>
+                    <li><strong>GET /api/location/nearby</strong> - Find wallets near a location</li>
+                    <li><strong>POST /api/location/update</strong> - Update wallet location</li>
+                    <li><strong>GET /api/nft/nearby</strong> - Find NFTs near a location</li>
+                </ul>
+            </div>
+
+            <div class="demo-section">
+                <h3>🌍 Interactive Location Picker</h3>
+                <p>Click on the map or search for a location to get coordinates:</p>
+                
+                <div class="location-picker-container">
+                    <div class="location-picker-map" id="locationPickerMap"></div>
+                    <div class="location-picker-controls">
+                        <input type="text" id="searchInput" class="location-picker-input" placeholder="Search for a location (e.g., New York, Tokyo, London)">
+                        <button id="searchButton" class="location-picker-button">Search</button>
+                        <button id="getCurrentLocation" class="location-picker-button">📍 My Location</button>
+                    </div>
+                    <div class="coordinates-display" id="coordinatesDisplay">
+                        Click on the map to select coordinates
+                    </div>
+                </div>
+
+                <div class="api-example" id="apiExample">
+                    <strong>API Example:</strong><br>
+                    <span id="apiUrl">Select a location to see API examples</span>
+                </div>
+            </div>
+
+            <div class="demo-section">
+                <h3>🚀 Quick Test Endpoints</h3>
+                <p>Use these buttons to quickly test common locations:</p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="location-picker-button" onclick="setLocation(40.7128, -74.0060, 'New York, NY')">🗽 New York</button>
+                    <button class="location-picker-button" onclick="setLocation(34.0522, -118.2437, 'Los Angeles, CA')">🌴 Los Angeles</button>
+                    <button class="location-picker-button" onclick="setLocation(51.5074, -0.1278, 'London, UK')">🇬🇧 London</button>
+                    <button class="location-picker-button" onclick="setLocation(35.6762, 139.6503, 'Tokyo, Japan')">🇯🇵 Tokyo</button>
+                    <button class="location-picker-button" onclick="setLocation(48.8566, 2.3522, 'Paris, France')">🇫🇷 Paris</button>
+                    <button class="location-picker-button" onclick="setLocation(-22.9068, -43.1729, 'Rio de Janeiro, Brazil')">🇧🇷 Rio de Janeiro</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+    <script>
+        // Initialize map
+        mapboxgl.accessToken = 'pk.eyJ1Ijoic2VyZ2UzNjl4MzMiLCJhIjoiY20zZHkzb2xoMDA0eTJxcHU4MTNoYjNlaCJ9.Xl6OxzF9td1IgTTeUp526w';
+        
+        const map = new mapboxgl.Map({
+            container: 'locationPickerMap',
+            style: 'mapbox://styles/mapbox/streets-v11',
+            center: [-74.0060, 40.7128], // New York
+            zoom: 10
+        });
+
+        // Add marker
+        const marker = new mapboxgl.Marker({
+            draggable: true,
+            color: '#007bff'
+        })
+        .setLngLat([-74.0060, 40.7128])
+        .addTo(map);
+
+        // Update coordinates display
+        function updateCoordinatesDisplay() {
+            const lngLat = marker.getLngLat();
+            const lat = lngLat.lat.toFixed(6);
+            const lng = lngLat.lng.toFixed(6);
+            
+            document.getElementById('coordinatesDisplay').innerHTML = `
+                <strong>Selected Coordinates:</strong><br>
+                Latitude: ${lat}<br>
+                Longitude: ${lng}
+            `;
+            
+            // Update API example
+            document.getElementById('apiUrl').innerHTML = `
+                <strong>GET /api/location/nearby?lat=${lat}&lon=${lng}&radius=1000</strong><br>
+                <strong>POST /api/location/update</strong><br>
+                {<br>
+                &nbsp;&nbsp;"public_key": "GABC123...",<br>
+                &nbsp;&nbsp;"blockchain": "Stellar",<br>
+                &nbsp;&nbsp;"latitude": ${lat},<br>
+                &nbsp;&nbsp;"longitude": ${lng},<br>
+                &nbsp;&nbsp;"wallet_type_id": 1,<br>
+                &nbsp;&nbsp;"description": "User wallet location"<br>
+                }
+            `;
+        }
+
+        // Update marker when dragged
+        marker.on('dragend', function() {
+            updateCoordinatesDisplay();
+        });
+
+        // Search functionality
+        document.getElementById('searchButton').addEventListener('click', function() {
+            const query = document.getElementById('searchInput').value;
+            if (query) {
+                fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.features && data.features.length > 0) {
+                            const feature = data.features[0];
+                            const [lng, lat] = feature.center;
+                            
+                            marker.setLngLat([lng, lat]);
+                            map.setCenter([lng, lat]);
+                            map.setZoom(12);
+                            updateCoordinatesDisplay();
+                        }
+                    })
+                    .catch(error => console.error('Geocoding error:', error));
+            }
+        });
+
+        // Get current location
+        document.getElementById('getCurrentLocation').addEventListener('click', function() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    marker.setLngLat([lng, lat]);
+                    map.setCenter([lng, lat]);
+                    map.setZoom(15);
+                    updateCoordinatesDisplay();
+                });
+            } else {
+                alert('Geolocation is not supported by this browser.');
+            }
+        });
+
+        // Set location from quick test buttons
+        function setLocation(lat, lng, name) {
+            marker.setLngLat([lng, lat]);
+            map.setCenter([lng, lat]);
+            map.setZoom(12);
+            updateCoordinatesDisplay();
+            document.getElementById('searchInput').value = name;
+        }
+
+        // Initialize display
+        updateCoordinatesDisplay();
+    </script>
+</body>
+</html>
