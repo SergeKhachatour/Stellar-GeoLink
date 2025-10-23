@@ -164,7 +164,7 @@ const SharedMap = ({
       console.error('Error initializing map:', error);
       setError('Failed to initialize map');
     }
-  }, [userLocation, onLocationClick, onMapReady, addMarkersToMap, createCustom3DControl]);
+  }, [userLocation, onLocationClick, onMapReady]);
 
   const addMarkersToMap = useCallback(() => {
     if (!map.current || !mapLoaded) return;
@@ -612,7 +612,7 @@ const SharedMap = ({
       console.error('Error initializing fullscreen map:', error);
       setError('Failed to initialize fullscreen map');
     }
-  }, [userLocation, onLocationClick, addMarkersToFullscreenMap, createCustom3DControl, fullscreenMap]);
+  }, [userLocation, onLocationClick, fullscreenMap]);
 
   const addMarkersToFullscreenMap = useCallback((mapInstance) => {
     if (!mapInstance || !locations || locations.length === 0) return;
