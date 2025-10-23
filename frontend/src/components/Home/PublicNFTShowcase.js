@@ -109,6 +109,207 @@ const PublicNFTShowcase = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
+  // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
+  const createSingleMarker = useCallback((nft, map, nftIndex = 0) => {
+    try {
+      console.log(`🎯 Creating single marker for NFT ${nft.id} at index ${nftIndex}`);
+      
+      // Check if marker already exists (prevent duplicates)
+      if (currentMarkers.current[nft.id]) {
+        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
+        return currentMarkers.current[nft.id];
+      }
+      
+      // Ensure we have valid base coordinates first
+      if (!nft.longitude || !nft.latitude || 
+          isNaN(nft.longitude) || isNaN(nft.latitude) ||
+          !isFinite(nft.longitude) || !isFinite(nft.latitude)) {
+        console.warn('Invalid base coordinates for NFT:', nft.id, 'Skipping marker creation.');
+        return null;
+      }
+
+      // Use exact NFT coordinates without any offsets
+      let finalLng = parseFloat(nft.longitude);
+      let finalLat = parseFloat(nft.latitude);
+      
+      // Globe projection coordinate handling
+      // Ensure coordinates are in proper WGS84 format for globe projection
+      if (map.getProjection()?.name === 'globe') {
+        // Globe projection requires coordinates to be in WGS84 decimal degrees
+        // Ensure longitude is between -180 and 180, latitude between -90 and 90
+        if (finalLng < -180) finalLng += 360;
+        if (finalLng > 180) finalLng -= 360;
+        if (finalLat < -90) finalLat = -90;
+        if (finalLat > 90) finalLat = 90;
+        
+        console.log(`🌍 Globe projection: Normalized coordinates for NFT ${nft.id}:`, { lng: finalLng, lat: finalLat });
+      }
+      
+      // TEMPORARY FIX: Check if coordinates seem to be swapped
+      // If longitude is in latitude range and vice versa, swap them
+      if (Math.abs(finalLng) <= 90 && Math.abs(finalLat) > 90) {
+        console.log(`🔄 COORDINATE SWAP DETECTED for NFT ${nft.id}: Swapping lat/lng`);
+        const temp = finalLng;
+        finalLng = finalLat;
+        finalLat = temp;
+      }
+      
+      // Additional check: If coordinates are clearly in the ocean, try swapping
+      // Ocean coordinates are typically outside normal land boundaries
+      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
+        console.log(`🔄 INVALID COORDINATES for NFT ${nft.id}: Trying coordinate swap`);
+        const temp = finalLng;
+        finalLng = finalLat;
+        finalLat = temp;
+      }
+      
+      // Check if coordinates might be in UTM or another coordinate system
+      // UTM coordinates are typically much larger numbers (hundreds of thousands)
+      if (Math.abs(finalLng) > 1000 || Math.abs(finalLat) > 1000) {
+        console.log(`🚨 LARGE COORDINATES for NFT ${nft.id}: Possible UTM or other coordinate system`, { lng: finalLng, lat: finalLat });
+        console.log(`🚨 These coordinates are likely in UTM or another system, not WGS84 GPS coordinates`);
+      }
+      
+      // Debug: Log raw coordinate values
+      console.log(`🔍 Raw coordinates for NFT ${nft.id}:`, {
+        rawLongitude: nft.longitude,
+        rawLatitude: nft.latitude,
+        parsedLng: finalLng,
+        parsedLat: finalLat,
+        coordinateType: typeof nft.longitude,
+        isString: typeof nft.longitude === 'string',
+        stringLength: typeof nft.longitude === 'string' ? nft.longitude.length : 'N/A'
+      });
+      
+      console.log(`NFT ${nft.id} coordinates:`, {
+        lat: finalLat,
+        lng: finalLng,
+        name: nft.name,
+        nftIndex,
+        originalCoords: { lat: nft.latitude, lng: nft.longitude }
+      });
+      
+      // Debug: Check if coordinates are reasonable
+      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
+        console.error(`🚨 INVALID COORDINATES for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
+      }
+      
+      // Debug: Check if coordinates are in expected ranges
+      // California should be roughly: -124 to -114 longitude, 32 to 42 latitude
+      // Rio de Janeiro should be roughly: -43 to -42 longitude, -23 to -22 latitude
+      if (finalLng >= -124 && finalLng <= -114 && finalLat >= 32 && finalLat <= 42) {
+        console.log(`✅ NFT ${nft.id} appears to be in California region`);
+      } else if (finalLng >= -43 && finalLng <= -42 && finalLat >= -23 && finalLat <= -22) {
+        console.log(`✅ NFT ${nft.id} appears to be in Rio de Janeiro region`);
+      } else {
+        console.log(`❓ NFT ${nft.id} coordinates don't match expected regions:`, { lat: finalLat, lng: finalLng });
+        
+        // Test if swapping lat/lng makes more sense
+        const swappedLng = finalLat;
+        const swappedLat = finalLng;
+        console.log(`🔄 Testing swapped coordinates for NFT ${nft.id}:`, { lat: swappedLat, lng: swappedLng });
+        
+        if (swappedLng >= -124 && swappedLng <= -114 && swappedLat >= 32 && swappedLat <= 42) {
+          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in California region if coordinates were swapped`);
+        } else if (swappedLng >= -43 && swappedLng <= -42 && swappedLat >= -23 && swappedLat <= -22) {
+          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in Rio de Janeiro region if coordinates were swapped`);
+        }
+      }
+
+      // Final validation of coordinates
+      if (isNaN(finalLat) || isNaN(finalLng) || !isFinite(finalLat) || !isFinite(finalLng)) {
+        console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
+        return;
+      }
+      
+      // Check if coordinates are in a reasonable range
+      if (finalLat < -90 || finalLat > 90 || finalLng < -180 || finalLng > 180) {
+        console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
+        return;
+      }
+
+      // Create marker element (like NFT Manager)
+      const markerEl = document.createElement('div');
+      markerEl.className = 'nft-marker';
+      markerEl.style.width = '40px';
+      markerEl.style.height = '40px';
+      markerEl.style.borderRadius = '8px'; // Square with rounded corners
+      markerEl.style.border = '3px solid #fff';
+      markerEl.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      markerEl.style.cursor = 'pointer';
+      markerEl.style.display = 'flex';
+      markerEl.style.alignItems = 'center';
+      markerEl.style.justifyContent = 'center';
+      markerEl.style.fontSize = '12px';
+      markerEl.style.fontWeight = 'bold';
+      markerEl.style.color = '#fff';
+      markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      markerEl.style.position = 'relative';
+      markerEl.style.zIndex = '1000';
+
+      // Add NFT image if available (like NFT Manager)
+      if (nft.ipfs_hash) {
+        const img = document.createElement('img');
+        img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.borderRadius = '6px';
+        img.style.objectFit = 'cover';
+        img.onerror = () => {
+          console.log('Image failed to load:', img.src);
+          markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
+          markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
+        };
+        markerEl.appendChild(img);
+      } else {
+        markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
+      }
+
+      // Create marker
+      const marker = new mapboxgl.Marker(markerEl)
+        .setLngLat([finalLng, finalLat])
+        .addTo(map);
+
+      // Add click handler for NFT details with delay to allow double-click (like NFT Manager)
+      let clickTimeout;
+      markerEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        clearTimeout(clickTimeout);
+        clickTimeout = setTimeout(() => {
+          console.log('Marker clicked, opening NFT details:', nft);
+          handleNFTDetails(nft);
+        }, 200); // Delay to allow double-click
+      });
+
+      // Add double-click handler for zoom
+      markerEl.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(clickTimeout);
+        console.log('Marker double-clicked, zooming to location');
+        map.flyTo({
+          center: [finalLng, finalLat],
+          zoom: 15,
+          duration: 1000
+        });
+      });
+
+      console.log(`Marker ${nftIndex + 1} added successfully at coordinates:`, finalLng, finalLat);
+      console.log('Marker element:', markerEl);
+      console.log('Marker added to map:', marker);
+      
+      // Store marker in ref for stability tracking
+      currentMarkers.current[nft.id] = marker;
+      
+      return marker;
+    } catch (error) {
+      console.error(`Error creating marker for NFT ${nft.id}:`, error);
+      return null;
+    }
+  }, []);
+
   // Add NFT markers to card map
   const addCardNFTMarkers = useCallback((forceCreation = false) => {
     console.log('🔍 addCardNFTMarkers called - DEBUGGING MARKER CREATION', { forceCreation });
@@ -443,207 +644,6 @@ const PublicNFTShowcase = () => {
       setError('Failed to initialize fullscreen map.');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
-  const createSingleMarker = useCallback((nft, map, nftIndex = 0) => {
-    try {
-      console.log(`🎯 Creating single marker for NFT ${nft.id} at index ${nftIndex}`);
-      
-      // Check if marker already exists (prevent duplicates)
-      if (currentMarkers.current[nft.id]) {
-        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
-        return currentMarkers.current[nft.id];
-      }
-      
-      // Ensure we have valid base coordinates first
-      if (!nft.longitude || !nft.latitude || 
-          isNaN(nft.longitude) || isNaN(nft.latitude) ||
-          !isFinite(nft.longitude) || !isFinite(nft.latitude)) {
-        console.warn('Invalid base coordinates for NFT:', nft.id, 'Skipping marker creation.');
-        return null;
-      }
-
-      // Use exact NFT coordinates without any offsets
-      let finalLng = parseFloat(nft.longitude);
-      let finalLat = parseFloat(nft.latitude);
-      
-      // Globe projection coordinate handling
-      // Ensure coordinates are in proper WGS84 format for globe projection
-      if (map.getProjection()?.name === 'globe') {
-        // Globe projection requires coordinates to be in WGS84 decimal degrees
-        // Ensure longitude is between -180 and 180, latitude between -90 and 90
-        if (finalLng < -180) finalLng += 360;
-        if (finalLng > 180) finalLng -= 360;
-        if (finalLat < -90) finalLat = -90;
-        if (finalLat > 90) finalLat = 90;
-        
-        console.log(`🌍 Globe projection: Normalized coordinates for NFT ${nft.id}:`, { lng: finalLng, lat: finalLat });
-      }
-      
-      // TEMPORARY FIX: Check if coordinates seem to be swapped
-      // If longitude is in latitude range and vice versa, swap them
-      if (Math.abs(finalLng) <= 90 && Math.abs(finalLat) > 90) {
-        console.log(`🔄 COORDINATE SWAP DETECTED for NFT ${nft.id}: Swapping lat/lng`);
-        const temp = finalLng;
-        finalLng = finalLat;
-        finalLat = temp;
-      }
-      
-      // Additional check: If coordinates are clearly in the ocean, try swapping
-      // Ocean coordinates are typically outside normal land boundaries
-      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
-        console.log(`🔄 INVALID COORDINATES for NFT ${nft.id}: Trying coordinate swap`);
-        const temp = finalLng;
-        finalLng = finalLat;
-        finalLat = temp;
-      }
-      
-      // Check if coordinates might be in UTM or another coordinate system
-      // UTM coordinates are typically much larger numbers (hundreds of thousands)
-      if (Math.abs(finalLng) > 1000 || Math.abs(finalLat) > 1000) {
-        console.log(`🚨 LARGE COORDINATES for NFT ${nft.id}: Possible UTM or other coordinate system`, { lng: finalLng, lat: finalLat });
-        console.log(`🚨 These coordinates are likely in UTM or another system, not WGS84 GPS coordinates`);
-      }
-      
-      // Debug: Log raw coordinate values
-      console.log(`🔍 Raw coordinates for NFT ${nft.id}:`, {
-        rawLongitude: nft.longitude,
-        rawLatitude: nft.latitude,
-        parsedLng: finalLng,
-        parsedLat: finalLat,
-        coordinateType: typeof nft.longitude,
-        isString: typeof nft.longitude === 'string',
-        stringLength: typeof nft.longitude === 'string' ? nft.longitude.length : 'N/A'
-      });
-      
-      console.log(`NFT ${nft.id} coordinates:`, {
-        lat: finalLat,
-        lng: finalLng,
-        name: nft.name,
-        nftIndex,
-        originalCoords: { lat: nft.latitude, lng: nft.longitude }
-      });
-      
-      // Debug: Check if coordinates are reasonable
-      if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
-        console.error(`🚨 INVALID COORDINATES for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
-      }
-      
-      // Debug: Check if coordinates are in expected ranges
-      // California should be roughly: -124 to -114 longitude, 32 to 42 latitude
-      // Rio de Janeiro should be roughly: -43 to -42 longitude, -23 to -22 latitude
-      if (finalLng >= -124 && finalLng <= -114 && finalLat >= 32 && finalLat <= 42) {
-        console.log(`✅ NFT ${nft.id} appears to be in California region`);
-      } else if (finalLng >= -43 && finalLng <= -42 && finalLat >= -23 && finalLat <= -22) {
-        console.log(`✅ NFT ${nft.id} appears to be in Rio de Janeiro region`);
-      } else {
-        console.log(`❓ NFT ${nft.id} coordinates don't match expected regions:`, { lat: finalLat, lng: finalLng });
-        
-        // Test if swapping lat/lng makes more sense
-        const swappedLng = finalLat;
-        const swappedLat = finalLng;
-        console.log(`🔄 Testing swapped coordinates for NFT ${nft.id}:`, { lat: swappedLat, lng: swappedLng });
-        
-        if (swappedLng >= -124 && swappedLng <= -114 && swappedLat >= 32 && swappedLat <= 42) {
-          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in California region if coordinates were swapped`);
-        } else if (swappedLng >= -43 && swappedLng <= -42 && swappedLat >= -23 && swappedLat <= -22) {
-          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in Rio de Janeiro region if coordinates were swapped`);
-        }
-      }
-
-      // Final validation of coordinates
-      if (isNaN(finalLat) || isNaN(finalLng) || !isFinite(finalLat) || !isFinite(finalLng)) {
-        console.warn('Invalid coordinates for NFT:', nft.id, 'Skipping marker creation.');
-        return;
-      }
-      
-      // Check if coordinates are in a reasonable range
-      if (finalLat < -90 || finalLat > 90 || finalLng < -180 || finalLng > 180) {
-        console.warn(`Invalid coordinate range for NFT ${nft.id}:`, { lat: finalLat, lng: finalLng });
-        return;
-      }
-
-      // Create marker element (like NFT Manager)
-      const markerEl = document.createElement('div');
-      markerEl.className = 'nft-marker';
-      markerEl.style.width = '40px';
-      markerEl.style.height = '40px';
-      markerEl.style.borderRadius = '8px'; // Square with rounded corners
-      markerEl.style.border = '3px solid #fff';
-      markerEl.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-      markerEl.style.cursor = 'pointer';
-      markerEl.style.display = 'flex';
-      markerEl.style.alignItems = 'center';
-      markerEl.style.justifyContent = 'center';
-      markerEl.style.fontSize = '12px';
-      markerEl.style.fontWeight = 'bold';
-      markerEl.style.color = '#fff';
-      markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-      markerEl.style.position = 'relative';
-      markerEl.style.zIndex = '1000';
-
-      // Add NFT image if available (like NFT Manager)
-      if (nft.ipfs_hash) {
-        const img = document.createElement('img');
-        img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
-        img.style.width = '100%';
-        img.style.height = '100%';
-        img.style.borderRadius = '6px';
-        img.style.objectFit = 'cover';
-        img.onerror = () => {
-          console.log('Image failed to load:', img.src);
-          markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
-          markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        };
-        markerEl.appendChild(img);
-      } else {
-        markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-      }
-
-      // Create marker
-      const marker = new mapboxgl.Marker(markerEl)
-        .setLngLat([finalLng, finalLat])
-        .addTo(map);
-
-      // Add click handler for NFT details with delay to allow double-click (like NFT Manager)
-      let clickTimeout;
-      markerEl.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        clearTimeout(clickTimeout);
-        clickTimeout = setTimeout(() => {
-          console.log('Marker clicked, opening NFT details:', nft);
-          handleNFTDetails(nft);
-        }, 200); // Delay to allow double-click
-      });
-
-      // Add double-click handler for zoom
-      markerEl.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        clearTimeout(clickTimeout);
-        console.log('Marker double-clicked, zooming to location');
-        map.flyTo({
-          center: [finalLng, finalLat],
-          zoom: 15,
-          duration: 1000
-        });
-      });
-
-      console.log(`Marker ${nftIndex + 1} added successfully at coordinates:`, finalLng, finalLat);
-      console.log('Marker element:', markerEl);
-      console.log('Marker added to map:', marker);
-      
-      // Store marker in ref for stability tracking
-      currentMarkers.current[nft.id] = marker;
-      
-      return marker;
-    } catch (error) {
-      console.error(`Error creating marker for NFT ${nft.id}:`, error);
-      return null;
-    }
   }, []);
 
   // Simple direct marker creation - bypasses all complex logic
