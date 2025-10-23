@@ -166,125 +166,6 @@ const SharedMap = ({
     }
   }, [userLocation, onLocationClick, onMapReady, addMarkersToMap, createCustom3DControl]);
 
-  const createCustom3DControl = useCallback(() => {
-    const control = {
-      onAdd: function(map) {
-        this._map = map;
-        this._container = document.createElement('div');
-        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
-        this._container.style.background = 'rgba(255, 255, 255, 0.9)';
-        this._container.style.borderRadius = '4px';
-        this._container.style.padding = '8px';
-        this._container.style.display = 'flex';
-        this._container.style.flexDirection = 'column';
-        this._container.style.gap = '4px';
-
-        // 3D View Button
-        const button3D = document.createElement('button');
-        button3D.className = 'mapboxgl-ctrl-icon';
-        button3D.innerHTML = '🌍';
-        button3D.title = '3D Globe View';
-        button3D.style.fontSize = '16px';
-        button3D.onclick = () => changeMapView('3d');
-        this._container.appendChild(button3D);
-
-        // 2D View Button
-        const button2D = document.createElement('button');
-        button2D.className = 'mapboxgl-ctrl-icon';
-        button2D.innerHTML = '🗺️';
-        button2D.title = '2D Map View';
-        button3D.style.fontSize = '16px';
-        button2D.onclick = () => changeMapView('2d');
-        this._container.appendChild(button2D);
-
-        // Satellite View Button
-        const buttonSat = document.createElement('button');
-        buttonSat.className = 'mapboxgl-ctrl-icon';
-        buttonSat.innerHTML = '🛰️';
-        buttonSat.title = 'Satellite View';
-        buttonSat.style.fontSize = '16px';
-        buttonSat.onclick = () => changeMapView('satellite');
-        this._container.appendChild(buttonSat);
-
-        return this._container;
-      },
-      onRemove: function() {
-        this._container.parentNode.removeChild(this._container);
-        this._map = undefined;
-      }
-    };
-    
-    return control;
-  }, []);
-
-  const changeMapView = (view) => {
-    setMapView(view);
-    
-    if (map.current) {
-      switch (view) {
-        case '2d':
-          map.current.setStyle('mapbox://styles/mapbox/streets-v12');
-          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
-          break;
-        case '3d':
-          map.current.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
-          map.current.easeTo({ pitch: 60, bearing: 0, duration: 1000 });
-          break;
-        case 'satellite':
-          map.current.setStyle('mapbox://styles/mapbox/satellite-v9');
-          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
-          break;
-        default:
-          break;
-      }
-
-      // Re-add 3D buildings for 3D view
-      if (view === '3d') {
-        setTimeout(() => {
-          if (map.current && !map.current.getLayer('3d-buildings')) {
-            try {
-              const sources = map.current.getStyle().sources;
-              if (sources && sources.composite && sources.composite.tiles) {
-                map.current.addLayer({
-                  'id': '3d-buildings',
-                  'source': 'composite',
-                  'source-layer': 'building',
-                  'filter': ['==', 'extrude', 'true'],
-                  'type': 'fill-extrusion',
-                  'minzoom': 15,
-                  'paint': {
-                    'fill-extrusion-color': '#aaa',
-                    'fill-extrusion-height': [
-                      'interpolate',
-                      ['linear'],
-                      ['zoom'],
-                      15,
-                      0,
-                      15.05,
-                      ['get', 'height']
-                    ],
-                    'fill-extrusion-base': [
-                      'interpolate',
-                      ['linear'],
-                      ['zoom'],
-                      15,
-                      0,
-                      15.05,
-                      ['get', 'min_height']
-                    ],
-                    'fill-extrusion-opacity': 0.6
-                  }
-                });
-              }
-            } catch (error) {
-              console.warn('Could not add 3D buildings:', error);
-            }
-          }
-        }, 1000);
-      }
-    }
-  };
-
   const addMarkersToMap = useCallback(() => {
     if (!map.current || !mapLoaded) return;
 
@@ -459,7 +340,126 @@ const SharedMap = ({
         map.current.fitBounds(bounds, { padding: 50 });
       }
     }
-  }, [mapLoaded, locations, onLocationClick]);
+  }, [mapLoaded, locations, onLocationClick, onNFTDetails]);
+
+  const createCustom3DControl = useCallback(() => {
+    const control = {
+      onAdd: function(map) {
+        this._map = map;
+        this._container = document.createElement('div');
+        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
+        this._container.style.background = 'rgba(255, 255, 255, 0.9)';
+        this._container.style.borderRadius = '4px';
+        this._container.style.padding = '8px';
+        this._container.style.display = 'flex';
+        this._container.style.flexDirection = 'column';
+        this._container.style.gap = '4px';
+
+        // 3D View Button
+        const button3D = document.createElement('button');
+        button3D.className = 'mapboxgl-ctrl-icon';
+        button3D.innerHTML = '🌍';
+        button3D.title = '3D Globe View';
+        button3D.style.fontSize = '16px';
+        button3D.onclick = () => changeMapView('3d');
+        this._container.appendChild(button3D);
+
+        // 2D View Button
+        const button2D = document.createElement('button');
+        button2D.className = 'mapboxgl-ctrl-icon';
+        button2D.innerHTML = '🗺️';
+        button2D.title = '2D Map View';
+        button3D.style.fontSize = '16px';
+        button2D.onclick = () => changeMapView('2d');
+        this._container.appendChild(button2D);
+
+        // Satellite View Button
+        const buttonSat = document.createElement('button');
+        buttonSat.className = 'mapboxgl-ctrl-icon';
+        buttonSat.innerHTML = '🛰️';
+        buttonSat.title = 'Satellite View';
+        buttonSat.style.fontSize = '16px';
+        buttonSat.onclick = () => changeMapView('satellite');
+        this._container.appendChild(buttonSat);
+
+        return this._container;
+      },
+      onRemove: function() {
+        this._container.parentNode.removeChild(this._container);
+        this._map = undefined;
+      }
+    };
+    
+    return control;
+  }, []);
+
+  const changeMapView = (view) => {
+    setMapView(view);
+    
+    if (map.current) {
+      switch (view) {
+        case '2d':
+          map.current.setStyle('mapbox://styles/mapbox/streets-v12');
+          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+          break;
+        case '3d':
+          map.current.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
+          map.current.easeTo({ pitch: 60, bearing: 0, duration: 1000 });
+          break;
+        case 'satellite':
+          map.current.setStyle('mapbox://styles/mapbox/satellite-v9');
+          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+          break;
+        default:
+          break;
+      }
+
+      // Re-add 3D buildings for 3D view
+      if (view === '3d') {
+        setTimeout(() => {
+          if (map.current && !map.current.getLayer('3d-buildings')) {
+            try {
+              const sources = map.current.getStyle().sources;
+              if (sources && sources.composite && sources.composite.tiles) {
+                map.current.addLayer({
+                  'id': '3d-buildings',
+                  'source': 'composite',
+                  'source-layer': 'building',
+                  'filter': ['==', 'extrude', 'true'],
+                  'type': 'fill-extrusion',
+                  'minzoom': 15,
+                  'paint': {
+                    'fill-extrusion-color': '#aaa',
+                    'fill-extrusion-height': [
+                      'interpolate',
+                      ['linear'],
+                      ['zoom'],
+                      15,
+                      0,
+                      15.05,
+                      ['get', 'height']
+                    ],
+                    'fill-extrusion-base': [
+                      'interpolate',
+                      ['linear'],
+                      ['zoom'],
+                      15,
+                      0,
+                      15.05,
+                      ['get', 'min_height']
+                    ],
+                    'fill-extrusion-opacity': 0.6
+                  }
+                });
+              }
+            } catch (error) {
+              console.warn('Could not add 3D buildings:', error);
+            }
+          }
+        }, 1000);
+      }
+    }
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -786,7 +786,7 @@ const SharedMap = ({
         mapInstance.fitBounds(bounds, { padding: 50 });
       }
     }
-  }, [locations, onLocationClick]);
+  }, [locations, onLocationClick, onNFTDetails]);
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
