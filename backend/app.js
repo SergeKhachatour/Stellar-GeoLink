@@ -109,9 +109,13 @@ app.get('/api/test', async (req, res) => {
   }
 });
 
-// Catch all handler: send back React's index.html file for any non-API routes
+// Serve React app for all non-API routes (SPA routing)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    // Skip API routes
+    if (req.path.startsWith('/api/') || req.path.startsWith('/api-docs')) {
+        return next();
+    }
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Error handling

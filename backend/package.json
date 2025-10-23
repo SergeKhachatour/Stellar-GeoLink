@@ -12,6 +12,7 @@
     "prod:azure": "NODE_ENV=production node scripts/switch-env.js production && npm run prod",
     "switch:dev": "node scripts/switch-env.js development",
     "switch:prod": "node scripts/switch-env.js production",
+    "build:frontend": "cd ../frontend && npm run build && cd ../backend && node ../deploy-frontend-to-backend.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
