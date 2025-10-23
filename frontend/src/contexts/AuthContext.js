@@ -12,7 +12,7 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         // Run checkAuth on initial load only
         checkAuth();
-    }, []);
+    }, [checkAuth]);
 
     const checkAuth = async () => {
         // Don't run checkAuth if we're in the middle of a login process

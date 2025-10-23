@@ -158,7 +158,7 @@ const PublicNFTShowcase = () => {
       setLoading(false);
       setFetchInProgress(false);
     }
-  }, [fetchInProgress]);
+  }, [fetchInProgress, addCardNFTMarkers]);
 
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {
@@ -1012,7 +1012,7 @@ const PublicNFTShowcase = () => {
     };
     
     initializeAndFetch();
-  }, []); // Remove dependencies to prevent infinite loop
+  }, [fetchPublicNFTs, initializeCardMap]); // Add dependencies
 
   // Initialize fullscreen map when dialog opens
   useEffect(() => {
@@ -1021,7 +1021,7 @@ const PublicNFTShowcase = () => {
         initializeFullscreenMap();
       }, 100);
     }
-  }, [open]); // Remove initializeFullscreenMap dependency
+  }, [open, initializeFullscreenMap]); // Add dependency
 
   // Add markers to fullscreen map when it's ready and dialog is open
   useEffect(() => {
@@ -1077,7 +1077,7 @@ const PublicNFTShowcase = () => {
       console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
-  }, [nfts.length]); // Only depend on nfts.length to prevent infinite loops
+  }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
 
   // Add markers when map becomes available and NFTs exist
   useEffect(() => {
@@ -1096,7 +1096,7 @@ const PublicNFTShowcase = () => {
       console.log('✅ Map availability: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
-  }, [nfts.length]); // Only depend on nfts.length to prevent infinite loops
+  }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
 
   // Update fullscreen markers when search results change
   useEffect(() => {

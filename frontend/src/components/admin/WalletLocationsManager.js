@@ -17,13 +17,9 @@ import {
     ToggleButtonGroup,
     ToggleButton,
     Chip,
-    TextField,
     IconButton,
     Alert,
     CircularProgress,
-    Card,
-    CardContent,
-    InputAdornment,
     Dialog,
     DialogTitle,
     DialogContent
@@ -31,8 +27,6 @@ import {
 import { 
     MapOutlined, 
     TableChart, 
-    Search as SearchIcon,
-    MyLocation as MyLocationIcon,
     Refresh as RefreshIcon,
     AccountBalanceWallet as WalletIcon,
     Close as CloseIcon
@@ -44,7 +38,7 @@ import SharedMap from '../SharedMap';
 
 
 const WalletLocationsManager = () => {
-    const { isConnected, disconnectWallet, publicKey } = useWallet();
+    const { isConnected, disconnectWallet } = useWallet();
     const [locations, setLocations] = useState([]);
     const [walletTypes, setWalletTypes] = useState([]);
     const [filters, setFilters] = useState({

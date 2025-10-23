@@ -6,8 +6,7 @@ import {
     DialogActions,
     TextField,
     Button,
-    Alert,
-    Box
+    Alert
 } from '@mui/material';
 import api from '../../utils/api';
 import { useAuth } from '../../contexts/AuthContext';
