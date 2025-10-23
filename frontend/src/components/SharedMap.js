@@ -164,7 +164,7 @@ const SharedMap = ({
       console.error('Error initializing map:', error);
       setError('Failed to initialize map');
     }
-  }, [userLocation, onLocationClick, onMapReady]);
+  }, [userLocation, onLocationClick, onMapReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMarkersToMap = useCallback(() => {
     if (!map.current || !mapLoaded) return;
@@ -340,7 +340,7 @@ const SharedMap = ({
         map.current.fitBounds(bounds, { padding: 50 });
       }
     }
-  }, [mapLoaded, locations, onLocationClick, onNFTDetails]);
+  }, [mapLoaded, locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createCustom3DControl = useCallback(() => {
     const control = {
@@ -612,7 +612,7 @@ const SharedMap = ({
       console.error('Error initializing fullscreen map:', error);
       setError('Failed to initialize fullscreen map');
     }
-  }, [userLocation, onLocationClick, fullscreenMap]);
+  }, [userLocation, onLocationClick, fullscreenMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMarkersToFullscreenMap = useCallback((mapInstance) => {
     if (!mapInstance || !locations || locations.length === 0) return;
@@ -786,7 +786,7 @@ const SharedMap = ({
         mapInstance.fitBounds(bounds, { padding: 50 });
       }
     }
-  }, [locations, onLocationClick, onNFTDetails]);
+  }, [locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
