@@ -166,7 +166,7 @@ const SharedMap = ({
     }
   }, [userLocation, onLocationClick, onMapReady, addMarkersToMap, createCustom3DControl]);
 
-  const createCustom3DControl = () => {
+  const createCustom3DControl = useCallback(() => {
     const control = {
       onAdd: function(map) {
         this._map = map;
@@ -215,7 +215,7 @@ const SharedMap = ({
     };
     
     return control;
-  };
+  }, []);
 
   const changeMapView = (view) => {
     setMapView(view);
@@ -285,7 +285,7 @@ const SharedMap = ({
     }
   };
 
-  const addMarkersToMap = () => {
+  const addMarkersToMap = useCallback(() => {
     if (!map.current || !mapLoaded) return;
 
     // Clear existing markers
@@ -459,7 +459,7 @@ const SharedMap = ({
         map.current.fitBounds(bounds, { padding: 50 });
       }
     }
-  };
+  }, [mapLoaded, locations, onLocationClick]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -614,7 +614,7 @@ const SharedMap = ({
     }
   }, [userLocation, onLocationClick, addMarkersToFullscreenMap, createCustom3DControl, fullscreenMap]);
 
-  const addMarkersToFullscreenMap = (mapInstance) => {
+  const addMarkersToFullscreenMap = useCallback((mapInstance) => {
     if (!mapInstance || !locations || locations.length === 0) return;
 
     // Clear existing markers
@@ -786,7 +786,7 @@ const SharedMap = ({
         mapInstance.fitBounds(bounds, { padding: 50 });
       }
     }
-  };
+  }, [locations, onLocationClick]);
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
