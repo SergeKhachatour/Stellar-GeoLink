@@ -109,6 +109,82 @@ const PublicNFTShowcase = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
+  // Add NFT markers to card map
+  const addCardNFTMarkers = useCallback((forceCreation = false) => {
+    console.log('🔍 addCardNFTMarkers called - DEBUGGING MARKER CREATION', { forceCreation });
+    console.log('🔍 Map state:', { 
+      hasMap: !!map.current, 
+      mapContainer: !!mapContainer.current,
+      mapReady: map.current ? 'ready' : 'not ready'
+    });
+    console.log('🔍 NFT state:', { 
+      nftsLength: nfts.length,
+      nftsRefLength: nftsRef.current.length,
+      isUserMovingMap
+    });
+    
+    // Always get fresh data from ref
+    const currentNFTs = [...nftsRef.current]; // Create a copy to ensure we have the latest data
+    console.log('🔍 Current NFTs data:', currentNFTs.map(nft => ({ 
+      id: nft.id, 
+      name: nft.name, 
+      lat: nft.latitude, 
+      lng: nft.longitude 
+    })));
+    
+    if (!map.current || !currentNFTs.length) {
+      console.log('❌ No NFTs to display on card map - map:', !!map.current, 'nfts:', currentNFTs.length);
+      return;
+    }
+
+    // MARKER STABILITY: Prevent updates during user interaction (unless forced)
+    if (isUserMovingMap && !forceCreation) {
+      console.log('❌ User is interacting with map - no marker updates allowed');
+      return;
+    }
+    
+    // MARKER STABILITY: If markers exist and are positioned correctly, don't update them (unless forced)
+    if (Object.keys(currentMarkers.current).length > 0 && !forceCreation) {
+      console.log('❌ Markers already exist and are positioned - preventing any updates');
+      return;
+    }
+
+    // MARKER STABILITY: Check if markers are already on the map (unless forced)
+    const existingMarkersOnMap = document.querySelectorAll('.nft-marker');
+    if (existingMarkersOnMap.length > 0 && !forceCreation) {
+      console.log('❌ Markers already exist on map - preventing recreation');
+      return;
+    }
+
+    console.log('✅ Creating markers for', currentNFTs.length, 'NFTs on card map');
+    
+    // Clear existing markers
+    Object.values(currentMarkers.current).forEach(marker => {
+      if (marker && marker.remove) {
+        marker.remove();
+      }
+    });
+    currentMarkers.current = {};
+
+    // Create markers for each NFT
+    currentNFTs.forEach((nft, index) => {
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      
+      if (isNaN(lat) || isNaN(lng)) {
+        console.warn('Invalid coordinates for NFT:', nft.name, { lat, lng });
+        return;
+      }
+
+      const marker = createSingleMarker(nft, lat, lng, index);
+      if (marker) {
+        currentMarkers.current[nft.id] = marker;
+      }
+    });
+    
+    console.log('All card markers added');
+  }, [nfts, isUserMovingMap, createSingleMarker]);
+
   // Fetch all public NFTs using the same approach as NFT Dashboard
   const fetchPublicNFTs = useCallback(async () => {
     if (fetchInProgress) {
@@ -765,76 +841,6 @@ const PublicNFTShowcase = () => {
     
     console.log('🚀 Direct fullscreen marker creation completed');
   }, [nfts, filteredNFTs]);
-
-  // Add NFT markers to card map
-  const addCardNFTMarkers = useCallback((forceCreation = false) => {
-    console.log('🔍 addCardNFTMarkers called - DEBUGGING MARKER CREATION', { forceCreation });
-    console.log('🔍 Map state:', { 
-      hasMap: !!map.current, 
-      mapContainer: !!mapContainer.current,
-      mapReady: map.current ? 'ready' : 'not ready'
-    });
-    console.log('🔍 NFT state:', { 
-      nftsLength: nfts.length,
-      nftsRefLength: nftsRef.current.length,
-      isUserMovingMap
-    });
-    
-    // Always get fresh data from ref
-    const currentNFTs = [...nftsRef.current]; // Create a copy to ensure we have the latest data
-    console.log('🔍 Current NFTs data:', currentNFTs.map(nft => ({ 
-      id: nft.id, 
-      name: nft.name, 
-      lat: nft.latitude, 
-      lng: nft.longitude 
-    })));
-    
-    if (!map.current || !currentNFTs.length) {
-      console.log('❌ No NFTs to display on card map - map:', !!map.current, 'nfts:', currentNFTs.length);
-      return;
-    }
-
-    // MARKER STABILITY: Prevent updates during user interaction (unless forced)
-    if (isUserMovingMap && !forceCreation) {
-      console.log('❌ User is interacting with map - no marker updates allowed');
-      return;
-    }
-    
-    // MARKER STABILITY: If markers exist and are positioned correctly, don't update them (unless forced)
-    if (Object.keys(currentMarkers.current).length > 0 && !forceCreation) {
-      console.log('❌ Markers already exist and are positioned - preventing any updates');
-      return;
-    }
-
-    // MARKER STABILITY: Check if markers are already on the map (unless forced)
-    const existingMarkersOnMap = document.querySelectorAll('.nft-marker');
-    if (existingMarkersOnMap.length > 0 && !forceCreation) {
-      console.log('❌ Markers already exist on map - preventing recreation');
-      return;
-    }
-
-    console.log('✅ All stability checks passed - proceeding with marker creation');
-
-    // Clear existing markers
-    const existingMarkers = document.querySelectorAll('.nft-marker');
-    console.log('Clearing', existingMarkers.length, 'existing markers');
-    existingMarkers.forEach(marker => marker.remove());
-
-    console.log('Adding', currentNFTs.length, 'card markers');
-    currentNFTs.forEach((nft, index) => {
-      console.log(`Adding marker ${index + 1} for NFT:`, nft.name || nft.nft_name || 'Unnamed', 'at', nft.latitude, nft.longitude);
-      console.log('NFT data:', nft);
-      
-      // Use the advanced marker creation function
-      createSingleMarker(nft, map.current, index);
-    });
-    
-    // Mark markers as created and stable
-    console.log('✅ All card markers added successfully');
-    
-    console.log('All card markers added');
-  }, [nfts, isUserMovingMap, createSingleMarker]);
-
 
   // Handle dialog open
   const handleOpen = () => {

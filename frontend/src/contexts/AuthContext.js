@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import api, { authApi } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -9,12 +9,7 @@ export const AuthProvider = ({ children }) => {
     const [error, setError] = useState(null);
     const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-    useEffect(() => {
-        // Run checkAuth on initial load only
-        checkAuth();
-    }, [checkAuth]);
-
-    const checkAuth = async () => {
+    const checkAuth = useCallback(async () => {
         // Don't run checkAuth if we're in the middle of a login process
         if (isLoggingIn) {
             console.log('🔍 checkAuth - skipping because login in progress');
@@ -109,7 +104,12 @@ export const AuthProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [isLoggingIn]);
+
+    useEffect(() => {
+        // Run checkAuth on initial load only
+        checkAuth();
+    }, [checkAuth]);
 
     const login = async (credentials) => {
         try {
