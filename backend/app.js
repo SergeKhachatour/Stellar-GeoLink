@@ -41,9 +41,6 @@ app.use('/api-docs/', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOpt
 const docsRoutes = require('./routes/docs');
 app.use('/docs', docsRoutes);
 
-// Serve static files from the React app build directory (after API routes)
-app.use(express.static(path.join(__dirname, 'public')));
-
 app.use('/api/location', locationRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
@@ -112,6 +109,9 @@ app.get('/api/test', async (req, res) => {
     });
   }
 });
+
+// Serve static files from the React app build directory (after all API routes)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve React app for all non-API routes (SPA routing)
 app.get('*', (req, res) => {
