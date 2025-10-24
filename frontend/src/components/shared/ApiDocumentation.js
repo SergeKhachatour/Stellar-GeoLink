@@ -250,6 +250,9 @@ const APIDocumentation = () => {
             <Typography variant="body1" sx={{ fontFamily: 'monospace', fontSize: '1.1rem', mt: 1 }}>
               Development: <strong>http://localhost:4000</strong>
             </Typography>
+            <Typography variant="body1" sx={{ fontFamily: 'monospace', fontSize: '1.1rem', mt: 1, color: 'primary.main' }}>
+              Current: <strong>{window.location.origin}</strong>
+            </Typography>
           </CardContent>
         </Card>
 
@@ -350,8 +353,8 @@ const APIDocumentation = () => {
                   <CodeBlock 
                     code={`curl -X ${endpoint.method} \\
   "${endpoint.method === 'GET' ? 
-    `https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net${endpoint.endpoint}?${Object.entries(endpoint.parameters || {}).map(([key, value]) => `${key}=${value}`).join('&')}` :
-    `https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net${endpoint.endpoint}`
+    `${window.location.origin}${endpoint.endpoint}?${Object.entries(endpoint.parameters || {}).map(([key, value]) => `${key}=${value}`).join('&')}` :
+    `${window.location.origin}${endpoint.endpoint}`
   }" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json"${
