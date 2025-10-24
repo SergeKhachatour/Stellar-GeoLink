@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Container, Typography, Grid, Card, CardContent } from '@mui/material';
 import Navbar from '../components/Navbar';
 import PublicWalletMap from '../components/PublicWalletMap';
-import APIDocumentation from '../components/shared/APIDocumentation';
+import ApiDocumentation from '../components/shared/ApiDocumentation';
 
 const Home = () => {
     return (
@@ -115,7 +115,7 @@ const Home = () => {
                     zIndex: 2
                 }}>
                     <Container>
-                        <APIDocumentation />
+                        <ApiDocumentation />
                     </Container>
                 </Box>
 
