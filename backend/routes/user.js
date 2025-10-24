@@ -64,38 +64,6 @@ router.get('/api-requests', authenticateUser, async (req, res) => {
     }
 });
 
-// Test endpoint to check API usage logs (no auth required)
-router.get('/test-usage-logs', async (req, res) => {
-    try {
-        const result = await pool.query(`
-            SELECT 
-                aul.id,
-                aul.endpoint,
-                aul.method,
-                aul.status_code,
-                aul.created_at,
-                aul.wallet_provider_id,
-                aul.data_consumer_id,
-                ak.api_key,
-                u.email
-            FROM api_usage_logs aul
-            JOIN api_keys ak ON ak.id = aul.api_key_id
-            JOIN users u ON u.id = ak.user_id
-            ORDER BY aul.created_at DESC
-            LIMIT 10
-        `);
-        
-        res.json({
-            success: true,
-            total_logs: result.rows.length,
-            logs: result.rows
-        });
-    } catch (error) {
-        console.error('Error fetching usage logs:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Get API usage statistics
 router.get('/api-usage', authenticateUser, async (req, res) => {
     try {
