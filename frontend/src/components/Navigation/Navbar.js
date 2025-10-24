@@ -167,8 +167,10 @@ const Navbar = () => {
                                     </Button>
                                     <Button 
                                         color="inherit" 
-                                        component={RouterLink} 
-                                        to="/api-docs"
+                                        component="a"
+                                        href="/api-docs"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
                                         size="small"
                                     >
                                         📚 API Docs
