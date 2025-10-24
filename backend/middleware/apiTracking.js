@@ -34,10 +34,27 @@ const trackApiUsage = async (req, res, next) => {
 
                 if (apiKeyResult.rows.length > 0) {
                     console.log('📊 API Tracking: Logging usage for API key ID:', apiKeyResult.rows[0].id);
+                    
+                    // Get wallet provider and data consumer IDs for this API key
+                    const providerResult = await pool.query(
+                        'SELECT id FROM wallet_providers WHERE api_key_id = $1',
+                        [apiKeyResult.rows[0].id]
+                    );
+                    
+                    const consumerResult = await pool.query(
+                        'SELECT dc.id FROM data_consumers dc JOIN api_keys ak ON ak.user_id = dc.user_id WHERE ak.id = $1',
+                        [apiKeyResult.rows[0].id]
+                    );
+                    
+                    const walletProviderId = providerResult.rows.length > 0 ? providerResult.rows[0].id : null;
+                    const dataConsumerId = consumerResult.rows.length > 0 ? consumerResult.rows[0].id : null;
+                    
+                    console.log('📊 API Tracking: Provider ID:', walletProviderId, 'Consumer ID:', dataConsumerId);
+                    
                     await pool.query(
                         `INSERT INTO api_usage_logs 
-                        (endpoint, method, status_code, response_time, ip_address, user_agent, api_key_id, api_key)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                        (endpoint, method, status_code, response_time, ip_address, user_agent, api_key_id, api_key, wallet_provider_id, data_consumer_id)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
                         [
                             endpoint,
                             method,
@@ -46,7 +63,9 @@ const trackApiUsage = async (req, res, next) => {
                             req.ip,
                             req.get('user-agent'),
                             apiKeyResult.rows[0].id,
-                            apiKey
+                            apiKey,
+                            walletProviderId,
+                            dataConsumerId
                         ]
                     );
                     console.log('✅ API Tracking: Usage logged successfully');
