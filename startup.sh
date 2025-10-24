@@ -4,7 +4,7 @@
 echo "Starting Stellar-GeoLink application on Linux..."
 
 # Navigate to backend directory
-cd backend
+cd /home/site/wwwroot/backend
 
 # Install dependencies
 echo "Installing Node.js dependencies..."

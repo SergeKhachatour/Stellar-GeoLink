@@ -1,28 +1,18 @@
 {
   "name": "stellar-geolink",
   "version": "1.0.0",
-  "description": "Stellar-GeoLink NFT System",
+  "description": "Stellar GeoLink - Location-based NFT platform",
   "main": "backend/app.js",
   "scripts": {
-    "start": "cd backend && npm install --production && node app.js",
-    "postinstall": "cd backend && npm install --production"
-  },
-  "dependencies": {
-    "express": "^4.21.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "pg": "^8.14.1",
-    "bcrypt": "^5.1.1",
-    "jsonwebtoken": "^9.0.2",
-    "express-rate-limit": "^7.5.0",
-    "ioredis": "^5.6.0",
-    "nodemailer": "^6.9.3",
-    "axios": "^1.8.3",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^4.6.3"
+    "start": "cd backend && node app.js",
+    "install": "cd backend && npm install --production",
+    "build": "cd frontend && npm run build && cd ../backend && node ../deploy-frontend-to-backend.js"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
-  }
+  },
+  "keywords": ["stellar", "nft", "location", "blockchain"],
+  "author": "Stellar GeoLink Team",
+  "license": "MIT"
 }
