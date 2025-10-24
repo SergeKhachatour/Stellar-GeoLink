@@ -334,7 +334,7 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                     // Update only the most recent provider record for this user
                     await client.query(
                         `UPDATE wallet_providers 
-                         SET name = $1, api_key_id = $2
+                         SET name = $1, api_key_id = $2, status = true
                          WHERE id = (
                              SELECT id FROM wallet_providers 
                              WHERE user_id = $3 
@@ -347,8 +347,8 @@ router.put('/api-key-requests/:id', authenticateAdmin, async (req, res) => {
                 } else {
                     // Insert new provider
                     await client.query(
-                        `INSERT INTO wallet_providers (user_id, name, api_key_id)
-                         VALUES ($1, $2, $3)`,
+                        `INSERT INTO wallet_providers (user_id, name, api_key_id, status)
+                         VALUES ($1, $2, $3, true)`,
                         [request.user_id, organizationName, apiKeyId]
                     );
                     console.log('Created new wallet_provider for user:', request.user_id);
