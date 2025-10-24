@@ -168,7 +168,7 @@ const Navbar = () => {
                                     <Button 
                                         color="inherit" 
                                         component="a"
-                                        href="/api-docs"
+                                        href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/api-docs"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         size="small"
