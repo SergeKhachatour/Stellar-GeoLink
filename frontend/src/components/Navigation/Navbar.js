@@ -72,7 +72,13 @@ const Navbar = () => {
                         <ListItemButton component={RouterLink} to="/features" onClick={handleDrawerToggle}>
                             <ListItemText primary="Features" />
                         </ListItemButton>
-                        <ListItemButton component={RouterLink} to="/api-docs" onClick={handleDrawerToggle}>
+                        <ListItemButton 
+                            component="a" 
+                            href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/docs"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={handleDrawerToggle}
+                        >
                             <ListItemText primary="📚 API Documentation" />
                         </ListItemButton>
                         <ListItemButton component={RouterLink} to="/register" onClick={handleDrawerToggle}>

@@ -19,7 +19,7 @@ const fs = require('fs');
  */
 // Serve custom API documentation landing page
 router.get('/', (req, res) => {
-    const docsPath = path.join(__dirname, '../public/test-docs.html');
+    const docsPath = path.join(__dirname, '../public/api-docs.html');
     res.sendFile(docsPath);
 });
 
