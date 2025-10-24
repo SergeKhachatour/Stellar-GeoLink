@@ -37,8 +37,12 @@ app.use(rateLimiter);
 // Serve static files from the React app build directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+// API Documentation - Custom landing page and Postman download
+const docsRoutes = require('./routes/docs');
+app.use('/api-docs', docsRoutes);
+
+// Swagger UI at /api-docs/ (with trailing slash)
+app.use('/api-docs/', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
 
 app.use('/api/location', locationRoutes);
 app.use('/api/admin', adminRoutes);

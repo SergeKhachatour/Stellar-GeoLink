@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoLink API Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.2rem;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .nav-btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+        }
+        
+        .nav-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+        }
+        
+        .nav-btn.swagger {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+        
+        .nav-btn.swagger:hover {
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        }
+        
+        .content {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            color: #2c3e50;
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .section h3 {
+            color: #34495e;
+            font-size: 1.4rem;
+            margin-bottom: 15px;
+            margin-top: 25px;
+        }
+        
+        .section p {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+        }
+        
+        .endpoint-list {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .endpoint {
+            background: white;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .endpoint-method {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.9rem;
+            margin-right: 10px;
+        }
+        
+        .method-get { background: #28a745; color: white; }
+        .method-post { background: #007bff; color: white; }
+        .method-put { background: #ffc107; color: black; }
+        .method-delete { background: #dc3545; color: white; }
+        
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .endpoint-description {
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+        
+        .download-section {
+            text-align: center;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            margin: 30px 0;
+        }
+        
+        .download-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 15px 30px;
+            border: 2px solid white;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-block;
+            margin: 10px;
+        }
+        
+        .download-btn:hover {
+            background: white;
+            color: #667eea;
+        }
+        
+        .auth-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .auth-info h4 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        
+        .auth-info code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        @media (max-width: 768px) {
+            .nav-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .nav-btn {
+                width: 100%;
+                max-width: 300px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 GeoLink API Documentation</h1>
+            <p>Complete API reference for Stellar GeoLink location-based NFT platform</p>
+            <div class="nav-buttons">
+                <a href="/api-docs/" class="nav-btn swagger">📚 Interactive Swagger UI</a>
+                <a href="/api-docs/postman" class="nav-btn">📥 Download Postman Collection</a>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>🔑 Authentication</h2>
+                <div class="auth-info">
+                    <h4>API Key Authentication</h4>
+                    <p>All API endpoints require authentication using an API key in the request header:</p>
+                    <p><code>X-API-Key: your-api-key-here</code></p>
+                    <p>API keys are role-based and provide access to different endpoints based on user permissions.</p>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>📡 Core API Endpoints</h2>
+                
+                <h3>📍 Location Services</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-post">POST</span>
+                        <span class="endpoint-path">/api/location/update</span>
+                        <div class="endpoint-description">Update wallet location with latitude/longitude coordinates</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/location/nearby</span>
+                        <div class="endpoint-description">Find nearby locations within specified radius</div>
+                    </div>
+                </div>
+                
+                <h3>🎨 NFT Services</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/nft/nearby</span>
+                        <div class="endpoint-description">Find NFTs near a specific location</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/nft/public</span>
+                        <div class="endpoint-description">Get all public NFTs for display</div>
+                    </div>
+                </div>
+                
+                <h3>👥 User Management</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/user/profile</span>
+                        <div class="endpoint-description">Get user profile information</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/user/api-usage</span>
+                        <div class="endpoint-description">Get API usage statistics</div>
+                    </div>
+                </div>
+                
+                <h3>🏦 Wallet Provider APIs</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/wallet-provider/market-analysis</span>
+                        <div class="endpoint-description">Get market analysis and analytics data</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/wallet-provider/locations-details</span>
+                        <div class="endpoint-description">Get detailed location analytics</div>
+                    </div>
+                </div>
+                
+                <h3>📊 Data Consumer APIs</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/data-consumer/dashboard</span>
+                        <div class="endpoint-description">Get consumer dashboard data</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/alerts</span>
+                        <div class="endpoint-description">Get alert notifications</div>
+                    </div>
+                </div>
+                
+                <h3>🔧 Admin APIs</h3>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/admin/geospatial/global-analytics</span>
+                        <div class="endpoint-description">Get global geospatial analytics</div>
+                    </div>
+                    <div class="endpoint">
+                        <span class="endpoint-method method-get">GET</span>
+                        <span class="endpoint-path">/api/admin/users</span>
+                        <div class="endpoint-description">Manage users and permissions</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="download-section">
+                <h2>📥 Download Resources</h2>
+                <p>Get the complete Postman collection and API documentation</p>
+                <a href="/api-docs/postman" class="download-btn">📥 Download Postman Collection</a>
+                <a href="/api-docs/" class="download-btn">📚 Open Interactive Documentation</a>
+            </div>
+            
+            <div class="section">
+                <h2>🌐 Base URLs</h2>
+                <div class="endpoint-list">
+                    <div class="endpoint">
+                        <strong>Production:</strong> <code>https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net</code>
+                    </div>
+                    <div class="endpoint">
+                        <strong>Development:</strong> <code>http://localhost:4000</code>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>📞 Support</h2>
+                <p>For API support and questions, please contact the development team or refer to the interactive Swagger documentation for detailed endpoint specifications.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
