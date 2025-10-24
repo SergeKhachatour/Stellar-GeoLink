@@ -74,7 +74,7 @@ const Navbar = () => {
                         </ListItemButton>
                         <ListItemButton 
                             component="a" 
-                            href="/docs"
+                            href="http://localhost:4000/docs"
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={handleDrawerToggle}
@@ -174,7 +174,7 @@ const Navbar = () => {
                                     <Button 
                                         color="inherit" 
                                         component="a"
-                                        href="/docs"
+                                        href="http://localhost:4000/docs"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         size="small"

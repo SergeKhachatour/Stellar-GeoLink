@@ -114,7 +114,7 @@ app.get('/api/test', async (req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Serve React app for all non-API routes (SPA routing)
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
     // Skip API routes and docs
     if (req.path.startsWith('/api/') || req.path.startsWith('/api-docs') || req.path.startsWith('/docs')) {
         return next();
