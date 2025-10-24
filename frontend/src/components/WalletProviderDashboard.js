@@ -745,7 +745,7 @@ const WalletProviderDashboard = () => {
                             <Button
                                 variant="outlined"
                                 startIcon={<Code />}
-                                href="/api-docs"
+                                href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/docs"
                                 target="_blank"
                             >
                                 Full API Documentation
