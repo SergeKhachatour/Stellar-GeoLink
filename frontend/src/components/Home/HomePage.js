@@ -31,6 +31,7 @@ import {
     Dashboard
 } from '@mui/icons-material';
 import PublicNFTShowcase from './PublicNFTShowcase';
+import APIDocumentation from '../shared/APIDocumentation';
 
 const HomePage = () => {
     return (
@@ -635,6 +636,13 @@ const HomePage = () => {
                         />
                         </Box>
                     </Box>
+                </Container>
+            </Box>
+
+            {/* API Documentation Section */}
+            <Box sx={{ bgcolor: 'grey.50', py: 6 }}>
+                <Container maxWidth="lg">
+                    <APIDocumentation />
                 </Container>
             </Box>
 

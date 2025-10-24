@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Container, Typography, Grid, Card, CardContent } from '@mui/material';
 import Navbar from '../components/Navbar';
 import PublicWalletMap from '../components/PublicWalletMap';
+import APIDocumentation from '../components/shared/APIDocumentation';
 
 const Home = () => {
     return (
@@ -102,6 +103,19 @@ const Home = () => {
                                 </Card>
                             </Grid>
                         </Grid>
+                    </Container>
+                </Box>
+
+                {/* API Documentation Section */}
+                <Box sx={{ 
+                    py: 4, 
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    backdropFilter: 'blur(5px)',
+                    position: 'relative',
+                    zIndex: 2
+                }}>
+                    <Container>
+                        <APIDocumentation />
                     </Container>
                 </Box>
 
