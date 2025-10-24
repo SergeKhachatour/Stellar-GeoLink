@@ -10,10 +10,12 @@ const options = {
         },
         servers: [
             {
-                url: process.env.NODE_ENV === 'production' 
-                    ? 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net'
-                    : 'http://localhost:4000',
-                description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+                url: 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net',
+                description: 'Production server',
+            },
+            {
+                url: 'http://localhost:4000',
+                description: 'Development server',
             },
         ],
         components: {
