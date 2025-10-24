@@ -165,7 +165,7 @@ const ConsumerDashboard = () => {
                             variant="outlined"
                             color="primary"
                             sx={{ mt: 2 }}
-                            href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/docs"
+                            href="/docs"
                             target="_blank"
                         >
                             View Full Documentation

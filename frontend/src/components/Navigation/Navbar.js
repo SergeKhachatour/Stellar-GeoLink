@@ -74,7 +74,7 @@ const Navbar = () => {
                         </ListItemButton>
                         <ListItemButton 
                             component="a" 
-                            href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/docs"
+                            href="/docs"
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={handleDrawerToggle}
@@ -174,7 +174,7 @@ const Navbar = () => {
                                     <Button 
                                         color="inherit" 
                                         component="a"
-                                        href="https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net/docs"
+                                        href="/docs"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         size="small"
