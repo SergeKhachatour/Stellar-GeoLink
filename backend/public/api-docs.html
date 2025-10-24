@@ -272,94 +272,37 @@
                     <h3>Authentication</h3>
                     <p>All API requests must include an API key in the <code>X-API-Key</code> header:</p>
                     <pre><code>X-API-Key: YOUR_API_KEY</code></pre>
-                    <p>API keys are role-based and provide access to different endpoints based on user permissions.</p>
+                    <p>API keys are role-based and provide access to specific endpoints based on your user type (Wallet Provider or Data Consumer).</p>
                 </div>
             </div>
 
             <div class="section">
-                <h2>Core API Endpoints</h2>
-                
+                <h2>Key Endpoints</h2>
                 <div class="endpoint-list">
-                    <h3>📍 Location Services</h3>
                     <div class="endpoint">
                         <span class="endpoint-method method-post">POST</span>
                         <span class="endpoint-path">/api/location/update</span>
-                        <div class="endpoint-description">Update wallet location with latitude/longitude coordinates</div>
+                        <div class="endpoint-description">Update wallet location with latitude, longitude, and optional metadata</div>
                     </div>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/location/nearby</span>
-                        <div class="endpoint-description">Find nearby locations within specified radius</div>
-                    </div>
-                </div>
-
-                <div class="endpoint-list">
-                    <h3>🎨 NFT Services</h3>
                     <div class="endpoint">
                         <span class="endpoint-method method-get">GET</span>
                         <span class="endpoint-path">/api/nft/nearby</span>
-                        <div class="endpoint-description">Find NFTs near a specific location</div>
+                        <div class="endpoint-description">Find NFTs near a specific location within a radius</div>
                     </div>
                     <div class="endpoint">
                         <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/nft/public</span>
-                        <div class="endpoint-description">Get all public NFTs for display</div>
-                    </div>
-                </div>
-
-                <div class="endpoint-list">
-                    <h3>👥 User Management</h3>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/user/profile</span>
-                        <div class="endpoint-description">Get user profile information</div>
+                        <span class="endpoint-path">/api/wallet-provider/user-locations</span>
+                        <div class="endpoint-description">Get all locations for a specific wallet provider</div>
                     </div>
                     <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/user/api-usage</span>
-                        <div class="endpoint-description">Get API usage statistics</div>
-                    </div>
-                </div>
-
-                <div class="endpoint-list">
-                    <h3>🏦 Wallet Provider APIs</h3>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/wallet-provider/market-analysis</span>
-                        <div class="endpoint-description">Get market analysis and analytics data</div>
+                        <span class="endpoint-method method-post">POST</span>
+                        <span class="endpoint-path">/api/wallet-provider/privacy-settings</span>
+                        <div class="endpoint-description">Configure privacy settings for location data</div>
                     </div>
                     <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/wallet-provider/locations-details</span>
-                        <div class="endpoint-description">Get detailed location analytics</div>
-                    </div>
-                </div>
-
-                <div class="endpoint-list">
-                    <h3>📊 Data Consumer APIs</h3>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/data-consumer/dashboard</span>
-                        <div class="endpoint-description">Get consumer dashboard data</div>
-                    </div>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/alerts</span>
-                        <div class="endpoint-description">Get alert notifications</div>
-                    </div>
-                </div>
-
-                <div class="endpoint-list">
-                    <h3>🔧 Admin APIs</h3>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/admin/geospatial/global-analytics</span>
-                        <div class="endpoint-description">Get global geospatial analytics</div>
-                    </div>
-                    <div class="endpoint">
-                        <span class="endpoint-method method-get">GET</span>
-                        <span class="endpoint-path">/api/admin/users</span>
-                        <div class="endpoint-description">Manage users and permissions</div>
+                        <span class="endpoint-method method-post">POST</span>
+                        <span class="endpoint-path">/api/wallet-provider/visibility-settings</span>
+                        <div class="endpoint-description">Configure visibility settings for location data</div>
                     </div>
                 </div>
             </div>
@@ -378,8 +321,19 @@
             </div>
 
             <div class="section">
-                <h2>📞 Support</h2>
-                <p>For API support and questions, please contact the development team or refer to the interactive Swagger documentation for detailed endpoint specifications.</p>
+                <h2>Rate Limiting</h2>
+                <p>API requests are rate limited to ensure fair usage. Current limits:</p>
+                <ul>
+                    <li><strong>General endpoints:</strong> 1000 requests per hour</li>
+                    <li><strong>Location updates:</strong> 100 requests per hour</li>
+                    <li><strong>NFT queries:</strong> 500 requests per hour</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>Support</h2>
+                <p>For technical support, API key requests, or general inquiries, please contact our development team.</p>
+                <p>This API is designed for integration with Stellar-based applications and supports the Stellar ecosystem's location-based NFT functionality.</p>
             </div>
         </div>
     </div>
