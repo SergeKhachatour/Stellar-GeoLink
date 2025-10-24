@@ -36,17 +36,17 @@ const trackApiUsage = async (req, res, next) => {
                     console.log('📊 API Tracking: Logging usage for API key ID:', apiKeyResult.rows[0].id);
                     await pool.query(
                         `INSERT INTO api_usage_logs 
-                        (api_key, endpoint, method, status_code, response_time, ip_address, user_agent, api_key_id)
+                        (endpoint, method, status_code, response_time, ip_address, user_agent, api_key_id, api_key)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
                         [
-                            apiKey,
                             endpoint,
                             method,
                             res.statusCode,
                             responseTime,
                             req.ip,
                             req.get('user-agent'),
-                            apiKeyResult.rows[0].id
+                            apiKeyResult.rows[0].id,
+                            apiKey
                         ]
                     );
                     console.log('✅ API Tracking: Usage logged successfully');
