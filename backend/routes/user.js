@@ -64,6 +64,21 @@ router.get('/api-requests', authenticateUser, async (req, res) => {
     }
 });
 
+// Test endpoint to check database connection
+router.get('/test-db', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT COUNT(*) as total FROM api_usage_logs');
+        res.json({ 
+            success: true, 
+            total_logs: result.rows[0].total,
+            message: 'Database connection working'
+        });
+    } catch (error) {
+        console.error('Database test error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Get API usage statistics
 router.get('/api-usage', authenticateUser, async (req, res) => {
     try {
