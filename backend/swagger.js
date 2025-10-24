@@ -11,7 +11,7 @@ const options = {
         servers: [
             {
                 url: process.env.NODE_ENV === 'production' 
-                    ? 'https://api.geolink.example.com'
+                    ? 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net'
                     : 'http://localhost:4000',
                 description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
             },
@@ -21,7 +21,7 @@ const options = {
                 ApiKeyAuth: {
                     type: 'apiKey',
                     in: 'header',
-                    name: 'x-api-key',
+                    name: 'X-API-Key',
                     description: 'API key for authentication'
                 },
                 BearerAuth: {
@@ -36,7 +36,23 @@ const options = {
             ApiKeyAuth: []
         }]
     },
-    apis: ['./routes/*.js'], // Path to the API routes
+    apis: [
+        './routes/*.js',
+        './routes/admin.js',
+        './routes/adminGeospatial.js', 
+        './routes/alerts.js',
+        './routes/analytics.js',
+        './routes/auth.js',
+        './routes/dataConsumer.js',
+        './routes/geofence.js',
+        './routes/geospatial.js',
+        './routes/location.js',
+        './routes/locationVerification.js',
+        './routes/nft.js',
+        './routes/nftAnalytics.js',
+        './routes/user.js',
+        './routes/walletProvider.js'
+    ], // Path to the API routes
 };
 
 module.exports = swaggerJsdoc(options); 
