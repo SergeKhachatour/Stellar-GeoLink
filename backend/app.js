@@ -39,7 +39,7 @@ app.use('/api-docs/', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOpt
 
 // API Documentation - Custom landing page and Postman download
 const docsRoutes = require('./routes/docs');
-app.use('/api-docs', docsRoutes);
+app.use('/docs', docsRoutes);
 
 // Serve static files from the React app build directory (after API routes)
 app.use(express.static(path.join(__dirname, 'public')));
