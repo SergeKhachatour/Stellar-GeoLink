@@ -20,7 +20,6 @@ import NFTDashboard from './components/NFT/NFTDashboard';
 import EnhancedNFTDashboard from './components/NFT/EnhancedNFTDashboard';
 import Profile from './components/Profile';
 import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytics';
-import APIDocumentation from './components/shared/ApiDocumentation';
 
 function App() {
     return (
@@ -33,7 +32,6 @@ function App() {
                     <Routes>
                         <Route path="/" element={<HomePage />} />
                         <Route path="/features" element={<Features />} />
-                        <Route path="/api-docs" element={<APIDocumentation />} />
                         <Route path="/contact" element={<HomePage />} />
                         <Route path="/login" element={<Login />} />
                         <Route path="/register" element={<Register />} />
