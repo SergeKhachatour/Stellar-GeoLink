@@ -4,6 +4,59 @@ const pool = require('../config/database');
 const { verifyLocation } = require('../utils/locationUtils');
 const { authenticateUser } = require('../middleware/authUser');
 
+/**
+ * @swagger
+ * /api/location-verification/verify-nft:
+ *   post:
+ *     summary: Verify NFT collection location
+ *     tags: [Location Verification]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - nft_id
+ *               - user_latitude
+ *               - user_longitude
+ *             properties:
+ *               nft_id:
+ *                 type: integer
+ *                 description: ID of the NFT to verify
+ *               user_latitude:
+ *                 type: number
+ *                 format: float
+ *                 description: User's current latitude
+ *               user_longitude:
+ *                 type: number
+ *                 format: float
+ *                 description: User's current longitude
+ *     responses:
+ *       200:
+ *         description: Location verification result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 verified:
+ *                   type: boolean
+ *                 distance:
+ *                   type: number
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: NFT not found
+ *       500:
+ *         description: Internal server error
+ */
 // Verify NFT collection location
 router.post('/verify-nft', authenticateUser, async (req, res) => {
     try {

@@ -3,6 +3,42 @@ const router = express.Router();
 const pool = require('../config/database');
 const { validateConsumerApiKey } = require('../middleware/apiKey');
 
+/**
+ * @swagger
+ * /api/alerts:
+ *   get:
+ *     summary: Get all alerts for a data consumer
+ *     tags: [Alerts]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: List of alerts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   alert_type:
+ *                     type: string
+ *                   wallet_public_key:
+ *                     type: string
+ *                   details:
+ *                     type: object
+ *                   notified:
+ *                     type: boolean
+ *                   created_at:
+ *                     type: string
+ *                     format: date-time
+ *       401:
+ *         description: Unauthorized - Invalid API key
+ *       500:
+ *         description: Internal server error
+ */
 // Get all alerts for a consumer
 router.get('/', validateConsumerApiKey, async (req, res) => {
     try {

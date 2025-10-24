@@ -4,6 +4,67 @@ const pool = require('../config/database');
 const { validateConsumerApiKey } = require('../middleware/apiKey');
 const geofenceService = require('../services/geofence');
 
+/**
+ * @swagger
+ * /api/geofence:
+ *   post:
+ *     summary: Create a new geofence
+ *     tags: [Geofences]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - polygon
+ *               - blockchain
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: Name of the geofence
+ *               description:
+ *                 type: string
+ *                 description: Description of the geofence
+ *               polygon:
+ *                 type: object
+ *                 description: GeoJSON polygon coordinates
+ *               blockchain:
+ *                 type: string
+ *                 description: Blockchain type (e.g., stellar)
+ *               webhook_url:
+ *                 type: string
+ *                 description: Webhook URL for notifications
+ *     responses:
+ *       201:
+ *         description: Geofence created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 name:
+ *                   type: string
+ *                 description:
+ *                   type: string
+ *                 polygon:
+ *                   type: object
+ *                 blockchain:
+ *                   type: string
+ *                 webhook_url:
+ *                   type: string
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Unauthorized - Invalid API key
+ *       500:
+ *         description: Internal server error
+ */
 // Create a new geofence
 router.post('/', validateConsumerApiKey, async (req, res) => {
     const { name, description, polygon, blockchain, webhook_url } = req.body;
