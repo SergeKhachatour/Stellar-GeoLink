@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Container, Typography, Grid, Card, CardContent } from '@mui/material';
-import Navbar from '../components/Navbar';
+import Navbar from '../components/Navigation/Navbar';
 import PublicWalletMap from '../components/PublicWalletMap';
 import ApiDocumentation from '../components/shared/ApiDocumentation';
 
