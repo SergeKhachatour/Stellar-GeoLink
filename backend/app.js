@@ -115,8 +115,8 @@ app.get('/api/test', async (req, res) => {
 
 // Serve React app for all non-API routes (SPA routing)
 app.get('*', (req, res) => {
-    // Skip API routes
-    if (req.path.startsWith('/api/') || req.path.startsWith('/api-docs')) {
+    // Skip API routes and docs
+    if (req.path.startsWith('/api/') || req.path.startsWith('/api-docs') || req.path.startsWith('/docs')) {
         return next();
     }
     res.sendFile(path.join(__dirname, 'public', 'index.html'));

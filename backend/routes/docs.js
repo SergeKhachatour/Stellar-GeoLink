@@ -19,8 +19,15 @@ const fs = require('fs');
  */
 // Serve custom API documentation landing page
 router.get('/', (req, res) => {
-    const docsPath = path.join(__dirname, '../public/api-docs.html');
-    res.sendFile(docsPath);
+    try {
+        const docsPath = path.join(__dirname, '../public/api-docs.html');
+        console.log('Serving docs from:', docsPath);
+        console.log('File exists:', fs.existsSync(docsPath));
+        res.sendFile(docsPath);
+    } catch (error) {
+        console.error('Error serving docs:', error);
+        res.status(500).json({ error: 'Failed to serve documentation page' });
+    }
 });
 
 /**
