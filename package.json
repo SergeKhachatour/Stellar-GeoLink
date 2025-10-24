@@ -4,7 +4,7 @@
   "description": "Stellar GeoLink - Location-based NFT platform",
   "main": "backend/app.js",
   "scripts": {
-    "start": "cd backend && node app.js",
+    "start": "cd backend && npm install --production && node app.js",
     "install": "cd backend && npm install --production",
     "build": "cd frontend && npm run build && cd ../backend && node ../deploy-frontend-to-backend.js"
   },
