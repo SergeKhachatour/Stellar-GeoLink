@@ -438,7 +438,7 @@ const APIDocumentation = () => {
               <ListItem>
                 <ListItemText 
                   primary="Swagger Documentation"
-                  secondary="Interactive API testing at /api-docs"
+                  secondary="Interactive API testing at /docs"
                 />
               </ListItem>
             </List>
