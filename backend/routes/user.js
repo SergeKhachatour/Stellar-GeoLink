@@ -64,42 +64,9 @@ router.get('/api-requests', authenticateUser, async (req, res) => {
     }
 });
 
-// Test endpoint to check database connection
-router.get('/test-db', async (req, res) => {
-    try {
-        const result = await pool.query('SELECT COUNT(*) as total FROM api_usage_logs');
-        res.json({ 
-            success: true, 
-            total_logs: result.rows[0].total,
-            message: 'Database connection working'
-        });
-    } catch (error) {
-        console.error('Database test error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Get API usage statistics
 router.get('/api-usage', authenticateUser, async (req, res) => {
     try {
-        console.log('🔍 API Usage Debug - User ID:', req.user.id);
-        
-        // First, let's check if there are any api_usage_logs records at all
-        const totalLogs = await pool.query('SELECT COUNT(*) as total FROM api_usage_logs');
-        console.log('📊 Total API usage logs in database:', totalLogs.rows[0].total);
-        
-        // Check if user has any API keys
-        const userApiKeys = await pool.query('SELECT id, api_key FROM api_keys WHERE user_id = $1', [req.user.id]);
-        console.log('🔑 User API keys:', userApiKeys.rows.length);
-        
-        if (userApiKeys.rows.length === 0) {
-            return res.json({
-                monthly_requests: 0,
-                daily_average: 0,
-                last_request_at: null
-            });
-        }
-        
         // All users now use the api_keys table for usage tracking
         const result = await pool.query(
             `SELECT 
@@ -111,8 +78,6 @@ router.get('/api-usage', authenticateUser, async (req, res) => {
             WHERE ak.user_id = $1`,
             [req.user.id]
         );
-
-        console.log('📊 Query result:', result.rows[0]);
 
         // If no usage data exists yet, return default values
         const usageData = result.rows[0] || {
