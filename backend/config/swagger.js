@@ -30,9 +30,13 @@ const options = {
         },
         servers: [
             {
-                url: process.env.API_URL || 'http://localhost:4000',
-                description: 'Development server'
-            }
+                url: 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net',
+                description: 'GeoLink Testnet (Azure)',
+            },
+            {
+                url: 'http://localhost:4000',
+                description: 'Development server (Local)',
+            },
         ],
         components: {
             securitySchemes: {
