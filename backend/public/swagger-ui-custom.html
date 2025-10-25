@@ -440,63 +440,157 @@
     function fillCoordinates(lat, lng) {
       console.log('Filling coordinates:', lat, lng);
       
-      // Find latitude and longitude input fields with multiple selectors
-      const latSelectors = [
-        'input[data-name*="lat"]',
-        'input[data-name*="latitude"]',
-        'input[placeholder*="lat"]',
-        'input[placeholder*="latitude"]',
-        'input[title*="lat"]',
-        'input[title*="latitude"]',
-        'input[name*="lat"]',
-        'input[name*="latitude"]',
-        'input[id*="lat"]',
-        'input[id*="latitude"]'
-      ];
+      // Store coordinates globally for the fetch interceptor
+      window.mapCoordinates = { lat: lat, lng: lng };
       
-      const lngSelectors = [
-        'input[data-name*="lon"]',
-        'input[data-name*="longitude"]',
-        'input[placeholder*="lon"]',
-        'input[placeholder*="longitude"]',
-        'input[title*="lon"]',
-        'input[title*="longitude"]',
-        'input[name*="lon"]',
-        'input[name*="longitude"]',
-        'input[id*="lon"]',
-        'input[id*="longitude"]'
-      ];
+      // Simple, safe coordinate filling
+      const updateInput = (input, value) => {
+        if (!input) return;
+        
+        // Simple value setting with events
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+      };
       
-      let latInputs = [];
-      let lngInputs = [];
-      
-      // Try all selectors
-      latSelectors.forEach(selector => {
-        const found = document.querySelectorAll(selector);
-        latInputs = latInputs.concat(Array.from(found));
-      });
-      
-      lngSelectors.forEach(selector => {
-        const found = document.querySelectorAll(selector);
-        lngInputs = lngInputs.concat(Array.from(found));
-      });
-      
-      console.log('Found latitude inputs:', latInputs.length);
-      console.log('Found longitude inputs:', lngInputs.length);
+      // Simple coordinate filling - only target the most likely inputs
+      const latInputs = document.querySelectorAll('input[placeholder*="lat"], input[placeholder*="latitude"]');
+      const lngInputs = document.querySelectorAll('input[placeholder*="lon"], input[placeholder*="longitude"]');
       
       latInputs.forEach(input => {
-        console.log('Filling latitude input:', input);
-        input.value = lat.toFixed(6);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        updateInput(input, lat.toFixed(6));
       });
       
       lngInputs.forEach(input => {
-        console.log('Filling longitude input:', input);
-        input.value = lng.toFixed(6);
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        updateInput(input, lng.toFixed(6));
       });
+      
+      // Store coordinates globally for later display updates
+      window.mapCoordinates = { lat: lat, lng: lng };
+      
+      // Function to update Swagger UI display after the request is made
+      window.updateSwaggerDisplay = function() {
+        if (!window.mapCoordinates) return;
+        
+        console.log('🔄 Updating Swagger UI display with coordinates:', window.mapCoordinates.lat.toFixed(6), window.mapCoordinates.lng.toFixed(6));
+        
+        const updateDisplayElements = () => {
+          let updatedCount = 0;
+          
+          // Target specific Swagger UI elements that contain the curl command and request URL
+          const targetSelectors = [
+            'code', 'pre', '.curl', '.request-url', 
+            '[data-request-url]', '.opblock-summary',
+            '.responses-wrapper', '.response'
+          ];
+          
+          targetSelectors.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(element => {
+              if (element && element.textContent && element.textContent.includes('lat=') && element.textContent.includes('lon=')) {
+                // Only update if it looks like a curl command or request URL (not HTML source)
+                if (element.textContent.includes('curl -X') || 
+                    (element.textContent.includes('http://localhost:4000/api/') && !element.textContent.includes('<html'))) {
+                  
+                  const newContent = element.textContent
+                    .replace(/lat=[^&]*/, `lat=${window.mapCoordinates.lat.toFixed(6)}`)
+                    .replace(/lon=[^&]*/, `lon=${window.mapCoordinates.lng.toFixed(6)}`);
+                  
+                  if (newContent !== element.textContent) {
+                    element.textContent = newContent;
+                    updatedCount++;
+                    console.log('✅ Updated display element:', newContent.substring(0, 100) + '...');
+                  }
+                }
+              }
+            });
+          });
+          
+          if (updatedCount > 0) {
+            console.log(`✅ Updated ${updatedCount} display elements`);
+          } else {
+            console.log('⚠️ No display elements found to update');
+          }
+        };
+        
+        // Update immediately and then retry multiple times with longer delays
+        updateDisplayElements();
+        setTimeout(updateDisplayElements, 100);
+        setTimeout(updateDisplayElements, 500);
+        setTimeout(updateDisplayElements, 1000);
+        setTimeout(updateDisplayElements, 2000);
+        setTimeout(updateDisplayElements, 3000);
+      };
+      
+      // Install fetch interceptor to ensure coordinates are used in API requests
+      if (!window.fetchInterceptorInstalled) {
+        console.log('Installing fetch interceptor...');
+        
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+          const [url, options] = args;
+          
+          // Check if this is a request to our API and we have map coordinates
+          if (typeof url === 'string' && url.includes('/api/') && window.mapCoordinates) {
+            console.log('🚀 INTERCEPTING API REQUEST:', url);
+            
+            // Try to modify the URL to include our coordinates
+            if (url.includes('lat=') && url.includes('lon=')) {
+              const newUrl = url.replace(/lat=[^&]*/, `lat=${window.mapCoordinates.lat.toFixed(6)}`).replace(/lon=[^&]*/, `lon=${window.mapCoordinates.lng.toFixed(6)}`);
+              console.log('✅ MODIFIED URL:', newUrl);
+              console.log('📍 Using coordinates from map pin:', window.mapCoordinates.lat.toFixed(6), window.mapCoordinates.lng.toFixed(6));
+              
+              // Create a completely new options object to avoid reference issues
+              const modifiedOptions = {
+                method: options?.method || 'GET',
+                headers: new Headers(),
+                body: options?.body,
+                credentials: options?.credentials,
+                cache: options?.cache,
+                redirect: options?.redirect,
+                referrer: options?.referrer,
+                referrerPolicy: options?.referrerPolicy,
+                mode: options?.mode,
+                signal: options?.signal
+              };
+              
+              // Copy all original headers
+              if (options?.headers) {
+                if (options.headers instanceof Headers) {
+                  options.headers.forEach((value, key) => {
+                    modifiedOptions.headers.set(key, value);
+                  });
+                } else if (typeof options.headers === 'object') {
+                  Object.entries(options.headers).forEach(([key, value]) => {
+                    modifiedOptions.headers.set(key, value);
+                  });
+                }
+              }
+              
+              // Ensure X-API-Key is present
+              if (!modifiedOptions.headers.has('X-API-Key')) {
+                modifiedOptions.headers.set('X-API-Key', 'bb0f2efe14d56a1918e49c9bca8766f0cfefde786d4fd5eaaba27eb4e6cee64e');
+              }
+              
+              console.log('🚀 SENDING REQUEST WITH MAP COORDINATES!');
+              
+              // Update the display after a short delay to let Swagger UI generate the curl command
+              setTimeout(() => {
+                if (window.updateSwaggerDisplay) {
+                  window.updateSwaggerDisplay();
+                }
+              }, 500);
+              
+              return originalFetch(newUrl, modifiedOptions);
+            }
+          }
+          
+          return originalFetch.apply(this, args);
+        };
+        
+        window.fetchInterceptorInstalled = true;
+        console.log('Fetch interceptor installed');
+      }
     }
 
     // Global functions for map controls
@@ -1043,3 +1137,4 @@
   </script>
 </body>
 </html>
+
