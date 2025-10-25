@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { swaggerUi, swaggerSpec, swaggerUiOptions } = require('./swagger-ui-config');
+const swaggerSpec = require('./config/swagger');
 const trackApiUsage = require('./middleware/apiTracking');
 const locationRoutes = require('./routes/location');
 const adminRoutes = require('./routes/admin');
@@ -34,8 +34,15 @@ app.use(express.json());
 app.use(trackApiUsage);
 app.use(rateLimiter);
 
-// Swagger UI at /api-docs/ (with trailing slash) - MUST come first
-app.use('/api-docs/', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerUiOptions));
+// Custom Swagger UI with interactive map
+app.get('/api-docs/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'swagger-ui-custom.html'));
+});
+
+// Swagger JSON endpoint
+app.get('/api-docs/swagger.json', (req, res) => {
+  res.json(swaggerSpec);
+});
 
 // API Documentation - Custom landing page and Postman download
 const docsRoutes = require('./routes/docs');

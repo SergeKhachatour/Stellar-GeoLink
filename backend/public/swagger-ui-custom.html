@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Swagger UI</title>
+  <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui.css" />
+  <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@4.15.5/favicon-32x32.png" sizes="32x32" />
+  <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@4.15.5/favicon-16x16.png" sizes="16x16" />
+  <style>
+    html {
+      box-sizing: border-box;
+      overflow: -moz-scrollbars-vertical;
+      overflow-y: scroll;
+    }
+    *, *:before, *:after {
+      box-sizing: inherit;
+    }
+    body {
+      margin:0;
+      background: #fafafa;
+    }
+    
+    /* Interactive Map Container */
+    .map-container {
+      width: 100%;
+      height: 400px;
+      border: 2px solid #007bff;
+      border-radius: 8px;
+      margin: 15px 0;
+      position: relative;
+      background: #f8f9fa;
+    }
+    
+    /* Map Overlay Modal */
+    .map-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.8);
+      z-index: 10000;
+      display: none;
+    }
+    
+    .map-overlay .map-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 90vw;
+      height: 90vh;
+      border: 2px solid #007bff;
+      border-radius: 8px;
+      margin: 0;
+      background: white;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    
+    .map-overlay .search-container {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10001;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      width: 320px;
+      border: 2px solid #007bff;
+    }
+    
+    .search-container input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    .search-results {
+      position: absolute;
+      top: 50px;
+      left: 10px;
+      right: 10px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1001;
+      display: none;
+    }
+    
+    .search-result {
+      padding: 8px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .search-result:hover {
+      background: #f5f5f5;
+    }
+    
+    .map-container .mapboxgl-map {
+      border-radius: 6px;
+    }
+    
+    .map-overlay .map-controls {
+      position: absolute;
+      top: 10px;
+      right: 60px;
+      z-index: 10001;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      border: 2px solid #007bff;
+    }
+    
+    .map-controls button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      margin: 2px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    
+    .map-controls button:hover {
+      background: #0056b3;
+    }
+    
+    .map-overlay .coordinates-display {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.9);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 16px;
+      z-index: 10001;
+      border: 2px solid #007bff;
+      min-width: 300px;
+    }
+    
+    .map-instructions {
+      background: #e3f2fd;
+      border: 1px solid #2196f3;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+      font-size: 14px;
+    }
+    
+    .map-instructions h4 {
+      margin: 0 0 8px 0;
+      color: #1976d2;
+    }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  
+  <!-- Map Instructions -->
+  <div class="map-instructions" id="map-instructions">
+    <h4>🗺️ Interactive Map for Location Selection</h4>
+    <p>Click anywhere on the map to get coordinates, or use the buttons to load actual wallet and NFT locations from the API.</p>
+  </div>
+  
+  <!-- Map Overlay Modal -->
+  <div class="map-overlay" id="map-overlay" onclick="closeMapWithCoordinates()">
+    <div class="map-container" id="swagger-map" onclick="event.stopPropagation()">
+      <!-- Map will be inserted here -->
+    </div>
+    
+    <!-- Search Container -->
+    <div class="search-container" onclick="event.stopPropagation()">
+      <input type="text" id="place-search" placeholder="Search for a place..." onkeyup="searchPlaces(this.value)" onclick="event.stopPropagation()">
+      <div class="search-results" id="search-results"></div>
+    </div>
+    
+    <!-- Close Button -->
+    <button onclick="closeMapWithCoordinates()" style="position: absolute; top: 10px; right: 10px; z-index: 10002; background: #dc3545; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">×</button>
+    
+        <!-- Map Controls -->
+        <div class="map-controls" onclick="event.stopPropagation()">
+          <button onclick="loadWallets()">📍 Load Wallets</button>
+          <button onclick="loadNFTs()">🎨 Load NFTs</button>
+          <button onclick="getMyLocation()">📍 My Location</button>
+          <button onclick="zoomToMe()">🔍 Zoom to Me</button>
+          <button onclick="clearMarkers()">🗑️ Clear Pin</button>
+        </div>
+    
+    <!-- Coordinates Display -->
+    <div class="coordinates-display" id="coordinates-display" onclick="event.stopPropagation()">
+      Click on map to drop a pin and get coordinates
+    </div>
+  </div>
+  
+  <!-- Floating Map Button -->
+  <div id="floating-map-button" style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: #007bff; color: white; padding: 10px 15px; border-radius: 5px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3);" onclick="showMapOverlay()">
+    🗺️ Open Map
+  </div>
+  
+  <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-bundle.js"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-standalone-preset.js"></script>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  
+  <script>
+    window.onload = function() {
+      // Build a system
+      const ui = SwaggerUIBundle({
+        url: '/api-docs/swagger.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout",
+        tryItOutEnabled: true,
+        docExpansion: 'list',
+        defaultModelsExpandDepth: 1,
+        defaultModelExpandDepth: 1,
+        displayRequestDuration: true,
+        filter: true,
+        showExtensions: true,
+        showCommonExtensions: true,
+        persistAuthorization: true,
+        preauthorizeApiKey: {
+          DataConsumerAuth: {
+            name: 'X-API-Key',
+            schema: {
+              type: 'apiKey',
+              in: 'header',
+              name: 'X-API-Key'
+            },
+            value: 'bb0f2efe14d56a1918e49c9bca8766f0cfefde786d4fd5eaaba27eb4e6cee64e'
+          },
+          WalletProviderAuth: {
+            name: 'X-API-Key',
+            schema: {
+              type: 'apiKey',
+              in: 'header',
+              name: 'X-API-Key'
+            },
+            value: 'bb0f2efe14d56a1918e49c9bca8766f0cfefde786d4fd5eaaba27eb4e6cee64e'
+          }
+        }
+      });
+      
+      // Initialize the map after Swagger UI loads
+      setTimeout(() => {
+        console.log('Initializing map...');
+        initializeMapbox();
+      }, 2000);
+    };
+
+    function initializeMapbox() {
+      console.log('Starting map initialization...');
+      
+      // Use the same Mapbox token as the rest of the project
+      mapboxgl.accessToken = 'pk.eyJ1Ijoic2VyZ2UzNjl4MzMiLCJhIjoiY20zZHkzb2xoMDA0eTJxcHU4MTNoYjNlaCJ9.Xl6OxzF9td1IgTTeUp526w';
+      console.log('Mapbox token set:', mapboxgl.accessToken.substring(0, 20) + '...');
+      
+      // Clear the container first
+      const container = document.getElementById('swagger-map');
+      if (!container) {
+        console.error('Map container not found!');
+        return;
+      }
+      
+      console.log('Clearing container...');
+      container.innerHTML = '';
+      
+      try {
+        console.log('Creating map...');
+        const map = new mapboxgl.Map({
+          container: 'swagger-map',
+          style: 'mapbox://styles/mapbox/streets-v12',
+          center: [-74.006, 40.7128], // New York City
+          zoom: 10
+        });
+        
+        console.log('Map created successfully!');
+        
+        // Store map reference globally
+        window.swaggerMap = map;
+        
+        // Add click handler for single pin mode
+        map.on('click', (e) => {
+          const lng = e.lngLat.lng;
+          const lat = e.lngLat.lat;
+          
+          console.log('Map clicked at:', lat, lng);
+          
+          // Update coordinates display
+          const coordsDisplay = document.getElementById('coordinates-display');
+          if (coordsDisplay) {
+            coordsDisplay.textContent = `Pin dropped at: Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+          }
+          
+          // Remove existing pin (single pin mode) - use global reference
+          if (window.currentPin) {
+            window.currentPin.remove();
+          }
+          
+          // Add new draggable pin marker
+          window.currentPin = new mapboxgl.Marker({ 
+            className: 'swagger-marker',
+            color: '#ff0000', // Red pin for user selection
+            draggable: true // Make it draggable
+          })
+          .setLngLat([lng, lat])
+          .addTo(map);
+          
+          // Add drag event listener
+          window.currentPin.on('dragend', () => {
+            const newLngLat = window.currentPin.getLngLat();
+            const newLat = newLngLat.lat;
+            const newLng = newLngLat.lng;
+            
+            console.log('Pin dragged to:', newLat, newLng);
+            
+            // Update coordinates display
+            if (coordsDisplay) {
+              coordsDisplay.textContent = `Pin moved to: Lat: ${newLat.toFixed(6)}, Lng: ${newLng.toFixed(6)}`;
+            }
+            
+            // Auto-fill latitude/longitude fields
+            fillCoordinates(newLat, newLng);
+          });
+          
+          // Auto-fill latitude/longitude fields in the current form
+          fillCoordinates(lat, lng);
+        });
+        
+      } catch (error) {
+        console.error('Error creating map:', error);
+        document.getElementById('swagger-map').innerHTML = '<div style="padding: 20px; text-align: center; color: red;">Error loading map: ' + error.message + '</div>';
+      }
+    }
+
+    // Initialize map in overlay container
+    function initializeOverlayMap() {
+      console.log('Starting overlay map initialization...');
+      
+      // Use the same Mapbox token as the rest of the project
+      mapboxgl.accessToken = 'pk.eyJ1Ijoic2VyZ2UzNjl4MzMiLCJhIjoiY20zZHkzb2xoMDA0eTJxcHU4MTNoYjNlaCJ9.Xl6OxzF9td1IgTTeUp526w';
+      console.log('Mapbox token set:', mapboxgl.accessToken.substring(0, 20) + '...');
+      
+      // Clear only the map content, not the overlay elements
+      const container = document.getElementById('swagger-map');
+      if (!container) {
+        console.error('Overlay map container not found!');
+        return;
+      }
+      
+      console.log('Clearing overlay container...');
+      // Clear the container completely for the map
+      container.innerHTML = '';
+      
+      try {
+        console.log('Creating overlay map...');
+        const map = new mapboxgl.Map({
+          container: 'swagger-map',
+          style: 'mapbox://styles/mapbox/streets-v12',
+          center: [-74.006, 40.7128], // New York City
+          zoom: 10
+        });
+        
+        console.log('Map created successfully!');
+        
+        // Store map reference globally
+        window.swaggerMap = map;
+        
+        // Add click handler for single pin mode
+        map.on('click', (e) => {
+          const lng = e.lngLat.lng;
+          const lat = e.lngLat.lat;
+          
+          console.log('Map clicked at:', lat, lng);
+          
+          // Update coordinates display
+          const coordsDisplay = document.getElementById('coordinates-display');
+          if (coordsDisplay) {
+            coordsDisplay.textContent = `Pin dropped at: Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+          }
+          
+          // Remove existing pin (single pin mode) - use global reference
+          if (window.currentPin) {
+            window.currentPin.remove();
+          }
+          
+          // Add new draggable pin marker
+          window.currentPin = new mapboxgl.Marker({ 
+            className: 'swagger-marker',
+            color: '#ff0000', // Red pin for user selection
+            draggable: true // Make it draggable
+          })
+          .setLngLat([lng, lat])
+          .addTo(map);
+          
+          // Add drag event listener
+          window.currentPin.on('dragend', () => {
+            const newLngLat = window.currentPin.getLngLat();
+            const newLat = newLngLat.lat;
+            const newLng = newLngLat.lng;
+            
+            console.log('Pin dragged to:', newLat, newLng);
+            
+            // Update coordinates display
+            if (coordsDisplay) {
+              coordsDisplay.textContent = `Pin moved to: Lat: ${newLat.toFixed(6)}, Lng: ${newLng.toFixed(6)}`;
+            }
+            
+            // Auto-fill latitude/longitude fields
+            fillCoordinates(newLat, newLng);
+          });
+          
+          // Auto-fill latitude/longitude fields in the current form
+          fillCoordinates(lat, lng);
+        });
+        
+      } catch (error) {
+        console.error('Error creating map:', error);
+        document.getElementById('swagger-map').innerHTML = '<div style="padding: 20px; text-align: center; color: red;">Error loading map: ' + error.message + '</div>';
+      }
+    }
+
+    function fillCoordinates(lat, lng) {
+      console.log('Filling coordinates:', lat, lng);
+      
+      // Find latitude and longitude input fields with multiple selectors
+      const latSelectors = [
+        'input[data-name*="lat"]',
+        'input[data-name*="latitude"]',
+        'input[placeholder*="lat"]',
+        'input[placeholder*="latitude"]',
+        'input[title*="lat"]',
+        'input[title*="latitude"]',
+        'input[name*="lat"]',
+        'input[name*="latitude"]',
+        'input[id*="lat"]',
+        'input[id*="latitude"]'
+      ];
+      
+      const lngSelectors = [
+        'input[data-name*="lon"]',
+        'input[data-name*="longitude"]',
+        'input[placeholder*="lon"]',
+        'input[placeholder*="longitude"]',
+        'input[title*="lon"]',
+        'input[title*="longitude"]',
+        'input[name*="lon"]',
+        'input[name*="longitude"]',
+        'input[id*="lon"]',
+        'input[id*="longitude"]'
+      ];
+      
+      let latInputs = [];
+      let lngInputs = [];
+      
+      // Try all selectors
+      latSelectors.forEach(selector => {
+        const found = document.querySelectorAll(selector);
+        latInputs = latInputs.concat(Array.from(found));
+      });
+      
+      lngSelectors.forEach(selector => {
+        const found = document.querySelectorAll(selector);
+        lngInputs = lngInputs.concat(Array.from(found));
+      });
+      
+      console.log('Found latitude inputs:', latInputs.length);
+      console.log('Found longitude inputs:', lngInputs.length);
+      
+      latInputs.forEach(input => {
+        console.log('Filling latitude input:', input);
+        input.value = lat.toFixed(6);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      
+      lngInputs.forEach(input => {
+        console.log('Filling longitude input:', input);
+        input.value = lng.toFixed(6);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+
+    // Global functions for map controls
+    window.loadWallets = function() {
+      if (!window.swaggerMap) return;
+      
+      // Get API key from Swagger UI authorization
+      const apiKey = localStorage.getItem('swagger-ui-standalone-preset') || 'bb0f2efe14d56a1918e49c9bca8766f0cfefde786d4fd5eaaba27eb4e6cee64e';
+      
+      // Get current map center for nearby search
+      const center = window.swaggerMap.getCenter();
+      const lat = center.lat;
+      const lng = center.lng;
+      
+      // Fetch wallet locations from API with authentication
+      fetch(`/api/location/nearby?lat=${lat}&lon=${lng}&radius=1000`, {
+        headers: {
+          'X-API-Key': apiKey,
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Clear existing markers
+          clearMarkers();
+          
+          // Handle the data format - it might be wrapped in a data property or wallets property
+          let wallets;
+          if (data.wallets && Array.isArray(data.wallets)) {
+            wallets = data.wallets;
+          } else if (data.data && Array.isArray(data.data)) {
+            wallets = data.data;
+          } else if (Array.isArray(data)) {
+            wallets = data;
+          } else {
+            console.error('Wallets data is not in expected format:', data);
+            return;
+          }
+          
+          console.log('Wallet data received:', data);
+          console.log('Wallets array:', wallets);
+          
+          // Add wallet markers with custom styling (like data-consumer dashboard)
+          wallets.forEach(wallet => {
+            if (wallet.latitude && wallet.longitude) {
+              // Create custom wallet marker
+              const walletMarker = document.createElement('div');
+              walletMarker.className = 'swagger-marker wallet-marker';
+              walletMarker.style.width = '35px';
+              walletMarker.style.height = '35px';
+              walletMarker.style.borderRadius = '50%';
+              walletMarker.style.border = '3px solid #007bff';
+              walletMarker.style.backgroundColor = '#007bff';
+              walletMarker.style.cursor = 'pointer';
+              walletMarker.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+              walletMarker.style.display = 'flex';
+              walletMarker.style.alignItems = 'center';
+              walletMarker.style.justifyContent = 'center';
+              walletMarker.style.fontSize = '16px';
+              walletMarker.style.color = 'white';
+              walletMarker.innerHTML = '💳';
+              
+              const marker = new mapboxgl.Marker({ 
+                element: walletMarker
+              })
+              .setLngLat([parseFloat(wallet.longitude), parseFloat(wallet.latitude)])
+              .setPopup(new mapboxgl.Popup().setHTML(`
+                <div style="max-width: 300px;">
+                  <div style="text-align: center; margin-bottom: 10px;">
+                    <div style="width: 60px; height: 60px; background: #007bff; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; color: white; margin: 0 auto;">💳</div>
+                  </div>
+                  <div>
+                    <strong>Wallet:</strong> ${wallet.public_key || wallet.wallet_address || 'Unknown Address'}<br>
+                    <strong>Provider:</strong> ${wallet.provider_name || 'Unknown'}<br>
+                    <strong>Balance:</strong> ${wallet.balance || 'Unknown'}<br>
+                    <strong>Location:</strong> ${parseFloat(wallet.latitude).toFixed(6)}, ${parseFloat(wallet.longitude).toFixed(6)}
+                  </div>
+                </div>
+              `))
+              .addTo(window.swaggerMap);
+            }
+          });
+          
+          // Fit map to show all markers
+          if (wallets.length > 0) {
+            const bounds = new mapboxgl.LngLatBounds();
+            wallets.forEach(wallet => {
+              if (wallet.latitude && wallet.longitude) {
+                bounds.extend([parseFloat(wallet.longitude), parseFloat(wallet.latitude)]);
+              }
+            });
+            window.swaggerMap.fitBounds(bounds, { padding: 50 });
+          }
+        })
+        .catch(error => {
+          console.error('Error loading wallets:', error);
+          alert('Error loading wallet locations. Make sure you are authenticated.');
+        });
+    };
+
+    window.loadNFTs = function() {
+      if (!window.swaggerMap) return;
+      
+      // Get API key from Swagger UI authorization
+      const apiKey = localStorage.getItem('swagger-ui-standalone-preset') || 'bb0f2efe14d56a1918e49c9bca8766f0cfefde786d4fd5eaaba27eb4e6cee64e';
+      
+      // Fetch NFT locations from API with authentication
+      fetch('/api/nft/public', {
+        headers: {
+          'X-API-Key': apiKey,
+          'Content-Type': 'application/json'
+        }
+      })
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Clear existing markers
+          clearMarkers();
+          
+          // Handle the data format - it might be wrapped in a data property or nfts property
+          let nfts;
+          if (data.nfts && Array.isArray(data.nfts)) {
+            nfts = data.nfts;
+          } else if (data.data && Array.isArray(data.data)) {
+            nfts = data.data;
+          } else if (Array.isArray(data)) {
+            nfts = data;
+          } else {
+            console.error('NFTs data is not in expected format:', data);
+            return;
+          }
+          
+          console.log('NFT data received:', data);
+          console.log('NFTs array:', nfts);
+          
+          // Add NFT markers with images (like NFT Manager Dashboard)
+          nfts.forEach(nft => {
+            if (nft.latitude && nft.longitude) {
+              // Create custom NFT marker with image
+              const nftMarker = document.createElement('div');
+              nftMarker.className = 'swagger-marker nft-marker';
+              nftMarker.style.width = '40px';
+              nftMarker.style.height = '40px';
+              nftMarker.style.borderRadius = '50%';
+              nftMarker.style.border = '3px solid #28a745';
+              nftMarker.style.overflow = 'hidden';
+              nftMarker.style.cursor = 'pointer';
+              nftMarker.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+              
+              // Create image element
+              const img = document.createElement('img');
+              img.style.width = '100%';
+              img.style.height = '100%';
+              img.style.objectFit = 'cover';
+              
+              // Set image source
+              if (nft.ipfs_hash && nft.server_url) {
+                img.src = `${nft.server_url}${nft.ipfs_hash}`;
+              } else if (nft.image_url) {
+                img.src = nft.image_url;
+              } else {
+                // Fallback to a default NFT icon
+                img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMjhhNzQ1Ii8+CjxwYXRoIGQ9Ik0yMCAxMEwyNSAxNUwyMCAyMEwxNSAxNUwyMCAxMFoiIGZpbGw9IndoaXRlIi8+Cjx0ZXh0IHg9IjIwIiB5PSIzMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEwIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TkZUPC90ZXh0Pgo8L3N2Zz4K';
+              }
+              
+              // Handle image load errors
+              img.onerror = () => {
+                img.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMjhhNzQ1Ii8+CjxwYXRoIGQ9Ik0yMCAxMEwyNSAxNUwyMCAyMEwxNSAxNUwyMCAxMFoiIGZpbGw9IndoaXRlIi8+Cjx0ZXh0IHg9IjIwIiB5PSIzMCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEwIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+TkZUPC90ZXh0Pgo8L3N2Zz4K';
+              };
+              
+              nftMarker.appendChild(img);
+              
+              const marker = new mapboxgl.Marker({ 
+                element: nftMarker
+              })
+              .setLngLat([parseFloat(nft.longitude), parseFloat(nft.latitude)])
+              .setPopup(new mapboxgl.Popup().setHTML(`
+                <div style="max-width: 300px;">
+                  <div style="text-align: center; margin-bottom: 10px;">
+                    <img src="${img.src}" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 2px solid #28a745;">
+                  </div>
+                  <div>
+                    <strong>NFT:</strong> ${nft.collection_name || 'Unknown Collection'}<br>
+                    <strong>Description:</strong> ${nft.description || 'No description'}<br>
+                    <strong>Rarity:</strong> ${nft.rarity_level || 'Unknown'}<br>
+                    <strong>Radius:</strong> ${nft.radius_meters}m<br>
+                    <strong>Location:</strong> ${parseFloat(nft.latitude).toFixed(6)}, ${parseFloat(nft.longitude).toFixed(6)}
+                  </div>
+                </div>
+              `))
+              .addTo(window.swaggerMap);
+            }
+          });
+          
+          // Fit map to show all markers
+          if (data.length > 0) {
+            const bounds = new mapboxgl.LngLatBounds();
+            data.forEach(nft => {
+              if (nft.latitude && nft.longitude) {
+                bounds.extend([parseFloat(nft.longitude), parseFloat(nft.latitude)]);
+              }
+            });
+            window.swaggerMap.fitBounds(bounds, { padding: 50 });
+          }
+        })
+        .catch(error => {
+          console.error('Error loading NFTs:', error);
+          alert('Error loading NFT locations. Make sure you are authenticated.');
+        });
+    };
+
+    window.clearMarkers = function() {
+      // Clear the single pin
+      if (window.currentPin) {
+        window.currentPin.remove();
+        window.currentPin = null;
+      }
+      
+      // Also clear any other markers (for wallet/NFT markers)
+      const markers = document.querySelectorAll('.swagger-marker');
+      markers.forEach(marker => marker.remove());
+      
+      document.getElementById('coordinates-display').textContent = 'Click on map to drop a pin and get coordinates';
+    };
+
+    // Global variables for user location
+    window.userLocation = null;
+    window.userLocationMarker = null;
+
+    // Get user's current location
+    window.getMyLocation = function() {
+      if (!navigator.geolocation) {
+        alert('Geolocation is not supported by this browser.');
+        return;
+      }
+
+      // Show loading message
+      document.getElementById('coordinates-display').textContent = 'Getting your location...';
+
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          
+          // Store user location
+          window.userLocation = { lat, lng };
+          
+          // Remove existing user location marker
+          if (window.userLocationMarker) {
+            window.userLocationMarker.remove();
+          }
+          
+          // Create user location marker
+          const userMarker = document.createElement('div');
+          userMarker.className = 'swagger-marker user-location-marker';
+          userMarker.style.width = '40px';
+          userMarker.style.height = '40px';
+          userMarker.style.borderRadius = '50%';
+          userMarker.style.border = '4px solid #28a745';
+          userMarker.style.backgroundColor = '#28a745';
+          userMarker.style.cursor = 'pointer';
+          userMarker.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+          userMarker.style.display = 'flex';
+          userMarker.style.alignItems = 'center';
+          userMarker.style.justifyContent = 'center';
+          userMarker.style.fontSize = '18px';
+          userMarker.style.color = 'white';
+          userMarker.innerHTML = '📍';
+          
+          window.userLocationMarker = new mapboxgl.Marker({ 
+            element: userMarker
+          })
+          .setLngLat([lng, lat])
+          .setPopup(new mapboxgl.Popup().setHTML(`
+            <div style="max-width: 300px;">
+              <div style="text-align: center; margin-bottom: 10px;">
+                <div style="width: 60px; height: 60px; background: #28a745; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; color: white; margin: 0 auto;">📍</div>
+              </div>
+              <div>
+                <strong>Your Location</strong><br>
+                <strong>Latitude:</strong> ${lat.toFixed(6)}<br>
+                <strong>Longitude:</strong> ${lng.toFixed(6)}<br>
+                <strong>Accuracy:</strong> ±${Math.round(position.coords.accuracy)}m
+              </div>
+            </div>
+          `))
+          .addTo(window.swaggerMap);
+          
+          // Update coordinates display
+          document.getElementById('coordinates-display').textContent = `Your location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          
+          console.log('User location set:', lat, lng);
+        },
+        function(error) {
+          console.error('Error getting location:', error);
+          let errorMessage = 'Error getting your location: ';
+          switch(error.code) {
+            case error.PERMISSION_DENIED:
+              errorMessage += 'Permission denied. Please allow location access.';
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMessage += 'Location information unavailable.';
+              break;
+            case error.TIMEOUT:
+              errorMessage += 'Location request timed out.';
+              break;
+            default:
+              errorMessage += 'Unknown error occurred.';
+              break;
+          }
+          alert(errorMessage);
+          document.getElementById('coordinates-display').textContent = 'Click on map to drop a pin and get coordinates';
+        }
+      );
+    };
+
+    // Zoom to user's location
+    window.zoomToMe = function() {
+      if (!window.userLocation) {
+        alert('Please get your location first by clicking "📍 My Location"');
+        return;
+      }
+      
+      if (!window.swaggerMap) return;
+      
+      // Fly to user location with animation
+      window.swaggerMap.flyTo({
+        center: [window.userLocation.lng, window.userLocation.lat],
+        zoom: 15,
+        essential: true
+      });
+      
+      console.log('Zooming to user location:', window.userLocation);
+    };
+
+    // Search places functionality
+    let searchTimeout;
+    window.searchPlaces = function(query) {
+      if (query.length < 3) {
+        document.getElementById('search-results').style.display = 'none';
+        return;
+      }
+      
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        if (!window.swaggerMap) return;
+        
+        // Use Mapbox Geocoding API
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}&limit=5`;
+        
+        fetch(url)
+          .then(response => response.json())
+          .then(data => {
+            const results = document.getElementById('search-results');
+            results.innerHTML = '';
+            
+            if (data.features && data.features.length > 0) {
+              data.features.forEach(feature => {
+                const result = document.createElement('div');
+                result.className = 'search-result';
+                result.textContent = feature.place_name;
+                result.onclick = () => {
+                  // Move map to selected place
+                  const [lng, lat] = feature.center;
+                  window.swaggerMap.flyTo({
+                    center: [lng, lat],
+                    zoom: 15
+                  });
+                  
+                  // Drop a pin at the selected location (single pin mode)
+                  if (window.currentPin) {
+                    window.currentPin.remove();
+                  }
+                  
+                  window.currentPin = new mapboxgl.Marker({ 
+                    className: 'swagger-marker',
+                    color: '#ff0000',
+                    draggable: true
+                  })
+                  .setLngLat([lng, lat])
+                  .addTo(window.swaggerMap);
+                  
+                  // Add drag event listener
+                  window.currentPin.on('dragend', () => {
+                    const newLngLat = window.currentPin.getLngLat();
+                    const newLat = newLngLat.lat;
+                    const newLng = newLngLat.lng;
+                    
+                    console.log('Pin dragged to:', newLat, newLng);
+                    
+                    // Update coordinates display
+                    const coordsDisplay = document.getElementById('coordinates-display');
+                    if (coordsDisplay) {
+                      coordsDisplay.textContent = `Pin moved to: Lat: ${newLat.toFixed(6)}, Lng: ${newLng.toFixed(6)}`;
+                    }
+                    
+                    // Auto-fill latitude/longitude fields
+                    fillCoordinates(newLat, newLng);
+                  });
+                  
+                  // Update coordinates display
+                  document.getElementById('coordinates-display').textContent = 
+                    `Pin dropped at: Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
+                  
+                  // Auto-fill coordinates
+                  fillCoordinates(lat, lng);
+                  
+                  // Hide search results
+                  results.style.display = 'none';
+                  document.getElementById('place-search').value = '';
+                };
+                results.appendChild(result);
+              });
+              results.style.display = 'block';
+            } else {
+              results.innerHTML = '<div class="search-result">No places found</div>';
+              results.style.display = 'block';
+            }
+          })
+          .catch(error => {
+            console.error('Search error:', error);
+            document.getElementById('search-results').innerHTML = '<div class="search-result">Search error</div>';
+            document.getElementById('search-results').style.display = 'block';
+          });
+      }, 300);
+    };
+
+    window.closeMap = function() {
+      document.getElementById('map-overlay').style.display = 'none';
+    };
+
+    window.closeMapWithCoordinates = function() {
+      // Fill coordinates before closing if there's a current pin
+      if (window.currentPin) {
+        const lngLat = window.currentPin.getLngLat();
+        const lat = lngLat.lat;
+        const lng = lngLat.lng;
+        
+        console.log('Closing map with coordinates:', lat, lng);
+        fillCoordinates(lat, lng);
+      }
+      
+      document.getElementById('map-overlay').style.display = 'none';
+    };
+
+    // Show map overlay when needed
+    window.showMapOverlay = function() {
+      console.log('Opening map overlay...');
+      const overlay = document.getElementById('map-overlay');
+      if (overlay) {
+        overlay.style.display = 'block';
+        console.log('Overlay displayed:', overlay.style.display);
+      } else {
+        console.error('Map overlay element not found!');
+      }
+      
+      // Initialize map in the overlay container
+      setTimeout(() => {
+        initializeOverlayMap();
+      }, 100);
+    };
+
+    // Add map button to location parameters
+    function addMapButtonsToLocationParams() {
+      console.log('Adding map buttons...');
+      
+      // Try multiple selectors for latitude/longitude fields
+      const latSelectors = [
+        'input[data-name*="lat"]',
+        'input[data-name*="latitude"]',
+        'input[placeholder*="lat"]',
+        'input[placeholder*="latitude"]',
+        'input[title*="lat"]',
+        'input[title*="latitude"]',
+        'input[name*="lat"]',
+        'input[name*="latitude"]',
+        'input[id*="lat"]',
+        'input[id*="latitude"]'
+      ];
+      
+      let latInputs = [];
+      latSelectors.forEach(selector => {
+        const found = document.querySelectorAll(selector);
+        latInputs = latInputs.concat(Array.from(found));
+      });
+      
+      // Remove duplicates
+      latInputs = [...new Set(latInputs)];
+      
+      console.log('Found latitude inputs:', latInputs.length);
+      console.log('Inputs found:', latInputs);
+      
+      // Add map button next to location fields
+      latInputs.forEach((input, index) => {
+        if (!input.parentNode.querySelector('.map-button')) {
+          console.log('Adding map button to input', index, input);
+          const mapButton = document.createElement('button');
+          mapButton.className = 'map-button';
+          mapButton.innerHTML = '🗺️ Map';
+          mapButton.style.cssText = 'margin-left: 10px; padding: 5px 10px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer;';
+          mapButton.onclick = () => {
+            console.log('Map button clicked!');
+            showMapOverlay();
+          };
+          input.parentNode.appendChild(mapButton);
+        }
+      });
+    }
+
+    // Call this function multiple times to catch dynamically loaded content
+    setTimeout(() => {
+      console.log('Adding map buttons after delay...');
+      addMapButtonsToLocationParams();
+    }, 3000);
+    
+    setTimeout(() => {
+      console.log('Adding map buttons after longer delay...');
+      addMapButtonsToLocationParams();
+    }, 5000);
+    
+    setTimeout(() => {
+      console.log('Adding map buttons after even longer delay...');
+      addMapButtonsToLocationParams();
+    }, 8000);
+    
+    setTimeout(() => {
+      console.log('Adding map buttons after very long delay...');
+      addMapButtonsToLocationParams();
+    }, 12000);
+    
+    setTimeout(() => {
+      console.log('Adding map buttons after extremely long delay...');
+      addMapButtonsToLocationParams();
+    }, 15000);
+  </script>
+</body>
+</html>
