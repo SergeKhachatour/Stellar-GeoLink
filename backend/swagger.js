@@ -11,7 +11,7 @@ const options = {
         servers: [
             {
                 url: 'https://geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net',
-                description: 'Production server (Azure)',
+                description: 'GeoLink Testnet (Azure)',
             },
             {
                 url: 'http://localhost:4000',
