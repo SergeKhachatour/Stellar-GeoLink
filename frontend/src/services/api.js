@@ -15,17 +15,11 @@ if (typeof window !== 'undefined' && window.APP_VERSION) {
 if (typeof window !== 'undefined') {
     console.log(`%c🚀 API Service Module Loaded: ${API_SERVICE_VERSION}`, 'color: #00ff00; font-size: 18px; font-weight: bold; background: #000; padding: 10px; border: 2px solid #00ff00;');
     
-    // Throw error if old code is detected
-    const oldLogPattern = /API Base URL configured as/;
-    const originalConsoleLog = console.log;
-    console.log = function(...args) {
-        const message = args.join(' ');
-        if (oldLogPattern.test(message)) {
-            console.error('%c❌ OLD CODE DETECTED! This message should not appear!', 'color: #ff0000; font-size: 20px; font-weight: bold; background: #000; padding: 15px;');
-            console.error('The old cached bundle is still running. Please clear your browser cache completely.');
-        }
-        originalConsoleLog.apply(console, args);
-    };
+    // Verify we have the correct version
+    if (window.APP_VERSION && window.APP_VERSION !== 'v2.0.7-2025-01-13-CACHE-BUST-FINAL') {
+        console.error('%c❌ VERSION MISMATCH!', 'color: #ff0000; font-size: 20px; font-weight: bold;');
+        console.error(`Expected: v2.0.7-2025-01-13-CACHE-BUST-FINAL, Got: ${window.APP_VERSION}`);
+    }
 }
 
 // Determine the API base URL based on environment (called at runtime, not build time)
