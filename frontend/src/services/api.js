@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// Version constant to verify deployment - update this to force cache refresh
+const API_SERVICE_VERSION = 'v2.0.2-2025-01-13';
+
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
     // Always check window.location at runtime (not build time)
@@ -17,8 +20,15 @@ const getApiBaseURL = () => {
                            hostname === '' ||
                            hostname.includes('localhost');
         
-        // If protocol is HTTPS or hostname contains a domain (not localhost), use production
-        if (protocol === 'https:' || (!isLocalhost && hostname.includes('.'))) {
+        // Explicit check for production domains
+        const isProductionDomain = hostname.includes('stellargeolink.com') || 
+                                  hostname.includes('azurewebsites.net') ||
+                                  hostname.includes('.com') ||
+                                  hostname.includes('.net') ||
+                                  hostname.includes('.org');
+        
+        // If protocol is HTTPS, or hostname contains a domain (not localhost), or is a known production domain, use production
+        if (protocol === 'https:' || isProductionDomain || (!isLocalhost && hostname.includes('.'))) {
             // Production: use same domain as frontend
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
@@ -63,6 +73,8 @@ api.interceptors.request.use((config) => {
         config.baseURL = getApiBaseURL();
         if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
             console.log('🔧 API Base URL configured as:', config.baseURL);
+            console.log('📦 API Service Version:', API_SERVICE_VERSION);
+            console.log('🌍 Current Location:', window.location.href);
             window._apiBaseUrlLogged = true;
         }
     }

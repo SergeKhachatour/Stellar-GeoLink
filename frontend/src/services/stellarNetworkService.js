@@ -18,8 +18,15 @@ const getApiBaseURL = () => {
                        hostname === '' ||
                        hostname.includes('localhost');
     
-    // If protocol is HTTPS or hostname contains a domain (not localhost), use production
-    if (protocol === 'https:' || (!isLocalhost && hostname.includes('.'))) {
+    // Explicit check for production domains
+    const isProductionDomain = hostname.includes('stellargeolink.com') || 
+                              hostname.includes('azurewebsites.net') ||
+                              hostname.includes('.com') ||
+                              hostname.includes('.net') ||
+                              hostname.includes('.org');
+    
+    // If protocol is HTTPS, or hostname contains a domain (not localhost), or is a known production domain, use production
+    if (protocol === 'https:' || isProductionDomain || (!isLocalhost && hostname.includes('.'))) {
       // Production: use same domain as frontend
       return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
     }
