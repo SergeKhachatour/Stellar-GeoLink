@@ -9,19 +9,21 @@ const getApiBaseURL = () => {
         const protocol = window.location.protocol || 'https:';
         const port = window.location.port;
         
-        // Check if we're NOT on localhost (production environment)
+        // Explicit check: if we're on HTTPS or have a domain (not localhost), use production URL
         const isLocalhost = hostname === 'localhost' || 
                            hostname === '127.0.0.1' || 
                            hostname.startsWith('192.168.') ||
                            hostname.startsWith('10.') ||
-                           hostname === '';
+                           hostname === '' ||
+                           hostname.includes('localhost');
         
-        if (!isLocalhost) {
+        // If protocol is HTTPS or hostname contains a domain (not localhost), use production
+        if (protocol === 'https:' || (!isLocalhost && hostname.includes('.'))) {
             // Production: use same domain as frontend
             return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
         }
     }
-    // For local development
+    // For local development only
     return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 };
 

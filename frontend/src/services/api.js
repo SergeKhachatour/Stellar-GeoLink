@@ -7,28 +7,43 @@ const getApiBaseURL = () => {
         const hostname = window.location.hostname || '';
         const protocol = window.location.protocol || 'https:';
         const port = window.location.port;
+        const origin = window.location.origin;
         
-        // Check if we're NOT on localhost (production environment)
+        // Explicit check: if we're on HTTPS or have a domain (not localhost), use production URL
         const isLocalhost = hostname === 'localhost' || 
                            hostname === '127.0.0.1' || 
                            hostname.startsWith('192.168.') ||
                            hostname.startsWith('10.') ||
-                           hostname === '';
+                           hostname === '' ||
+                           hostname.includes('localhost');
         
-        if (!isLocalhost) {
+        // If protocol is HTTPS or hostname contains a domain (not localhost), use production
+        if (protocol === 'https:' || (!isLocalhost && hostname.includes('.'))) {
             // Production: use same domain as frontend
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 Production API URL detected:', { hostname, protocol, port, baseUrl });
+                console.log('🌐 Production API URL detected:', { 
+                    hostname, 
+                    protocol, 
+                    port, 
+                    origin,
+                    baseUrl,
+                    isLocalhost,
+                    'window.location': window.location.href
+                });
                 window._apiBaseUrlLogged = true;
             }
             return baseUrl;
         }
     }
-    // For local development
+    // For local development only
     const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
     if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
-        console.log('🏠 Local development API URL:', devUrl);
+        console.log('🏠 Local development API URL:', { 
+            devUrl,
+            'window.location': window.location?.href || 'N/A',
+            hostname: window.location?.hostname || 'N/A'
+        });
         window._apiBaseUrlLogged = true;
     }
     return devUrl;
