@@ -169,3 +169,6 @@ check-*.js
 *test*.js
 *debug*.js
 *check*.js
+
+# Exception: ipfs-debug.js is a required route file
+!backend/routes/ipfs-debug.js
