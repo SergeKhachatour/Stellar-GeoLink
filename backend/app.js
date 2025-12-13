@@ -125,7 +125,20 @@ app.get('/api/test', async (req, res) => {
 });
 
 // Serve static files from the React app build directory (after all API routes)
-app.use(express.static(path.join(__dirname, 'public')));
+// Add cache-control headers: no-cache for JS/CSS files to prevent stale bundles
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, filePath) => {
+        // Don't cache JS, CSS, or HTML files - force browser to check for updates
+        if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        } else {
+            // Cache other assets (images, fonts) for 1 year
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+        }
+    }
+}));
 
 // Serve React app for all non-API routes (SPA routing)
 app.get('*', (req, res, next) => {

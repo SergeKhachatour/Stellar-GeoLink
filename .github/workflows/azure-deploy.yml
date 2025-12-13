@@ -31,9 +31,17 @@ jobs:
       - name: Build frontend
         env:
           REACT_APP_MAPBOX_TOKEN: ${{ secrets.REACT_APP_MAPBOX_TOKEN }}
+          GENERATE_SOURCEMAP: false
+          INLINE_RUNTIME_CHUNK: false
         run: |
           cd frontend
+          # Clear any existing build cache
+          rm -rf build
+          rm -rf node_modules/.cache
+          # Force a clean rebuild
           npm run build
+          # Verify the build was created
+          ls -la build/static/js/
 
       - name: Archive production artifacts
         run: |

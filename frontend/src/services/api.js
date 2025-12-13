@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-// Updated: 2025-01-13 16:30 UTC - Force cache refresh for stellargeolink.com
-const API_SERVICE_VERSION = 'v2.0.7-2025-01-13-CACHE-BUST-FINAL';
+// BUILD_TIMESTAMP: 2025-01-13T17:45:00Z - Force new hash
+const API_SERVICE_VERSION = 'v2.0.8-2025-01-13-17:45-FORCE-REBUILD';
 
 // CRITICAL: Verify we're running the new code, not cached old code
 if (typeof window !== 'undefined' && window.APP_VERSION) {
