@@ -13,8 +13,6 @@ const getApiBaseURL = () => {
 };
 
 const API_BASE_URL = getApiBaseURL();
-const STELLAR_ATLAS_BASE_URL = 'https://api.stellaratlas.io';
-const STELLAR_HORIZON_BASE_URL = 'https://horizon.stellar.org';
 
 class StellarNetworkService {
   constructor() {

@@ -13,8 +13,6 @@ import {
   Container,
   TextField,
   InputAdornment,
-  useTheme,
-  useMediaQuery,
   CircularProgress,
   Alert,
   Paper,
@@ -98,7 +96,6 @@ const RealTimeNodeTracking = () => {
   const nodesRef = useRef([]);
   const currentMarkers = useRef({});
   const fullscreenMarkers = useRef({});
-  const theme = useTheme();
 
   // Stellar network statistics
   const [networkStats, setNetworkStats] = useState(null);
@@ -514,6 +511,7 @@ const RealTimeNodeTracking = () => {
     } catch (err) {
       console.error('Error initializing fullscreen map:', err);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredNodes.length]);
 
   // Create markers for fullscreen map
@@ -636,6 +634,7 @@ const RealTimeNodeTracking = () => {
     }, 30000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchInProgress]); // Remove fetchStellarNodes from dependencies to prevent constant re-creation
 
   // Initial fetch - only run once on mount

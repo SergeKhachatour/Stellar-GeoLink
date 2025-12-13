@@ -17,11 +17,6 @@ import {
   Grid,
   Chip,
   IconButton,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Divider,
   FormControl,
   InputLabel,
   Select,
@@ -34,8 +29,6 @@ import {
   Warning as WarningIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
-  GetApp as DownloadIcon,
-  Refresh as RefreshIcon,
   Close as CloseIcon,
   OpenInNew as OpenInNewIcon
 } from '@mui/icons-material';

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
-  Paper,
   Typography,
   Button,
   Dialog,
@@ -23,26 +22,16 @@ import {
   Step,
   StepLabel,
   StepContent,
-  Chip,
-  IconButton,
-  Divider,
   List,
   ListItem,
-  ListItemText,
   ListItemIcon,
+  ListItemText,
   ListItemSecondaryAction
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
   CloudDone as PinIcon,
-  LocationOn as LocationIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon,
-  Refresh as RefreshIcon,
-  GetApp as DownloadIcon,
-  Visibility as ViewIcon,
-  Delete as DeleteIcon
+  CheckCircle as CheckIcon
 } from '@mui/icons-material';
 import Mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -62,7 +51,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const { isConnected, publicKey, secretKey } = useWallet();
   const [collections, setCollections] = useState([]);
   const [contracts, setContracts] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
@@ -81,11 +69,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     smart_contract_address: '',
     rarity_requirements: {}
   });
-  
-  // Map state
-  const [mapCenter, setMapCenter] = useState({ lat: 34.0522, lng: -118.2437 }); // Default to LA
-  const [mapZoom, setMapZoom] = useState(10);
-  const [mapLoaded, setMapLoaded] = useState(false);
   
   // Step 3: Review & Pin
   const [selectedUpload, setSelectedUpload] = useState(null);
@@ -121,8 +104,8 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       map.current = new Mapboxgl.Map({
         container: mapContainer.current,
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
-        center: [mapCenter.lng, mapCenter.lat],
-        zoom: mapZoom,
+        center: [-118.2437, 34.0522], // Default to LA
+        zoom: 10,
         pitch: 0,
         bearing: 0,
         projection: 'globe',
@@ -135,7 +118,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
 
       map.current.on('load', () => {
         console.log('Map loaded for NFT pinning');
-        setMapLoaded(true);
       });
 
       // Handle map clicks
@@ -193,7 +175,8 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     if (open && mapContainer.current && !map.current) {
       initializeMap();
     }
-  }, [open, mapContainer.current]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const fetchServers = async () => {
     try {
@@ -336,7 +319,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             ipfs_server_id: selectedServer
           };
 
-          const response = await api.post('/ipfs/upload', uploadData);
+          await api.post('/ipfs/upload', uploadData);
           
           setSuccess('File uploaded and pinned successfully!');
           setUploadProgress(100);
@@ -375,16 +358,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     }
   };
 
-  const handlePinFile = async (uploadId) => {
-    try {
-      await api.post(`/ipfs/pin/${uploadId}`);
-      setSuccess('File pinning initiated!');
-      fetchUploads();
-    } catch (error) {
-      console.error('Error pinning file:', error);
-      setError('Failed to pin file');
-    }
-  };
 
   const handleNext = () => {
     if (activeStep === 0) {
@@ -532,11 +505,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const steps = [
-    'Upload & Pin File',
-    'NFT Details',
-    'Review & Pin NFT'
-  ];
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>

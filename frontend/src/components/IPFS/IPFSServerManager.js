@@ -16,21 +16,13 @@ import {
   Switch,
   FormControlLabel,
   Chip,
-  IconButton,
   Alert,
   CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Card,
   CardContent,
   CardActions,
   Grid,
-  Chip as MuiChip,
-  Autocomplete
+  Chip as MuiChip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,8 +31,7 @@ import {
   CloudUpload as CloudIcon,
   Share as ShareIcon,
   CheckCircle as CheckIcon,
-  Error as ErrorIcon,
-  Warning as WarningIcon
+  Error as ErrorIcon
 } from '@mui/icons-material';
 import api from '../../utils/api';
 
