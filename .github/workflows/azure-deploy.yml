@@ -60,13 +60,10 @@ jobs:
           
           # Copy backend files to deployment directory (EXCLUDING public directory which has old builds)
           # We'll copy the new frontend build to public instead
-          rsync -av --exclude='public' backend/ azure-deploy/ || {
-            # Fallback if rsync is not available
-            cp -r backend/* azure-deploy/
-            rm -rf azure-deploy/public
-          }
+          # Method: Copy everything, then remove public, then copy new build
+          cp -r backend/* azure-deploy/
           
-          # Ensure public directory doesn't exist (remove any old build files)
+          # CRITICAL: Remove old public directory with stale build files
           rm -rf azure-deploy/public
           
           # Copy NEW frontend build files to deployment directory
@@ -118,7 +115,3 @@ jobs:
           app-name: 'GeoLink'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend.zip
-          # Force clean deployment - remove old files before deploying
-          clean: true
-          # Don't run build during deployment (we already built)
-          startup-command: 'npm start'
