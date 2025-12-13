@@ -10,7 +10,22 @@ const getApiBaseURL = () => {
     const protocol = window.location.protocol || 'https:';
     const port = window.location.port;
     
-    // Explicit check: if we're on HTTPS or have a domain (not localhost), use production URL
+    // PRIORITY 1: Explicit check for stellargeolink.com - ALWAYS production
+    if (hostname.includes('stellargeolink.com')) {
+      return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
+    }
+    
+    // PRIORITY 2: Check for azurewebsites.net - ALWAYS production
+    if (hostname.includes('azurewebsites.net')) {
+      return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
+    }
+    
+    // PRIORITY 3: If protocol is HTTPS, it's production
+    if (protocol === 'https:') {
+      return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
+    }
+    
+    // PRIORITY 4: Check if it's NOT localhost
     const isLocalhost = hostname === 'localhost' || 
                        hostname === '127.0.0.1' || 
                        hostname.startsWith('192.168.') ||
@@ -18,15 +33,7 @@ const getApiBaseURL = () => {
                        hostname === '' ||
                        hostname.includes('localhost');
     
-    // Explicit check for production domains
-    const isProductionDomain = hostname.includes('stellargeolink.com') || 
-                              hostname.includes('azurewebsites.net') ||
-                              hostname.includes('.com') ||
-                              hostname.includes('.net') ||
-                              hostname.includes('.org');
-    
-    // If protocol is HTTPS, or hostname contains a domain (not localhost), or is a known production domain, use production
-    if (protocol === 'https:' || isProductionDomain || (!isLocalhost && hostname.includes('.'))) {
+    if (!isLocalhost && hostname.includes('.')) {
       // Production: use same domain as frontend
       return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
     }
