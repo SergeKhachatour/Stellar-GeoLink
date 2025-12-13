@@ -1,4 +1,11 @@
-// CRITICAL: Version check - this MUST be the first thing that runs
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import './styles/stellar-brand.css';
+import App from './App';
+import reportWebVitals from './reportWebVitals';
+
+// CRITICAL: Version check - runs immediately after imports
 const APP_VERSION = 'v2.0.7-2025-01-13-CACHE-BUST-FINAL';
 if (typeof window !== 'undefined') {
     window.APP_VERSION = APP_VERSION;
@@ -10,13 +17,6 @@ if (typeof window !== 'undefined') {
         console.log(`%c🌐 Production domain detected: ${window.location.hostname}`, 'color: #00ff00; font-size: 14px;');
     }
 }
-
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import './styles/stellar-brand.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
