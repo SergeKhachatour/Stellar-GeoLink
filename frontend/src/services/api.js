@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-const API_SERVICE_VERSION = 'v2.0.4-2025-01-13-FIX';
+// Updated: 2025-01-13 15:30 UTC - Force cache refresh for stellargeolink.com
+const API_SERVICE_VERSION = 'v2.0.5-2025-01-13-CACHE-BUST';
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
@@ -14,7 +15,9 @@ const getApiBaseURL = () => {
         
         // CRITICAL: Log version and hostname immediately to verify new code is running
         if (!window._apiVersionLogged) {
-            console.log(`🔍 [${API_SERVICE_VERSION}] API URL Detection - Hostname: ${hostname}, Protocol: ${protocol}, Origin: ${origin}`);
+            console.log(`%c🔍 [${API_SERVICE_VERSION}] API URL Detection`, 'color: #00ff00; font-size: 16px; font-weight: bold;');
+            console.log(`%cHostname: ${hostname}, Protocol: ${protocol}, Origin: ${origin}`, 'color: #00ff00;');
+            console.log(`%c✅ NEW CODE IS RUNNING - If you see this, cache is cleared!`, 'color: #00ff00; font-size: 14px; font-weight: bold; background: #000; padding: 5px;');
             window._apiVersionLogged = true;
         }
         
