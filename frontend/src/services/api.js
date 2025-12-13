@@ -3,15 +3,24 @@ import axios from 'axios';
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
     // Always check window.location at runtime (not build time)
-    if (typeof window !== 'undefined') {
-        const hostname = window.location.hostname;
-        const protocol = window.location.protocol;
+    if (typeof window !== 'undefined' && window.location) {
+        const hostname = window.location.hostname || '';
+        const protocol = window.location.protocol || 'https:';
+        const port = window.location.port;
         
-        // If we're running in production (not localhost), use the same domain
-        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('localhost')) {
-            const baseUrl = `${protocol}//${hostname}/api`;
+        // Check if we're NOT on localhost (production environment)
+        const isLocalhost = hostname === 'localhost' || 
+                           hostname === '127.0.0.1' || 
+                           hostname.startsWith('192.168.') ||
+                           hostname.startsWith('10.') ||
+                           hostname === '';
+        
+        if (!isLocalhost) {
+            // Production: use same domain as frontend
+            const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 Detected production environment:', { hostname, protocol, baseUrl });
+                console.log('🌐 Production API URL detected:', { hostname, protocol, port, baseUrl });
+                window._apiBaseUrlLogged = true;
             }
             return baseUrl;
         }
@@ -19,7 +28,8 @@ const getApiBaseURL = () => {
     // For local development
     const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
     if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
-        console.log('🏠 Using local development URL:', devUrl);
+        console.log('🏠 Local development API URL:', devUrl);
+        window._apiBaseUrlLogged = true;
     }
     return devUrl;
 };
