@@ -40,12 +40,22 @@ jobs:
           rm -rf node_modules/.cache
           # Force a clean rebuild
           npm run build
-          # Verify the build was created
+          # Verify the build was created and show file names
+          echo "=== Frontend build files ==="
           ls -la build/static/js/
+          echo "=== JS Bundle file names ==="
+          ls -1 build/static/js/*.js
+          echo "=== CSS Bundle file names ==="
+          ls -1 build/static/css/*.css
+          # Show the hash in the filename to verify it's new
+          echo "=== Build hash verification ==="
+          find build/static/js -name "*.js" -exec basename {} \;
 
       - name: Archive production artifacts
         run: |
-          # Create deployment directory
+          # Clear any existing deployment directory to ensure clean deployment
+          rm -rf azure-deploy
+          # Create fresh deployment directory
           mkdir -p azure-deploy
           
           # Copy backend files to deployment directory (including package.json and package-lock.json)
@@ -58,12 +68,24 @@ jobs:
           # No need to create a custom one - use the real package.json from backend
           
           # Verify the structure
-          echo "Deployment directory contents:"
+          echo "=== Deployment directory contents ==="
           ls -la azure-deploy/
-          echo "Frontend build contents:"
+          echo "=== Frontend build contents ==="
           ls -la azure-deploy/public/
-          echo "Package.json contents:"
+          echo "=== JS files in deployment ==="
+          ls -1 azure-deploy/public/static/js/*.js || echo "No JS files found!"
+          echo "=== CSS files in deployment ==="
+          ls -1 azure-deploy/public/static/css/*.css || echo "No CSS files found!"
+          echo "=== Package.json contents ==="
           cat azure-deploy/package.json
+          # Verify the new bundle hash is NOT the old one
+          echo "=== Verifying bundle hash != 1671abd8 ==="
+          if ls azure-deploy/public/static/js/main.*.js 2>/dev/null | grep -v "main.1671abd8.js" > /dev/null; then
+            echo "✅ NEW bundle detected (not main.1671abd8.js)"
+          else
+            echo "❌ WARNING: Old bundle hash detected or no bundle found!"
+            ls -la azure-deploy/public/static/js/ || echo "JS directory does not exist!"
+          fi
           
           # Create zip file
           cd azure-deploy

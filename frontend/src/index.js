@@ -6,8 +6,8 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 
 // CRITICAL: Version check - runs immediately after imports
-// BUILD_TIMESTAMP: 2025-01-13T17:45:00Z - Force new hash
-const APP_VERSION = 'v2.0.8-2025-01-13-17:45-FORCE-REBUILD';
+// BUILD_TIMESTAMP: 2025-01-13T18:15:00Z - Force new hash - DO NOT REMOVE THIS COMMENT
+const APP_VERSION = 'v2.0.9-2025-01-13-18:15-FORCE-REBUILD-' + Date.now();
 if (typeof window !== 'undefined') {
     window.APP_VERSION = APP_VERSION;
     console.log(`%c🚀 APP STARTING - Version: ${APP_VERSION}`, 'color: #00ff00; font-size: 20px; font-weight: bold; background: #000; padding: 15px; border: 3px solid #00ff00;');
