@@ -2,12 +2,26 @@ import axios from 'axios';
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
-    // If we're running in production (not localhost), use the same domain
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        return `${window.location.protocol}//${window.location.hostname}/api`;
+    // Always check window.location at runtime (not build time)
+    if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        
+        // If we're running in production (not localhost), use the same domain
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('localhost')) {
+            const baseUrl = `${protocol}//${hostname}/api`;
+            if (!window._apiBaseUrlLogged) {
+                console.log('🌐 Detected production environment:', { hostname, protocol, baseUrl });
+            }
+            return baseUrl;
+        }
     }
     // For local development
-    return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+    const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+    if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
+        console.log('🏠 Using local development URL:', devUrl);
+    }
+    return devUrl;
 };
 
 // Create axios instance - baseURL will be set dynamically in interceptor

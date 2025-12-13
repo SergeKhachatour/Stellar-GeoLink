@@ -3,9 +3,15 @@ import sessionService from '../services/sessionService';
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
-    // If we're running in production (not localhost), use the same domain
-    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        return `${window.location.protocol}//${window.location.hostname}/api`;
+    // Always check window.location at runtime (not build time)
+    if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        
+        // If we're running in production (not localhost), use the same domain
+        if (hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.includes('localhost')) {
+            return `${protocol}//${hostname}/api`;
+        }
     }
     // For local development
     return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
