@@ -56,6 +56,46 @@ import api from '../../services/api';
 import realNFTService from '../../services/realNFTService';
 import EnhancedNFTManager from './EnhancedNFTManager';
 import RealPinNFT from './RealPinNFT';
+import IPFSServerManager from '../IPFS/IPFSServerManager';
+import FileUploadManager from '../IPFS/FileUploadManager';
+import EnhancedPinNFT from '../IPFS/EnhancedPinNFT';
+
+// IPFS Management Tabs Component
+const IPFSManagementTabs = ({ user }) => {
+  const [ipfsTabValue, setIpfsTabValue] = useState(0);
+
+  const handleIpfsTabChange = (event, newValue) => {
+    setIpfsTabValue(newValue);
+  };
+
+  return (
+    <Box>
+      <Typography variant="h5" gutterBottom>
+        IPFS Management
+      </Typography>
+      <Typography variant="body1" color="text.secondary" paragraph>
+        Manage your IPFS servers and upload files for NFT pinning.
+      </Typography>
+      
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={ipfsTabValue} onChange={handleIpfsTabChange} aria-label="IPFS management tabs">
+          <Tab label="File Uploads" {...a11yProps(0)} />
+          <Tab label="IPFS Servers" {...a11yProps(1)} />
+        </Tabs>
+      </Box>
+
+      {/* File Uploads Tab */}
+      <TabPanel value={ipfsTabValue} index={0}>
+        <FileUploadManager user={user} />
+      </TabPanel>
+
+      {/* IPFS Servers Tab */}
+      <TabPanel value={ipfsTabValue} index={1}>
+        <IPFSServerManager />
+      </TabPanel>
+    </Box>
+  );
+};
 
 // Mapbox Token - Ensure this is loaded from your .env file
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
@@ -157,6 +197,36 @@ function a11yProps(index) {
   };
 }
 
+// Helper function to construct IPFS URL from server_url and hash
+// Matches the implementation in EnhancedPinNFT.js for consistency
+const constructIPFSUrl = (serverUrl, hash) => {
+  if (!hash) return null;
+  if (!serverUrl) return `https://ipfs.io/ipfs/${hash}`; // Fallback to public gateway
+  
+  let baseUrl = serverUrl.trim();
+  
+  // Remove any existing /ipfs/ path and everything after it
+  // This handles cases where server_url might be: "domain.com/ipfs/somehash" or "domain.com/ipfs/somehash/"
+  baseUrl = baseUrl.replace(/\/ipfs\/.*$/i, '');
+  
+  // Remove trailing slashes
+  baseUrl = baseUrl.replace(/\/+$/, '');
+  
+  // Remove protocol if present (we'll add https://)
+  baseUrl = baseUrl.replace(/^https?:\/\//i, '');
+  
+  // Ensure it has https:// protocol
+  if (baseUrl) {
+    baseUrl = `https://${baseUrl}`;
+  } else {
+    // If baseUrl is empty after cleaning, fallback to public gateway
+    return `https://ipfs.io/ipfs/${hash}`;
+  }
+  
+  // Construct full IPFS URL
+  return `${baseUrl}/ipfs/${hash}`;
+};
+
 const EnhancedNFTDashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -257,6 +327,7 @@ const EnhancedNFTDashboard = () => {
   const [openLocationSettings, setOpenLocationSettings] = useState(false);
   const [openPinDialog, setOpenPinDialog] = useState(false);
   const [openRealPinDialog, setOpenRealPinDialog] = useState(false);
+  const [openEnhancedPinDialog, setOpenEnhancedPinDialog] = useState(false);
   const [pinLocation, setPinLocation] = useState(null);
   const [miniMap, setMiniMap] = useState(null);
   const [autoDetectingLocation, setAutoDetectingLocation] = useState(false);
@@ -326,11 +397,13 @@ const EnhancedNFTDashboard = () => {
         const collectionData = nftData.collection || {};
         return {
           ...nftData,
-          full_ipfs_url: nftData.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nftData.ipfs_hash}` : null,
+          full_ipfs_url: constructIPFSUrl(nftData.server_url, nftData.ipfs_hash),
           collection: {
             ...collectionData,
-            full_image_url: collectionData.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${collectionData.image_url}` : null
-          }
+            full_image_url: constructIPFSUrl(collectionData.server_url, collectionData.image_url)
+          },
+          // Preserve associations if they exist
+          associations: nftData.associations || item.associations
         };
       });
       
@@ -378,13 +451,13 @@ const EnhancedNFTDashboard = () => {
       
       console.log('Nearby NFTs API response:', response.data);
       
-      // Process the NFTs to add full IPFS URLs
+      // Process the NFTs to add full IPFS URLs using dynamic server_url
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
-        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+        full_ipfs_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash),
         collection: {
           ...nft.collection,
-          full_image_url: nft.collection?.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}` : null
+          full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
         }
       }));
       
@@ -430,13 +503,13 @@ const EnhancedNFTDashboard = () => {
       
       console.log('Nearby NFTs API response (with location):', response.data);
       
-      // Process the NFTs to add full IPFS URLs
+      // Process the NFTs to add full IPFS URLs using dynamic server_url
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
-        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+        full_ipfs_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash),
         collection: {
           ...nft.collection,
-          full_image_url: nft.collection?.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}` : null
+          full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
         }
       }));
       
@@ -630,7 +703,7 @@ const EnhancedNFTDashboard = () => {
       // Add NFT image if available
       if (nft.ipfs_hash) {
         const img = document.createElement('img');
-        img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
+        img.src = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
         img.style.width = '100%';
         img.style.height = '100%';
         img.style.borderRadius = '8px'; // Square with rounded corners
@@ -3609,6 +3682,7 @@ const EnhancedNFTDashboard = () => {
           <Tab label="My Collection" {...a11yProps(1)} />
           <Tab label="NFT Map" {...a11yProps(2)} />
           <Tab label="Stellar Wallet" {...a11yProps(3)} />
+          <Tab label="IPFS Management" {...a11yProps(4)} />
         </Tabs>
       </Box>
 
@@ -3648,9 +3722,19 @@ const EnhancedNFTDashboard = () => {
                     />
                   )}
                   <CardContent sx={{ p: 1.5 }}>
-                    <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                      {nft.collection?.name || 'Unknown NFT'}
-                    </Typography>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
+                        {nft.collection?.name || 'Unknown NFT'}
+                      </Typography>
+                      {nft.associations?.has_upload && (
+                        <Chip 
+                          label="IPFS" 
+                          size="small" 
+                          color="primary" 
+                          sx={{ height: '18px', fontSize: '0.65rem' }}
+                        />
+                      )}
+                    </Box>
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
                       <Typography variant="caption" color="text.secondary">
                         {nft.collection?.rarity_level || 'common'}
@@ -3662,6 +3746,11 @@ const EnhancedNFTDashboard = () => {
                     <Typography variant="caption" color="text.secondary">
                       Radius: {nft.radius_meters}m
                     </Typography>
+                    {nft.associations?.ipfs_server_name && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        Server: {nft.associations.ipfs_server_name}
+                      </Typography>
+                    )}
                   </CardContent>
                   <CardActions sx={{ p: 1, pt: 0 }}>
                     <Button
@@ -3716,9 +3805,19 @@ const EnhancedNFTDashboard = () => {
                     />
                   )}
                   <CardContent sx={{ p: 1.5 }}>
-                    <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                      {item.collection?.name || 'Unknown NFT'}
-                    </Typography>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography variant="subtitle2" component="div" sx={{ fontWeight: 'bold' }}>
+                        {item.collection?.name || 'Unknown NFT'}
+                      </Typography>
+                      {item.associations?.has_upload && (
+                        <Chip 
+                          label="IPFS" 
+                          size="small" 
+                          color="primary" 
+                          sx={{ height: '18px', fontSize: '0.65rem' }}
+                        />
+                      )}
+                    </Box>
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
                       <Typography variant="caption" color="text.secondary">
                         {item.collection?.rarity_level || 'common'}
@@ -3874,7 +3973,7 @@ const EnhancedNFTDashboard = () => {
                 <Button
                   variant="contained"
                   startIcon={<LocationIcon />}
-                  onClick={() => setOpenRealPinDialog(true)}
+                  onClick={() => setOpenEnhancedPinDialog(true)}
                   disabled={loading}
                   sx={{
                     background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
@@ -4017,6 +4116,11 @@ const EnhancedNFTDashboard = () => {
         <EnhancedNFTManager />
       </TabPanel>
 
+      {/* IPFS Management Tab */}
+      <TabPanel value={tabValue} index={4}>
+        <IPFSManagementTabs user={user} />
+      </TabPanel>
+
       {/* NFT Details Dialog */}
       <Dialog 
         open={openNFTDialog} 
@@ -4113,6 +4217,50 @@ const EnhancedNFTDashboard = () => {
                 <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
                   {selectedNFT.ipfs_hash}
                 </Typography>
+
+                {/* Association Information for Workflow 2 NFTs */}
+                {(selectedNFT.associations?.has_upload || selectedNFT.associations?.has_ipfs_server || selectedNFT.associations?.has_pin) && (
+                  <>
+                    <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                      IPFS Management Associations
+                    </Typography>
+                    <Box sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      {selectedNFT.associations?.has_upload && (
+                        <Box sx={{ mb: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Upload Record
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Filename:</strong> {selectedNFT.associations.upload_filename || 'N/A'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Status:</strong> {selectedNFT.associations.upload_status || 'N/A'}
+                          </Typography>
+                        </Box>
+                      )}
+                      {selectedNFT.associations?.has_ipfs_server && (
+                        <Box sx={{ mb: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            IPFS Server
+                          </Typography>
+                          <Typography variant="body2">
+                            <strong>Server:</strong> {selectedNFT.associations.ipfs_server_name || 'N/A'}
+                          </Typography>
+                        </Box>
+                      )}
+                      {selectedNFT.associations?.has_pin && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            IPFS Pin Record
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Pin Status:</strong> {selectedNFT.associations.pin_status || 'N/A'}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </>
+                )}
 
                 {selectedNFT.smart_contract_address && (
                   <>
@@ -4913,6 +5061,22 @@ const EnhancedNFTDashboard = () => {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Enhanced Pin NFT Dialog */}
+      <EnhancedPinNFT
+        open={openEnhancedPinDialog}
+        onClose={() => setOpenEnhancedPinDialog(false)}
+        onPinComplete={(nft) => {
+          console.log('Enhanced NFT pinning successful:', nft);
+          setOpenEnhancedPinDialog(false);
+          setSuccessOverlay({
+            title: 'NFT Pinned Successfully!',
+            message: `Your NFT has been pinned to IPFS and added to the blockchain.`,
+            nft: nft
+          });
+          // Refresh the map or show success message
+        }}
+      />
 
       {/* Success Overlay Dialog */}
       <Dialog

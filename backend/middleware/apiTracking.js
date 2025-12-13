@@ -7,7 +7,7 @@ const trackApiUsage = async (req, res, next) => {
     // Get API key from request (check both cases)
     const apiKey = req.headers['x-api-key'] || req.headers['X-API-Key'] || req.query.api_key;
     if (!apiKey) {
-        console.log('🔍 API Tracking: No API key found in request');
+        // No API key is normal for internal/frontend requests - skip tracking silently
         return next();
     }
     

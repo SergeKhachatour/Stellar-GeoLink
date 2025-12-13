@@ -3,8 +3,8 @@ import sessionService from '../services/sessionService';
 
 // Determine the API base URL based on environment
 const getApiBaseURL = () => {
-    // If we're running on Azure, use the same domain
-    if (window.location.hostname.includes('azurewebsites.net')) {
+    // If we're running in production (not localhost), use the same domain
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         return `${window.location.protocol}//${window.location.hostname}/api`;
     }
     // For local development

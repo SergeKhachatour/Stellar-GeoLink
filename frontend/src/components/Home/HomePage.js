@@ -31,6 +31,7 @@ import {
     Dashboard
 } from '@mui/icons-material';
 import PublicNFTShowcase from './PublicNFTShowcase';
+import RealTimeNodeTracking from './RealTimeNodeTracking';
 import ApiDocumentation from '../shared/ApiDocumentation';
 
 const HomePage = () => {
@@ -180,6 +181,9 @@ const HomePage = () => {
                     </Grid>
                 </Container>
             </Box>
+
+            {/* Stellar Network Monitoring */}
+            <RealTimeNodeTracking />
 
             {/* Public NFT Showcase */}
             <PublicNFTShowcase />

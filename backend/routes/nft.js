@@ -234,7 +234,11 @@ router.post('/pin', authenticateUser, async (req, res) => {
             server_url, // Extract server URL from request
             smart_contract_address,
             rarity_requirements = {},
-            is_active = true
+            is_active = true,
+            // Foreign key references for Workflow 2 (IPFS server workflow)
+            nft_upload_id,
+            ipfs_server_id,
+            pin_id
         } = req.body;
 
         // Validate required fields
@@ -282,13 +286,59 @@ router.post('/pin', authenticateUser, async (req, res) => {
         console.log('📝 Request body received:', req.body);
         console.log('📦 Full request payload:', JSON.stringify(req.body, null, 2));
 
+        // If nft_upload_id is provided (Workflow 2), look up related data
+        let finalIpfsServerId = ipfs_server_id;
+        let finalPinId = pin_id;
+        
+        if (nft_upload_id) {
+            // Get upload details to ensure we have the correct ipfs_server_id
+            const uploadResult = await pool.query(`
+                SELECT ipfs_server_id 
+                FROM nft_uploads 
+                WHERE id = $1 AND user_id = $2
+            `, [nft_upload_id, req.user.id]);
+            
+            if (uploadResult.rows.length > 0) {
+                finalIpfsServerId = finalIpfsServerId || uploadResult.rows[0].ipfs_server_id;
+                
+                // If pin_id not provided, try to find the most recent pin for this upload
+                if (!finalPinId) {
+                    const pinResult = await pool.query(`
+                        SELECT id 
+                        FROM ipfs_pins 
+                        WHERE nft_upload_id = $1 AND pin_status = 'pinned'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    `, [nft_upload_id]);
+                    
+                    if (pinResult.rows.length > 0) {
+                        finalPinId = pinResult.rows[0].id;
+                    }
+                }
+            }
+        }
+
+        // If server_url not provided but ipfs_server_id is, get server_url from ipfs_servers
+        let finalServerUrl = server_url;
+        if (!finalServerUrl && finalIpfsServerId) {
+            const serverResult = await pool.query(`
+                SELECT server_url 
+                FROM ipfs_servers 
+                WHERE id = $1 AND (user_id = $2 OR $2 = ANY(shared_with_users))
+            `, [finalIpfsServerId, req.user.id]);
+            
+            if (serverResult.rows.length > 0) {
+                finalServerUrl = serverResult.rows[0].server_url;
+            }
+        }
+
         // Construct full image URL for display
         let fullImageUrl = null;
-        if (server_url && ipfs_hash) {
+        if (finalServerUrl && ipfs_hash) {
             if (filename) {
-                fullImageUrl = `${server_url}${ipfs_hash}/${filename}`;
+                fullImageUrl = `${finalServerUrl}${ipfs_hash}/${filename}`;
             } else {
-                fullImageUrl = `${server_url}${ipfs_hash}`;
+                fullImageUrl = `${finalServerUrl}${ipfs_hash}`;
             }
         }
         console.log('🖼️ Full image URL:', fullImageUrl);
@@ -298,15 +348,17 @@ router.post('/pin', authenticateUser, async (req, res) => {
             INSERT INTO pinned_nfts (
                 collection_id, latitude, longitude, radius_meters, 
                 ipfs_hash, server_url, smart_contract_address, rarity_requirements, 
-                is_active, pinned_by_user, pinned_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+                is_active, pinned_by_user, pinned_at,
+                nft_upload_id, ipfs_server_id, pin_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13)
             RETURNING *
         `;
         
         const queryParams = [
             finalCollectionId, latitude, longitude, radius_meters,
-            fullIpfsHash, server_url, smart_contract_address, JSON.stringify(rarity_requirements),
-            is_active, userPublicKey
+            fullIpfsHash, finalServerUrl, smart_contract_address, JSON.stringify(rarity_requirements),
+            is_active, userPublicKey,
+            nft_upload_id || null, finalIpfsServerId || null, finalPinId || null
         ];
 
         console.log('🗄️ SQL Query:', sqlQuery);
@@ -573,14 +625,27 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
         }
 
         // Get NFTs within radius using PostGIS if available, otherwise use simple distance calculation
+        // Join with ipfs_servers to get the current server URL (prefer ipfs_servers.server_url over pinned_nfts.server_url)
+        // Also join with uploads and pins to get association data for Workflow 2 NFTs
+        // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
+        // The upload hash points directly to the file, so we don't need to append the filename
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
+                   COALESCE(ips.server_url, pn.server_url) as server_url,
+                   COALESCE(nu.ipfs_hash, pn.ipfs_hash) as ipfs_hash,
+                   nu.original_filename as upload_filename,
+                   nu.upload_status as upload_status,
+                   ips.server_name as ipfs_server_name,
+                   ip.pin_status as pin_status,
                    ST_Distance(
                        ST_Point($2, $1)::geography,
                        ST_Point(pn.longitude, pn.latitude)::geography
                    ) as distance
             FROM pinned_nfts pn
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
+            LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
+            LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
             WHERE pn.is_active = true
             AND ST_DWithin(
                 ST_Point($2, $1)::geography,
@@ -597,6 +662,16 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
                 description: nft.description,
                 image_url: nft.image_url,
                 rarity_level: nft.rarity_level
+            },
+            // Include association data for Workflow 2 NFTs
+            associations: {
+                has_upload: !!nft.nft_upload_id,
+                has_ipfs_server: !!nft.ipfs_server_id,
+                has_pin: !!nft.pin_id,
+                upload_filename: nft.upload_filename,
+                upload_status: nft.upload_status,
+                ipfs_server_name: nft.ipfs_server_name,
+                pin_status: nft.pin_status
             }
         }));
 
@@ -622,14 +697,27 @@ router.get('/nearby', authenticateApiKey, async (req, res) => {
         }
 
         // Get NFTs within radius using PostGIS if available, otherwise use simple distance calculation
+        // Join with ipfs_servers to get the current server URL (prefer ipfs_servers.server_url over pinned_nfts.server_url)
+        // Also join with uploads and pins to get association data for Workflow 2 NFTs
+        // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
+        // The upload hash points directly to the file, so we don't need to append the filename
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
+                   COALESCE(ips.server_url, pn.server_url) as server_url,
+                   COALESCE(nu.ipfs_hash, pn.ipfs_hash) as ipfs_hash,
+                   nu.original_filename as upload_filename,
+                   nu.upload_status as upload_status,
+                   ips.server_name as ipfs_server_name,
+                   ip.pin_status as pin_status,
                    ST_Distance(
                        ST_Point($2, $1)::geography,
                        ST_Point(pn.longitude, pn.latitude)::geography
                    ) as distance
             FROM pinned_nfts pn
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
+            LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
+            LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
             WHERE pn.is_active = true
             AND ST_DWithin(
                 ST_Point($2, $1)::geography,
@@ -646,6 +734,16 @@ router.get('/nearby', authenticateApiKey, async (req, res) => {
                 description: nft.description,
                 image_url: nft.image_url,
                 rarity_level: nft.rarity_level
+            },
+            // Include association data for Workflow 2 NFTs
+            associations: {
+                has_upload: !!nft.nft_upload_id,
+                has_ipfs_server: !!nft.ipfs_server_id,
+                has_pin: !!nft.pin_id,
+                upload_filename: nft.upload_filename,
+                upload_status: nft.upload_status,
+                ipfs_server_name: nft.ipfs_server_name,
+                pin_status: nft.pin_status
             }
         }));
 
@@ -803,10 +901,18 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
         }
 
         const result = await pool.query(`
-            SELECT uno.*, pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level
+            SELECT uno.*, pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
+                   COALESCE(ips.server_url, pn.server_url) as server_url,
+                   nu.original_filename as upload_filename,
+                   nu.upload_status as upload_status,
+                   ips.server_name as ipfs_server_name,
+                   ip.pin_status as pin_status
             FROM user_nft_ownership uno
             JOIN pinned_nfts pn ON uno.nft_id = pn.id
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
+            LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
+            LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
             WHERE uno.user_public_key = $1 AND uno.is_active = true
             ORDER BY uno.collected_at DESC
         `, [userPublicKey]);
@@ -820,7 +926,18 @@ router.get('/user-collection', authenticateUser, async (req, res) => {
                 longitude: item.longitude,
                 radius_meters: item.radius_meters,
                 ipfs_hash: item.ipfs_hash,
+                server_url: item.server_url,
                 smart_contract_address: item.smart_contract_address,
+                // Include association data for Workflow 2 NFTs
+                associations: {
+                    has_upload: !!item.nft_upload_id,
+                    has_ipfs_server: !!item.ipfs_server_id,
+                    has_pin: !!item.pin_id,
+                    upload_filename: item.upload_filename,
+                    upload_status: item.upload_status,
+                    ipfs_server_name: item.ipfs_server_name,
+                    pin_status: item.pin_status
+                },
                 collection: {
                     name: item.collection_name,
                     description: item.description,

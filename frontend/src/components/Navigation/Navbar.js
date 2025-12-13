@@ -74,7 +74,15 @@ const Navbar = () => {
                         </ListItemButton>
                         <ListItemButton 
                             component="a" 
-                            href="http://localhost:4000/docs"
+                            href={(() => {
+                              const getApiBaseURL = () => {
+                                if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                                  return `${window.location.protocol}//${window.location.hostname}`;
+                                }
+                                return process.env.REACT_APP_API_URL || 'http://localhost:4000';
+                              };
+                              return `${getApiBaseURL()}/docs`;
+                            })()}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={handleDrawerToggle}
@@ -174,7 +182,15 @@ const Navbar = () => {
                                     <Button 
                                         color="inherit" 
                                         component="a"
-                                        href="http://localhost:4000/docs"
+                                        href={(() => {
+                              const getApiBaseURL = () => {
+                                if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                                  return `${window.location.protocol}//${window.location.hostname}`;
+                                }
+                                return process.env.REACT_APP_API_URL || 'http://localhost:4000';
+                              };
+                              return `${getApiBaseURL()}/docs`;
+                            })()}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         size="small"

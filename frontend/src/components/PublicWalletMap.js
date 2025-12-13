@@ -160,9 +160,13 @@ const PublicWalletMap = () => {
 
             try {
                 // Determine API URL based on environment
-                const apiUrl = window.location.hostname.includes('azurewebsites.net') 
-                    ? `${window.location.protocol}//${window.location.hostname}/api/locations/public`
-                    : 'http://localhost:4000/api/locations/public';
+                const getApiBaseURL = () => {
+                    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                        return `${window.location.protocol}//${window.location.hostname}`;
+                    }
+                    return process.env.REACT_APP_API_URL || 'http://localhost:4000';
+                };
+                const apiUrl = `${getApiBaseURL()}/api/locations/public`;
                 
                 const response = await fetch(apiUrl, {
                     method: 'GET',
