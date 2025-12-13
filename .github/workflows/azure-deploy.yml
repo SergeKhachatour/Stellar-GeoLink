@@ -58,11 +58,31 @@ jobs:
           # Create fresh deployment directory
           mkdir -p azure-deploy
           
-          # Copy backend files to deployment directory (including package.json and package-lock.json)
-          cp -r backend/* azure-deploy/
+          # Copy backend files to deployment directory (EXCLUDING public directory which has old builds)
+          # We'll copy the new frontend build to public instead
+          rsync -av --exclude='public' backend/ azure-deploy/ || {
+            # Fallback if rsync is not available
+            cp -r backend/* azure-deploy/
+            rm -rf azure-deploy/public
+          }
           
-          # Copy frontend build files to deployment directory
+          # Ensure public directory doesn't exist (remove any old build files)
+          rm -rf azure-deploy/public
+          
+          # Copy NEW frontend build files to deployment directory
           cp -r frontend/build azure-deploy/public
+          
+          # Verify the new index.html has the correct bundle reference
+          echo "=== Checking index.html bundle reference ==="
+          if grep -q "main.62182756.js" azure-deploy/public/index.html 2>/dev/null; then
+            echo "✅ index.html references NEW bundle (main.62182756.js)"
+          elif grep -q "main.1671abd8.js" azure-deploy/public/index.html 2>/dev/null; then
+            echo "❌ WARNING: index.html still references OLD bundle (main.1671abd8.js)"
+            echo "This should not happen - the build should have created a new index.html"
+          else
+            echo "⚠️ Could not find bundle reference in index.html"
+            head -20 azure-deploy/public/index.html
+          fi
           
           # Use the actual backend package.json (which includes all dependencies like multer)
           # No need to create a custom one - use the real package.json from backend
@@ -98,3 +118,7 @@ jobs:
           app-name: 'GeoLink'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend.zip
+          # Force clean deployment - remove old files before deploying
+          clean: true
+          # Don't run build during deployment (we already built)
+          startup-command: 'npm start'
