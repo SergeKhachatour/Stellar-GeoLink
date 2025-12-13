@@ -172,13 +172,13 @@ const PublicNFTShowcase = () => {
       // California should be roughly: -124 to -114 longitude, 32 to 42 latitude
       // Rio de Janeiro should be roughly: -43 to -42 longitude, -23 to -22 latitude
       if (finalLng >= -124 && finalLng <= -114 && finalLat >= 32 && finalLat <= 42) {
+        // California region
       } else if (finalLng >= -43 && finalLng <= -42 && finalLat >= -23 && finalLat <= -22) {
         // Rio de Janeiro region
       } else {
-        // Test if swapping lat/lng makes more sense
-        const swappedLng = finalLat;
-        const swappedLat = finalLng;
-        }
+        // Test if swapping lat/lng makes more sense (commented out for now)
+        // const swappedLng = finalLat;
+        // const swappedLat = finalLng;
       }
 
       // Final validation of coordinates
@@ -318,7 +318,7 @@ const PublicNFTShowcase = () => {
       }
     });
     
-  }, [nfts, isUserMovingMap, createSingleMarker]);
+  }, [isUserMovingMap, createSingleMarker]);
 
   // Fetch all public NFTs using the same approach as NFT Dashboard
   const fetchPublicNFTs = useCallback(async () => {

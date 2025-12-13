@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Version constant for build tracking
-const API_SERVICE_VERSION = 'v2.0.9-2025-01-13-18:20-FORCE-REBUILD-1736791200000';
+// Version constant for build tracking (kept for reference, currently unused)
+// const API_SERVICE_VERSION = 'v2.0.9-2025-01-13-18:20-FORCE-REBUILD-1736791200000';
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
@@ -39,6 +39,7 @@ const getApiBaseURL = () => {
         }
     }
     // For local development only
+    const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
     return devUrl;
 };
 

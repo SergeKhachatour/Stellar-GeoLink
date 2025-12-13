@@ -272,11 +272,11 @@ const RealTimeNodeTracking = () => {
              // Check if coordinates project correctly
              const point = map.current.project([lng, lat]);
              // console.log(`🎯 ${test.name} screen projection:`, {
-               screenX: point.x,
-               screenY: point.y,
-               inViewport: point.x >= 0 && point.x <= map.current.getContainer().offsetWidth && 
-                          point.y >= 0 && point.y <= map.current.getContainer().offsetHeight
-             });
+             //   screenX: point.x,
+             //   screenY: point.y,
+             //   inViewport: point.x >= 0 && point.x <= map.current.getContainer().offsetWidth && 
+             //              point.y >= 0 && point.y <= map.current.getContainer().offsetHeight
+             // });
              
              // Create test marker
              const testMarker = new mapboxgl.Marker({ color: test.color })
@@ -367,15 +367,15 @@ const RealTimeNodeTracking = () => {
           ];
           
           testCoords.forEach(coord => {
-            const point = map.current.project([coord.lng, coord.lat]);
+            // const point = map.current.project([coord.lng, coord.lat]);
             // console.log(`📍 ${coord.name} projection:`, {
-              lng: coord.lng,
-              lat: coord.lat,
-              screenX: point.x,
-              screenY: point.y,
-              inViewport: point.x >= 0 && point.x <= map.current.getContainer().offsetWidth && 
-                         point.y >= 0 && point.y <= map.current.getContainer().offsetHeight
-            });
+            //   lng: coord.lng,
+            //   lat: coord.lat,
+            //   screenX: point.x,
+            //   screenY: point.y,
+            //   inViewport: point.x >= 0 && point.x <= map.current.getContainer().offsetWidth && 
+            //              point.y >= 0 && point.y <= map.current.getContainer().offsetHeight
+            // });
           });
         }
       }, 200);
@@ -542,11 +542,11 @@ const RealTimeNodeTracking = () => {
 
   // Update fullscreen markers when dialog opens
   useEffect(() => {
-    // console.log('🔍 Fullscreen dialog state changed:', { 
-      open, 
-      hasContainer: !!fullscreenMapContainer.current, 
-      hasMap: !!fullscreenMap.current 
-    });
+    // console.log('🔍 Fullscreen dialog state changed:', {
+    //   open,
+    //   hasContainer: !!fullscreenMapContainer.current,
+    //   hasMap: !!fullscreenMap.current
+    // });
     
     let retryTimeout;
     
