@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-const API_SERVICE_VERSION = 'v2.0.3-2025-01-13';
+const API_SERVICE_VERSION = 'v2.0.4-2025-01-13-FIX';
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
@@ -12,11 +12,17 @@ const getApiBaseURL = () => {
         const port = window.location.port;
         const origin = window.location.origin;
         
+        // CRITICAL: Log version and hostname immediately to verify new code is running
+        if (!window._apiVersionLogged) {
+            console.log(`🔍 [${API_SERVICE_VERSION}] API URL Detection - Hostname: ${hostname}, Protocol: ${protocol}, Origin: ${origin}`);
+            window._apiVersionLogged = true;
+        }
+        
         // PRIORITY 1: Explicit check for stellargeolink.com - ALWAYS production
         if (hostname.includes('stellargeolink.com')) {
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 [v2.0.3] Production API URL detected (stellargeolink.com):', { 
+                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (stellargeolink.com):`, { 
                     hostname, 
                     protocol, 
                     port, 
@@ -34,7 +40,7 @@ const getApiBaseURL = () => {
         if (hostname.includes('azurewebsites.net')) {
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 [v2.0.3] Production API URL detected (azurewebsites.net):', { 
+                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (azurewebsites.net):`, { 
                     hostname, 
                     protocol, 
                     port, 
@@ -51,7 +57,7 @@ const getApiBaseURL = () => {
         if (protocol === 'https:') {
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 [v2.0.3] Production API URL detected (HTTPS):', { 
+                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (HTTPS):`, { 
                     hostname, 
                     protocol, 
                     port, 
@@ -75,7 +81,7 @@ const getApiBaseURL = () => {
         if (!isLocalhost && hostname.includes('.')) {
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
-                console.log('🌐 [v2.0.3] Production API URL detected (domain):', { 
+                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (domain):`, { 
                     hostname, 
                     protocol, 
                     port, 
@@ -91,7 +97,7 @@ const getApiBaseURL = () => {
     // For local development only
     const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
     if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
-        console.log('🏠 [v2.0.3] Local development API URL:', { 
+        console.log(`🏠 [${API_SERVICE_VERSION}] Local development API URL:`, { 
             devUrl,
             version: API_SERVICE_VERSION,
             'window.location': window.location?.href || 'N/A',
