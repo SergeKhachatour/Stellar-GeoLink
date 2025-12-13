@@ -264,10 +264,10 @@ const APIDocumentation = () => {
               Authentication
             </Typography>
             <Typography variant="body1" gutterBottom>
-              All API requests must include an API key in the Authorization header:
+              All API requests must include an API key in the X-API-Key header:
             </Typography>
             <CodeBlock 
-              code="Authorization: Bearer YOUR_API_KEY"
+              code="X-API-Key: YOUR_API_KEY"
               id="auth-header"
             />
             <Typography variant="body2" color="text.secondary">
@@ -356,7 +356,7 @@ const APIDocumentation = () => {
     `${window.location.origin}${endpoint.endpoint}?${Object.entries(endpoint.parameters || {}).map(([key, value]) => `${key}=${value}`).join('&')}` :
     `${window.location.origin}${endpoint.endpoint}`
   }" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "X-API-Key: YOUR_API_KEY" \\
   -H "Content-Type: application/json"${
     endpoint.method !== 'GET' ? ` \\
   -d '${JSON.stringify(endpoint.requestBody, null, 2)}'` : ''
