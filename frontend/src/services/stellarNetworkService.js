@@ -82,7 +82,7 @@ class StellarNetworkService {
     try {
       // Use backend proxy to avoid CORS issues
       const endpoint = `${getAPI_BASE_URL()}/stellar/validators`;
-      console.log(`Fetching from: ${endpoint}`);
+      // console.log(`Fetching from: ${endpoint}`);
       
       const response = await fetch(endpoint);
       
@@ -107,7 +107,7 @@ class StellarNetworkService {
         throw new Error(data.message || data.error);
       }
       
-      console.log(`Successfully fetched ${Array.isArray(data) ? data.length : 'data'} nodes from Stellar Atlas API`);
+      // console.log(`Successfully fetched ${Array.isArray(data) ? data.length : 'data'} nodes from Stellar Atlas API`);
       
       // Transform the API response to our expected format
       return this.transformValidatorData(data);

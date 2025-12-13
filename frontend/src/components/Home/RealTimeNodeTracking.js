@@ -114,13 +114,10 @@ const RealTimeNodeTracking = () => {
       setNodes(validators);
       nodesRef.current = validators;
       
-      console.log('Fetched Stellar validators:', validators.length);
-      
       // Try to fetch network stats separately (this might fail)
       try {
         const stats = await stellarNetworkService.getNetworkStatsCached();
         setNetworkStats(stats);
-        console.log('Network stats:', stats);
       } catch (statsError) {
         console.warn('Network stats failed, continuing with node data only:', statsError.message);
         // Don't set error for stats failure, just continue with node data
@@ -178,8 +175,6 @@ const RealTimeNodeTracking = () => {
       return null;
     }
 
-    console.log(`Creating marker for ${node.name} at:`, { lng: finalLng, lat: finalLat });
-
     // Try using default Mapbox GL marker with custom color (like test markers)
     let markerColor = '#4CAF50'; // Default green for active
     if (node.status === 'syncing') {
@@ -197,12 +192,10 @@ const RealTimeNodeTracking = () => {
     marker.getElement().addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('Node marker clicked:', node);
       setSelectedNode(node);
       setNodeDetailsOpen(true);
     });
 
-    console.log(`✅ Marker created for ${node.name} at ${finalLat}, ${finalLng}`);
     return marker;
   }, []);
 
@@ -212,7 +205,6 @@ const RealTimeNodeTracking = () => {
 
     // Check if markers already exist to prevent recreation
     if (Object.keys(currentMarkers.current).length > 0) {
-      console.log('Markers already exist, skipping recreation');
       return;
     }
 
@@ -220,34 +212,17 @@ const RealTimeNodeTracking = () => {
     Object.values(currentMarkers.current).forEach(marker => marker.remove());
     currentMarkers.current = {};
 
-    console.log('Creating card markers for', filteredNodes.length, 'nodes');
-    console.log('Map projection:', map.current.getProjection()?.name);
-    console.log('Map center:', map.current.getCenter());
-    console.log('Map zoom:', map.current.getZoom());
-
     filteredNodes.forEach((node, index) => {
-      console.log(`Processing node ${index + 1}/${filteredNodes.length}:`, {
-        id: node.id,
-        name: node.name,
-        location: node.location,
-        city: node.city,
-        country: node.country,
-        coordinates: `[${node.location?.lng}, ${node.location?.lat}]`
-      });
-
       if (node.location && node.location.lat && node.location.lng) {
         const marker = createNodeMarker(node, map.current);
         if (marker) {
           currentMarkers.current[node.id] = marker;
-          console.log(`✅ Marker created for ${node.name} at ${node.location.lat}, ${node.location.lng}`);
         }
       } else {
         console.warn(`❌ Invalid location data for ${node.name}:`, node.location);
       }
     });
 
-    console.log(`Total markers created: ${Object.keys(currentMarkers.current).length}`);
-    
     // Fit map bounds to show all markers (only once)
     if (filteredNodes.length > 0 && map.current && !map.current._hasFittedBounds) {
       const bounds = new mapboxgl.LngLatBounds();
@@ -270,18 +245,15 @@ const RealTimeNodeTracking = () => {
               duration: 1000
             });
             map.current._hasFittedBounds = true; // Mark as fitted
-            console.log('Map fitted to show all markers (one time only)');
           }
         }, 500);
       }
     }
     
-    console.log('Card markers created successfully');
     
     // Temporarily disable test markers to debug positioning issue
     /*
            // Enhanced test markers with coordinate verification
-           console.log('Adding enhanced test markers to verify map positioning');
            
            // Test coordinates with verification
            const testCoordinates = [
@@ -295,11 +267,11 @@ const RealTimeNodeTracking = () => {
              const [lng, lat] = test.coords;
              
              // Verify coordinates are valid
-             console.log(`📍 Testing ${test.name} coordinates:`, { lng, lat });
+             // console.log(`📍 Testing ${test.name} coordinates:`, { lng, lat });
              
              // Check if coordinates project correctly
              const point = map.current.project([lng, lat]);
-             console.log(`🎯 ${test.name} screen projection:`, {
+             // console.log(`🎯 ${test.name} screen projection:`, {
                screenX: point.x,
                screenY: point.y,
                inViewport: point.x >= 0 && point.x <= map.current.getContainer().offsetWidth && 
@@ -320,27 +292,18 @@ const RealTimeNodeTracking = () => {
                .addTo(map.current);
              
              currentMarkers.current[`test-marker-${test.name.toLowerCase()}`] = testMarker;
-             console.log(`✅ ${test.color.toUpperCase()} test marker added at ${test.name} coordinates`);
            });
            
            // Log map bounds and center for debugging
            setTimeout(() => {
              if (map.current) {
-               console.log('🗺️ Map Debug Info:');
-               console.log('- Map center:', map.current.getCenter());
-               console.log('- Map zoom:', map.current.getZoom());
-               console.log('- Map bounds:', map.current.getBounds());
-               console.log('- Map projection:', map.current.getProjection()?.name);
-               console.log('- Map container size:', map.current.getContainer().getBoundingClientRect());
                
                // Check if custom markers are visible
-               console.log('🔍 Checking custom marker visibility:');
                Object.keys(currentMarkers.current).forEach(nodeId => {
                  if (!nodeId.startsWith('test-marker-')) {
                    const markerEl = document.getElementById(`marker-${nodeId}`);
                    if (markerEl) {
                      const rect = markerEl.getBoundingClientRect();
-                     console.log(`✅ Custom marker ${nodeId}:`, {
                        visible: rect.width > 0 && rect.height > 0,
                        position: { x: rect.left, y: rect.top },
                        size: { width: rect.width, height: rect.height },
@@ -349,7 +312,6 @@ const RealTimeNodeTracking = () => {
                        transform: markerEl.style.transform
                      });
                    } else {
-                     console.log(`❌ Custom marker ${nodeId}: NOT FOUND IN DOM`);
                    }
                  }
                });
@@ -362,7 +324,6 @@ const RealTimeNodeTracking = () => {
   // Initialize card map
   const initializeCardMap = useCallback(() => {
     if (map.current) {
-      console.log('Card map already initialized');
       return;
     }
 
@@ -372,7 +333,6 @@ const RealTimeNodeTracking = () => {
       return;
     }
 
-    console.log('Initializing card map with container:', mapContainer.current);
 
     try {
       map.current = new mapboxgl.Map({
@@ -390,16 +350,14 @@ const RealTimeNodeTracking = () => {
       // Add navigation controls
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-      console.log('Card map created successfully');
 
       // Coordinate system verification
       setTimeout(() => {
         if (map.current) {
-          console.log('🔍 Coordinate System Verification:');
-          console.log('- Map projection:', map.current.getProjection()?.name);
-          console.log('- Map center:', map.current.getCenter());
-          console.log('- Map zoom:', map.current.getZoom());
-          console.log('- Map bounds:', map.current.getBounds());
+          // console.log('- Map projection:', map.current.getProjection()?.name);
+          // console.log('- Map center:', map.current.getCenter());
+          // console.log('- Map zoom:', map.current.getZoom());
+          // console.log('- Map bounds:', map.current.getBounds());
           
           // Test coordinate projection
           const testCoords = [
@@ -410,7 +368,7 @@ const RealTimeNodeTracking = () => {
           
           testCoords.forEach(coord => {
             const point = map.current.project([coord.lng, coord.lat]);
-            console.log(`📍 ${coord.name} projection:`, {
+            // console.log(`📍 ${coord.name} projection:`, {
               lng: coord.lng,
               lat: coord.lat,
               screenX: point.x,
@@ -424,11 +382,11 @@ const RealTimeNodeTracking = () => {
 
       // Wait for map to load
       map.current.on('load', () => {
-        console.log('Card map loaded, creating markers');
+        // console.log('Card map loaded, creating markers');
         // Add a small delay to ensure map is fully rendered
         setTimeout(() => {
           if (filteredNodes.length > 0) {
-            console.log('Creating markers after map load delay');
+            // console.log('Creating markers after map load delay');
             createCardMarkers();
           }
         }, 500);
@@ -438,7 +396,7 @@ const RealTimeNodeTracking = () => {
       setTimeout(() => {
         if (map.current) {
           map.current.resize();
-          console.log('Map resized to fit container');
+          // console.log('Map resized to fit container');
         }
       }, 100);
 
@@ -446,7 +404,7 @@ const RealTimeNodeTracking = () => {
       const handleResize = () => {
         if (map.current) {
           map.current.resize();
-          console.log('Map resized due to window resize');
+          // console.log('Map resized due to window resize');
         }
       };
       window.addEventListener('resize', handleResize);
@@ -468,10 +426,10 @@ const RealTimeNodeTracking = () => {
 
   // Initialize fullscreen map
   const initializeFullscreenMap = useCallback(() => {
-    console.log('🔍 initializeFullscreenMap called');
+    // console.log('🔍 initializeFullscreenMap called');
     
     if (fullscreenMap.current) {
-      console.log('Fullscreen map already initialized');
+      // console.log('Fullscreen map already initialized');
       return;
     }
 
@@ -480,7 +438,7 @@ const RealTimeNodeTracking = () => {
       return;
     }
 
-    console.log('🔍 Creating fullscreen map with container:', fullscreenMapContainer.current);
+    // console.log('🔍 Creating fullscreen map with container:', fullscreenMapContainer.current);
 
     try {
       fullscreenMap.current = new mapboxgl.Map({
@@ -495,14 +453,14 @@ const RealTimeNodeTracking = () => {
         interactive: true
       });
 
-      console.log('✅ Fullscreen map created successfully');
+      // console.log('✅ Fullscreen map created successfully');
 
       // Add navigation controls
       fullscreenMap.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
       // Wait for map to load
       fullscreenMap.current.on('load', () => {
-        console.log('✅ Fullscreen map loaded, creating markers');
+        // console.log('✅ Fullscreen map loaded, creating markers');
         if (filteredNodes.length > 0) {
           createFullscreenMarkers();
         }
@@ -522,21 +480,21 @@ const RealTimeNodeTracking = () => {
     Object.values(fullscreenMarkers.current).forEach(marker => marker.remove());
     fullscreenMarkers.current = {};
 
-    console.log('Creating fullscreen markers for', filteredNodes.length, 'nodes');
+    // console.log('Creating fullscreen markers for', filteredNodes.length, 'nodes');
 
     filteredNodes.forEach(node => {
       if (node.location && node.location.lat && node.location.lng) {
         const marker = createNodeMarker(node, fullscreenMap.current);
         if (marker) {
           fullscreenMarkers.current[node.id] = marker;
-          console.log(`✅ Fullscreen marker created for ${node.name} at ${node.location.lat}, ${node.location.lng}`);
+          // console.log(`✅ Fullscreen marker created for ${node.name} at ${node.location.lat}, ${node.location.lng}`);
         }
       } else {
         console.warn(`❌ Invalid location data for ${node.name}:`, node.location);
       }
     });
 
-    console.log(`Total fullscreen markers created: ${Object.keys(fullscreenMarkers.current).length}`);
+    // console.log(`Total fullscreen markers created: ${Object.keys(fullscreenMarkers.current).length}`);
     
     // Fit map bounds to show all markers
     if (filteredNodes.length > 0 && fullscreenMap.current) {
@@ -559,13 +517,13 @@ const RealTimeNodeTracking = () => {
               maxZoom: 8,
               duration: 1000
             });
-            console.log('Fullscreen map fitted to show all markers');
+            // console.log('Fullscreen map fitted to show all markers');
           }
         }, 500);
       }
     }
     
-    console.log('Fullscreen markers created successfully');
+    // console.log('Fullscreen markers created successfully');
   }, [filteredNodes, createNodeMarker]);
 
   // Initialize maps when component mounts
@@ -584,7 +542,7 @@ const RealTimeNodeTracking = () => {
 
   // Update fullscreen markers when dialog opens
   useEffect(() => {
-    console.log('🔍 Fullscreen dialog state changed:', { 
+    // console.log('🔍 Fullscreen dialog state changed:', { 
       open, 
       hasContainer: !!fullscreenMapContainer.current, 
       hasMap: !!fullscreenMap.current 
@@ -593,15 +551,15 @@ const RealTimeNodeTracking = () => {
     let retryTimeout;
     
     if (open && !fullscreenMap.current) {
-      console.log('🚀 Dialog opened, waiting for container...');
+      // console.log('🚀 Dialog opened, waiting for container...');
       
       // Wait for the dialog to fully render and the container to be available
       const checkContainer = () => {
         if (fullscreenMapContainer.current) {
-          console.log('✅ Container found, initializing fullscreen map...');
+          // console.log('✅ Container found, initializing fullscreen map...');
           initializeFullscreenMap();
         } else {
-          console.log('⏳ Container not ready yet, retrying...');
+          // console.log('⏳ Container not ready yet, retrying...');
           retryTimeout = setTimeout(checkContainer, 50);
         }
       };
@@ -733,12 +691,6 @@ const RealTimeNodeTracking = () => {
     };
   }, []);
 
-  // CRITICAL: Log when component renders to verify it's being included
-  useEffect(() => {
-    console.log('%c🌐 RealTimeNodeTracking Component Rendered', 'color: #00ff00; font-size: 16px; font-weight: bold;');
-    console.log('Component state:', { loading, error, nodesCount: nodes.length, hasNetworkStats: !!networkStats });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only log once on mount, not on every state change
 
   return (
     <>
@@ -909,7 +861,7 @@ const RealTimeNodeTracking = () => {
                       variant="contained"
                       startIcon={<FullscreenIcon />}
                       onClick={() => {
-                        console.log('🔍 View Full Map button clicked');
+                        // console.log('🔍 View Full Map button clicked');
                         setOpen(true);
                       }}
                       sx={{

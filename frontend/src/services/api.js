@@ -1,26 +1,7 @@
 import axios from 'axios';
 
-// Version constant to verify deployment - update this to force cache refresh
-// BUILD_TIMESTAMP: 2025-01-13T18:20:00Z - Force new hash - DO NOT REMOVE THIS COMMENT
+// Version constant for build tracking
 const API_SERVICE_VERSION = 'v2.0.9-2025-01-13-18:20-FORCE-REBUILD-1736791200000';
-
-// CRITICAL: Verify we're running the new code, not cached old code
-if (typeof window !== 'undefined' && window.APP_VERSION) {
-    if (window.APP_VERSION !== 'v2.0.7-2025-01-13-CACHE-BUST-FINAL') {
-        console.error('%c❌ VERSION MISMATCH - Old code detected!', 'color: #ff0000; font-size: 18px; font-weight: bold;');
-    }
-}
-
-// CRITICAL: This will show immediately when the module loads
-if (typeof window !== 'undefined') {
-    console.log(`%c🚀 API Service Module Loaded: ${API_SERVICE_VERSION}`, 'color: #00ff00; font-size: 18px; font-weight: bold; background: #000; padding: 10px; border: 2px solid #00ff00;');
-    
-    // Verify we have the correct version
-    if (window.APP_VERSION && window.APP_VERSION !== 'v2.0.7-2025-01-13-CACHE-BUST-FINAL') {
-        console.error('%c❌ VERSION MISMATCH!', 'color: #ff0000; font-size: 20px; font-weight: bold;');
-        console.error(`Expected: v2.0.7-2025-01-13-CACHE-BUST-FINAL, Got: ${window.APP_VERSION}`);
-    }
-}
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
@@ -29,68 +10,20 @@ const getApiBaseURL = () => {
         const hostname = window.location.hostname || '';
         const protocol = window.location.protocol || 'https:';
         const port = window.location.port;
-        const origin = window.location.origin;
-        
-        // CRITICAL: Log version and hostname immediately to verify new code is running
-        if (!window._apiVersionLogged) {
-            console.log(`%c🔍 [${API_SERVICE_VERSION}] API URL Detection`, 'color: #00ff00; font-size: 16px; font-weight: bold;');
-            console.log(`%cHostname: ${hostname}, Protocol: ${protocol}, Origin: ${origin}`, 'color: #00ff00;');
-            console.log(`%c✅ NEW CODE IS RUNNING - If you see this, cache is cleared!`, 'color: #00ff00; font-size: 14px; font-weight: bold; background: #000; padding: 5px;');
-            window._apiVersionLogged = true;
-        }
         
         // PRIORITY 1: Explicit check for stellargeolink.com - ALWAYS production
-        // This includes testnet.stellargeolink.com, www.stellargeolink.com, etc.
-        // Check both includes and endsWith to catch all subdomains
         if (hostname && (hostname.includes('stellargeolink.com') || hostname.endsWith('.stellargeolink.com') || hostname === 'stellargeolink.com')) {
-            const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
-            if (!window._apiBaseUrlLogged) {
-                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (stellargeolink.com):`, { 
-                    hostname, 
-                    protocol, 
-                    port, 
-                    origin,
-                    baseUrl,
-                    version: API_SERVICE_VERSION,
-                    'window.location': window.location.href
-                });
-                window._apiBaseUrlLogged = true;
-            }
-            return baseUrl;
+            return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
         }
         
         // PRIORITY 2: Check for azurewebsites.net - ALWAYS production
         if (hostname.includes('azurewebsites.net')) {
-            const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
-            if (!window._apiBaseUrlLogged) {
-                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (azurewebsites.net):`, { 
-                    hostname, 
-                    protocol, 
-                    port, 
-                    origin,
-                    baseUrl,
-                    version: API_SERVICE_VERSION
-                });
-                window._apiBaseUrlLogged = true;
-            }
-            return baseUrl;
+            return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
         }
         
         // PRIORITY 3: If protocol is HTTPS, it's production
         if (protocol === 'https:') {
-            const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
-            if (!window._apiBaseUrlLogged) {
-                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (HTTPS):`, { 
-                    hostname, 
-                    protocol, 
-                    port, 
-                    origin,
-                    baseUrl,
-                    version: API_SERVICE_VERSION
-                });
-                window._apiBaseUrlLogged = true;
-            }
-            return baseUrl;
+            return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
         }
         
         // PRIORITY 4: Check if it's NOT localhost
@@ -102,32 +35,10 @@ const getApiBaseURL = () => {
                            hostname.includes('localhost');
         
         if (!isLocalhost && hostname.includes('.')) {
-            const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
-            if (!window._apiBaseUrlLogged) {
-                console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (domain):`, { 
-                    hostname, 
-                    protocol, 
-                    port, 
-                    origin,
-                    baseUrl,
-                    version: API_SERVICE_VERSION
-                });
-                window._apiBaseUrlLogged = true;
-            }
-            return baseUrl;
+            return port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
         }
     }
     // For local development only
-    const devUrl = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-    if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
-        console.log(`🏠 [${API_SERVICE_VERSION}] Local development API URL:`, { 
-            devUrl,
-            version: API_SERVICE_VERSION,
-            'window.location': window.location?.href || 'N/A',
-            hostname: window.location?.hostname || 'N/A'
-        });
-        window._apiBaseUrlLogged = true;
-    }
     return devUrl;
 };
 
@@ -155,18 +66,6 @@ api.interceptors.request.use((config) => {
     // Add timing metadata for response time calculation
     config.metadata = { startTime: Date.now() };
     
-    // Log request details
-    console.log('🚀 API Request:', {
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        baseURL: config.baseURL,
-        fullURL: `${config.baseURL}${config.url}`,
-        headers: config.headers,
-        data: config.data,
-        params: config.params,
-        timestamp: new Date().toISOString()
-    });
-    
     return config;
 });
 
@@ -175,20 +74,6 @@ api.interceptors.response.use(
     (response) => {
         // Add end time for response time calculation
         response.config.metadata.endTime = Date.now();
-        
-        // Log successful response details
-        console.log('✅ API Response:', {
-            method: response.config?.method?.toUpperCase(),
-            url: response.config?.url,
-            fullURL: `${response.config?.baseURL}${response.config?.url}`,
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-            data: response.data,
-            responseTime: response.config?.metadata?.endTime - response.config?.metadata?.startTime,
-            timestamp: new Date().toISOString()
-        });
-        
         return response;
     },
     async (error) => {
@@ -197,19 +82,10 @@ api.interceptors.response.use(
             error.config.metadata.endTime = Date.now();
         }
         
-        // Log error response details
-        console.log('❌ API Error:', {
-            method: error.config?.method?.toUpperCase(),
-            url: error.config?.url,
-            fullURL: `${error.config?.baseURL}${error.config?.url}`,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            headers: error.response?.headers,
-            data: error.response?.data,
-            message: error.message,
-            responseTime: error.config?.metadata?.endTime - error.config?.metadata?.startTime,
-            timestamp: new Date().toISOString()
-        });
+        // Only log actual errors (not 401s which are handled)
+        if (error.response?.status && error.response.status !== 401) {
+            console.error('API Error:', error.response.status, error.config?.url, error.message);
+        }
         
         if (error.response?.status === 401) {
             // Prevent infinite loops by checking if this is already a refresh request

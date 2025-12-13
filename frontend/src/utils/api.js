@@ -60,16 +60,16 @@ api.interceptors.request.use((config) => {
     config.metadata = { startTime: Date.now() };
     
     // Log request details
-    console.log('🚀 API Request (utils):', {
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        baseURL: config.baseURL,
-        fullURL: `${config.baseURL}${config.url}`,
-        headers: config.headers,
-        data: config.data,
-        params: config.params,
-        timestamp: new Date().toISOString()
-    });
+    // console.log('🚀 API Request (utils):', {
+    //     method: config.method?.toUpperCase(),
+    //     url: config.url,
+    //     baseURL: config.baseURL,
+    //     fullURL: `${config.baseURL}${config.url}`,
+    //     headers: config.headers,
+    //     data: config.data,
+    //     params: config.params,
+    //     timestamp: new Date().toISOString()
+    // });
     
     return config;
 });
@@ -80,17 +80,17 @@ api.interceptors.response.use(
         response.config.metadata.endTime = Date.now();
         
         // Log successful response details
-        console.log('✅ API Response (utils):', {
-            method: response.config?.method?.toUpperCase(),
-            url: response.config?.url,
-            fullURL: `${response.config?.baseURL}${response.config?.url}`,
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-            data: response.data,
-            responseTime: response.config?.metadata?.endTime - response.config?.metadata?.startTime,
-            timestamp: new Date().toISOString()
-        });
+        // console.log('✅ API Response (utils):', {
+        //     method: response.config?.method?.toUpperCase(),
+        //     url: response.config?.url,
+        //     fullURL: `${response.config?.baseURL}${response.config?.url}`,
+        //     status: response.status,
+        //     statusText: response.statusText,
+        //     headers: response.headers,
+        //     data: response.data,
+        //     responseTime: response.config?.metadata?.endTime - response.config?.metadata?.startTime,
+        //     timestamp: new Date().toISOString()
+        // });
         
         return response;
     },
@@ -103,18 +103,18 @@ api.interceptors.response.use(
         }
         
         // Log error response details
-        console.log('❌ API Error (utils):', {
-            method: error.config?.method?.toUpperCase(),
-            url: error.config?.url,
-            fullURL: `${error.config?.baseURL}${error.config?.url}`,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            headers: error.response?.headers,
-            data: error.response?.data,
-            message: error.message,
-            responseTime: error.config?.metadata?.endTime - error.config?.metadata?.startTime,
-            timestamp: new Date().toISOString()
-        });
+        // console.log('❌ API Error (utils):', {
+        //     method: error.config?.method?.toUpperCase(),
+        //     url: error.config?.url,
+        //     fullURL: `${error.config?.baseURL}${error.config?.url}`,
+        //     status: error.response?.status,
+        //     statusText: error.response?.statusText,
+        //     headers: error.response?.headers,
+        //     data: error.response?.data,
+        //     message: error.message,
+        //     responseTime: error.config?.metadata?.endTime - error.config?.metadata?.startTime,
+        //     timestamp: new Date().toISOString()
+        // });
 
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;

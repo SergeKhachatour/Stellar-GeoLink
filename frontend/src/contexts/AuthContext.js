@@ -12,7 +12,6 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = useCallback(async () => {
         // Don't run checkAuth if we're in the middle of a login process
         if (isLoggingIn) {
-            console.log('🔍 checkAuth - skipping because login in progress');
             return;
         }
         
@@ -20,26 +19,18 @@ export const AuthProvider = ({ children }) => {
         await new Promise(resolve => setTimeout(resolve, 100));
         
         const token = localStorage.getItem('token');
-        console.log('🔍 checkAuth - token from storage:', token ? 'exists' : 'none');
         
         if (!token) {
-            console.log('🔍 No token found, setting loading to false');
             setLoading(false);
             return;
         }
 
         try {
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-            console.log('🔍 checkAuth - sending request with token');
-            console.log('🔍 checkAuth - Authorization header:', api.defaults.headers.common['Authorization']);
-            console.log('🔍 checkAuth - token value:', token.substring(0, 20) + '...');
             const response = await authApi.verifyToken();
-            console.log('🔍 checkAuth - verify response:', response.data);
-            console.log('🔍 checkAuth - response status:', response.status);
             
             if (response.data) {
                 setUser(response.data);
-                console.log('checkAuth - user set:', response.data);
                 
                 // Store debug info
                 localStorage.setItem('debug_checkAuth', JSON.stringify({
@@ -66,7 +57,6 @@ export const AuthProvider = ({ children }) => {
                     reason: 'no response data from verify'
                 }));
                 
-                console.log('❌ No response data from verify, user cleared');
             }
         } catch (err) {
             console.error('❌ Auth check failed:', err);
@@ -100,7 +90,6 @@ export const AuthProvider = ({ children }) => {
                 status: err.response?.status
             }));
             
-            console.log('❌ Auth check failed, user cleared, redirecting to login');
         } finally {
             setLoading(false);
         }
@@ -120,16 +109,16 @@ export const AuthProvider = ({ children }) => {
             localStorage.removeItem('debug_checkAuth');
             delete api.defaults.headers.common['Authorization'];
 
-            console.log('🔐 Starting login process for:', credentials.email);
+            // console.log('🔐 Starting login process for:', credentials.email);
             
             const response = await authApi.login(credentials);
-            console.log('Login response:', response.data);
-            console.log('Login response status:', response.status);
-            console.log('Login response headers:', response.headers);
+            // console.log('Login response:', response.data);
+            // console.log('Login response status:', response.status);
+            // console.log('Login response headers:', response.headers);
 
             const { token, refreshToken, user } = response.data;
 
-            console.log('Extracted from response:', { token: !!token, refreshToken: !!refreshToken, user: !!user });
+            // console.log('Extracted from response:', { token: !!token, refreshToken: !!refreshToken, user: !!user });
 
             if (!token || !user) {
                 console.error('Missing token or user in response:', { token: !!token, user: !!user });
@@ -138,12 +127,12 @@ export const AuthProvider = ({ children }) => {
 
             // Store tokens and set up API
             localStorage.setItem('token', token);
-            console.log('Token stored in localStorage:', localStorage.getItem('token') ? 'YES' : 'NO');
+            // console.log('Token stored in localStorage:', localStorage.getItem('token') ? 'YES' : 'NO');
             
             // Verify token is still there after a short delay
             setTimeout(() => {
                 const tokenCheck = localStorage.getItem('token');
-                console.log('Token check after 50ms:', tokenCheck ? 'EXISTS' : 'MISSING');
+                // console.log('Token check after 50ms:', tokenCheck ? 'EXISTS' : 'MISSING');
                 if (!tokenCheck) {
                     console.error('❌ Token was cleared after storage!');
                 }
@@ -151,18 +140,18 @@ export const AuthProvider = ({ children }) => {
 
             if (refreshToken) {
                 localStorage.setItem('refreshToken', refreshToken);
-                console.log('Refresh token stored in localStorage:', localStorage.getItem('refreshToken') ? 'YES' : 'NO');
+                // console.log('Refresh token stored in localStorage:', localStorage.getItem('refreshToken') ? 'YES' : 'NO');
             }
 
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-            console.log('API headers set:', api.defaults.headers.common['Authorization'] ? 'YES' : 'NO');
+            // console.log('API headers set:', api.defaults.headers.common['Authorization'] ? 'YES' : 'NO');
 
             // Set user in state
             setUser(user);
             setError(null);
             
-            console.log('Login successful - user set in state:', user);
-            console.log('User state after login:', { id: user.id, email: user.email, role: user.role });
+            // console.log('Login successful - user set in state:', user);
+            // console.log('User state after login:', { id: user.id, email: user.email, role: user.role });
             
             // Store the user in localStorage for debugging
             localStorage.setItem('debug_user_set', JSON.stringify({
@@ -180,7 +169,7 @@ export const AuthProvider = ({ children }) => {
                 success: true
             }));
             
-            console.log('🔐 Login completed successfully, user role:', user.role);
+            // console.log('🔐 Login completed successfully, user role:', user.role);
             
             // Don't set isLoggingIn to false immediately - let the component handle the navigation
             // The isLoggingIn flag will be reset when the component unmounts or when checkAuth runs

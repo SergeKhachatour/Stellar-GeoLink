@@ -112,11 +112,8 @@ const PublicNFTShowcase = () => {
   // Create a single NFT marker with advanced coordinate validation (like NFT Manager)
   const createSingleMarker = useCallback((nft, map, nftIndex = 0) => {
     try {
-      console.log(`🎯 Creating single marker for NFT ${nft.id} at index ${nftIndex}`);
-      
       // Check if marker already exists (prevent duplicates)
       if (currentMarkers.current[nft.id]) {
-        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
         return currentMarkers.current[nft.id];
       }
       
@@ -142,13 +139,11 @@ const PublicNFTShowcase = () => {
         if (finalLat < -90) finalLat = -90;
         if (finalLat > 90) finalLat = 90;
         
-        console.log(`🌍 Globe projection: Normalized coordinates for NFT ${nft.id}:`, { lng: finalLng, lat: finalLat });
       }
       
       // TEMPORARY FIX: Check if coordinates seem to be swapped
       // If longitude is in latitude range and vice versa, swap them
       if (Math.abs(finalLng) <= 90 && Math.abs(finalLat) > 90) {
-        console.log(`🔄 COORDINATE SWAP DETECTED for NFT ${nft.id}: Swapping lat/lng`);
         const temp = finalLng;
         finalLng = finalLat;
         finalLat = temp;
@@ -157,7 +152,6 @@ const PublicNFTShowcase = () => {
       // Additional check: If coordinates are clearly in the ocean, try swapping
       // Ocean coordinates are typically outside normal land boundaries
       if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
-        console.log(`🔄 INVALID COORDINATES for NFT ${nft.id}: Trying coordinate swap`);
         const temp = finalLng;
         finalLng = finalLat;
         finalLat = temp;
@@ -166,28 +160,8 @@ const PublicNFTShowcase = () => {
       // Check if coordinates might be in UTM or another coordinate system
       // UTM coordinates are typically much larger numbers (hundreds of thousands)
       if (Math.abs(finalLng) > 1000 || Math.abs(finalLat) > 1000) {
-        console.log(`🚨 LARGE COORDINATES for NFT ${nft.id}: Possible UTM or other coordinate system`, { lng: finalLng, lat: finalLat });
-        console.log(`🚨 These coordinates are likely in UTM or another system, not WGS84 GPS coordinates`);
       }
       
-      // Debug: Log raw coordinate values
-      console.log(`🔍 Raw coordinates for NFT ${nft.id}:`, {
-        rawLongitude: nft.longitude,
-        rawLatitude: nft.latitude,
-        parsedLng: finalLng,
-        parsedLat: finalLat,
-        coordinateType: typeof nft.longitude,
-        isString: typeof nft.longitude === 'string',
-        stringLength: typeof nft.longitude === 'string' ? nft.longitude.length : 'N/A'
-      });
-      
-      console.log(`NFT ${nft.id} coordinates:`, {
-        lat: finalLat,
-        lng: finalLng,
-        name: nft.name,
-        nftIndex,
-        originalCoords: { lat: nft.latitude, lng: nft.longitude }
-      });
       
       // Debug: Check if coordinates are reasonable
       if (Math.abs(finalLng) > 180 || Math.abs(finalLat) > 90) {
@@ -198,21 +172,12 @@ const PublicNFTShowcase = () => {
       // California should be roughly: -124 to -114 longitude, 32 to 42 latitude
       // Rio de Janeiro should be roughly: -43 to -42 longitude, -23 to -22 latitude
       if (finalLng >= -124 && finalLng <= -114 && finalLat >= 32 && finalLat <= 42) {
-        console.log(`✅ NFT ${nft.id} appears to be in California region`);
       } else if (finalLng >= -43 && finalLng <= -42 && finalLat >= -23 && finalLat <= -22) {
-        console.log(`✅ NFT ${nft.id} appears to be in Rio de Janeiro region`);
+        // Rio de Janeiro region
       } else {
-        console.log(`❓ NFT ${nft.id} coordinates don't match expected regions:`, { lat: finalLat, lng: finalLng });
-        
         // Test if swapping lat/lng makes more sense
         const swappedLng = finalLat;
         const swappedLat = finalLng;
-        console.log(`🔄 Testing swapped coordinates for NFT ${nft.id}:`, { lat: swappedLat, lng: swappedLng });
-        
-        if (swappedLng >= -124 && swappedLng <= -114 && swappedLat >= 32 && swappedLat <= 42) {
-          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in California region if coordinates were swapped`);
-        } else if (swappedLng >= -43 && swappedLng <= -42 && swappedLat >= -23 && swappedLat <= -22) {
-          console.log(`🔄 SWAPPED: NFT ${nft.id} would be in Rio de Janeiro region if coordinates were swapped`);
         }
       }
 
@@ -256,7 +221,6 @@ const PublicNFTShowcase = () => {
         img.style.borderRadius = '6px';
         img.style.objectFit = 'cover';
         img.onerror = () => {
-          console.log('Image failed to load:', img.src);
           markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
         };
@@ -278,7 +242,6 @@ const PublicNFTShowcase = () => {
         
         clearTimeout(clickTimeout);
         clickTimeout = setTimeout(() => {
-          console.log('Marker clicked, opening NFT details:', nft);
           handleNFTDetails(nft);
         }, 200); // Delay to allow double-click
       });
@@ -288,7 +251,6 @@ const PublicNFTShowcase = () => {
         e.preventDefault();
         e.stopPropagation();
         clearTimeout(clickTimeout);
-        console.log('Marker double-clicked, zooming to location');
         map.flyTo({
           center: [finalLng, finalLat],
           zoom: 15,
@@ -296,9 +258,6 @@ const PublicNFTShowcase = () => {
         });
       });
 
-      console.log(`Marker ${nftIndex + 1} added successfully at coordinates:`, finalLng, finalLat);
-      console.log('Marker element:', markerEl);
-      console.log('Marker added to map:', marker);
       
       // Store marker in ref for stability tracking
       currentMarkers.current[nft.id] = marker;
@@ -312,52 +271,28 @@ const PublicNFTShowcase = () => {
 
   // Add NFT markers to card map
   const addCardNFTMarkers = useCallback((forceCreation = false) => {
-    console.log('🔍 addCardNFTMarkers called - DEBUGGING MARKER CREATION', { forceCreation });
-    console.log('🔍 Map state:', { 
-      hasMap: !!map.current, 
-      mapContainer: !!mapContainer.current,
-      mapReady: map.current ? 'ready' : 'not ready'
-    });
-    console.log('🔍 NFT state:', { 
-      nftsLength: nfts.length,
-      nftsRefLength: nftsRef.current.length,
-      isUserMovingMap
-    });
-    
     // Always get fresh data from ref
     const currentNFTs = [...nftsRef.current]; // Create a copy to ensure we have the latest data
-    console.log('🔍 Current NFTs data:', currentNFTs.map(nft => ({ 
-      id: nft.id, 
-      name: nft.name, 
-      lat: nft.latitude, 
-      lng: nft.longitude 
-    })));
     
     if (!map.current || !currentNFTs.length) {
-      console.log('❌ No NFTs to display on card map - map:', !!map.current, 'nfts:', currentNFTs.length);
       return;
     }
 
     // MARKER STABILITY: Prevent updates during user interaction (unless forced)
     if (isUserMovingMap && !forceCreation) {
-      console.log('❌ User is interacting with map - no marker updates allowed');
       return;
     }
     
     // MARKER STABILITY: If markers exist and are positioned correctly, don't update them (unless forced)
     if (Object.keys(currentMarkers.current).length > 0 && !forceCreation) {
-      console.log('❌ Markers already exist and are positioned - preventing any updates');
       return;
     }
 
     // MARKER STABILITY: Check if markers are already on the map (unless forced)
     const existingMarkersOnMap = document.querySelectorAll('.nft-marker');
     if (existingMarkersOnMap.length > 0 && !forceCreation) {
-      console.log('❌ Markers already exist on map - preventing recreation');
       return;
     }
-
-    console.log('✅ Creating markers for', currentNFTs.length, 'NFTs on card map');
     
     // Clear existing markers
     Object.values(currentMarkers.current).forEach(marker => {
@@ -383,13 +318,11 @@ const PublicNFTShowcase = () => {
       }
     });
     
-    console.log('All card markers added');
   }, [nfts, isUserMovingMap, createSingleMarker]);
 
   // Fetch all public NFTs using the same approach as NFT Dashboard
   const fetchPublicNFTs = useCallback(async () => {
     if (fetchInProgress) {
-      console.log('Fetch already in progress, skipping...');
       return;
     }
     
@@ -401,8 +334,6 @@ const PublicNFTShowcase = () => {
       // Use the public endpoint that doesn't require authentication
       const response = await api.get('/nft/public');
       
-      console.log('Public NFTs API response:', response.data);
-      
       // Process the NFTs to add full IPFS URLs
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
@@ -413,17 +344,12 @@ const PublicNFTShowcase = () => {
         }
       }));
       
-      console.log('Processed public NFTs:', processedNFTs);
-      console.log('Setting NFTs state with', processedNFTs.length, 'items');
       setNfts(processedNFTs);
       setFilteredNFTs(processedNFTs);
       nftsRef.current = processedNFTs;
-      console.log('NFTs state set, current nfts.length:', processedNFTs.length);
-      console.log('nftsRef.current updated with', nftsRef.current.length, 'items');
       
       // Try to add markers immediately if map is ready
       if (map.current) {
-        console.log('Map is ready, adding markers immediately after NFT fetch');
         setTimeout(() => {
           addCardNFTMarkers();
         }, 100);
@@ -440,7 +366,7 @@ const PublicNFTShowcase = () => {
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {
     if (map.current) {
-      console.log('Card map already initialized');
+      // console.log('Card map already initialized');
       return;
     }
 
@@ -450,8 +376,6 @@ const PublicNFTShowcase = () => {
       return;
     }
 
-    console.log('Initializing card map with container:', mapContainer.current);
-    console.log('Mapbox token found:', process.env.REACT_APP_MAPBOX_TOKEN.substring(0, 10) + '...');
 
     try {
       map.current = new mapboxgl.Map({
@@ -469,23 +393,16 @@ const PublicNFTShowcase = () => {
       // Add navigation controls
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-      console.log('Card map created successfully');
-
       // Wait for map to load
       map.current.on('load', () => {
-        console.log('🔍 Card map loaded, using DIRECT marker creation');
-        console.log('🔍 Map load - nfts.length:', nfts.length, 'nftsRef.length:', nftsRef.current.length);
-        
         // Use direct marker creation - bypasses all complex logic
         if (nftsRef.current.length > 0) {
-          console.log('🚀 Card map loaded with NFTs available, using DIRECT creation');
           createMarkersDirectly();
         }
         
         // Fallback: Try again after a delay
         setTimeout(() => {
           if (nftsRef.current.length > 0) {
-            console.log('🚀 Fallback: Direct marker creation after delay');
             createMarkersDirectly();
           }
         }, 1000);
@@ -494,32 +411,26 @@ const PublicNFTShowcase = () => {
       // MARKER STABILITY: Track user map interaction to prevent marker updates during zoom/pan
       map.current.on('movestart', () => {
         setIsUserMovingMap(true);
-        console.log('User started moving card map - BLOCKING marker updates');
       });
       
       map.current.on('moveend', () => {
         setIsUserMovingMap(false);
-        console.log('User finished moving card map - allowing marker updates');
       });
       
       map.current.on('zoomstart', () => {
-        console.log('Card map zoom started - BLOCKING marker updates');
         setIsUserMovingMap(true);
       });
       
       map.current.on('zoomend', () => {
-        console.log('Card map zoom ended - allowing marker updates');
         setIsUserMovingMap(false);
       });
       
       map.current.on('dragstart', () => {
         setIsUserMovingMap(true);
-        console.log('Card map drag started - BLOCKING marker updates');
       });
       
       map.current.on('dragend', () => {
         setIsUserMovingMap(false);
-        console.log('Card map drag ended - allowing marker updates');
       });
 
       // Markers will be added by useEffect when NFTs are available
@@ -533,9 +444,9 @@ const PublicNFTShowcase = () => {
 
   // Initialize fullscreen map
   const initializeFullscreenMap = useCallback(() => {
-    console.log('initializeFullscreenMap called');
+    // console.log('initializeFullscreenMap called');
     if (fullscreenMap.current) {
-      console.log('Fullscreen map already exists, skipping initialization');
+      // console.log('Fullscreen map already exists, skipping initialization');
       return;
     }
 
@@ -573,12 +484,12 @@ const PublicNFTShowcase = () => {
 
       // Wait for map to load
       fullscreenMap.current.on('load', () => {
-        console.log('🔍 Fullscreen map loaded, using DIRECT marker creation');
-        console.log('🔍 Fullscreen map load - nfts.length:', nfts.length, 'filteredNFTs.length:', filteredNFTs.length);
+        // console.log('🔍 Fullscreen map loaded, using DIRECT marker creation');
+        // console.log('🔍 Fullscreen map load - nfts.length:', nfts.length, 'filteredNFTs.length:', filteredNFTs.length);
         
         // Use direct marker creation - bypasses all complex logic
         if (nfts.length > 0) {
-          console.log('🚀 Fullscreen map loaded with NFTs available, using DIRECT creation');
+          // console.log('🚀 Fullscreen map loaded with NFTs available, using DIRECT creation');
           createFullscreenMarkersDirectly();
           
           // Auto-zoom to show all NFTs
@@ -596,13 +507,13 @@ const PublicNFTShowcase = () => {
             });
           }
         } else {
-          console.log('🚀 Fullscreen map loaded but no NFTs yet, will add markers when NFTs are available');
+          // console.log('🚀 Fullscreen map loaded but no NFTs yet, will add markers when NFTs are available');
         }
         
         // Fallback: Try again after a delay
         setTimeout(() => {
           if (nfts.length > 0) {
-            console.log('🚀 Fallback: Direct fullscreen marker creation after delay');
+            // console.log('🚀 Fallback: Direct fullscreen marker creation after delay');
             createFullscreenMarkersDirectly();
           }
         }, 1000);
@@ -611,32 +522,32 @@ const PublicNFTShowcase = () => {
       // MARKER STABILITY: Track user fullscreen map interaction to prevent marker updates during zoom/pan
       fullscreenMap.current.on('movestart', () => {
         setIsUserMovingMap(true);
-        console.log('User started moving fullscreen map - BLOCKING marker updates');
+        // console.log('User started moving fullscreen map - BLOCKING marker updates');
       });
       
       fullscreenMap.current.on('moveend', () => {
         setIsUserMovingMap(false);
-        console.log('User finished moving fullscreen map - allowing marker updates');
+        // console.log('User finished moving fullscreen map - allowing marker updates');
       });
       
       fullscreenMap.current.on('zoomstart', () => {
-        console.log('Fullscreen map zoom started - BLOCKING marker updates');
+        // console.log('Fullscreen map zoom started - BLOCKING marker updates');
         setIsUserMovingMap(true);
       });
       
       fullscreenMap.current.on('zoomend', () => {
-        console.log('Fullscreen map zoom ended - allowing marker updates');
+        // console.log('Fullscreen map zoom ended - allowing marker updates');
         setIsUserMovingMap(false);
       });
       
       fullscreenMap.current.on('dragstart', () => {
         setIsUserMovingMap(true);
-        console.log('Fullscreen map drag started - BLOCKING marker updates');
+        // console.log('Fullscreen map drag started - BLOCKING marker updates');
       });
       
       fullscreenMap.current.on('dragend', () => {
         setIsUserMovingMap(false);
-        console.log('Fullscreen map drag ended - allowing marker updates');
+        // console.log('Fullscreen map drag ended - allowing marker updates');
       });
 
     } catch (err) {
@@ -648,29 +559,29 @@ const PublicNFTShowcase = () => {
 
   // Simple direct marker creation - bypasses all complex logic
   const createMarkersDirectly = useCallback(() => {
-    console.log('🚀 DIRECT MARKER CREATION - bypassing all logic');
+    // console.log('🚀 DIRECT MARKER CREATION - bypassing all logic');
     
     if (!map.current) {
-      console.log('❌ No map available for direct creation');
+      // console.log('❌ No map available for direct creation');
       return;
     }
     
     const currentNFTs = nftsRef.current || [];
-    console.log('🚀 Direct creation with', currentNFTs.length, 'NFTs');
+    // console.log('🚀 Direct creation with', currentNFTs.length, 'NFTs');
     
     if (currentNFTs.length === 0) {
-      console.log('❌ No NFTs for direct creation');
+      // console.log('❌ No NFTs for direct creation');
       return;
     }
     
     // Clear any existing small map markers only
     const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
-    console.log('🚀 Clearing', existingMarkers.length, 'existing small map markers');
+    // console.log('🚀 Clearing', existingMarkers.length, 'existing small map markers');
     existingMarkers.forEach(marker => marker.remove());
     
     // Create markers directly
     currentNFTs.forEach((nft, index) => {
-      console.log(`🚀 Creating direct marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
+      // console.log(`🚀 Creating direct marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
       
       try {
         // Create marker element with NFT image
@@ -701,7 +612,7 @@ const PublicNFTShowcase = () => {
           img.style.borderRadius = '6px';
           img.style.objectFit = 'cover';
           img.onerror = () => {
-            console.log('Image failed to load for NFT:', nft.id);
+            // console.log('Image failed to load for NFT:', nft.id);
             markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
             markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
           };
@@ -714,7 +625,7 @@ const PublicNFTShowcase = () => {
         markerEl.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('Direct marker clicked, opening NFT details:', nft);
+          // console.log('Direct marker clicked, opening NFT details:', nft);
           handleNFTDetails(nft);
         });
 
@@ -722,7 +633,7 @@ const PublicNFTShowcase = () => {
         markerEl.addEventListener('dblclick', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('Direct marker double-clicked, zooming to location');
+          // console.log('Direct marker double-clicked, zooming to location');
           map.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
@@ -735,40 +646,40 @@ const PublicNFTShowcase = () => {
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
-        console.log(`✅ Direct marker ${index + 1} created successfully with image`);
+        // console.log(`✅ Direct marker ${index + 1} created successfully with image`);
       } catch (error) {
         console.error(`❌ Error creating direct marker ${index + 1}:`, error);
       }
     });
     
-    console.log('🚀 Direct marker creation completed');
+    // console.log('🚀 Direct marker creation completed');
   }, []);
 
   // Simple direct marker creation for fullscreen map - bypasses all complex logic
   const createFullscreenMarkersDirectly = useCallback(() => {
-    console.log('🚀 DIRECT FULLSCREEN MARKER CREATION - bypassing all logic');
+    // console.log('🚀 DIRECT FULLSCREEN MARKER CREATION - bypassing all logic');
     
     if (!fullscreenMap.current) {
-      console.log('❌ No fullscreen map available for direct creation');
+      // console.log('❌ No fullscreen map available for direct creation');
       return;
     }
     
     const nftsToShow = filteredNFTs.length > 0 ? filteredNFTs : nfts;
-    console.log('🚀 Direct fullscreen creation with', nftsToShow.length, 'NFTs');
+    // console.log('🚀 Direct fullscreen creation with', nftsToShow.length, 'NFTs');
     
     if (nftsToShow.length === 0) {
-      console.log('❌ No NFTs for direct fullscreen creation');
+      // console.log('❌ No NFTs for direct fullscreen creation');
       return;
     }
     
     // Clear any existing fullscreen markers only
     const existingMarkers = document.querySelectorAll('.nft-marker[data-map="fullscreen"]');
-    console.log('🚀 Clearing', existingMarkers.length, 'existing fullscreen markers');
+    // console.log('🚀 Clearing', existingMarkers.length, 'existing fullscreen markers');
     existingMarkers.forEach(marker => marker.remove());
     
     // Create markers directly
     nftsToShow.forEach((nft, index) => {
-      console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
+      // console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
       
       try {
         // Create marker element with NFT image
@@ -799,7 +710,7 @@ const PublicNFTShowcase = () => {
           img.style.borderRadius = '6px';
           img.style.objectFit = 'cover';
           img.onerror = () => {
-            console.log('Image failed to load for fullscreen NFT:', nft.id);
+            // console.log('Image failed to load for fullscreen NFT:', nft.id);
             markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
             markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
           };
@@ -812,7 +723,7 @@ const PublicNFTShowcase = () => {
         markerEl.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('Direct fullscreen marker clicked, opening NFT details:', nft);
+          // console.log('Direct fullscreen marker clicked, opening NFT details:', nft);
           handleNFTDetails(nft);
         });
 
@@ -820,7 +731,7 @@ const PublicNFTShowcase = () => {
         markerEl.addEventListener('dblclick', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('Direct fullscreen marker double-clicked, zooming to location');
+          // console.log('Direct fullscreen marker double-clicked, zooming to location');
           fullscreenMap.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
@@ -833,13 +744,13 @@ const PublicNFTShowcase = () => {
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(fullscreenMap.current);
         
-        console.log(`✅ Direct fullscreen marker ${index + 1} created successfully with image`);
+        // console.log(`✅ Direct fullscreen marker ${index + 1} created successfully with image`);
       } catch (error) {
         console.error(`❌ Error creating direct fullscreen marker ${index + 1}:`, error);
       }
     });
     
-    console.log('🚀 Direct fullscreen marker creation completed');
+    // console.log('🚀 Direct fullscreen marker creation completed');
   }, [nfts, filteredNFTs]);
 
   // Handle dialog open
@@ -848,11 +759,11 @@ const PublicNFTShowcase = () => {
     // NFTs are already loaded, no need to fetch again
     // Initialize fullscreen map with retry logic like NFT Manager
     const attemptInitialization = (attempt = 1) => {
-      console.log(`Attempt ${attempt} to initialize fullscreen map...`);
+      // console.log(`Attempt ${attempt} to initialize fullscreen map...`);
       
       // Check if container exists and is visible
       if (fullscreenMapContainer.current && fullscreenMapContainer.current.offsetParent !== null && !fullscreenMap.current) {
-        console.log('Container found and visible, initializing map...');
+        // console.log('Container found and visible, initializing map...');
         try {
           initializeFullscreenMap();
         } catch (error) {
@@ -860,7 +771,7 @@ const PublicNFTShowcase = () => {
           setError('Failed to initialize map. Please check your Mapbox token.');
         }
       } else if (attempt < 5) {
-        console.log(`Container not ready, retrying in ${attempt * 300}ms...`);
+        // console.log(`Container not ready, retrying in ${attempt * 300}ms...`);
         setTimeout(() => attemptInitialization(attempt + 1), attempt * 300);
       } else {
         console.warn('Fullscreen map initialization failed after 5 attempts - container not ready');
@@ -881,7 +792,7 @@ const PublicNFTShowcase = () => {
     }
     
     try {
-      console.log('Autocomplete search for:', query);
+      // console.log('Autocomplete search for:', query);
       
       const mapboxToken = process.env.REACT_APP_MAPBOX_TOKEN;
       if (!mapboxToken) {
@@ -899,7 +810,7 @@ const PublicNFTShowcase = () => {
       }
       
       const data = await response.json();
-      console.log('Autocomplete results:', data.features);
+      // console.log('Autocomplete results:', data.features);
       
       if (data.features && data.features.length > 0) {
         setSearchResults(data.features);
@@ -926,7 +837,7 @@ const PublicNFTShowcase = () => {
     }
     
     try {
-      console.log('Searching for:', query);
+      // console.log('Searching for:', query);
       
       if (selectedResult) {
         // Search by location
@@ -955,7 +866,7 @@ const PublicNFTShowcase = () => {
                  collection.includes(searchTerm);
         });
         
-        console.log(`Search "${query}" found ${filtered.length} results:`, filtered.map(nft => nft.name || nft.nft_name));
+        // console.log(`Search "${query}" found ${filtered.length} results:`, filtered.map(nft => nft.name || nft.nft_name));
         setFilteredNFTs(filtered);
         
         // Auto-zoom to search results
@@ -1032,7 +943,7 @@ const PublicNFTShowcase = () => {
   // Add markers to fullscreen map when it's ready and dialog is open
   useEffect(() => {
     if (open && fullscreenMap.current && nfts.length > 0) {
-      console.log('🚀 Fullscreen dialog opened with map ready - creating markers for', nfts.length, 'NFTs');
+      // console.log('🚀 Fullscreen dialog opened with map ready - creating markers for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
   }, [open, nfts.length, createFullscreenMarkersDirectly]);
@@ -1040,17 +951,17 @@ const PublicNFTShowcase = () => {
   // Aggressive fullscreen marker creation when dialog opens
   useEffect(() => {
     if (open) {
-      console.log('🚀 Dialog opened - attempting fullscreen marker creation');
+      // console.log('🚀 Dialog opened - attempting fullscreen marker creation');
       // Try immediately
       if (fullscreenMap.current && nfts.length > 0) {
-        console.log('🚀 Immediate fullscreen marker creation');
+        // console.log('🚀 Immediate fullscreen marker creation');
         createFullscreenMarkersDirectly();
       }
       
       // Try after a short delay
       setTimeout(() => {
         if (fullscreenMap.current && nfts.length > 0) {
-          console.log('🚀 Delayed fullscreen marker creation');
+          // console.log('🚀 Delayed fullscreen marker creation');
           createFullscreenMarkersDirectly();
         }
       }, 500);
@@ -1058,7 +969,7 @@ const PublicNFTShowcase = () => {
       // Try after a longer delay
       setTimeout(() => {
         if (fullscreenMap.current && nfts.length > 0) {
-          console.log('🚀 Long delayed fullscreen marker creation');
+          // console.log('🚀 Long delayed fullscreen marker creation');
           createFullscreenMarkersDirectly();
         }
       }, 1500);
@@ -1067,39 +978,39 @@ const PublicNFTShowcase = () => {
 
   // SIMPLIFIED: Add markers when NFTs are loaded (only one useEffect for markers)
   useEffect(() => {
-    console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length);
-    console.log('🔍 Map states - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current);
+    // console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length);
+    // console.log('🔍 Map states - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current);
     
     if (map.current && nfts.length > 0) {
-      console.log('✅ NFTs useEffect: Using DIRECT marker creation for', nfts.length, 'NFTs');
+      // console.log('✅ NFTs useEffect: Using DIRECT marker creation for', nfts.length, 'NFTs');
       createMarkersDirectly();
     } else {
-      console.log('❌ NFTs useEffect: Conditions not met', {
-        hasMap: !!map.current,
-        hasNFTs: nfts.length > 0
-      });
+      // console.log('❌ NFTs useEffect: Conditions not met', {
+      //   hasMap: !!map.current,
+      //   hasNFTs: nfts.length > 0
+      // });
     }
     if (fullscreenMap.current && nfts.length > 0) {
-      console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
+      // console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
   }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
 
   // Add markers when map becomes available and NFTs exist
   useEffect(() => {
-    console.log('🔍 Map availability useEffect - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current, 'NFTs:', nfts.length);
+    // console.log('🔍 Map availability useEffect - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current, 'NFTs:', nfts.length);
     
     if (map.current && nfts.length > 0) {
-      console.log('✅ Map availability: Using DIRECT marker creation for', nfts.length, 'NFTs');
+      // console.log('✅ Map availability: Using DIRECT marker creation for', nfts.length, 'NFTs');
       createMarkersDirectly();
     } else {
-      console.log('❌ Map availability: Conditions not met', {
-        hasMap: !!map.current,
-        hasNFTs: nfts.length > 0
-      });
+      // console.log('❌ Map availability: Conditions not met', {
+      //   hasMap: !!map.current,
+      //   hasNFTs: nfts.length > 0
+      // });
     }
     if (fullscreenMap.current && nfts.length > 0) {
-      console.log('✅ Map availability: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
+      // console.log('✅ Map availability: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
       createFullscreenMarkersDirectly();
     }
   }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
@@ -1107,7 +1018,7 @@ const PublicNFTShowcase = () => {
   // Update fullscreen markers when search results change
   useEffect(() => {
     if (fullscreenMap.current && open) {
-      console.log('Search results changed, using DIRECT fullscreen marker creation');
+      // console.log('Search results changed, using DIRECT fullscreen marker creation');
       createFullscreenMarkersDirectly();
     }
   }, [filteredNFTs, open, createFullscreenMarkersDirectly]);
@@ -1574,12 +1485,12 @@ const PublicNFTShowcase = () => {
                           // Initialize fullscreen map and then zoom to location
                           setTimeout(() => {
                             if (fullscreenMapContainer.current && !fullscreenMap.current) {
-                              console.log('Initializing fullscreen map from zoom to location...');
+                              // console.log('Initializing fullscreen map from zoom to location...');
                               initializeFullscreenMap();
                               // After map is initialized, zoom to the selected NFT location
                               setTimeout(() => {
                                 if (fullscreenMap.current && selectedNFT) {
-                                  console.log('Zooming to NFT location:', selectedNFT.latitude, selectedNFT.longitude);
+                                  // console.log('Zooming to NFT location:', selectedNFT.latitude, selectedNFT.longitude);
                                   fullscreenMap.current.flyTo({
                                     center: [Number(selectedNFT.longitude), Number(selectedNFT.latitude)],
                                     zoom: 15,
