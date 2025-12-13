@@ -733,6 +733,12 @@ const RealTimeNodeTracking = () => {
     };
   }, []);
 
+  // CRITICAL: Log when component renders to verify it's being included
+  useEffect(() => {
+    console.log('%c🌐 RealTimeNodeTracking Component Rendered', 'color: #00ff00; font-size: 16px; font-weight: bold;');
+    console.log('Component state:', { loading, error, nodesCount: nodes.length, hasNetworkStats: !!networkStats });
+  }, []);
+
   return (
     <>
       {/* Node Tracking Section */}
@@ -749,8 +755,13 @@ const RealTimeNodeTracking = () => {
                 mb: 2
               }}
             >
-              Stellar Network Monitoring
+              🌐 Stellar Network Monitoring
             </Typography>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2, maxWidth: 600, mx: 'auto' }}>
+                {error}
+              </Alert>
+            )}
             <Typography 
               variant="h6" 
               color="text.secondary" 
