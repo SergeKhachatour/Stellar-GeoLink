@@ -69,6 +69,19 @@ jobs:
           # Copy NEW frontend build files to deployment directory
           cp -r frontend/build azure-deploy/public
           
+          # CRITICAL: Copy backend-specific public files that are NOT part of frontend build
+          # These files are needed for API documentation and other backend features
+          mkdir -p azure-deploy/public
+          cp backend/public/api-docs.html azure-deploy/public/ 2>/dev/null || echo "⚠️ api-docs.html not found in backend/public"
+          cp backend/public/swagger-ui-custom.html azure-deploy/public/ 2>/dev/null || echo "⚠️ swagger-ui-custom.html not found in backend/public"
+          # Copy other backend public files if they exist (but don't overwrite frontend files)
+          if [ -d "backend/public/images" ]; then
+            cp -r backend/public/images azure-deploy/public/ 2>/dev/null || true
+          fi
+          if [ -d "backend/public/soroban-contracts" ]; then
+            cp -r backend/public/soroban-contracts azure-deploy/public/ 2>/dev/null || true
+          fi
+          
           # Verify the new index.html has the correct bundle reference
           echo "=== Checking index.html bundle reference ==="
           if grep -q "main.62182756.js" azure-deploy/public/index.html 2>/dev/null; then
