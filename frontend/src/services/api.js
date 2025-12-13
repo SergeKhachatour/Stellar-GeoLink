@@ -1,12 +1,31 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-// Updated: 2025-01-13 16:00 UTC - Force cache refresh for stellargeolink.com
-const API_SERVICE_VERSION = 'v2.0.6-2025-01-13-FINAL-FIX';
+// Updated: 2025-01-13 16:30 UTC - Force cache refresh for stellargeolink.com
+const API_SERVICE_VERSION = 'v2.0.7-2025-01-13-CACHE-BUST-FINAL';
+
+// CRITICAL: Verify we're running the new code, not cached old code
+if (typeof window !== 'undefined' && window.APP_VERSION) {
+    if (window.APP_VERSION !== 'v2.0.7-2025-01-13-CACHE-BUST-FINAL') {
+        console.error('%c❌ VERSION MISMATCH - Old code detected!', 'color: #ff0000; font-size: 18px; font-weight: bold;');
+    }
+}
 
 // CRITICAL: This will show immediately when the module loads
 if (typeof window !== 'undefined') {
     console.log(`%c🚀 API Service Module Loaded: ${API_SERVICE_VERSION}`, 'color: #00ff00; font-size: 18px; font-weight: bold; background: #000; padding: 10px; border: 2px solid #00ff00;');
+    
+    // Throw error if old code is detected
+    const oldLogPattern = /API Base URL configured as/;
+    const originalConsoleLog = console.log;
+    console.log = function(...args) {
+        const message = args.join(' ');
+        if (oldLogPattern.test(message)) {
+            console.error('%c❌ OLD CODE DETECTED! This message should not appear!', 'color: #ff0000; font-size: 20px; font-weight: bold; background: #000; padding: 15px;');
+            console.error('The old cached bundle is still running. Please clear your browser cache completely.');
+        }
+        originalConsoleLog.apply(console, args);
+    };
 }
 
 // Determine the API base URL based on environment (called at runtime, not build time)
