@@ -161,8 +161,17 @@ const PublicWalletMap = () => {
             try {
                 // Determine API URL based on environment
                 const getApiBaseURL = () => {
-                    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                        return `${window.location.protocol}//${window.location.hostname}`;
+                    if (typeof window !== 'undefined' && window.location) {
+                      const hostname = window.location.hostname || '';
+                      const protocol = window.location.protocol || 'https:';
+                      const port = window.location.port;
+                      // PRIORITY: stellargeolink.com, azurewebsites.net, HTTPS, or any domain
+                      if (hostname.includes('stellargeolink.com') || 
+                          hostname.includes('azurewebsites.net') || 
+                          protocol === 'https:' ||
+                          (!hostname.includes('localhost') && hostname.includes('.'))) {
+                        return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+                      }
                     }
                     return process.env.REACT_APP_API_URL || 'http://localhost:4000';
                 };

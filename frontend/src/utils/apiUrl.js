@@ -3,11 +3,39 @@
  * @returns {string} The API base URL
  */
 export const getApiBaseURL = () => {
-  // If we're running in production (not localhost), use the same domain
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return `${window.location.protocol}//${window.location.hostname}`;
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname || '';
+    const protocol = window.location.protocol || 'https:';
+    const port = window.location.port;
+    
+    // PRIORITY 1: Explicit check for stellargeolink.com - ALWAYS production
+    if (hostname.includes('stellargeolink.com')) {
+      return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+    }
+    
+    // PRIORITY 2: Check for azurewebsites.net - ALWAYS production
+    if (hostname.includes('azurewebsites.net')) {
+      return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+    }
+    
+    // PRIORITY 3: If protocol is HTTPS, it's production
+    if (protocol === 'https:') {
+      return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+    }
+    
+    // PRIORITY 4: Check if it's NOT localhost
+    const isLocalhost = hostname === 'localhost' || 
+                       hostname === '127.0.0.1' || 
+                       hostname.startsWith('192.168.') ||
+                       hostname.startsWith('10.') ||
+                       hostname === '' ||
+                       hostname.includes('localhost');
+    
+    if (!isLocalhost && hostname.includes('.')) {
+      return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+    }
   }
-  // For local development
+  // For local development only
   return process.env.REACT_APP_API_URL || 'http://localhost:4000';
 };
 
