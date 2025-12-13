@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Determine the API base URL based on environment
+// Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
     // If we're running in production (not localhost), use the same domain
     if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -10,18 +10,25 @@ const getApiBaseURL = () => {
     return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 };
 
-const apiBaseURL = getApiBaseURL();
-console.log('🔧 API Base URL configured as:', apiBaseURL);
-
+// Create axios instance - baseURL will be set dynamically in interceptor
 const api = axios.create({
-    baseURL: apiBaseURL,
     headers: {
         'Content-Type': 'application/json'
     }
 });
 
-// Add auth token to requests
+// Set baseURL dynamically before each request and add auth token
 api.interceptors.request.use((config) => {
+    // Set baseURL dynamically at request time
+    if (!config.baseURL) {
+        config.baseURL = getApiBaseURL();
+        if (typeof window !== 'undefined' && !window._apiBaseUrlLogged) {
+            console.log('🔧 API Base URL configured as:', config.baseURL);
+            window._apiBaseUrlLogged = true;
+        }
+    }
+    
+    // Add auth token to requests
     const token = localStorage.getItem('token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;

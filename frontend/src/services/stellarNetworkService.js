@@ -2,7 +2,7 @@
 // This service handles communication with Stellar Atlas API and Horizon API
 // Uses backend proxy to avoid CORS issues
 
-// Determine the API base URL based on environment (matching other services)
+// Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
   // If we're running in production (not localhost), use the same domain
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -12,7 +12,8 @@ const getApiBaseURL = () => {
   return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 };
 
-const API_BASE_URL = getApiBaseURL();
+// Get API base URL dynamically (not at module load time)
+const getAPI_BASE_URL = () => getApiBaseURL();
 
 class StellarNetworkService {
   constructor() {
@@ -25,7 +26,7 @@ class StellarNetworkService {
   async getNetworkInformation() {
     try {
       // Use backend proxy to avoid CORS issues
-      const response = await fetch(`${API_BASE_URL}/stellar/network-info`);
+      const response = await fetch(`${getAPI_BASE_URL()}/stellar/network-info`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -50,7 +51,7 @@ class StellarNetworkService {
   async getStellarValidators() {
     try {
       // Use backend proxy to avoid CORS issues
-      const endpoint = `${API_BASE_URL}/stellar/validators`;
+      const endpoint = `${getAPI_BASE_URL()}/stellar/validators`;
       console.log(`Fetching from: ${endpoint}`);
       
       const response = await fetch(endpoint);
@@ -171,7 +172,7 @@ class StellarNetworkService {
   async getLedgerInfo() {
     try {
       // Use backend proxy to avoid CORS issues
-      const response = await fetch(`${API_BASE_URL}/stellar/ledger`);
+      const response = await fetch(`${getAPI_BASE_URL()}/stellar/ledger`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
