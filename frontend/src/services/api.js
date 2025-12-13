@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-// BUILD_TIMESTAMP: 2025-01-13T18:15:00Z - Force new hash - DO NOT REMOVE THIS COMMENT
-const API_SERVICE_VERSION = 'v2.0.9-2025-01-13-18:15-FORCE-REBUILD-' + Date.now();
+// BUILD_TIMESTAMP: 2025-01-13T18:20:00Z - Force new hash - DO NOT REMOVE THIS COMMENT
+const API_SERVICE_VERSION = 'v2.0.9-2025-01-13-18:20-FORCE-REBUILD-1736791200000';
 
 // CRITICAL: Verify we're running the new code, not cached old code
 if (typeof window !== 'undefined' && window.APP_VERSION) {
