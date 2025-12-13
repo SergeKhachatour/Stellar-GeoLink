@@ -40,14 +40,14 @@ jobs:
           # Create deployment directory
           mkdir -p azure-deploy
           
-          # Copy backend files to deployment directory
+          # Copy backend files to deployment directory (including package.json and package-lock.json)
           cp -r backend/* azure-deploy/
           
           # Copy frontend build files to deployment directory
           cp -r frontend/build azure-deploy/public
           
-          # Create a proper package.json for Azure deployment
-          echo '{"name":"geolink-backend","version":"1.0.0","description":"Stellar GeoLink Backend API","main":"app.js","scripts":{"start":"node app.js","dev":"nodemon app.js"},"dependencies":{"express":"^4.18.2","cors":"^2.8.5","dotenv":"^16.3.1","pg":"^8.11.3","bcryptjs":"^2.4.3","jsonwebtoken":"^9.0.2","helmet":"^7.1.0","express-rate-limit":"^7.1.5"},"engines":{"node":">=18.0.0"}}' > azure-deploy/package.json
+          # Use the actual backend package.json (which includes all dependencies like multer)
+          # No need to create a custom one - use the real package.json from backend
           
           # Verify the structure
           echo "Deployment directory contents:"
