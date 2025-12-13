@@ -1,8 +1,13 @@
 import axios from 'axios';
 
 // Version constant to verify deployment - update this to force cache refresh
-// Updated: 2025-01-13 15:30 UTC - Force cache refresh for stellargeolink.com
-const API_SERVICE_VERSION = 'v2.0.5-2025-01-13-CACHE-BUST';
+// Updated: 2025-01-13 16:00 UTC - Force cache refresh for stellargeolink.com
+const API_SERVICE_VERSION = 'v2.0.6-2025-01-13-FINAL-FIX';
+
+// CRITICAL: This will show immediately when the module loads
+if (typeof window !== 'undefined') {
+    console.log(`%c🚀 API Service Module Loaded: ${API_SERVICE_VERSION}`, 'color: #00ff00; font-size: 18px; font-weight: bold; background: #000; padding: 10px; border: 2px solid #00ff00;');
+}
 
 // Determine the API base URL based on environment (called at runtime, not build time)
 const getApiBaseURL = () => {
@@ -22,7 +27,9 @@ const getApiBaseURL = () => {
         }
         
         // PRIORITY 1: Explicit check for stellargeolink.com - ALWAYS production
-        if (hostname.includes('stellargeolink.com')) {
+        // This includes testnet.stellargeolink.com, www.stellargeolink.com, etc.
+        // Check both includes and endsWith to catch all subdomains
+        if (hostname && (hostname.includes('stellargeolink.com') || hostname.endsWith('.stellargeolink.com') || hostname === 'stellargeolink.com')) {
             const baseUrl = port ? `${protocol}//${hostname}:${port}/api` : `${protocol}//${hostname}/api`;
             if (!window._apiBaseUrlLogged) {
                 console.log(`🌐 [${API_SERVICE_VERSION}] Production API URL detected (stellargeolink.com):`, { 
