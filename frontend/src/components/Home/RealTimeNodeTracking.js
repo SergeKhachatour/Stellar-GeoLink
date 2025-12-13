@@ -737,7 +737,8 @@ const RealTimeNodeTracking = () => {
   useEffect(() => {
     console.log('%c🌐 RealTimeNodeTracking Component Rendered', 'color: #00ff00; font-size: 16px; font-weight: bold;');
     console.log('Component state:', { loading, error, nodesCount: nodes.length, hasNetworkStats: !!networkStats });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only log once on mount, not on every state change
 
   return (
     <>
