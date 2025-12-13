@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { pool } = require('../config/database');
 const { authenticateUser } = require('../middleware/auth');
-const { requireRole } = require('../middleware/roleAuth');
+const { requireRole } = require('../middleware/authUser');
 
 const router = express.Router();
 
