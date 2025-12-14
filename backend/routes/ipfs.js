@@ -640,9 +640,20 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
         (async () => {
             try {
                 console.log('📌 Starting IPFS pinning for upload:', uploadId);
+                console.log('📁 File path:', upload.file_path);
+                console.log('📝 Filename:', upload.original_filename);
+                console.log('🔑 Has API key:', !!upload.api_key);
+                console.log('🔐 Has API secret:', !!upload.api_secret);
+                console.log('🌐 Server URL:', upload.server_url);
+                console.log('📦 Server type:', upload.server_type);
                 
                 const filePath = upload.file_path;
                 const filename = upload.original_filename;
+
+                // Validate API credentials
+                if (!upload.api_key || !upload.api_secret) {
+                    throw new Error('Pinata API credentials are missing. Please configure your IPFS server with API key and secret.');
+                }
 
                 // Prepare server config for Pinata
                 const serverConfig = {
@@ -654,7 +665,9 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
                 };
 
                 // Pin to IPFS using Pinata (expects file path, not buffer)
+                console.log('🚀 Calling Pinata API...');
                 const ipfsResult = await ipfsPinner.pinFile(serverConfig, filePath, filename);
+                console.log('📥 Pinata API response:', ipfsResult);
 
                 if (!ipfsResult.success) {
                     throw new Error(ipfsResult.error || 'IPFS pinning failed');
@@ -679,13 +692,25 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
                 console.log('✅ Database updated with IPFS hash:', ipfsResult.ipfsHash);
             } catch (error) {
                 console.error('❌ Error pinning file to IPFS:', error);
+                console.error('❌ Error stack:', error.stack);
+                if (error.response) {
+                    console.error('❌ Pinata API error response:', {
+                        status: error.response.status,
+                        statusText: error.response.statusText,
+                        data: error.response.data
+                    });
+                }
+                
+                const errorMessage = error.response?.data?.error 
+                    ? `Pinata API Error: ${error.response.data.error}` 
+                    : (error.message || 'IPFS pinning failed');
                 
                 // Update records with error status
                 await pool.query(`
                     UPDATE ipfs_pins 
                     SET pin_status = 'failed', error_message = $1
                     WHERE id = $2
-                `, [error.message || 'IPFS pinning failed', pinRecordId]);
+                `, [errorMessage, pinRecordId]);
 
                 await pool.query(`
                     UPDATE nft_uploads 

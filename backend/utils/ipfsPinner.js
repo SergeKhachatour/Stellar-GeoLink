@@ -58,16 +58,19 @@ class IPFSPinner {
             
             console.log('📤 Uploading to Pinata...');
             
-            // Make the actual API call to Pinata
-            const response = await axios.post('/pinning/pinFileToIPFS', formData, {
-                ...config,
-                headers: {
-                    ...config.headers,
-                    ...formData.getHeaders()
-                },
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity
-            });
+            // Make the actual API call to Pinata (use full URL)
+            const response = await axios.post(
+                `${this.pinataApiUrl}/pinning/pinFileToIPFS`, 
+                formData, 
+                {
+                    headers: {
+                        ...config.headers,
+                        ...formData.getHeaders()
+                    },
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity
+                }
+            );
 
             console.log('✅ Pinata response:', response.data);
 
@@ -125,7 +128,7 @@ class IPFSPinner {
             const config = await this.getPinataConfig(serverConfig);
             
             // Get pin list and check if our hash exists
-            const response = await axios.get('/data/pinList', {
+            const response = await axios.get(`${this.pinataApiUrl}/data/pinList`, {
                 ...config,
                 params: {
                     hashContains: ipfsHash
@@ -169,7 +172,7 @@ class IPFSPinner {
             const config = await this.getPinataConfig(serverConfig);
             
             // Make the actual API call to Pinata to unpin
-            const response = await axios.delete(`/pinning/unpin/${ipfsHash}`, config);
+            const response = await axios.delete(`${this.pinataApiUrl}/pinning/unpin/${ipfsHash}`, config);
             
             console.log('✅ Unpin response:', response.data);
             
