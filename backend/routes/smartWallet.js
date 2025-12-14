@@ -8,6 +8,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
+const contracts = require('../config/contracts');
 
 /**
  * GET /api/smart-wallet/balance
@@ -27,10 +28,8 @@ router.get('/balance', authenticateUser, async (req, res) => {
       });
     }
 
-    // Get smart wallet contract ID from query, env var, or use default
-    const smartWalletContractId = contractId || 
-                                   process.env.SMART_WALLET_CONTRACT_ID || 
-                                   null;
+    // Get smart wallet contract ID from query, env var, or use default from config
+    const smartWalletContractId = contractId || contracts.SMART_WALLET_CONTRACT_ID;
 
     if (!smartWalletContractId) {
       return res.status(400).json({ 
