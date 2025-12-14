@@ -352,5 +352,6 @@ class WebAuthnService {
   }
 }
 
-export default new WebAuthnService();
+const webauthnService = new WebAuthnService();
+export default webauthnService;
 
