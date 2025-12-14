@@ -554,7 +554,23 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         const { default: RealNFTService } = realNFTService;
         
         // Check if wallet is connected (using component-level wallet data)
-        if (isConnected && secretKey) {
+        // Also check localStorage as fallback in case context values are stale
+        const savedSecretKey = localStorage.getItem('stellar_secret_key');
+        const savedPublicKey = localStorage.getItem('stellar_public_key');
+        const effectiveSecretKey = secretKey || savedSecretKey;
+        const effectivePublicKey = publicKey || savedPublicKey;
+        
+        console.log('🔍 Wallet connection check:', {
+          isConnected,
+          hasSecretKey: !!secretKey,
+          hasSavedSecretKey: !!savedSecretKey,
+          effectiveSecretKey: !!effectiveSecretKey,
+          publicKey,
+          savedPublicKey,
+          effectivePublicKey
+        });
+        
+        if (isConnected && effectiveSecretKey && effectivePublicKey) {
           console.log('🚀 Minting NFT on Stellar blockchain...');
           
           // Auto-initialize contract if needed
@@ -562,7 +578,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           if (!contractId) {
             console.log('📝 Auto-initializing contract...');
             const StellarSdk = await import('@stellar/stellar-sdk');
-            const keypair = StellarSdk.Keypair.fromSecret(secretKey);
+            const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
             
             const contractInfo = await RealNFTService.deployLocationNFTContract(
               keypair,
@@ -574,11 +590,11 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           
           // Mint NFT on blockchain
           const StellarSdk = await import('@stellar/stellar-sdk');
-          const keypair = StellarSdk.Keypair.fromSecret(secretKey);
+          const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
           
           mintResult = await RealNFTService.mintLocationNFT(
             contractId,
-            publicKey,
+            effectivePublicKey,
             {
               name: upload.original_filename,
               description: `Location-based NFT at ${nftDetails.latitude}, ${nftDetails.longitude}`,
@@ -602,8 +618,14 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           console.log('✅ NFT minted on blockchain:', mintResult);
           setSuccess('NFT pinned and minted on blockchain successfully!');
         } else {
-          console.log('⚠️ Wallet not connected, skipping blockchain minting');
-          setSuccess('NFT pinned to database successfully! (Blockchain minting skipped - wallet not connected)');
+          console.log('⚠️ Wallet not connected, skipping blockchain minting', {
+            isConnected,
+            hasSecretKey: !!secretKey,
+            hasSavedSecretKey: !!savedSecretKey,
+            hasPublicKey: !!publicKey,
+            hasSavedPublicKey: !!savedPublicKey
+          });
+          setSuccess('NFT pinned to database successfully! (Blockchain minting skipped - wallet not connected or no secret key)');
         }
       } catch (blockchainError) {
         console.error('❌ Blockchain minting failed:', blockchainError);
