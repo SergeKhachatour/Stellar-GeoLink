@@ -38,7 +38,9 @@ import {
   Security as SecurityIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
-  AttachMoney as MoneyIcon
+  AttachMoney as MoneyIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -101,6 +103,9 @@ const RealTimeNodeTracking = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [countryFilter, setCountryFilter] = useState('all');
   const [validatorTypeFilter, setValidatorTypeFilter] = useState('all');
+  
+  // Search panel state
+  const [searchPanelExpanded, setSearchPanelExpanded] = useState(true);
   
   // XLM Price state
   const [xlmPrice, setXlmPrice] = useState(null);
@@ -925,145 +930,245 @@ const RealTimeNodeTracking = () => {
           <Grid container spacing={4} alignItems="center">
             {/* Map Preview */}
             <Grid item xs={12} md={8}>
-              <Card sx={{ height: { xs: 500, md: 600 }, position: 'relative' }}>
+              <Card sx={{ height: { xs: 500, md: 600 }, position: 'relative', display: 'flex', flexDirection: 'column' }}>
                 <Box
                   ref={mapContainer}
                   sx={{
                     width: '100%',
-                    height: '100%',
+                    flex: 1,
                     borderRadius: 1,
-                    minHeight: '500px'
+                    minHeight: '400px'
                   }}
                 />
                 
-                {/* Enhanced Map Overlay Controls */}
+                {/* Top Action Buttons */}
                 <Box
                   sx={{
                     position: 'absolute',
                     top: 16,
-                    left: 16,
                     right: 16,
                     display: 'flex',
-                    flexDirection: { xs: 'column', md: 'row' },
                     gap: 1,
                     zIndex: 1000
                   }}
                 >
-                  {/* Search and Filters */}
-                  <Box sx={{ 
-                    display: 'flex', 
-                    gap: 1, 
-                    flexWrap: 'wrap',
-                    flex: 1,
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    p: 1,
-                    borderRadius: 1,
-                    boxShadow: 2
-                  }}>
-                    <TextField
+                  <Tooltip title="Refresh node data">
+                    <Button
                       size="small"
-                      placeholder="Search nodes, cities, countries..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <SearchIcon />
-                          </InputAdornment>
-                        ),
-                      }}
+                      variant="contained"
+                      startIcon={<RefreshIcon />}
+                      onClick={handleRefresh}
+                      disabled={loading}
                       sx={{
-                        backgroundColor: 'white',
-                        minWidth: { xs: '100%', sm: 200 },
-                        flex: 1
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        color: 'text.primary',
+                        minWidth: { xs: 'auto', sm: 100 },
+                        '&:hover': {
+                          backgroundColor: 'rgba(255, 255, 255, 1)',
+                        }
                       }}
-                    />
-                    
-                    <FormControl size="small" sx={{ minWidth: 120 }}>
-                      <InputLabel>Status</InputLabel>
-                      <Select
-                        value={statusFilter}
-                        label="Status"
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                      >
-                        <MenuItem value="all">All Status</MenuItem>
-                        <MenuItem value="active">Active</MenuItem>
-                        <MenuItem value="syncing">Syncing</MenuItem>
-                        <MenuItem value="inactive">Inactive</MenuItem>
-                      </Select>
-                    </FormControl>
-                    
-                    <FormControl size="small" sx={{ minWidth: 140 }}>
-                      <InputLabel>Country</InputLabel>
-                      <Select
-                        value={countryFilter}
-                        label="Country"
-                        onChange={(e) => setCountryFilter(e.target.value)}
-                      >
-                        <MenuItem value="all">All Countries</MenuItem>
-                        {uniqueCountries.map(country => (
-                          <MenuItem key={country} value={country}>{country}</MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    
-                    <FormControl size="small" sx={{ minWidth: 120 }}>
-                      <InputLabel>Type</InputLabel>
-                      <Select
-                        value={validatorTypeFilter}
-                        label="Type"
-                        onChange={(e) => setValidatorTypeFilter(e.target.value)}
-                      >
-                        <MenuItem value="all">All Types</MenuItem>
-                        <MenuItem value="core">Core</MenuItem>
-                        <MenuItem value="validator">Validator</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Box>
+                    >
+                      {loading ? <CircularProgress size={16} /> : <RefreshIcon />}
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, ml: 0.5 }}>
+                        Refresh
+                      </Box>
+                    </Button>
+                  </Tooltip>
                   
-                  {/* Action Buttons */}
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Tooltip title="Refresh node data">
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<RefreshIcon />}
-                        onClick={handleRefresh}
-                        disabled={loading}
-                        sx={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          color: 'text.primary',
-                          '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 1)',
-                          }
-                        }}
-                      >
-                        {loading ? <CircularProgress size={16} /> : 'Refresh'}
-                      </Button>
-                    </Tooltip>
-                    
-                    <Tooltip title="View fullscreen map">
-                      <Button
-                        size="small"
-                        variant="contained"
-                        startIcon={<FullscreenIcon />}
-                        onClick={() => setOpen(true)}
-                        sx={{
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          color: 'text.primary',
-                          '&:hover': {
-                            backgroundColor: 'rgba(255, 255, 255, 1)',
-                          }
-                        }}
-                      >
+                  <Tooltip title="View fullscreen map">
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<FullscreenIcon />}
+                      onClick={() => setOpen(true)}
+                      sx={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        color: 'text.primary',
+                        minWidth: { xs: 'auto', sm: 120 },
+                        '&:hover': {
+                          backgroundColor: 'rgba(255, 255, 255, 1)',
+                        }
+                      }}
+                    >
+                      <FullscreenIcon />
+                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, ml: 0.5 }}>
                         Fullscreen
-                      </Button>
-                    </Tooltip>
+                      </Box>
+                    </Button>
+                  </Tooltip>
+                </Box>
+
+                {/* Collapsible Search Panel at Bottom */}
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    zIndex: 1000,
+                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                    borderTop: '1px solid',
+                    borderColor: 'divider',
+                    boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
+                    transition: 'transform 0.3s ease-in-out',
+                    transform: searchPanelExpanded ? 'translateY(0)' : 'translateY(calc(100% - 48px))'
+                  }}
+                >
+                  {/* Panel Header with Toggle */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      p: 1,
+                      borderBottom: searchPanelExpanded ? '1px solid' : 'none',
+                      borderColor: 'divider',
+                      cursor: 'pointer',
+                      backgroundColor: 'primary.main',
+                      color: 'white'
+                    }}
+                    onClick={() => setSearchPanelExpanded(!searchPanelExpanded)}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <SearchIcon />
+                      <Typography variant="subtitle2" fontWeight="bold">
+                        Search & Filters
+                      </Typography>
+                      {filteredNodes.length !== nodes.length && (
+                        <Chip 
+                          label={`${filteredNodes.length} of ${nodes.length}`}
+                          size="small"
+                          sx={{ 
+                            height: 20,
+                            backgroundColor: 'rgba(255,255,255,0.2)',
+                            color: 'white',
+                            fontSize: '0.7rem'
+                          }}
+                        />
+                      )}
+                    </Box>
+                    <IconButton 
+                      size="small" 
+                      sx={{ color: 'white' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSearchPanelExpanded(!searchPanelExpanded);
+                      }}
+                    >
+                      {searchPanelExpanded ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+                    </IconButton>
                   </Box>
+
+                  {/* Search and Filters Content */}
+                  {searchPanelExpanded && (
+                    <Box sx={{ 
+                      p: { xs: 1.5, sm: 2 },
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1.5,
+                      maxHeight: { xs: '40vh', sm: 'auto' },
+                      overflowY: 'auto'
+                    }}>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        placeholder="Search nodes, cities, countries, public keys..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        InputProps={{
+                          startAdornment: (
+                            <InputAdornment position="start">
+                              <SearchIcon />
+                            </InputAdornment>
+                          ),
+                        }}
+                        sx={{
+                          backgroundColor: 'white'
+                        }}
+                      />
+                      
+                      <Box sx={{ 
+                        display: 'grid',
+                        gridTemplateColumns: { 
+                          xs: '1fr', 
+                          sm: 'repeat(2, 1fr)', 
+                          md: 'repeat(3, 1fr)' 
+                        },
+                        gap: 1.5
+                      }}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel>Status</InputLabel>
+                          <Select
+                            value={statusFilter}
+                            label="Status"
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                          >
+                            <MenuItem value="all">All Status</MenuItem>
+                            <MenuItem value="active">Active</MenuItem>
+                            <MenuItem value="syncing">Syncing</MenuItem>
+                            <MenuItem value="inactive">Inactive</MenuItem>
+                          </Select>
+                        </FormControl>
+                        
+                        <FormControl size="small" fullWidth>
+                          <InputLabel>Country</InputLabel>
+                          <Select
+                            value={countryFilter}
+                            label="Country"
+                            onChange={(e) => setCountryFilter(e.target.value)}
+                          >
+                            <MenuItem value="all">All Countries</MenuItem>
+                            {uniqueCountries.map(country => (
+                              <MenuItem key={country} value={country}>{country}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        
+                        <FormControl size="small" fullWidth>
+                          <InputLabel>Validator Type</InputLabel>
+                          <Select
+                            value={validatorTypeFilter}
+                            label="Validator Type"
+                            onChange={(e) => setValidatorTypeFilter(e.target.value)}
+                          >
+                            <MenuItem value="all">All Types</MenuItem>
+                            <MenuItem value="core">Core</MenuItem>
+                            <MenuItem value="validator">Validator</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Box>
+
+                      {/* Clear Filters Button */}
+                      {(statusFilter !== 'all' || countryFilter !== 'all' || validatorTypeFilter !== 'all' || searchQuery) && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setStatusFilter('all');
+                            setCountryFilter('all');
+                            setValidatorTypeFilter('all');
+                            setSearchQuery('');
+                          }}
+                          sx={{ alignSelf: 'flex-start' }}
+                        >
+                          Clear All Filters
+                        </Button>
+                      )}
+                    </Box>
+                  )}
                 </Box>
 
                 {error && (
-                  <Alert severity="error" sx={{ position: 'absolute', bottom: 16, left: 16, right: 16 }}>
+                  <Alert 
+                    severity="error" 
+                    sx={{ 
+                      position: 'absolute', 
+                      top: 60, 
+                      left: 16, 
+                      right: 16,
+                      zIndex: 1001
+                    }}
+                  >
                     {error}
                   </Alert>
                 )}
