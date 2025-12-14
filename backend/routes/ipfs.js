@@ -811,11 +811,18 @@ router.get('/pins', authenticateUser, async (req, res) => {
  *       404:
  *         description: File not found
  */
-router.get('/files/:userId/:filePath(*)', authenticateUser, async (req, res) => {
+// File serving route - use wildcard * to capture the full path after userId
+router.get('/files/:userId/*', authenticateUser, async (req, res) => {
     try {
-        const { userId: userIdParam, filePath } = req.params;
+        const { userId: userIdParam } = req.params;
+        // Get the file path from req.params[0] (wildcard capture)
+        const filePath = req.params[0];
         
-        console.log('📁 File serving request:', { userIdParam, filePath, userFromAuth: req.user.id });
+        console.log('📁 File serving request:', { userIdParam, filePath, userFromAuth: req.user.id, allParams: req.params });
+        
+        if (!filePath) {
+            return res.status(400).json({ error: 'File path is required' });
+        }
         
         // Verify user owns the file
         const userId = parseInt(userIdParam);
@@ -826,18 +833,12 @@ router.get('/files/:userId/:filePath(*)', authenticateUser, async (req, res) => 
 
         // Construct full file path
         const uploadDir = getUploadDir();
-        // filePath might already include the full path, or just the filename
-        // If it starts with the upload dir, use it as-is, otherwise join
-        let fullPath;
-        if (filePath.startsWith(uploadDir)) {
-            fullPath = filePath;
-        } else {
-            // Remove leading slash if present
-            const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-            fullPath = path.join(uploadDir, cleanPath);
-        }
+        // filePath from wildcard should already be the relative path (e.g., "home/uploads/nft-files/file.png")
+        // Remove leading slash if present
+        const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+        const fullPath = path.join(uploadDir, cleanPath);
         
-        console.log('📁 Resolved file path:', { uploadDir, filePath, fullPath });
+        console.log('📁 Resolved file path:', { uploadDir, filePath, cleanPath, fullPath });
         
         // Security: Ensure the file is within the upload directory
         const resolvedPath = path.resolve(fullPath);
@@ -857,7 +858,7 @@ router.get('/files/:userId/:filePath(*)', authenticateUser, async (req, res) => 
             return res.status(404).json({ error: 'File not found', path: resolvedPath });
         }
 
-        // Send file
+        // Send file with proper content type
         res.sendFile(resolvedPath, (err) => {
             if (err) {
                 console.error('❌ Error sending file:', err);
@@ -869,7 +870,9 @@ router.get('/files/:userId/:filePath(*)', authenticateUser, async (req, res) => 
     } catch (error) {
         console.error('❌ Error serving file:', error);
         console.error('❌ Error stack:', error.stack);
-        res.status(500).json({ error: 'Failed to serve file', details: error.message });
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to serve file', details: error.message });
+        }
     }
 });
 
