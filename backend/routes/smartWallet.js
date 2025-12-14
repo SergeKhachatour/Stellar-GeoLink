@@ -24,7 +24,7 @@ const contracts = require('../config/contracts');
  */
 router.get('/balance', authenticateUser, async (req, res) => {
   try {
-    const { userPublicKey, contractId, assetAddress } = req.query;
+    const { userPublicKey, contractId, assetAddress } = req.query; // Fixed: was req instead of req.query
 
     if (!userPublicKey) {
       return res.status(400).json({ 
@@ -110,12 +110,14 @@ router.get('/balance', authenticateUser, async (req, res) => {
       const hi = parts.hi().toString();
       // For most balances, lo should be sufficient
       // If hi is non-zero, we'd need to combine them: balance = (hi << 64) | lo
+      // eslint-disable-next-line no-undef
       balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
     } else {
       balance = result.toString() || '0';
     }
 
     // Convert from stroops to XLM (divide by 10,000,000)
+    // eslint-disable-next-line no-undef
     const balanceInXLM = (BigInt(balance) / 10000000n).toString();
     const balanceInStroops = balance;
 

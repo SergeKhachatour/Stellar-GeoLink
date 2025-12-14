@@ -680,8 +680,28 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           console.log('📤 Passing success data to parent:', successData);
           onPinComplete(successData);
         } else {
-          // If no blockchain minting, just pass the database NFT
-          onPinComplete(dbNft);
+          // If no blockchain minting, format database NFT data for success overlay
+          const successData = {
+            tokenId: dbNft.id || dbNft.token_id || 'N/A',
+            name: upload.original_filename || dbNft.name || 'Unnamed NFT',
+            contractId: nftDetails.smart_contract_address || dbNft.smart_contract_address || 'N/A',
+            transactionHash: null,
+            status: 'pinned_to_database',
+            ledger: null,
+            location: {
+              latitude: parseFloat(nftDetails.latitude) || parseFloat(dbNft.latitude) || 0,
+              longitude: parseFloat(nftDetails.longitude) || parseFloat(dbNft.longitude) || 0,
+              radius: parseInt(nftDetails.radius_meters) || parseInt(dbNft.radius_meters) || 0
+            },
+            imageUrl: server ? `${server.server_url.replace(/\/$/, '')}/ipfs/${upload.ipfs_hash}` : null,
+            stellarExpertUrl: null,
+            contractUrl: nftDetails.smart_contract_address 
+              ? `https://stellar.expert/explorer/testnet/contract/${nftDetails.smart_contract_address}`
+              : null,
+            nft: dbNft // Include database NFT data as well
+          };
+          console.log('📤 Passing database NFT data to parent (no blockchain minting):', successData);
+          onPinComplete(successData);
         }
       }
       

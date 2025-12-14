@@ -1684,4 +1684,26 @@ router.get('/public', async (req, res) => {
     }
 });
 
+// Get available NFT contracts
+router.get('/contracts', authenticateUser, async (req, res) => {
+    try {
+        const contracts = require('../config/contracts');
+        res.json({
+            contracts: [
+                {
+                    id: contracts.DEFAULT_NFT_CONTRACT_ID,
+                    name: 'StellarGeoLinkNFT',
+                    network: contracts.STELLAR_NETWORK,
+                    type: 'LocationNFT',
+                    isDefault: true
+                }
+            ],
+            defaultContractId: contracts.DEFAULT_NFT_CONTRACT_ID
+        });
+    } catch (error) {
+        console.error('Error fetching NFT contracts:', error);
+        res.status(500).json({ error: 'Failed to fetch NFT contracts' });
+    }
+});
+
 module.exports = router;
