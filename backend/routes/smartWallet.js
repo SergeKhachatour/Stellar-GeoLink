@@ -13,7 +13,6 @@ const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
 const contracts = require('../config/contracts');
-const contracts = require('../config/contracts');
 
 /**
  * GET /api/smart-wallet/balance
@@ -45,12 +44,9 @@ router.get('/balance', authenticateUser, async (req, res) => {
     // Import Stellar SDK
     const StellarSdk = require('@stellar/stellar-sdk');
 
-    // Configure Soroban RPC server
-    const network = process.env.STELLAR_NETWORK || 'testnet';
-    const sorobanServer = network === 'testnet'
-      ? new StellarSdk.SorobanRpc.Server('https://soroban-testnet.stellar.org')
-      : new StellarSdk.SorobanRpc.Server('https://soroban.stellar.org');
-
+    // Configure Soroban RPC server using config
+    const network = contracts.STELLAR_NETWORK;
+    const sorobanServer = new StellarSdk.SorobanRpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = network === 'testnet'
       ? StellarSdk.Networks.TESTNET
       : StellarSdk.Networks.PUBLIC;
