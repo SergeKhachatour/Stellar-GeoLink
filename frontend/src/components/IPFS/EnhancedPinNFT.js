@@ -1063,8 +1063,8 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
                                     baseUrl = `https://${baseUrl}`;
                                   }
                                   
-                                  // Construct full IPFS URL
-                                  ipfsUrl = `${baseUrl}/ipfs/${upload.ipfs_hash}/${upload.original_filename}`;
+                                  // Construct full IPFS URL (IPFS hash is the content identifier, no filename needed)
+                                  ipfsUrl = `${baseUrl}/ipfs/${upload.ipfs_hash}`;
                                 }
                                 
                                 // Fallback to local file if IPFS hash not available yet
