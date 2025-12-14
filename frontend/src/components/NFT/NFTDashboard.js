@@ -704,7 +704,7 @@ const NFTDashboard = () => {
     } catch (error) {
       console.error(`Error creating marker for NFT ${nft.id}:`, error);
     }
-  }, [currentMarkers, nearbyNFTs]);
+  }, [currentMarkers]);
 
   // Function to create a cluster marker
   const createClusterMarker = useCallback((cluster, map, clusterIndex, markersRef = null) => {
