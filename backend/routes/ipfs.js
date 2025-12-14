@@ -783,4 +783,70 @@ router.get('/pins', authenticateUser, async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /api/ipfs/files/{userId}/{filePath}:
+ *   get:
+ *     summary: Serve uploaded file
+ *     description: Serve an uploaded file by user ID and file path
+ *     tags: [IPFS Management]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *       - in: path
+ *         name: filePath
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: File path (relative to upload directory)
+ *     responses:
+ *       200:
+ *         description: File served successfully
+ *       404:
+ *         description: File not found
+ */
+router.get('/files/:userId/*', authenticateUser, async (req, res) => {
+    try {
+        const { userId: userIdParam } = req.params;
+        const filePath = req.params[0]; // Get the rest of the path after userId
+        
+        // Verify user owns the file
+        const userId = parseInt(userIdParam);
+        if (userId !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Construct full file path
+        const uploadDir = getUploadDir();
+        const fullPath = path.join(uploadDir, filePath);
+        
+        // Security: Ensure the file is within the upload directory
+        const resolvedPath = path.resolve(fullPath);
+        const resolvedUploadDir = path.resolve(uploadDir);
+        
+        if (!resolvedPath.startsWith(resolvedUploadDir)) {
+            return res.status(403).json({ error: 'Invalid file path' });
+        }
+
+        // Check if file exists
+        try {
+            await fs.access(resolvedPath);
+        } catch (error) {
+            return res.status(404).json({ error: 'File not found' });
+        }
+
+        // Send file
+        res.sendFile(resolvedPath);
+    } catch (error) {
+        console.error('Error serving file:', error);
+        res.status(500).json({ error: 'Failed to serve file' });
+    }
+});
+
 module.exports = router;

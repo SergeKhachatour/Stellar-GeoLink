@@ -392,12 +392,14 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       
       // Auto-pin the file after upload
       try {
+        console.log('🚀 Starting pin request for upload:', uploadedFileId);
         const pinResponse = await api.post(`/ipfs/pin/${uploadedFileId}`);
         console.log('📌 Pin initiated:', pinResponse.data);
         
         // Poll for pin status
         setSuccess('File uploaded! Waiting for IPFS pinning to complete...');
         setUploadProgress(60);
+        console.log('🔄 Starting polling for pin status...');
         
         // Poll for pin completion (max 30 seconds)
         let attempts = 0;
@@ -411,7 +413,9 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             const uploadsResponse = await api.get('/ipfs/uploads');
             const updatedUpload = uploadsResponse.data.uploads.find(u => u.id === uploadedFileId);
             
-            console.log(`🔄 Polling attempt ${attempts}/${maxAttempts} - Upload status:`, updatedUpload?.upload_status, 'IPFS Hash:', updatedUpload?.ipfs_hash);
+            const status = updatedUpload?.upload_status || 'not found';
+            const hash = updatedUpload?.ipfs_hash || 'none';
+            console.log(`🔄 [${new Date().toLocaleTimeString()}] Polling attempt ${attempts}/${maxAttempts} - Upload ID: ${uploadedFileId}, Status: ${status}, IPFS Hash: ${hash}`);
             
             if (updatedUpload) {
               if (updatedUpload.upload_status === 'pinned' && updatedUpload.ipfs_hash) {
@@ -776,7 +780,13 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
                                       
                                       return (
                                         <img
-                                          src={ipfsUrl || getApiUrl(`/ipfs/files/${upload.user_id || 'unknown'}/${upload.file_path}`)}
+                                          src={ipfsUrl || (() => {
+                                            // Fix double slash issue - remove leading slash from file_path if present
+                                            const filePath = upload.file_path && upload.file_path.startsWith('/') 
+                                              ? upload.file_path.substring(1) 
+                                              : upload.file_path;
+                                            return getApiUrl(`/ipfs/files/${upload.user_id || 'unknown'}/${filePath}`);
+                                          })()}
                                           alt={upload.original_filename}
                                           style={{
                                             width: '100%',
@@ -1060,7 +1070,11 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
                                         }
                                         return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
                                       };
-                                      return `${getApiBaseURL()}/ipfs/files/${upload.user_id || 'unknown'}/${upload.file_path}`;
+                                      // Fix double slash issue - remove leading slash from file_path if present
+                                      const filePath = upload.file_path && upload.file_path.startsWith('/') 
+                                        ? upload.file_path.substring(1) 
+                                        : upload.file_path;
+                                      return `${getApiBaseURL()}/ipfs/files/${upload.user_id || 'unknown'}/${filePath}`;
                                     })();
                                 
                                 return (
