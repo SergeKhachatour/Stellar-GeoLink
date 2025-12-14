@@ -68,7 +68,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const [paymentAmount, setPaymentAmount] = useState('1.0'); // Default 1 XLM
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
-  const [checkingBalance, setCheckingBalance] = useState(false);
   
   // Step 1: File Upload
   const [selectedFile, setSelectedFile] = useState(null);
@@ -126,7 +125,8 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         pollIntervalRef.current = null;
       }
     };
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]); // Only re-run when dialog opens/closes, not when publicKey changes
 
   // Initialize Mapbox map
   const initializeMap = () => {
@@ -283,7 +283,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const fetchSmartWalletBalance = async (userPublicKey) => {
     if (!userPublicKey) return null;
     
-    setCheckingBalance(true);
     try {
       const response = await api.get('/smart-wallet/balance', {
         params: { userPublicKey }
@@ -294,8 +293,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       console.error('Error fetching smart wallet balance:', error);
       // Return zero balance if error (contract might not be initialized)
       return { balance: '0', balanceInXLM: '0' };
-    } finally {
-      setCheckingBalance(false);
     }
   };
 
@@ -792,10 +789,6 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       
       // Now mint on Stellar blockchain if wallet is connected
       try {
-        // Import the real NFT service
-        const realNFTService = await import('../../services/realNFTService');
-        const { default: RealNFTService } = realNFTService;
-        
         // Check if wallet is connected (using component-level wallet data)
         // Also check localStorage as fallback in case context values are stale
         const savedSecretKey = localStorage.getItem('stellar_secret_key');
