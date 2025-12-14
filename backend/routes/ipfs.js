@@ -536,9 +536,9 @@ router.get('/uploads', authenticateUser, async (req, res) => {
         const userId = req.user.id;
 
         let query = `
-            SELECT nu.*, is.server_name, is.server_url
+            SELECT nu.*, ips.server_name, ips.server_url
             FROM nft_uploads nu
-            LEFT JOIN ipfs_servers is ON nu.ipfs_server_id = is.id
+            LEFT JOIN ipfs_servers ips ON nu.ipfs_server_id = ips.id
             WHERE nu.user_id = $1
         `;
         const params = [userId];
@@ -593,9 +593,9 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
 
         // Get upload details
         const uploadResult = await pool.query(`
-            SELECT nu.*, is.server_url, is.server_type, is.api_key, is.api_secret
+            SELECT nu.*, ips.server_url, ips.server_type, ips.api_key, ips.api_secret
             FROM nft_uploads nu
-            LEFT JOIN ipfs_servers is ON nu.ipfs_server_id = is.id
+            LEFT JOIN ipfs_servers ips ON nu.ipfs_server_id = ips.id
             WHERE nu.id = $1 AND nu.user_id = $2
         `, [uploadId, userId]);
 
@@ -709,10 +709,10 @@ router.get('/pins', authenticateUser, async (req, res) => {
         const userId = req.user.id;
 
         let query = `
-            SELECT ip.*, nu.original_filename, nu.file_path, is.server_name
+            SELECT ip.*, nu.original_filename, nu.file_path, ips.server_name
             FROM ipfs_pins ip
             LEFT JOIN nft_uploads nu ON ip.nft_upload_id = nu.id
-            LEFT JOIN ipfs_servers is ON ip.ipfs_server_id = is.id
+            LEFT JOIN ipfs_servers ips ON ip.ipfs_server_id = ips.id
             WHERE ip.user_id = $1
         `;
         const params = [userId];
