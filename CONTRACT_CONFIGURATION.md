@@ -1,0 +1,130 @@
+# Contract Configuration Guide
+
+This document explains how to update contract IDs when contracts are redeployed on Stellar testnet.
+
+## Overview
+
+All contract IDs are configured via environment variables, making it easy to update them without changing code. The application uses fallback values if environment variables are not set.
+
+## Contract IDs
+
+### 1. Smart Wallet Contract
+- **Purpose**: Handles WebAuthn passkey registration and payment execution
+- **Backend Variable**: `SMART_WALLET_CONTRACT_ID`
+- **Frontend Variable**: `REACT_APP_SMART_WALLET_CONTRACT_ID`
+- **Current Default**: `CA7G33NKXPBMSRRKS4PVBCE56OZDXGQCDUEBJ36NX7NS6RXGBSSMNX6P`
+
+### 2. WebAuthn Verifier Contract
+- **Purpose**: Verifies secp256r1 signatures from WebAuthn/passkey authentication
+- **Backend Variable**: `WEBAUTHN_VERIFIER_CONTRACT_ID`
+- **Frontend Variable**: `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID`
+- **Current Default**: `CBPGL7FWVKVQKRYRU32ZRH7RYKJ3T5UBI4KF2RVLT3BP2UXY7HPAVCWL`
+
+### 3. Default LocationNFT Contract
+- **Purpose**: Default contract for minting location-based NFTs
+- **Backend Variable**: `DEFAULT_NFT_CONTRACT_ID`
+- **Frontend Variable**: `REACT_APP_DEFAULT_CONTRACT_ADDRESS`
+- **Current Default**: `CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q`
+
+## How to Update Contract IDs
+
+### Local Development
+
+1. **Create/Update `.env` file** in the project root:
+   ```bash
+   # Backend variables
+   SMART_WALLET_CONTRACT_ID=YOUR_NEW_SMART_WALLET_CONTRACT_ID
+   WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_WEBAUTHN_VERIFIER_CONTRACT_ID
+   DEFAULT_NFT_CONTRACT_ID=YOUR_NEW_NFT_CONTRACT_ID
+   
+   # Frontend variables (must be prefixed with REACT_APP_)
+   REACT_APP_SMART_WALLET_CONTRACT_ID=YOUR_NEW_SMART_WALLET_CONTRACT_ID
+   REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_WEBAUTHN_VERIFIER_CONTRACT_ID
+   REACT_APP_DEFAULT_CONTRACT_ADDRESS=YOUR_NEW_NFT_CONTRACT_ID
+   ```
+
+2. **Restart the backend server** to load new environment variables:
+   ```bash
+   cd backend
+   npm start
+   ```
+
+3. **Rebuild the frontend** (React environment variables are baked in at build time):
+   ```bash
+   cd frontend
+   npm run build
+   ```
+
+### Azure Production Deployment
+
+1. **Go to Azure Portal** → Your Web App → Configuration → Application Settings
+
+2. **Add/Update the following environment variables**:
+   - `SMART_WALLET_CONTRACT_ID` = Your new contract ID
+   - `WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
+   - `DEFAULT_NFT_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_SMART_WALLET_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_DEFAULT_CONTRACT_ADDRESS` = Your new contract ID
+
+3. **Save** the configuration (Azure will restart the app automatically)
+
+4. **Redeploy the frontend** (if using GitHub Actions, push a new commit to trigger rebuild):
+   ```bash
+   git commit --allow-empty -m "Trigger rebuild with new contract IDs"
+   git push
+   ```
+
+   Or manually rebuild and deploy:
+   ```bash
+   cd frontend
+   REACT_APP_SMART_WALLET_CONTRACT_ID=YOUR_NEW_ID \
+   REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_ID \
+   REACT_APP_DEFAULT_CONTRACT_ADDRESS=YOUR_NEW_ID \
+   npm run build
+   ```
+
+## Where Contract IDs Are Used
+
+### Backend
+- `backend/config/contracts.js` - Central configuration file
+- `backend/routes/smartWallet.js` - Smart wallet balance and payment endpoints
+- `backend/routes/webauthn.js` - Passkey registration endpoint
+- `backend/routes/nft.js` - NFT minting endpoint
+
+### Frontend
+- `frontend/src/services/webauthnService.js` - WebAuthn service
+- `frontend/src/services/smartWalletService.js` - Smart wallet service
+- `frontend/src/services/realNFTService.js` - NFT minting service
+
+## Important Notes
+
+1. **Frontend variables must be prefixed with `REACT_APP_`** - React only exposes environment variables that start with this prefix.
+
+2. **Frontend variables are baked in at build time** - You must rebuild the frontend after changing `REACT_APP_*` variables. They are not read at runtime.
+
+3. **Backend variables are read at runtime** - You only need to restart the backend server, not rebuild it.
+
+4. **Fallback values** - If environment variables are not set, the code uses hardcoded default values. This is convenient for development but should be avoided in production.
+
+5. **Network configuration** - The `STELLAR_NETWORK` variable controls which network (testnet/mainnet) is used. Set it to `testnet` or `mainnet`.
+
+## Testing Contract IDs
+
+After updating contract IDs, verify they're being used correctly:
+
+1. **Check backend logs** on startup - should show contract IDs being loaded
+2. **Check browser console** - frontend should log contract IDs on initialization
+3. **Test endpoints**:
+   - `GET /api/smart-wallet/balance?userPublicKey=YOUR_KEY` - Should use new smart wallet contract
+   - `POST /api/webauthn/register` - Should register on new smart wallet contract
+   - `POST /api/nft/pin` - Should mint on new NFT contract
+
+## Quick Reference
+
+| Contract | Backend Env Var | Frontend Env Var | Default Value |
+|----------|----------------|------------------|---------------|
+| Smart Wallet | `SMART_WALLET_CONTRACT_ID` | `REACT_APP_SMART_WALLET_CONTRACT_ID` | `CA7G33NKXPBMSRRKS4PVBCE56OZDXGQCDUEBJ36NX7NS6RXGBSSMNX6P` |
+| WebAuthn Verifier | `WEBAUTHN_VERIFIER_CONTRACT_ID` | `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` | `CBPGL7FWVKVQKRYRU32ZRH7RYKJ3T5UBI4KF2RVLT3BP2UXY7HPAVCWL` |
+| LocationNFT | `DEFAULT_NFT_CONTRACT_ID` | `REACT_APP_DEFAULT_CONTRACT_ADDRESS` | `CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q` |
+
