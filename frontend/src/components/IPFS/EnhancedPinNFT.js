@@ -563,17 +563,17 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         // Check if we have the necessary credentials (don't rely solely on isConnected state)
         const hasCredentials = effectiveSecretKey && effectivePublicKey;
         
-        console.log('🔍 Wallet connection check:', {
-          isConnected,
-          hasSecretKey: !!secretKey,
-          hasSavedSecretKey: !!savedSecretKey,
-          hasPublicKey: !!publicKey,
-          hasSavedPublicKey: !!savedPublicKey,
-          effectiveSecretKey: effectiveSecretKey ? `${effectiveSecretKey.substring(0, 8)}...` : null,
-          effectivePublicKey: effectivePublicKey || null,
-          hasCredentials,
-          willMint: hasCredentials
-        });
+        // Expanded logging to see actual values
+        console.log('🔍 Wallet connection check:');
+        console.log('  isConnected:', isConnected);
+        console.log('  secretKey from context:', secretKey ? `${secretKey.substring(0, 8)}...` : 'null');
+        console.log('  savedSecretKey from localStorage:', savedSecretKey ? `${savedSecretKey.substring(0, 8)}...` : 'null');
+        console.log('  effectiveSecretKey:', effectiveSecretKey ? `${effectiveSecretKey.substring(0, 8)}...` : 'null');
+        console.log('  publicKey from context:', publicKey || 'null');
+        console.log('  savedPublicKey from localStorage:', savedPublicKey || 'null');
+        console.log('  effectivePublicKey:', effectivePublicKey || 'null');
+        console.log('  hasCredentials:', hasCredentials);
+        console.log('  willMint:', hasCredentials);
         
         if (hasCredentials) {
           console.log('🚀 Minting NFT on Stellar blockchain...');
