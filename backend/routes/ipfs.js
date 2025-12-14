@@ -811,41 +811,65 @@ router.get('/pins', authenticateUser, async (req, res) => {
  *       404:
  *         description: File not found
  */
-router.get('/files/:userId/*', authenticateUser, async (req, res) => {
+router.get('/files/:userId/:filePath(*)', authenticateUser, async (req, res) => {
     try {
-        const { userId: userIdParam } = req.params;
-        const filePath = req.params[0]; // Get the rest of the path after userId
+        const { userId: userIdParam, filePath } = req.params;
+        
+        console.log('📁 File serving request:', { userIdParam, filePath, userFromAuth: req.user.id });
         
         // Verify user owns the file
         const userId = parseInt(userIdParam);
         if (userId !== req.user.id) {
+            console.log('❌ Access denied - userId mismatch:', { requested: userId, authenticated: req.user.id });
             return res.status(403).json({ error: 'Access denied' });
         }
 
         // Construct full file path
         const uploadDir = getUploadDir();
-        const fullPath = path.join(uploadDir, filePath);
+        // filePath might already include the full path, or just the filename
+        // If it starts with the upload dir, use it as-is, otherwise join
+        let fullPath;
+        if (filePath.startsWith(uploadDir)) {
+            fullPath = filePath;
+        } else {
+            // Remove leading slash if present
+            const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+            fullPath = path.join(uploadDir, cleanPath);
+        }
+        
+        console.log('📁 Resolved file path:', { uploadDir, filePath, fullPath });
         
         // Security: Ensure the file is within the upload directory
         const resolvedPath = path.resolve(fullPath);
         const resolvedUploadDir = path.resolve(uploadDir);
         
         if (!resolvedPath.startsWith(resolvedUploadDir)) {
+            console.log('❌ Security check failed - path outside upload directory:', { resolvedPath, resolvedUploadDir });
             return res.status(403).json({ error: 'Invalid file path' });
         }
 
         // Check if file exists
         try {
             await fs.access(resolvedPath);
+            console.log('✅ File exists, serving:', resolvedPath);
         } catch (error) {
-            return res.status(404).json({ error: 'File not found' });
+            console.log('❌ File not found:', resolvedPath, error.message);
+            return res.status(404).json({ error: 'File not found', path: resolvedPath });
         }
 
         // Send file
-        res.sendFile(resolvedPath);
+        res.sendFile(resolvedPath, (err) => {
+            if (err) {
+                console.error('❌ Error sending file:', err);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Failed to serve file', details: err.message });
+                }
+            }
+        });
     } catch (error) {
-        console.error('Error serving file:', error);
-        res.status(500).json({ error: 'Failed to serve file' });
+        console.error('❌ Error serving file:', error);
+        console.error('❌ Error stack:', error.stack);
+        res.status(500).json({ error: 'Failed to serve file', details: error.message });
     }
 });
 

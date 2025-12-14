@@ -462,10 +462,21 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         }, pollInterval);
         
       } catch (pinError) {
-        console.error('Error pinning file:', pinError);
-        setError(pinError.response?.data?.error || 'Failed to start IPFS pinning. Please check your Pinata API credentials.');
+        console.error('❌ Error pinning file:', pinError);
+        console.error('❌ Pin error response:', pinError.response?.data);
+        console.error('❌ Pin error status:', pinError.response?.status);
+        console.error('❌ Pin error message:', pinError.message);
+        const errorMessage = pinError.response?.data?.error 
+          ? `IPFS pinning failed: ${pinError.response.data.error}` 
+          : (pinError.response?.data?.details 
+            ? `IPFS pinning failed: ${pinError.response.data.details}` 
+            : `Failed to start IPFS pinning: ${pinError.message || 'Unknown error'}. Please check your Pinata API credentials in the IPFS server settings.`);
+        setError(errorMessage);
         setUploadProgress(0);
+        setUploading(false);
         await fetchUploads(); // Refresh list anyway
+      } finally {
+        setUploading(false);
       }
       
       // Clear selected file
