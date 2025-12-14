@@ -208,7 +208,12 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           file_path: response.data.uploads[0].file_path
         });
       }
-      setUploads(response.data.uploads.filter(upload => upload.upload_status === 'pinned'));
+      // Show all uploads (uploaded, pinning, pinned) so users can see their files
+      // Filter to show uploaded, pinning, and pinned statuses
+      const visibleUploads = response.data.uploads.filter(upload => 
+        ['uploaded', 'pinning', 'pinned'].includes(upload.upload_status)
+      );
+      setUploads(visibleUploads);
     } catch (error) {
       console.error('Error fetching uploads:', error);
     }
@@ -350,17 +355,33 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         formData.append('ipfs_server_id', selectedServer);
       }
 
-      await api.post('/ipfs/upload', formData, {
+      const uploadResponse = await api.post('/ipfs/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
       
-      setSuccess('File uploaded successfully!');
-      setUploadProgress(100);
+      const uploadedFileId = uploadResponse.data.upload.id;
+      
+      setSuccess('File uploaded successfully! Pinning to IPFS...');
+      setUploadProgress(50);
+      
+      // Auto-pin the file after upload
+      try {
+        await api.post(`/ipfs/pin/${uploadedFileId}`);
+        setSuccess('File uploaded and pinned to IPFS successfully!');
+        setUploadProgress(100);
+      } catch (pinError) {
+        console.error('Error pinning file:', pinError);
+        setSuccess('File uploaded successfully! Pinning in progress...');
+        setUploadProgress(75);
+      }
       
       // Refresh uploads list
       await fetchUploads();
+      
+      // Auto-select the newly uploaded file
+      setSelectedUpload(uploadedFileId);
       
       // Clear selected file
       setSelectedFile(null);
@@ -867,113 +888,158 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             <Step>
               <StepLabel>Review & Pin NFT</StepLabel>
               <StepContent>
-                {selectedUpload && (
-                  <Box>
-                    <Typography variant="h6" gutterBottom>
-                      Review NFT Details:
-                    </Typography>
-                    
-                    <Card sx={{ mb: 2 }}>
-                      <CardContent>
-                        <Typography variant="body1" gutterBottom>
-                          <strong>File:</strong> {uploads.find(u => u.id === selectedUpload)?.original_filename}
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                          <strong>IPFS Hash:</strong> {uploads.find(u => u.id === selectedUpload)?.ipfs_hash}
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                          <strong>Collection ID:</strong> {nftDetails.collection_id}
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                          <strong>Location:</strong> {nftDetails.latitude}, {nftDetails.longitude}
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                          <strong>Radius:</strong> {nftDetails.radius_meters} meters
-                        </Typography>
-                        {nftDetails.smart_contract_address && (
+                <Box>
+                  {!selectedUpload && (
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                      Please go back to Step 1 and select an uploaded file.
+                    </Alert>
+                  )}
+                  
+                  {selectedUpload && !uploads.find(u => u.id === selectedUpload) && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Loading file details...
+                    </Alert>
+                  )}
+                  
+                  {selectedUpload && uploads.find(u => u.id === selectedUpload) && (
+                    <>
+                      <Typography variant="h6" gutterBottom>
+                        Review NFT Details:
+                      </Typography>
+                      
+                      <Card sx={{ mb: 2 }}>
+                        <CardContent>
                           <Typography variant="body1" gutterBottom>
-                            <strong>Contract:</strong> {nftDetails.smart_contract_address}
+                            <strong>File:</strong> {uploads.find(u => u.id === selectedUpload)?.original_filename || 'N/A'}
                           </Typography>
-                        )}
-                      </CardContent>
-                    </Card>
+                          <Typography variant="body1" gutterBottom>
+                            <strong>IPFS Hash:</strong> {uploads.find(u => u.id === selectedUpload)?.ipfs_hash || 'Pinning...'}
+                          </Typography>
+                          <Typography variant="body1" gutterBottom>
+                            <strong>Status:</strong> {uploads.find(u => u.id === selectedUpload)?.upload_status || 'unknown'}
+                          </Typography>
+                          <Typography variant="body1" gutterBottom>
+                            <strong>Collection ID:</strong> {nftDetails.collection_id || 'Not selected'}
+                          </Typography>
+                          <Typography variant="body1" gutterBottom>
+                            <strong>Location:</strong> {nftDetails.latitude && nftDetails.longitude 
+                              ? `${nftDetails.latitude}, ${nftDetails.longitude}` 
+                              : 'Not set'}
+                          </Typography>
+                          <Typography variant="body1" gutterBottom>
+                            <strong>Radius:</strong> {nftDetails.radius_meters || 10} meters
+                          </Typography>
+                          {nftDetails.smart_contract_address && (
+                            <Typography variant="body1" gutterBottom>
+                              <strong>Contract:</strong> {nftDetails.smart_contract_address}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
 
-                    {/* NFT Preview */}
-                    <Card sx={{ mb: 2 }}>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          NFT Preview:
-                        </Typography>
-                        <Box sx={{ textAlign: 'center' }}>
-                          {(() => {
-                            const upload = uploads.find(u => u.id === selectedUpload);
-                            if (upload && upload.mime_type && upload.mime_type.startsWith('image/')) {
-                              // Get the server details for this upload
-                              const server = servers.find(s => s.id === upload.ipfs_server_id);
-                              
-                              // Construct the IPFS URL like: https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/bafybeigdv2ccs3bighhgvqj65sgi6bz6qruz4r5bqxpwovem5m5t7xcifi/M25_01.jpg
-                              let ipfsUrl = '';
-                              if (server && upload.ipfs_hash) {
-                                // Clean the server URL - remove any existing /ipfs/ path and trailing slashes
-                                let baseUrl = server.server_url.replace(/\/ipfs\/.*$/, '').replace(/\/$/, '');
+                      {/* NFT Preview */}
+                      <Card sx={{ mb: 2 }}>
+                        <CardContent>
+                          <Typography variant="h6" gutterBottom>
+                            NFT Preview:
+                          </Typography>
+                          <Box sx={{ textAlign: 'center' }}>
+                            {(() => {
+                              const upload = uploads.find(u => u.id === selectedUpload);
+                              if (upload && upload.mime_type && upload.mime_type.startsWith('image/')) {
+                                // Get the server details for this upload
+                                const server = servers.find(s => s.id === upload.ipfs_server_id);
                                 
-                                // Ensure it has https:// protocol
-                                if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-                                  baseUrl = `https://${baseUrl}`;
+                                // Construct the IPFS URL
+                                let ipfsUrl = '';
+                                if (server && upload.ipfs_hash) {
+                                  // Clean the server URL - remove any existing /ipfs/ path and trailing slashes
+                                  let baseUrl = server.server_url.replace(/\/ipfs\/.*$/, '').replace(/\/$/, '');
+                                  
+                                  // Ensure it has https:// protocol
+                                  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+                                    baseUrl = `https://${baseUrl}`;
+                                  }
+                                  
+                                  // Construct full IPFS URL
+                                  ipfsUrl = `${baseUrl}/ipfs/${upload.ipfs_hash}/${upload.original_filename}`;
                                 }
                                 
-                                // Construct full IPFS URL
-                                ipfsUrl = `${baseUrl}/ipfs/${upload.ipfs_hash}`;
-                                console.log('🖼️ Constructed IPFS preview URL:', ipfsUrl);
+                                // Fallback to local file if IPFS hash not available yet
+                                const fallbackUrl = upload.ipfs_hash 
+                                  ? null 
+                                  : (() => {
+                                      const getApiBaseURL = () => {
+                                        if (typeof window !== 'undefined' && window.location) {
+                                          const hostname = window.location.hostname || '';
+                                          const protocol = window.location.protocol || 'https:';
+                                          if (hostname.includes('stellargeolink.com') || hostname.includes('azurewebsites.net') || protocol === 'https:') {
+                                            return `${protocol}//${hostname}/api`;
+                                          }
+                                        }
+                                        return process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+                                      };
+                                      return `${getApiBaseURL()}/ipfs/files/${upload.user_id || 'unknown'}/${upload.file_path}`;
+                                    })();
+                                
+                                return (
+                                  <img
+                                    src={ipfsUrl || fallbackUrl}
+                                    alt={upload.original_filename}
+                                    style={{
+                                      maxWidth: '100%',
+                                      maxHeight: '300px',
+                                      objectFit: 'contain',
+                                      border: '1px solid #ddd',
+                                      borderRadius: '8px'
+                                    }}
+                                    onError={(e) => {
+                                      console.error('❌ Preview failed:', e.target.src);
+                                      if (e.target.nextSibling) {
+                                        e.target.nextSibling.style.display = 'block';
+                                      }
+                                    }}
+                                  />
+                                );
                               }
-                              
                               return (
-                                <img
-                                  src={ipfsUrl || `http://localhost:4000/api/ipfs/files/${upload.user_id || 'unknown'}/${upload.file_path}`}
-                                  alt={upload.original_filename}
-                                  style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '300px',
-                                    objectFit: 'contain',
-                                    border: '1px solid #ddd',
-                                    borderRadius: '8px'
-                                  }}
-                                  onError={(e) => {
-                                    console.error('❌ Large preview failed:', e.target.src);
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'block';
-                                  }}
-                                />
+                                <Typography variant="body2" color="text.secondary">
+                                  Preview not available for this file type
+                                </Typography>
                               );
-                            }
-                            return null;
-                          })()}
-                          <Typography 
-                            variant="body2" 
-                            color="error" 
-                            sx={{ display: 'none', mt: 2 }}
-                          >
-                            Preview not available
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
+                            })()}
+                            <Typography 
+                              variant="body2" 
+                              color="error" 
+                              sx={{ display: 'none', mt: 2 }}
+                            >
+                              Preview not available
+                            </Typography>
+                          </Box>
+                        </CardContent>
+                      </Card>
 
-                    <Box sx={{ mt: 2 }}>
-                      <Button onClick={handleBack} sx={{ mr: 1 }}>
-                        Back
-                      </Button>
-                      <Button
-                        variant="contained"
-                        onClick={handlePinNFT}
-                        disabled={pinning}
-                        startIcon={pinning ? <CircularProgress size={20} /> : <PinIcon />}
-                      >
-                        {pinning ? 'Pinning NFT...' : 'Pin NFT to Blockchain'}
-                      </Button>
-                    </Box>
-                  </Box>
-                )}
+                      <Box sx={{ mt: 2 }}>
+                        <Button onClick={handleBack} sx={{ mr: 1 }}>
+                          Back
+                        </Button>
+                        <Button
+                          variant="contained"
+                          onClick={handlePinNFT}
+                          disabled={pinning || !uploads.find(u => u.id === selectedUpload)?.ipfs_hash}
+                          startIcon={pinning ? <CircularProgress size={20} /> : <PinIcon />}
+                        >
+                          {pinning ? 'Pinning NFT...' : 'Pin NFT to Blockchain'}
+                        </Button>
+                        {!uploads.find(u => u.id === selectedUpload)?.ipfs_hash && (
+                          <Typography variant="caption" color="text.secondary" sx={{ ml: 2, display: 'inline-block' }}>
+                            Waiting for IPFS pinning to complete...
+                          </Typography>
+                        )}
+                      </Box>
+                    </>
+                  )}
+                </Box>
               </StepContent>
             </Step>
           </Stepper>

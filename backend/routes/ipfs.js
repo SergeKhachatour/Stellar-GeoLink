@@ -593,7 +593,7 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
 
         // Get upload details
         const uploadResult = await pool.query(`
-            SELECT nu.*, ips.server_url, ips.server_type, ips.api_key, ips.api_secret
+            SELECT nu.*, ips.server_url, ips.server_type, ips.server_name, ips.api_key, ips.api_secret
             FROM nft_uploads nu
             LEFT JOIN ipfs_servers ips ON nu.ipfs_server_id = ips.id
             WHERE nu.id = $1 AND nu.user_id = $2
@@ -632,38 +632,60 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
             RETURNING *
         `, [userId, uploadId, upload.ipfs_server_id, 'pending', 'pending']);
 
-        // TODO: Implement actual IPFS pinning logic here
-        // This would involve calling the IPFS service API
-        // For now, we'll simulate the process
+        // Use actual IPFS pinning service
+        const ipfsPinner = require('../utils/ipfsPinner');
+        const pinRecordId = pinResult.rows[0].id; // Store the pin record ID before async operation
 
-        // Simulate IPFS pinning (replace with actual implementation)
-        setTimeout(async () => {
+        // Pin file asynchronously
+        (async () => {
             try {
-                // Generate a mock IPFS hash (replace with actual IPFS pinning)
-                const mockIpfsHash = 'Qm' + Math.random().toString(36).substring(2, 15);
+                console.log('📌 Starting IPFS pinning for upload:', uploadId);
                 
+                const filePath = upload.file_path;
+                const filename = upload.original_filename;
+
+                // Prepare server config for Pinata
+                const serverConfig = {
+                    api_key: upload.api_key,
+                    api_secret: upload.api_secret,
+                    server_url: upload.server_url,
+                    server_type: upload.server_type,
+                    server_name: upload.server_name || 'Pinata'
+                };
+
+                // Pin to IPFS using Pinata (expects file path, not buffer)
+                const ipfsResult = await ipfsPinner.pinFile(serverConfig, filePath, filename);
+
+                if (!ipfsResult.success) {
+                    throw new Error(ipfsResult.error || 'IPFS pinning failed');
+                }
+
+                console.log('✅ IPFS pinning successful:', ipfsResult.ipfsHash);
+
                 // Update pin record
                 await pool.query(`
                     UPDATE ipfs_pins 
                     SET ipfs_hash = $1, pin_status = 'pinned', pin_date = CURRENT_TIMESTAMP
                     WHERE id = $2
-                `, [mockIpfsHash, pinResult.rows[0].id]);
+                `, [ipfsResult.ipfsHash, pinRecordId]);
 
                 // Update upload record
                 await pool.query(`
                     UPDATE nft_uploads 
                     SET upload_status = 'pinned', ipfs_hash = $1
                     WHERE id = $2
-                `, [mockIpfsHash, uploadId]);
+                `, [ipfsResult.ipfsHash, uploadId]);
+
+                console.log('✅ Database updated with IPFS hash:', ipfsResult.ipfsHash);
             } catch (error) {
-                console.error('Error in IPFS pinning simulation:', error);
+                console.error('❌ Error pinning file to IPFS:', error);
                 
                 // Update records with error status
                 await pool.query(`
                     UPDATE ipfs_pins 
                     SET pin_status = 'failed', error_message = $1
                     WHERE id = $2
-                `, [error.message, pinResult.rows[0].id]);
+                `, [error.message || 'IPFS pinning failed', pinRecordId]);
 
                 await pool.query(`
                     UPDATE nft_uploads 
@@ -671,7 +693,7 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
                     WHERE id = $1
                 `, [uploadId]);
             }
-        }, 2000); // Simulate 2-second processing time
+        })();
 
         res.json({
             message: 'File pinning initiated',
