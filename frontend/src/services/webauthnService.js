@@ -350,6 +350,56 @@ class WebAuthnService {
     const spkiBytes = new Uint8Array(base64ToArrayBuffer(spkiBase64));
     return extractPublicKeyFromSPKI(spkiBytes); // Calls the standalone function above
   }
+
+  /**
+   * Execute payment using passkey authentication
+   * @param {string} destinationAddress - Destination Stellar address
+   * @param {string} amount - Amount in XLM (will be converted to stroops)
+   * @param {string} assetAddress - Asset contract address (optional, defaults to native XLM)
+   * @param {string} credentialId - Base64-encoded credential ID
+   * @param {string} passkeyPublicKeySPKI - Base64 SPKI format public key
+   * @param {string} userPublicKey - User's Stellar public key
+   * @param {string} userSecretKey - User's Stellar secret key
+   * @returns {Promise<{success: boolean, hash: string, ledger: number}>}
+   */
+  async executePaymentWithPasskey(
+    destinationAddress,
+    amount, // In XLM
+    assetAddress,
+    credentialId,
+    passkeyPublicKeySPKI,
+    userPublicKey,
+    userSecretKey
+  ) {
+    // Step 1: Create transaction data
+    const transactionData = {
+      source: userPublicKey,
+      destination: destinationAddress,
+      amount: (parseFloat(amount) * 10000000).toString(), // Convert to stroops
+      asset: assetAddress || 'native',
+    };
+    const signaturePayload = JSON.stringify(transactionData);
+
+    // Step 2: Authenticate with passkey
+    const authResult = await this.authenticateWithPasskey(credentialId, signaturePayload);
+
+    // Step 3: Call backend API to execute payment
+    const api = (await import('./api')).default;
+    const response = await api.post('/smart-wallet/execute-payment', {
+      userPublicKey,
+      userSecretKey,
+      destinationAddress,
+      amount: transactionData.amount, // In stroops
+      assetAddress: assetAddress || null,
+      signaturePayload,
+      passkeyPublicKeySPKI,
+      webauthnSignature: authResult.signature,
+      webauthnAuthenticatorData: authResult.authenticatorData,
+      webauthnClientData: authResult.clientDataJSON,
+    });
+
+    return response.data;
+  }
 }
 
 const webauthnService = new WebAuthnService();

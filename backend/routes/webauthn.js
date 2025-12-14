@@ -8,6 +8,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
 const contracts = require('../config/contracts');
+const { extractPublicKeyFromSPKI, generateRPIdHash } = require('../utils/webauthnUtils');
 
 /**
  * POST /api/webauthn/register
@@ -47,8 +48,8 @@ router.post('/register', authenticateUser, async (req, res) => {
     const passkeyPubkey65 = extractPublicKeyFromSPKI(spkiBytes);
 
     // Generate RP ID hash
-    const rpId = process.env.RP_ID || 'localhost'; // Should be domain name
-    const rpIdHash = await generateRPIdHash(rpId);
+    const rpId = req.body.rpId || req.headers.host || 'localhost'; // Use request hostname or provided rpId
+    const rpIdHash = generateRPIdHash(rpId);
 
     // Create ScVals
     const userAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey);
@@ -187,46 +188,7 @@ router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
   }
 });
 
-// Utility: Extract 65-byte public key from SPKI
-function extractPublicKeyFromSPKI(spkiBytes) {
-  if (!Buffer.isBuffer(spkiBytes)) {
-    spkiBytes = Buffer.from(spkiBytes);
-  }
-
-  if (spkiBytes.length < 65) {
-    throw new Error(`SPKI format too short: ${spkiBytes.length} bytes`);
-  }
-
-  // Look for BIT STRING tag (0x03) followed by length 0x42
-  const bitStringIndex = spkiBytes.indexOf(0x03, 20);
-
-  if (bitStringIndex !== -1 && spkiBytes[bitStringIndex + 1] === 0x42) {
-    const publicKey = spkiBytes.slice(bitStringIndex + 3, bitStringIndex + 3 + 65);
-    if (publicKey[0] === 0x04) {
-      return publicKey;
-    }
-  }
-
-  // Fallback: search for 0x04 byte
-  for (let i = spkiBytes.length - 65; i >= 0; i--) {
-    if (spkiBytes[i] === 0x04) {
-      return spkiBytes.slice(i, i + 65);
-    }
-  }
-
-  // Last resort: take last 65 bytes and ensure 0x04 prefix
-  const last65 = spkiBytes.slice(-65);
-  if (last65[0] === 0x04) {
-    return last65;
-  }
-  return Buffer.concat([Buffer.from([0x04]), last65.slice(1)]);
-}
-
-// Utility: Generate RP ID hash
-async function generateRPIdHash(rpId) {
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(rpId).digest();
-}
+// Utility functions are now imported from ../utils/webauthnUtils.js
 
 module.exports = router;
 
