@@ -832,7 +832,10 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
                           height: 400, 
                           width: '100%',
                           borderRadius: 1,
-                          overflow: 'hidden'
+                          overflow: 'hidden',
+                          position: 'relative',
+                          zIndex: 1,
+                          pointerEvents: 'auto'
                         }}
                       />
                       
