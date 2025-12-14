@@ -89,8 +89,21 @@ router.get('/balance', authenticateUser, async (req, res) => {
     let simulation;
     try {
       simulation = await sorobanServer.simulateTransaction(transaction);
+      console.log('Smart wallet balance simulation result:', {
+        hasResult: !!simulation.result,
+        hasErrorResult: !!simulation.errorResult,
+        resultType: simulation.result ? typeof simulation.result : 'none',
+        errorType: simulation.errorResult ? typeof simulation.errorResult : 'none'
+      });
     } catch (simError) {
       console.error('Error simulating smart wallet balance transaction:', simError);
+      console.error('Simulation error details:', {
+        message: simError.message,
+        stack: simError.stack,
+        contractId: smartWalletContractId,
+        userPublicKey: userPublicKey,
+        assetAddress: assetAddress || 'native'
+      });
       // If simulation fails, return zero balance instead of error
       return res.json({ 
         balance: '0', 
@@ -98,13 +111,19 @@ router.get('/balance', authenticateUser, async (req, res) => {
         contractId: smartWalletContractId,
         assetAddress: assetAddress || 'native',
         userPublicKey: userPublicKey,
-        error: 'Simulation failed - contract may not be initialized or account may not exist'
+        error: 'Simulation failed - contract may not be initialized or account may not exist',
+        details: simError.message
       });
     }
 
     if (simulation.errorResult) {
       const errorValue = simulation.errorResult.value();
       console.error('Smart wallet simulation error:', errorValue);
+      console.error('Error result details:', {
+        errorValue: errorValue.toString(),
+        contractId: smartWalletContractId,
+        userPublicKey: userPublicKey
+      });
       return res.status(400).json({ 
         error: 'Failed to get balance from smart wallet',
         details: errorValue.toString()
@@ -112,23 +131,45 @@ router.get('/balance', authenticateUser, async (req, res) => {
     }
 
     // Extract balance from result
-    const result = simulation.result.retval;
-    if (!result) {
-      return res.json({ balance: '0', contractId: smartWalletContractId });
+    // Check if simulation has a result
+    if (!simulation.result || !simulation.result.retval) {
+      return res.json({ 
+        balance: '0', 
+        balanceInXLM: '0',
+        contractId: smartWalletContractId,
+        assetAddress: assetAddress || 'native',
+        userPublicKey: userPublicKey,
+        message: 'No balance found or contract returned empty result'
+      });
     }
 
+    const result = simulation.result.retval;
+    
     // Handle i128 result
     let balance = '0';
-    if (result.i128) {
-      const parts = result.i128();
-      const lo = parts.lo().toString();
-      const hi = parts.hi().toString();
-      // For most balances, lo should be sufficient
-      // If hi is non-zero, we'd need to combine them: balance = (hi << 64) | lo
-      // eslint-disable-next-line no-undef
-      balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
-    } else {
-      balance = result.toString() || '0';
+    try {
+      if (result.i128) {
+        const parts = result.i128();
+        const lo = parts.lo().toString();
+        const hi = parts.hi().toString();
+        // For most balances, lo should be sufficient
+        // If hi is non-zero, we'd need to combine them: balance = (hi << 64) | lo
+        // eslint-disable-next-line no-undef
+        balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
+      } else {
+        balance = result.toString() || '0';
+      }
+    } catch (parseError) {
+      console.error('Error parsing balance result:', parseError);
+      return res.json({ 
+        balance: '0', 
+        balanceInXLM: '0',
+        contractId: smartWalletContractId,
+        assetAddress: assetAddress || 'native',
+        userPublicKey: userPublicKey,
+        error: 'Failed to parse balance result',
+        details: parseError.message
+      });
     }
 
     // Convert from stroops to XLM (divide by 10,000,000)

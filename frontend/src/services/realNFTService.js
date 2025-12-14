@@ -256,12 +256,10 @@ class RealNFTService {
           // Contract mint signature:
           // mint(env, to: Address, token_id: u32, name: String, symbol: String, uri: String, latitude: String, longitude: String, radius: u32)
           
-          // Create recipient address ScVal properly (using explicit encoding like webauthnService)
-          const recipientAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(recipient);
-          const recipientScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
-            StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(recipientAddressBytes)
-          );
-          const recipientScVal = StellarSdk.xdr.ScVal.scvAddress(recipientScAddress);
+          // Create recipient address ScVal using SDK's Address.fromString() method
+          // This ensures proper XDR encoding
+          const recipientAddr = StellarSdk.Address.fromString(recipient);
+          const recipientScVal = StellarSdk.xdr.ScVal.scvAddress(recipientAddr.toScAddress());
           
           // Prepare all ScVals
           const latString = location.latitude.toString();
