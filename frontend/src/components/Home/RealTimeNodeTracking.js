@@ -97,7 +97,6 @@ const RealTimeNodeTracking = () => {
   const [selectedNode, setSelectedNode] = useState(null);
   const [fetchInProgress, setFetchInProgress] = useState(false);
   const [nodeDetailsOpen, setNodeDetailsOpen] = useState(false);
-  const [isUserMovingMap, setIsUserMovingMap] = useState(false);
   
   // Enhanced search filters
   const [statusFilter, setStatusFilter] = useState('all');
@@ -221,7 +220,7 @@ const RealTimeNodeTracking = () => {
   // Get unique countries for filter
   const uniqueCountries = [...new Set(nodes.map(node => node.country).filter(Boolean))].sort();
 
-  // Create node marker (simplified like NFT markers)
+  // Create node marker with popup (simplified like NFT markers)
   const createNodeMarker = useCallback((node, mapInstance) => {
     if (!mapInstance || !node.location) return null;
 
@@ -257,13 +256,140 @@ const RealTimeNodeTracking = () => {
       markerColor = '#F44336'; // Red for inactive
     }
 
-    // Create marker using default Mapbox GL marker (like test markers)
-    const marker = new mapboxgl.Marker({ color: markerColor })
+    // Create marker element with pointer cursor
+    const el = document.createElement('div');
+    el.style.cursor = 'pointer';
+    el.style.width = '20px';
+    el.style.height = '20px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = markerColor;
+    el.style.border = '3px solid white';
+    el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+    el.style.transition = 'transform 0.2s';
+    
+    // Hover effect
+    el.addEventListener('mouseenter', () => {
+      el.style.transform = 'scale(1.2)';
+    });
+    el.addEventListener('mouseleave', () => {
+      el.style.transform = 'scale(1)';
+    });
+
+    // Create popup content (mobile-friendly)
+    const popupContent = document.createElement('div');
+    popupContent.style.cssText = `
+      min-width: 200px;
+      max-width: 300px;
+      font-family: 'Roboto', sans-serif;
+      padding: 0;
+    `;
+    
+    const network = node.network || 'public';
+    const stellarExpertBase = network === 'testnet' 
+      ? 'https://stellar.expert/explorer/testnet'
+      : 'https://stellar.expert/explorer/public';
+    
+    popupContent.innerHTML = `
+      <div style="padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px 8px 0 0;">
+        <h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold;">${node.name || 'Stellar Node'}</h3>
+        <div style="font-size: 12px; opacity: 0.9;">
+          ${node.city ? `${node.city}, ` : ''}${node.country || 'Unknown'}
+        </div>
+      </div>
+      <div style="padding: 12px; background: white;">
+        <div style="margin-bottom: 8px;">
+          <strong style="font-size: 12px; color: #666;">Status:</strong>
+          <span style="display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; background: ${markerColor}; color: white;">
+            ${node.status || 'unknown'}
+          </span>
+        </div>
+        ${node.publicKey ? `
+          <div style="margin-bottom: 8px;">
+            <strong style="font-size: 12px; color: #666;">Public Key:</strong>
+            <div style="font-size: 11px; word-break: break-all; color: #333; margin-top: 4px;">
+              ${node.publicKey.substring(0, 20)}...
+            </div>
+          </div>
+        ` : ''}
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 12px;">
+          <button 
+            onclick="window.openNodeDetails('${node.id}')"
+            style="
+              width: 100%;
+              padding: 8px 12px;
+              background: #667eea;
+              color: white;
+              border: none;
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 13px;
+              font-weight: 500;
+              transition: background 0.2s;
+            "
+            onmouseover="this.style.background='#5568d3'"
+            onmouseout="this.style.background='#667eea'"
+          >
+            View Details
+          </button>
+          ${node.publicKey ? `
+            <button 
+              onclick="window.open('${stellarExpertBase}/account/${node.publicKey}', '_blank')"
+              style="
+                width: 100%;
+                padding: 8px 12px;
+                background: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                font-weight: 500;
+                transition: background 0.2s;
+              "
+              onmouseover="this.style.background='#45a049'"
+              onmouseout="this.style.background='#4CAF50'"
+            >
+              View on StellarExpert
+            </button>
+          ` : ''}
+          <button 
+            onclick="window.zoomToNode('${node.id}', ${finalLng}, ${finalLat})"
+            style="
+              width: 100%;
+              padding: 8px 12px;
+              background: #FF9800;
+              color: white;
+              border: none;
+              border-radius: 6px;
+              cursor: pointer;
+              font-size: 13px;
+              font-weight: 500;
+              transition: background 0.2s;
+            "
+            onmouseover="this.style.background='#f57c00'"
+            onmouseout="this.style.background='#FF9800'"
+          >
+            Zoom In
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Create marker with popup
+    const marker = new mapboxgl.Marker(el)
       .setLngLat([finalLng, finalLat])
+      .setPopup(
+        new mapboxgl.Popup({ 
+          offset: 25,
+          closeButton: true,
+          closeOnClick: false,
+          maxWidth: '300px'
+        }).setDOMContent(popupContent)
+      )
       .addTo(mapInstance);
 
-    // Add click handler (like NFT markers)
-    marker.getElement().addEventListener('click', (e) => {
+    // Add click handler to open details dialog
+    el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       setSelectedNode(node);
@@ -273,18 +399,18 @@ const RealTimeNodeTracking = () => {
     return marker;
   }, []);
 
-  // Create markers for the card map
+  // Create markers for the card map - now updates when filteredNodes changes
   const createCardMarkers = useCallback(() => {
-    if (!map.current || !filteredNodes.length) return;
+    if (!map.current) return;
 
-    // Check if markers already exist to prevent recreation
-    if (Object.keys(currentMarkers.current).length > 0) {
-      return;
-    }
-
-    // Clear existing markers
+    // Always clear existing markers to reflect current filter state
     Object.values(currentMarkers.current).forEach(marker => marker.remove());
     currentMarkers.current = {};
+
+    // Only create markers for filtered nodes
+    if (filteredNodes.length === 0) {
+      return;
+    }
 
     filteredNodes.forEach((node, index) => {
       if (node.location && node.location.lat && node.location.lng) {
@@ -297,8 +423,8 @@ const RealTimeNodeTracking = () => {
       }
     });
 
-    // Fit map bounds to show all markers (only once)
-    if (filteredNodes.length > 0 && map.current && !map.current._hasFittedBounds) {
+    // Fit map bounds to show all filtered markers
+    if (filteredNodes.length > 0 && map.current) {
       const bounds = new mapboxgl.LngLatBounds();
       let hasValidBounds = false;
       
@@ -309,16 +435,15 @@ const RealTimeNodeTracking = () => {
         }
       });
       
-      // Add some padding and fit the map to show all markers (only once)
+      // Fit the map to show all filtered markers
       if (hasValidBounds) {
         setTimeout(() => {
-          if (map.current && !map.current._hasFittedBounds) {
+          if (map.current) {
             map.current.fitBounds(bounds, {
               padding: 50,
-              maxZoom: 6,
+              maxZoom: 8,
               duration: 1000
             });
-            map.current._hasFittedBounds = true; // Mark as fitted
           }
         }, 500);
       }
@@ -483,14 +608,7 @@ const RealTimeNodeTracking = () => {
       };
       window.addEventListener('resize', handleResize);
 
-      // Track user interaction
-      map.current.on('movestart', () => {
-        setIsUserMovingMap(true);
-      });
-
-      map.current.on('moveend', () => {
-        setIsUserMovingMap(false);
-      });
+      // Track user interaction (removed unused state)
 
     } catch (err) {
       console.error('Error initializing card map:', err);
@@ -546,31 +664,31 @@ const RealTimeNodeTracking = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredNodes.length]);
 
-  // Create markers for fullscreen map
+  // Create markers for fullscreen map - updates when filteredNodes changes
   const createFullscreenMarkers = useCallback(() => {
-    if (!fullscreenMap.current || !filteredNodes.length) return;
+    if (!fullscreenMap.current) return;
 
-    // Clear existing fullscreen markers
+    // Always clear existing fullscreen markers to reflect current filter state
     Object.values(fullscreenMarkers.current).forEach(marker => marker.remove());
     fullscreenMarkers.current = {};
 
-    // console.log('Creating fullscreen markers for', filteredNodes.length, 'nodes');
+    // Only create markers for filtered nodes
+    if (filteredNodes.length === 0) {
+      return;
+    }
 
     filteredNodes.forEach(node => {
       if (node.location && node.location.lat && node.location.lng) {
         const marker = createNodeMarker(node, fullscreenMap.current);
         if (marker) {
           fullscreenMarkers.current[node.id] = marker;
-          // console.log(`✅ Fullscreen marker created for ${node.name} at ${node.location.lat}, ${node.location.lng}`);
         }
       } else {
         console.warn(`❌ Invalid location data for ${node.name}:`, node.location);
       }
     });
-
-    // console.log(`Total fullscreen markers created: ${Object.keys(fullscreenMarkers.current).length}`);
     
-    // Fit map bounds to show all markers
+    // Fit map bounds to show all filtered markers
     if (filteredNodes.length > 0 && fullscreenMap.current) {
       const bounds = new mapboxgl.LngLatBounds();
       let hasValidBounds = false;
@@ -582,7 +700,7 @@ const RealTimeNodeTracking = () => {
         }
       });
       
-      // Add some padding and fit the map to show all markers
+      // Fit the map to show all filtered markers
       if (hasValidBounds) {
         setTimeout(() => {
           if (fullscreenMap.current) {
@@ -591,13 +709,10 @@ const RealTimeNodeTracking = () => {
               maxZoom: 8,
               duration: 1000
             });
-            // console.log('Fullscreen map fitted to show all markers');
           }
         }, 500);
       }
     }
-    
-    // console.log('Fullscreen markers created successfully');
   }, [filteredNodes, createNodeMarker]);
 
   // Initialize maps when component mounts
@@ -607,12 +722,45 @@ const RealTimeNodeTracking = () => {
     }
   }, [initializeCardMap]);
 
-  // Update markers when filtered nodes change
+  // Update markers when filtered nodes change - always update to reflect filters
   useEffect(() => {
-    if (map.current && !isUserMovingMap) {
+    if (map.current && map.current.isStyleLoaded()) {
       createCardMarkers();
     }
-  }, [filteredNodes, createCardMarkers, isUserMovingMap]);
+  }, [filteredNodes, createCardMarkers]);
+
+  // Setup global functions for popup buttons
+  useEffect(() => {
+    window.openNodeDetails = (nodeId) => {
+      const node = nodes.find(n => n.id === nodeId);
+      if (node) {
+        setSelectedNode(node);
+        setNodeDetailsOpen(true);
+      }
+    };
+
+    window.zoomToNode = (nodeId, lng, lat) => {
+      if (map.current) {
+        map.current.flyTo({
+          center: [lng, lat],
+          zoom: 12,
+          duration: 1500
+        });
+      }
+      if (fullscreenMap.current) {
+        fullscreenMap.current.flyTo({
+          center: [lng, lat],
+          zoom: 12,
+          duration: 1500
+        });
+      }
+    };
+
+    return () => {
+      delete window.openNodeDetails;
+      delete window.zoomToNode;
+    };
+  }, [nodes]);
 
   // Update fullscreen markers when dialog opens
   useEffect(() => {
@@ -1177,7 +1325,7 @@ const RealTimeNodeTracking = () => {
 
             {/* Node List */}
             <Grid item xs={12} md={4}>
-              <Card sx={{ height: { xs: 300, md: 400 }, overflow: 'auto' }}>
+              <Card sx={{ height: { xs: 300, md: 600 }, overflow: 'auto' }}>
                 <Box sx={{ p: 2 }}>
                   <Typography variant="h6" gutterBottom>
                     Stellar Validators ({filteredNodes.length})
@@ -1371,113 +1519,175 @@ const RealTimeNodeTracking = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Node Details Dialog */}
+      {/* Node Details Dialog - Mobile Friendly */}
       <Dialog
         open={nodeDetailsOpen}
         onClose={() => setNodeDetailsOpen(false)}
         maxWidth="sm"
         fullWidth
+        fullScreen={window.innerWidth < 600}
+        PaperProps={{
+          sx: {
+            borderRadius: { xs: 0, sm: 2 },
+            maxHeight: { xs: '100vh', sm: '90vh' }
+          }
+        }}
       >
         <DialogTitle sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
-          alignItems: 'center' 
+          alignItems: 'center',
+          pb: 1
         }}>
-          <Typography variant="h6" component="div">
-            {selectedNode?.name}
+          <Typography variant="h6" component="div" sx={{ fontWeight: 'bold' }}>
+            {selectedNode?.name || 'Node Details'}
           </Typography>
-          <IconButton onClick={() => setNodeDetailsOpen(false)}>
+          <IconButton onClick={() => setNodeDetailsOpen(false)} size="small">
             <CloseIcon />
           </IconButton>
         </DialogTitle>
         
-        <DialogContent>
+        <DialogContent sx={{ pt: 2, overflowY: 'auto' }}>
           {selectedNode && (
             <Box>
               <Grid container spacing={2}>
                 <Grid item xs={12}>
-                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50' }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      <LocationIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 2 }}>
+                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                      <LocationIcon sx={{ mr: 1 }} />
                       Location Information
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>City:</strong> {selectedNode.city}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Country:</strong> {selectedNode.country}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Coordinates:</strong> {selectedNode.location.lat.toFixed(4)}, {selectedNode.location.lng.toFixed(4)}
-                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        <strong>City:</strong> {selectedNode.city || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        <strong>Country:</strong> {selectedNode.country || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Coordinates:</strong> {selectedNode.location?.lat?.toFixed(4) || 'N/A'}, {selectedNode.location?.lng?.toFixed(4) || 'N/A'}
+                      </Typography>
+                    </Box>
                   </Paper>
                 </Grid>
                 
                 <Grid item xs={12} sm={6}>
-                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50' }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      <NetworkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 2 }}>
+                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                      <NetworkIcon sx={{ mr: 1 }} />
                       Network Status
                     </Typography>
-                    <Typography component="div" variant="body2" color="text.secondary">
-                      <strong>Status:</strong> 
-                      <Chip 
-                        label={selectedNode.status} 
-                        size="small" 
-                        sx={{ 
-                          ml: 1,
-                          backgroundColor: getStatusColor(selectedNode.status),
-                          color: 'white'
-                        }} 
-                      />
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Network:</strong> {selectedNode.network}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Version:</strong> {selectedNode.version}
-                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <Typography component="div" variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        <strong>Status:</strong> 
+                        <Chip 
+                          label={selectedNode.status} 
+                          size="small" 
+                          sx={{ 
+                            ml: 1,
+                            backgroundColor: getStatusColor(selectedNode.status),
+                            color: 'white',
+                            fontSize: '0.7rem'
+                          }} 
+                        />
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        <strong>Network:</strong> {selectedNode.network || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Version:</strong> {selectedNode.version || 'N/A'}
+                      </Typography>
+                    </Box>
                   </Paper>
                 </Grid>
                 
                 <Grid item xs={12} sm={6}>
-                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50' }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      <SpeedIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 2 }}>
+                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                      <SpeedIcon sx={{ mr: 1 }} />
                       Performance
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Uptime:</strong> {selectedNode.uptime}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Latency:</strong> {selectedNode.latency}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Last Seen:</strong> {new Date(selectedNode.lastSeen).toLocaleString()}
-                    </Typography>
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        <strong>Uptime:</strong> {selectedNode.uptime || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        <strong>Latency:</strong> {selectedNode.latency || 'N/A'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Last Seen:</strong> {selectedNode.lastSeen ? new Date(selectedNode.lastSeen).toLocaleString() : 'N/A'}
+                      </Typography>
+                    </Box>
                   </Paper>
                 </Grid>
                 
-                <Grid item xs={12}>
-                  <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50' }}>
-                    <Typography variant="subtitle1" gutterBottom>
-                      <SecurityIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Blockchain Verification
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      <strong>Public Key:</strong> {selectedNode.publicKey}
-                    </Typography>
-                    <Typography component="div" variant="body2" color="text.secondary">
-                      <strong>Verification:</strong> 
-                      <Chip 
-                        label="Verified" 
-                        size="small" 
-                        color="success" 
-                        sx={{ ml: 1 }} 
-                      />
-                    </Typography>
-                  </Paper>
-                </Grid>
+                {selectedNode.publicKey && (
+                  <Grid item xs={12}>
+                    <Paper component="div" sx={{ p: 2, backgroundColor: 'grey.50', borderRadius: 2 }}>
+                      <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                        <SecurityIcon sx={{ mr: 1 }} />
+                        Blockchain Verification
+                      </Typography>
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, wordBreak: 'break-all', fontSize: '0.85rem' }}>
+                          <strong>Public Key:</strong><br />
+                          {selectedNode.publicKey}
+                        </Typography>
+                        <Typography component="div" variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          <strong>Verification:</strong> 
+                          <Chip 
+                            label="Verified" 
+                            size="small" 
+                            color="success" 
+                            sx={{ ml: 1 }} 
+                          />
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            fullWidth
+                            onClick={() => {
+                              const network = selectedNode.network || 'public';
+                              const baseUrl = network === 'testnet' 
+                                ? 'https://stellar.expert/explorer/testnet'
+                                : 'https://stellar.expert/explorer/public';
+                              window.open(`${baseUrl}/account/${selectedNode.publicKey}`, '_blank');
+                            }}
+                            sx={{ textTransform: 'none' }}
+                          >
+                            View on StellarExpert
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            fullWidth
+                            onClick={() => {
+                              if (map.current && selectedNode.location) {
+                                map.current.flyTo({
+                                  center: [selectedNode.location.lng, selectedNode.location.lat],
+                                  zoom: 12,
+                                  duration: 1500
+                                });
+                              }
+                              if (fullscreenMap.current && selectedNode.location) {
+                                fullscreenMap.current.flyTo({
+                                  center: [selectedNode.location.lng, selectedNode.location.lat],
+                                  zoom: 12,
+                                  duration: 1500
+                                });
+                              }
+                              setNodeDetailsOpen(false);
+                            }}
+                            sx={{ textTransform: 'none' }}
+                          >
+                            Zoom In on Map
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                )}
               </Grid>
             </Box>
           )}
