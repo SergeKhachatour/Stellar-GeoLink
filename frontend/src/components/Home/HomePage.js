@@ -33,6 +33,7 @@ import {
 import PublicNFTShowcase from './PublicNFTShowcase';
 import RealTimeNodeTracking from './RealTimeNodeTracking';
 import SmartWalletBalance from './SmartWalletBalance';
+import PasskeyManager from '../Wallet/PasskeyManager';
 import ApiDocumentation from '../shared/ApiDocumentation';
 
 const HomePage = () => {
@@ -188,6 +189,11 @@ const HomePage = () => {
 
             {/* Smart Wallet Balance */}
             <SmartWalletBalance />
+
+            {/* Passkey Management */}
+            <Container maxWidth="lg" sx={{ mb: 4 }}>
+                <PasskeyManager />
+            </Container>
 
             {/* Public NFT Showcase */}
             <PublicNFTShowcase />

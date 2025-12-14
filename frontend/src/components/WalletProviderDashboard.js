@@ -33,6 +33,7 @@ import { format } from 'date-fns';
 import api from '../utils/api';
 import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
 import SharedMap from './SharedMap';
+import PasskeyManager from './Wallet/PasskeyManager';
 
 const WalletProviderDashboard = () => {
     const [wallets, setWallets] = useState([]);
@@ -243,6 +244,11 @@ const WalletProviderDashboard = () => {
             {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
 
             <Grid container spacing={3}>
+                {/* Passkey Management */}
+                <Grid item xs={12}>
+                    <PasskeyManager />
+                </Grid>
+
                 {/* API Key Status */}
                 <Grid item xs={12} md={6}>
                     <Card>
