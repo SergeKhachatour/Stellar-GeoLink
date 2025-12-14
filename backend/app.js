@@ -21,6 +21,7 @@ const ipfsRoutes = require('./routes/ipfs');
 const stellarRoutes = require('./routes/stellar');
 const zkProofRoutes = require('./routes/zkProof');
 const smartWalletRoutes = require('./routes/smartWallet');
+const webauthnRoutes = require('./routes/webauthn');
 // const configRoutes = require('./routes/config');
 const { rateLimiter } = require('./middleware/rateLimiter');
 const { authenticateUser } = require('./middleware/authUser');
@@ -71,6 +72,7 @@ app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/stellar', stellarRoutes);
 app.use('/api/zk-proof', zkProofRoutes);
 app.use('/api/smart-wallet', smartWalletRoutes);
+app.use('/api/webauthn', webauthnRoutes);
 // app.use('/api/config', configRoutes);
 
 // Debug endpoint to check environment variables and database connection
