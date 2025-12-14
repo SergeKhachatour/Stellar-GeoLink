@@ -811,27 +811,13 @@ router.get('/pins', authenticateUser, async (req, res) => {
  *       404:
  *         description: File not found
  */
-// File serving route - use wildcard * to capture the full path after userId
-router.get('/files/:userId/*', authenticateUser, async (req, res) => {
+// File serving route - use regex to match /files/:userId/... where ... is any path
+// Express doesn't support * wildcards, so we use a regex pattern
+router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
     try {
-        const { userId: userIdParam } = req.params;
-        // Extract file path from req.path (e.g., "/api/ipfs/files/2/home/uploads/nft-files/file.png")
-        // Remove "/api/ipfs/files/:userId/" prefix to get the file path
-        const pathPrefix = `/api/ipfs/files/${userIdParam}/`;
-        let filePath = req.path;
-        
-        if (filePath.startsWith(pathPrefix)) {
-            filePath = filePath.substring(pathPrefix.length);
-        } else {
-            // Fallback: try to extract from URL
-            const urlPath = req.url.split('?')[0]; // Remove query string
-            if (urlPath.startsWith(pathPrefix)) {
-                filePath = urlPath.substring(pathPrefix.length);
-            } else {
-                // Last resort: try req.params[0] (might work in some Express versions)
-                filePath = req.params[0] || filePath;
-            }
-        }
+        // Extract userId and filePath from regex match groups
+        const userIdParam = req.params[0]; // First capture group (userId)
+        const filePath = req.params[1]; // Second capture group (file path)
         
         console.log('📁 File serving request:', { 
             userIdParam, 
@@ -839,7 +825,8 @@ router.get('/files/:userId/*', authenticateUser, async (req, res) => {
             reqPath: req.path,
             reqUrl: req.url,
             userFromAuth: req.user.id, 
-            allParams: req.params 
+            allParams: req.params,
+            matchGroups: req.params
         });
         
         if (!filePath || filePath === '') {
