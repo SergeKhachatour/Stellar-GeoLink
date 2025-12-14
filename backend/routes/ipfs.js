@@ -833,12 +833,42 @@ router.get('/files/:userId/*', authenticateUser, async (req, res) => {
 
         // Construct full file path
         const uploadDir = getUploadDir();
-        // filePath from wildcard should already be the relative path (e.g., "home/uploads/nft-files/file.png")
-        // Remove leading slash if present
-        const cleanPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-        const fullPath = path.join(uploadDir, cleanPath);
+        // filePath from wildcard could be:
+        // 1. Full path: "/home/uploads/nft-files/file.png" -> use as-is
+        // 2. Relative path: "home/uploads/nft-files/file.png" -> join with uploadDir
+        // 3. Just filename: "file.png" -> join with uploadDir
+        let fullPath;
+        if (filePath.startsWith('/')) {
+            // Full absolute path - use as-is
+            fullPath = filePath;
+        } else if (filePath.startsWith(uploadDir)) {
+            // Already contains upload directory - use as-is
+            fullPath = filePath;
+        } else {
+            // Relative path - check if it starts with the upload dir name
+            const uploadDirName = path.basename(uploadDir); // "nft-files"
+            const uploadParentDir = path.dirname(uploadDir); // "/home/uploads" or "../uploads"
+            
+            // If path starts with upload dir structure, extract just the filename
+            if (filePath.includes(uploadDirName)) {
+                // Extract filename from path like "home/uploads/nft-files/file.png" or "nft-files/file.png"
+                const parts = filePath.split(path.sep);
+                const filenameIndex = parts.indexOf(uploadDirName);
+                if (filenameIndex >= 0 && filenameIndex < parts.length - 1) {
+                    // Get everything after the upload dir name
+                    const filename = parts.slice(filenameIndex + 1).join(path.sep);
+                    fullPath = path.join(uploadDir, filename);
+                } else {
+                    // Fallback: just use the last part as filename
+                    fullPath = path.join(uploadDir, parts[parts.length - 1]);
+                }
+            } else {
+                // Just a filename or relative path - join with uploadDir
+                fullPath = path.join(uploadDir, filePath);
+            }
+        }
         
-        console.log('📁 Resolved file path:', { uploadDir, filePath, cleanPath, fullPath });
+        console.log('📁 Resolved file path:', { uploadDir, filePath, fullPath });
         
         // Security: Ensure the file is within the upload directory
         const resolvedPath = path.resolve(fullPath);
