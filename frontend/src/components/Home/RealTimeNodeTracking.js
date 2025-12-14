@@ -36,7 +36,6 @@ import {
   NetworkCheck as NetworkIcon,
   Speed as SpeedIcon,
   Security as SecurityIcon,
-  FilterList as FilterIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   AttachMoney as MoneyIcon
