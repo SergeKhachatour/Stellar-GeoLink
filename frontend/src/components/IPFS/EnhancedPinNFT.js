@@ -38,6 +38,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import api from '../../utils/api';
 import { useWallet } from '../../contexts/WalletContext';
 import { getApiUrl } from '../../utils/apiUrl';
+import webauthnService from '../../services/webauthnService';
 
 // Set Mapbox token
 Mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
@@ -58,6 +59,16 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [upgradeSecretKey, setUpgradeSecretKey] = useState('');
   const [upgradeError, setUpgradeError] = useState('');
+  
+  // Payment flow state
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [smartWalletBalance, setSmartWalletBalance] = useState(null);
+  const [passkeys, setPasskeys] = useState([]);
+  const [selectedPasskey, setSelectedPasskey] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('1.0'); // Default 1 XLM
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  const [checkingBalance, setCheckingBalance] = useState(false);
   
   // Step 1: File Upload
   const [selectedFile, setSelectedFile] = useState(null);
@@ -90,6 +101,13 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       fetchUploads();
       fetchCollections();
       fetchContracts();
+      // Fetch smart wallet balance and passkeys if user is connected
+      const savedPublicKey = localStorage.getItem('stellar_public_key');
+      const effectivePublicKey = publicKey || savedPublicKey;
+      if (effectivePublicKey) {
+        fetchSmartWalletBalance(effectivePublicKey);
+        fetchPasskeys();
+      }
       setActiveStep(0);
       setError('');
       setSuccess('');
@@ -258,6 +276,39 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     } catch (error) {
       console.error('Error fetching collections:', error);
       setError('Failed to load collections');
+    }
+  };
+
+  // Fetch smart wallet balance
+  const fetchSmartWalletBalance = async (userPublicKey) => {
+    if (!userPublicKey) return null;
+    
+    setCheckingBalance(true);
+    try {
+      const response = await api.get('/smart-wallet/balance', {
+        params: { userPublicKey }
+      });
+      setSmartWalletBalance(response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching smart wallet balance:', error);
+      // Return zero balance if error (contract might not be initialized)
+      return { balance: '0', balanceInXLM: '0' };
+    } finally {
+      setCheckingBalance(false);
+    }
+  };
+
+  // Fetch user's registered passkeys
+  const fetchPasskeys = async () => {
+    try {
+      const response = await api.get('/webauthn/passkeys');
+      setPasskeys(response.data.passkeys || []);
+      return response.data.passkeys || [];
+    } catch (error) {
+      console.error('Error fetching passkeys:', error);
+      setPasskeys([]);
+      return [];
     }
   };
 
@@ -516,6 +567,193 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
     setActiveStep((prevStep) => prevStep - 1);
   };
 
+  // Execute payment and then mint NFT
+  const executePaymentAndMint = async (userPublicKey, userSecretKey, upload, contractId) => {
+    try {
+      setPaymentLoading(true);
+      setPaymentError('');
+      
+      // Get contract ID for NFT minting
+      let nftContractId = contractId || nftDetails.smart_contract_address;
+      if (!nftContractId) {
+        // Auto-initialize contract if needed
+        console.log('📝 Auto-initializing contract...');
+        const realNFTService = await import('../../services/realNFTService');
+        const { default: RealNFTService } = realNFTService;
+        const StellarSdk = await import('@stellar/stellar-sdk');
+        const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+        
+        const contractInfo = await RealNFTService.deployLocationNFTContract(
+          keypair,
+          'StellarGeoLinkNFT'
+        );
+        nftContractId = contractInfo.contractId;
+        console.log('✅ Contract initialized:', nftContractId);
+      }
+      
+      // Get selected passkey (should be set before calling this function)
+      if (!selectedPasskey) {
+        throw new Error('No passkey selected');
+      }
+      
+      // Get passkey public key from backend
+      const passkeysResponse = await api.get('/webauthn/passkeys');
+      const passkeyInfo = passkeysResponse.data.passkeys.find(
+        p => p.credentialId === selectedPasskey.credentialId
+      );
+      
+      if (!passkeyInfo || !passkeyInfo.publicKey) {
+        throw new Error('Passkey data not found. Please ensure your passkey is properly registered with a public key.');
+      }
+      
+      console.log('💳 Executing payment via smart wallet...');
+      
+      // Create transaction data for signature
+      const transactionData = {
+        source: userPublicKey,
+        destination: nftContractId, // NFT contract receives payment
+        amount: (parseFloat(paymentAmount) * 10000000).toString(), // Convert to stroops
+        asset: 'native'
+      };
+      const signaturePayload = JSON.stringify(transactionData);
+      
+      // Authenticate with passkey
+      const authResult = await webauthnService.authenticateWithPasskey(
+        selectedPasskey.credentialId,
+        signaturePayload
+      );
+      
+      // Call backend to execute payment
+      const paymentResponse = await api.post('/smart-wallet/execute-payment', {
+        userPublicKey,
+        userSecretKey,
+        destinationAddress: nftContractId,
+        amount: transactionData.amount, // In stroops
+        assetAddress: null, // Native XLM
+        signaturePayload,
+        passkeyPublicKeySPKI: passkeyInfo.publicKey, // SPKI format from backend
+        webauthnSignature: authResult.signature,
+        webauthnAuthenticatorData: authResult.authenticatorData,
+        webauthnClientData: authResult.clientDataJSON
+      });
+      
+      const paymentResult = paymentResponse.data;
+      
+      console.log('✅ Payment executed:', paymentResult);
+      
+      // Step 4: Mint NFT after successful payment
+      console.log('🚀 Minting NFT on blockchain...');
+      const realNFTService = await import('../../services/realNFTService');
+      const { default: RealNFTService } = realNFTService;
+      const StellarSdk = await import('@stellar/stellar-sdk');
+      const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+      
+      const mintResult = await RealNFTService.mintLocationNFT(
+        nftContractId,
+        userPublicKey,
+        {
+          name: upload.original_filename,
+          description: `Location-based NFT at ${nftDetails.latitude}, ${nftDetails.longitude}`,
+          ipfs_hash: upload.ipfs_hash,
+          filename: upload.original_filename,
+          attributes: {
+            latitude: nftDetails.latitude,
+            longitude: nftDetails.longitude,
+            radius: nftDetails.radius_meters,
+            collection: nftDetails.collection_id
+          }
+        },
+        {
+          latitude: parseFloat(nftDetails.latitude),
+          longitude: parseFloat(nftDetails.longitude),
+          radius: parseInt(nftDetails.radius_meters)
+        },
+        keypair
+      );
+      
+      console.log('✅ NFT minted on blockchain:', mintResult);
+      setSuccess('Payment executed and NFT minted successfully!');
+      setShowPaymentDialog(false);
+      
+      // Return mint result for onPinComplete
+      return mintResult;
+      
+    } catch (error) {
+      console.error('❌ Payment or minting failed:', error);
+      setPaymentError(error.message || 'Payment or minting failed');
+      throw error;
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  // Handle payment dialog confirmation
+  const handleConfirmPayment = async () => {
+    if (!selectedPasskey) {
+      setPaymentError('Please select a passkey');
+      return;
+    }
+    
+    try {
+      setPaymentLoading(true);
+      setPaymentError('');
+      
+      const savedSecretKey = localStorage.getItem('stellar_secret_key');
+      const savedPublicKey = localStorage.getItem('stellar_public_key');
+      const effectiveSecretKey = secretKey || savedSecretKey;
+      const effectivePublicKey = publicKey || savedPublicKey;
+      
+      const upload = uploads.find(u => u.id === selectedUpload);
+      let contractId = nftDetails.smart_contract_address;
+      
+      // Execute payment and mint
+      const mintResult = await executePaymentAndMint(
+        effectivePublicKey,
+        effectiveSecretKey,
+        upload,
+        contractId
+      );
+      
+      // Update mintResult for onPinComplete
+      setPinning(false);
+      
+      // Call onPinComplete with results
+      if (onPinComplete) {
+        const response = await api.post('/nft/pin', {
+          collection_id: nftDetails.collection_id,
+          latitude: parseFloat(nftDetails.latitude),
+          longitude: parseFloat(nftDetails.longitude),
+          radius_meters: parseInt(nftDetails.radius_meters),
+          ipfs_hash: upload.ipfs_hash,
+          smart_contract_address: contractId,
+          filename: upload.original_filename,
+          nft_upload_id: upload.id
+        });
+        
+        const dbNft = response.data.nft;
+        const successData = {
+          tokenId: mintResult.tokenId,
+          name: upload.original_filename,
+          contractId: mintResult.contractId || contractId,
+          transactionHash: mintResult.hash || mintResult.transactionHash,
+          status: 'success',
+          ledger: mintResult.latestLedger || mintResult.ledger,
+          location: {
+            latitude: parseFloat(nftDetails.latitude),
+            longitude: parseFloat(nftDetails.longitude),
+            radius: parseInt(nftDetails.radius_meters)
+          },
+          nft: dbNft
+        };
+        onPinComplete(successData);
+      }
+      
+    } catch (error) {
+      console.error('Payment confirmation failed:', error);
+      // Error already set in executePaymentAndMint
+    }
+  };
+
   const handlePinNFT = async () => {
     if (!selectedUpload) {
       setError('Please select a pinned file');
@@ -589,52 +827,47 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         }
         
         if (hasCredentials) {
-          console.log('🚀 Minting NFT on Stellar blockchain...');
+          console.log('🚀 Starting NFT minting process with payment...');
           
-          // Auto-initialize contract if needed
-          let contractId = nftDetails.smart_contract_address;
-          if (!contractId) {
-            console.log('📝 Auto-initializing contract...');
-            const StellarSdk = await import('@stellar/stellar-sdk');
-            const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
-            
-            const contractInfo = await RealNFTService.deployLocationNFTContract(
-              keypair,
-              'StellarGeoLinkNFT'
-            );
-            contractId = contractInfo.contractId;
-            console.log('✅ Contract initialized:', contractId);
+          // Step 1: Check smart wallet balance
+          const balanceData = await fetchSmartWalletBalance(effectivePublicKey);
+          const balanceInXLM = parseFloat(balanceData?.balanceInXLM || '0');
+          const requiredAmount = parseFloat(paymentAmount || '1.0');
+          
+          console.log('💰 Smart wallet balance check:', {
+            balanceInXLM,
+            requiredAmount,
+            sufficient: balanceInXLM >= requiredAmount
+          });
+          
+          if (balanceInXLM < requiredAmount) {
+            setPinning(false);
+            setError(`Insufficient balance. Required: ${requiredAmount} XLM, Available: ${balanceInXLM.toFixed(7)} XLM`);
+            return;
           }
           
-          // Mint NFT on blockchain
-          const StellarSdk = await import('@stellar/stellar-sdk');
-          const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
+          // Step 2: Check for passkeys and prompt for payment
+          const userPasskeys = await fetchPasskeys();
           
-          mintResult = await RealNFTService.mintLocationNFT(
-            contractId,
-            effectivePublicKey,
-            {
-              name: upload.original_filename,
-              description: `Location-based NFT at ${nftDetails.latitude}, ${nftDetails.longitude}`,
-              ipfs_hash: upload.ipfs_hash,
-              filename: upload.original_filename,
-              attributes: {
-                latitude: nftDetails.latitude,
-                longitude: nftDetails.longitude,
-                radius: nftDetails.radius_meters,
-                collection: nftDetails.collection_id
-              }
-            },
-            {
-              latitude: parseFloat(nftDetails.latitude),
-              longitude: parseFloat(nftDetails.longitude),
-              radius: parseInt(nftDetails.radius_meters)
-            },
-            keypair
-          );
+          if (userPasskeys.length === 0) {
+            setPinning(false);
+            setError('No passkeys registered. Please register a passkey in the Wallet Provider Dashboard before minting NFTs.');
+            return;
+          }
           
-          console.log('✅ NFT minted on blockchain:', mintResult);
-          setSuccess('NFT pinned and minted on blockchain successfully!');
+          // If only one passkey, auto-select it
+          if (userPasskeys.length === 1) {
+            setSelectedPasskey(userPasskeys[0]);
+          } else {
+            // Show payment dialog to select passkey
+            setPinning(false);
+            setShowPaymentDialog(true);
+            return; // Exit early, will continue after payment
+          }
+          
+          // Step 3: Execute payment (if we reach here, passkey is selected)
+          await executePaymentAndMint(effectivePublicKey, effectiveSecretKey, upload, contractId);
+          
         } else {
           console.log('⚠️ Wallet not connected, skipping blockchain minting', {
             isConnected,
@@ -1343,6 +1576,113 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             disabled={walletLoading || !upgradeSecretKey.trim()}
           >
             {walletLoading ? <CircularProgress size={20} /> : 'Upgrade to Full Access'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog 
+        open={showPaymentDialog} 
+        onClose={() => {
+          if (!paymentLoading) {
+            setShowPaymentDialog(false);
+            setPaymentError('');
+            setSelectedPasskey(null);
+          }
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Confirm Payment & Mint NFT</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            To mint this NFT, you need to pay {paymentAmount} XLM from your smart wallet using WebAuthn authentication.
+          </Typography>
+          
+          {smartWalletBalance && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                <strong>Smart Wallet Balance:</strong> {parseFloat(smartWalletBalance.balanceInXLM || '0').toFixed(7)} XLM
+              </Typography>
+              <Typography variant="body2">
+                <strong>Required:</strong> {paymentAmount} XLM
+              </Typography>
+              {parseFloat(smartWalletBalance.balanceInXLM || '0') < parseFloat(paymentAmount) && (
+                <Typography variant="body2" color="error">
+                  ⚠️ Insufficient balance
+                </Typography>
+              )}
+            </Alert>
+          )}
+          
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Select Passkey</InputLabel>
+            <Select
+              value={selectedPasskey?.credentialId || ''}
+              onChange={(e) => {
+                const passkey = passkeys.find(p => p.credentialId === e.target.value);
+                setSelectedPasskey(passkey);
+              }}
+              label="Select Passkey"
+            >
+              {passkeys.map((passkey) => (
+                <MenuItem key={passkey.credentialId} value={passkey.credentialId}>
+                  Passkey registered {new Date(passkey.registeredAt).toLocaleDateString()}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          
+          <TextField
+            label="Payment Amount (XLM)"
+            type="number"
+            value={paymentAmount}
+            onChange={(e) => setPaymentAmount(e.target.value)}
+            fullWidth
+            inputProps={{ min: '0.0000001', step: '0.0000001' }}
+            sx={{ mb: 2 }}
+            helperText="Amount to pay from smart wallet"
+          />
+          
+          {paymentError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {paymentError}
+            </Alert>
+          )}
+          
+          {paymentLoading && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+              <CircularProgress size={20} />
+              <Typography variant="body2">
+                Processing payment and minting NFT...
+              </Typography>
+            </Box>
+          )}
+          
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Note:</strong> You will be prompted to authenticate with your passkey (fingerprint, Face ID, etc.) to authorize the payment.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setShowPaymentDialog(false);
+              setPaymentError('');
+              setSelectedPasskey(null);
+            }}
+            disabled={paymentLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmPayment}
+            variant="contained"
+            disabled={paymentLoading || !selectedPasskey || parseFloat(smartWalletBalance?.balanceInXLM || '0') < parseFloat(paymentAmount)}
+            startIcon={paymentLoading ? <CircularProgress size={20} /> : null}
+          >
+            {paymentLoading ? 'Processing...' : 'Confirm & Pay'}
           </Button>
         </DialogActions>
       </Dialog>

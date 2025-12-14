@@ -149,6 +149,7 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
     res.json({ 
       passkeys: result.rows.map(row => ({
         credentialId: row.credential_id,
+        publicKey: row.public_key_spki, // Include public key for payment operations
         registeredAt: row.registered_at
       }))
     });
