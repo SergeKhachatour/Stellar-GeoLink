@@ -185,7 +185,6 @@ app.use((err, req, res, next) => {
 
 // Ensure uploads directory exists on startup
 const fs = require('fs').promises;
-const path = require('path');
 
 const ensureUploadsDir = async () => {
     try {
