@@ -815,12 +815,34 @@ router.get('/pins', authenticateUser, async (req, res) => {
 router.get('/files/:userId/*', authenticateUser, async (req, res) => {
     try {
         const { userId: userIdParam } = req.params;
-        // Get the file path from req.params[0] (wildcard capture)
-        const filePath = req.params[0];
+        // Extract file path from req.path (e.g., "/api/ipfs/files/2/home/uploads/nft-files/file.png")
+        // Remove "/api/ipfs/files/:userId/" prefix to get the file path
+        const pathPrefix = `/api/ipfs/files/${userIdParam}/`;
+        let filePath = req.path;
         
-        console.log('📁 File serving request:', { userIdParam, filePath, userFromAuth: req.user.id, allParams: req.params });
+        if (filePath.startsWith(pathPrefix)) {
+            filePath = filePath.substring(pathPrefix.length);
+        } else {
+            // Fallback: try to extract from URL
+            const urlPath = req.url.split('?')[0]; // Remove query string
+            if (urlPath.startsWith(pathPrefix)) {
+                filePath = urlPath.substring(pathPrefix.length);
+            } else {
+                // Last resort: try req.params[0] (might work in some Express versions)
+                filePath = req.params[0] || filePath;
+            }
+        }
         
-        if (!filePath) {
+        console.log('📁 File serving request:', { 
+            userIdParam, 
+            filePath, 
+            reqPath: req.path,
+            reqUrl: req.url,
+            userFromAuth: req.user.id, 
+            allParams: req.params 
+        });
+        
+        if (!filePath || filePath === '') {
             return res.status(400).json({ error: 'File path is required' });
         }
         
