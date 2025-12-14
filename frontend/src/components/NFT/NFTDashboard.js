@@ -113,9 +113,8 @@ const markerStyles = `
     border: 3px solid #ffffff !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
     overflow: hidden !important;
-    transform: none !important;
+    /* Allow Mapbox to transform markers for 3D globe projection */
     transition: none !important;
-    will-change: auto !important;
   }
   
   .nft-image-marker img,

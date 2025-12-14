@@ -20,7 +20,12 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Divider
+  Divider,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Tooltip
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -30,7 +35,11 @@ import {
   Refresh as RefreshIcon,
   NetworkCheck as NetworkIcon,
   Speed as SpeedIcon,
-  Security as SecurityIcon
+  Security as SecurityIcon,
+  FilterList as FilterIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  AttachMoney as MoneyIcon
 } from '@mui/icons-material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -89,6 +98,16 @@ const RealTimeNodeTracking = () => {
   const [nodeDetailsOpen, setNodeDetailsOpen] = useState(false);
   const [isUserMovingMap, setIsUserMovingMap] = useState(false);
   
+  // Enhanced search filters
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [countryFilter, setCountryFilter] = useState('all');
+  const [validatorTypeFilter, setValidatorTypeFilter] = useState('all');
+  
+  // XLM Price state
+  const [xlmPrice, setXlmPrice] = useState(null);
+  const [xlmPriceChange, setXlmPriceChange] = useState(null);
+  const [xlmPriceLoading, setXlmPriceLoading] = useState(false);
+  
   const mapContainer = useRef(null);
   const fullscreenMapContainer = useRef(null);
   const map = useRef(null);
@@ -132,20 +151,71 @@ const RealTimeNodeTracking = () => {
     }
   }, [fetchInProgress]);
 
-  // Filter nodes based on search query
+  // Fetch XLM price from CoinGecko
+  const fetchXLMPrice = useCallback(async () => {
+    setXlmPriceLoading(true);
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_24hr_change=true');
+      if (!response.ok) throw new Error('Failed to fetch XLM price');
+      const data = await response.json();
+      if (data.stellar) {
+        setXlmPrice(data.stellar.usd);
+        setXlmPriceChange(data.stellar.usd_24h_change);
+      }
+    } catch (err) {
+      console.error('Error fetching XLM price:', err);
+      // Fallback: try alternative API
+      try {
+        const altResponse = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=XLM');
+        if (altResponse.ok) {
+          const altData = await altResponse.json();
+          if (altData.data?.rates?.USD) {
+            setXlmPrice(parseFloat(altData.data.rates.USD));
+          }
+        }
+      } catch (altErr) {
+        console.error('Alternative XLM price API also failed:', altErr);
+      }
+    } finally {
+      setXlmPriceLoading(false);
+    }
+  }, []);
+
+  // Enhanced filter nodes based on search query and filters
   useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredNodes(nodes);
-    } else {
-      const filtered = nodes.filter(node =>
+    let filtered = [...nodes];
+
+    // Apply search query
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(node =>
         node.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         node.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
         node.country.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        node.status.toLowerCase().includes(searchQuery.toLowerCase())
+        node.status.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (node.publicKey && node.publicKey.toLowerCase().includes(searchQuery.toLowerCase()))
       );
-      setFilteredNodes(filtered);
     }
-  }, [nodes, searchQuery]);
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(node => node.status === statusFilter);
+    }
+
+    // Apply country filter
+    if (countryFilter !== 'all') {
+      filtered = filtered.filter(node => node.country === countryFilter);
+    }
+
+    // Apply validator type filter
+    if (validatorTypeFilter !== 'all') {
+      filtered = filtered.filter(node => node.validatorType === validatorTypeFilter);
+    }
+
+    setFilteredNodes(filtered);
+  }, [nodes, searchQuery, statusFilter, countryFilter, validatorTypeFilter]);
+
+  // Get unique countries for filter
+  const uniqueCountries = [...new Set(nodes.map(node => node.country).filter(Boolean))].sort();
 
   // Create node marker (simplified like NFT markers)
   const createNodeMarker = useCallback((node, mapInstance) => {
@@ -598,8 +668,18 @@ const RealTimeNodeTracking = () => {
   // Initial fetch - only run once on mount
   useEffect(() => {
     fetchStellarNodes();
+    fetchXLMPrice();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array to run only once
+
+  // Auto-refresh XLM price every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchXLMPrice();
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [fetchXLMPrice]);
 
   // Global function for popup button clicks
   useEffect(() => {
@@ -737,8 +817,59 @@ const RealTimeNodeTracking = () => {
               </Button>
             </Box>
             
-            {/* Stellar Network Stats */}
+            {/* Stellar Network Stats with XLM Price */}
             <Grid container spacing={2} justifyContent="center" mb={4}>
+              {/* XLM Price Card */}
+              <Grid item>
+                <Paper sx={{ 
+                  p: 2, 
+                  textAlign: 'center', 
+                  minWidth: 140,
+                  background: xlmPriceChange && xlmPriceChange > 0 
+                    ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
+                    : xlmPriceChange && xlmPriceChange < 0
+                    ? 'linear-gradient(135deg, #F44336 0%, #d32f2f 100%)'
+                    : 'background.paper'
+                }}>
+                  {xlmPriceLoading ? (
+                    <CircularProgress size={24} sx={{ color: 'white' }} />
+                  ) : xlmPrice ? (
+                    <>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5 }}>
+                        <MoneyIcon sx={{ color: 'white', fontSize: 20 }} />
+                        <Typography variant="h5" color="white" fontWeight="bold">
+                          ${xlmPrice.toFixed(4)}
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                        XLM Price
+                      </Typography>
+                      {xlmPriceChange !== null && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 0.5 }}>
+                          {xlmPriceChange > 0 ? (
+                            <TrendingUpIcon sx={{ color: 'white', fontSize: 16 }} />
+                          ) : (
+                            <TrendingDownIcon sx={{ color: 'white', fontSize: 16 }} />
+                          )}
+                          <Typography variant="caption" sx={{ color: 'white', fontWeight: 'bold' }}>
+                            {xlmPriceChange > 0 ? '+' : ''}{xlmPriceChange.toFixed(2)}%
+                          </Typography>
+                        </Box>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Typography variant="h6" color="text.secondary">
+                        N/A
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        XLM Price
+                      </Typography>
+                    </>
+                  )}
+                </Paper>
+              </Grid>
+              
               <Grid item>
                 <Paper sx={{ p: 2, textAlign: 'center', minWidth: 120 }}>
                   <Typography variant="h4" color="primary" fontWeight="bold">
@@ -806,7 +937,7 @@ const RealTimeNodeTracking = () => {
                   }}
                 />
                 
-                {/* Map Overlay Controls */}
+                {/* Enhanced Map Overlay Controls */}
                 <Box
                   sx={{
                     position: 'absolute',
@@ -814,66 +945,121 @@ const RealTimeNodeTracking = () => {
                     left: 16,
                     right: 16,
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
+                    flexDirection: { xs: 'column', md: 'row' },
+                    gap: 1,
                     zIndex: 1000
                   }}
                 >
-                  <TextField
-                    size="small"
-                    placeholder="Search nodes..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon />
-                        </InputAdornment>
-                      ),
-                    }}
-                    sx={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                      borderRadius: 1,
-                      minWidth: 200
-                    }}
-                  />
-                  
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
+                  {/* Search and Filters */}
+                  <Box sx={{ 
+                    display: 'flex', 
+                    gap: 1, 
+                    flexWrap: 'wrap',
+                    flex: 1,
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    p: 1,
+                    borderRadius: 1,
+                    boxShadow: 2
+                  }}>
+                    <TextField
                       size="small"
-                      variant="contained"
-                      startIcon={<RefreshIcon />}
-                      onClick={handleRefresh}
-                      disabled={loading}
-                      sx={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        color: 'text.primary',
-                        '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 1)',
-                        }
+                      placeholder="Search nodes, cities, countries..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon />
+                          </InputAdornment>
+                        ),
                       }}
-                    >
-                      {loading ? <CircularProgress size={16} /> : 'Refresh'}
-                    </Button>
+                      sx={{
+                        backgroundColor: 'white',
+                        minWidth: { xs: '100%', sm: 200 },
+                        flex: 1
+                      }}
+                    />
                     
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<FullscreenIcon />}
-                      onClick={() => {
-                        // console.log('🔍 View Full Map button clicked');
-                        setOpen(true);
-                      }}
-                      sx={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                        color: 'text.primary',
-                        '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 1)',
-                        }
-                      }}
-                    >
-                      Fullscreen
-                    </Button>
+                    <FormControl size="small" sx={{ minWidth: 120 }}>
+                      <InputLabel>Status</InputLabel>
+                      <Select
+                        value={statusFilter}
+                        label="Status"
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                      >
+                        <MenuItem value="all">All Status</MenuItem>
+                        <MenuItem value="active">Active</MenuItem>
+                        <MenuItem value="syncing">Syncing</MenuItem>
+                        <MenuItem value="inactive">Inactive</MenuItem>
+                      </Select>
+                    </FormControl>
+                    
+                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                      <InputLabel>Country</InputLabel>
+                      <Select
+                        value={countryFilter}
+                        label="Country"
+                        onChange={(e) => setCountryFilter(e.target.value)}
+                      >
+                        <MenuItem value="all">All Countries</MenuItem>
+                        {uniqueCountries.map(country => (
+                          <MenuItem key={country} value={country}>{country}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    
+                    <FormControl size="small" sx={{ minWidth: 120 }}>
+                      <InputLabel>Type</InputLabel>
+                      <Select
+                        value={validatorTypeFilter}
+                        label="Type"
+                        onChange={(e) => setValidatorTypeFilter(e.target.value)}
+                      >
+                        <MenuItem value="all">All Types</MenuItem>
+                        <MenuItem value="core">Core</MenuItem>
+                        <MenuItem value="validator">Validator</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  
+                  {/* Action Buttons */}
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip title="Refresh node data">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<RefreshIcon />}
+                        onClick={handleRefresh}
+                        disabled={loading}
+                        sx={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          color: 'text.primary',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 1)',
+                          }
+                        }}
+                      >
+                        {loading ? <CircularProgress size={16} /> : 'Refresh'}
+                      </Button>
+                    </Tooltip>
+                    
+                    <Tooltip title="View fullscreen map">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        startIcon={<FullscreenIcon />}
+                        onClick={() => setOpen(true)}
+                        sx={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          color: 'text.primary',
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 1)',
+                          }
+                        }}
+                      >
+                        Fullscreen
+                      </Button>
+                    </Tooltip>
                   </Box>
                 </Box>
 
@@ -981,16 +1167,25 @@ const RealTimeNodeTracking = () => {
       >
         <DialogTitle sx={{ 
           display: 'flex', 
+          flexDirection: { xs: 'column', md: 'row' },
           justifyContent: 'space-between', 
-          alignItems: 'center',
+          alignItems: { xs: 'flex-start', md: 'center' },
+          gap: 2,
           backgroundColor: 'background.paper',
           borderBottom: 1,
-          borderColor: 'divider'
+          borderColor: 'divider',
+          pb: 2
         }}>
           <Typography variant="h5" component="div">
             Stellar Network Nodes - Full View
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 1, 
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            width: { xs: '100%', md: 'auto' }
+          }}>
             <TextField
               size="small"
               placeholder="Search nodes..."
@@ -1003,8 +1198,34 @@ const RealTimeNodeTracking = () => {
                   </InputAdornment>
                 ),
               }}
-              sx={{ minWidth: 200 }}
+              sx={{ minWidth: { xs: '100%', sm: 200 } }}
             />
+            <FormControl size="small" sx={{ minWidth: 100 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={statusFilter}
+                label="Status"
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="syncing">Syncing</MenuItem>
+                <MenuItem value="inactive">Inactive</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel>Country</InputLabel>
+              <Select
+                value={countryFilter}
+                label="Country"
+                onChange={(e) => setCountryFilter(e.target.value)}
+              >
+                <MenuItem value="all">All</MenuItem>
+                {uniqueCountries.map(country => (
+                  <MenuItem key={country} value={country}>{country}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <Button
               size="small"
               variant="contained"
