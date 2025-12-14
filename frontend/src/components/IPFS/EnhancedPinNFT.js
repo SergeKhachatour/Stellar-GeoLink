@@ -544,14 +544,17 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       console.log('🔗 Pinning NFT to database:', pinData);
       const response = await api.post('/nft/pin', pinData);
       
-                  // Now mint on Stellar blockchain if wallet is connected
-                  try {
-                    // Import the real NFT service
-                    const realNFTService = await import('../../services/realNFTService');
-                    const { default: RealNFTService } = realNFTService;
-                    
-                    // Check if wallet is connected (using component-level wallet data)
-                    if (isConnected && secretKey) {
+      // Store mint result for passing to onPinComplete
+      let mintResult = null;
+      
+      // Now mint on Stellar blockchain if wallet is connected
+      try {
+        // Import the real NFT service
+        const realNFTService = await import('../../services/realNFTService');
+        const { default: RealNFTService } = realNFTService;
+        
+        // Check if wallet is connected (using component-level wallet data)
+        if (isConnected && secretKey) {
           console.log('🚀 Minting NFT on Stellar blockchain...');
           
           // Auto-initialize contract if needed
@@ -573,7 +576,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
           const StellarSdk = await import('@stellar/stellar-sdk');
           const keypair = StellarSdk.Keypair.fromSecret(secretKey);
           
-          const mintResult = await RealNFTService.mintLocationNFT(
+          mintResult = await RealNFTService.mintLocationNFT(
             contractId,
             publicKey,
             {
@@ -607,8 +610,39 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         setSuccess('NFT pinned to database successfully! (Blockchain minting failed - check console for details)');
       }
       
+      // Prepare success data for onPinComplete callback
       if (onPinComplete) {
-        onPinComplete(response.data.nft);
+        const dbNft = response.data.nft;
+        
+        // If blockchain minting succeeded, format the data like RealPinNFT does
+        if (mintResult) {
+          const successData = {
+            tokenId: mintResult.tokenId,
+            name: upload.original_filename,
+            contractId: mintResult.contractId || nftDetails.smart_contract_address,
+            transactionHash: mintResult.hash || mintResult.transactionHash,
+            status: mintResult.status || 'success',
+            ledger: mintResult.latestLedger || mintResult.ledger,
+            location: {
+              latitude: parseFloat(nftDetails.latitude),
+              longitude: parseFloat(nftDetails.longitude),
+              radius: parseInt(nftDetails.radius_meters)
+            },
+            imageUrl: mintResult.metadata?.image_url || (server ? `${server.server_url.replace(/\/$/, '')}/ipfs/${upload.ipfs_hash}` : ''),
+            stellarExpertUrl: mintResult.hash || mintResult.transactionHash 
+              ? `https://stellar.expert/explorer/testnet/tx/${mintResult.hash || mintResult.transactionHash}` 
+              : null,
+            contractUrl: mintResult.contractId || nftDetails.smart_contract_address
+              ? `https://stellar.expert/explorer/testnet/contract/${mintResult.contractId || nftDetails.smart_contract_address}`
+              : null,
+            nft: dbNft // Include database NFT data as well
+          };
+          console.log('📤 Passing success data to parent:', successData);
+          onPinComplete(successData);
+        } else {
+          // If no blockchain minting, just pass the database NFT
+          onPinComplete(dbNft);
+        }
       }
       
       // Close dialog after a short delay
