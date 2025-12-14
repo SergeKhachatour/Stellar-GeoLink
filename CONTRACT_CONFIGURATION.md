@@ -57,32 +57,42 @@ All contract IDs are configured via environment variables, making it easy to upd
 
 ### Azure Production Deployment
 
+There are two ways to configure contract IDs for Azure deployment:
+
+#### Option 1: GitHub Secrets (Recommended for Frontend)
+
+Frontend contract IDs are baked into the build during GitHub Actions deployment. Set them as GitHub Secrets:
+
+1. **Go to GitHub Repository** → Settings → Secrets and variables → Actions
+
+2. **Add the following secrets**:
+   - `REACT_APP_SMART_WALLET_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_DEFAULT_CONTRACT_ADDRESS` = Your new contract ID
+
+3. **Push a commit** to trigger automatic rebuild and deployment:
+   ```bash
+   git commit --allow-empty -m "Trigger rebuild with new contract IDs"
+   git push
+   ```
+
+The GitHub Actions workflow will automatically use these secrets during the frontend build.
+
+#### Option 2: Azure Portal Application Settings (For Backend)
+
+Backend contract IDs are runtime variables and should be set in Azure Portal:
+
 1. **Go to Azure Portal** → Your Web App → Configuration → Application Settings
 
 2. **Add/Update the following environment variables**:
    - `SMART_WALLET_CONTRACT_ID` = Your new contract ID
    - `WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
    - `DEFAULT_NFT_CONTRACT_ID` = Your new contract ID
-   - `REACT_APP_SMART_WALLET_CONTRACT_ID` = Your new contract ID
-   - `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
-   - `REACT_APP_DEFAULT_CONTRACT_ADDRESS` = Your new contract ID
+   - `STELLAR_NETWORK` = `testnet` or `mainnet`
 
 3. **Save** the configuration (Azure will restart the app automatically)
 
-4. **Redeploy the frontend** (if using GitHub Actions, push a new commit to trigger rebuild):
-   ```bash
-   git commit --allow-empty -m "Trigger rebuild with new contract IDs"
-   git push
-   ```
-
-   Or manually rebuild and deploy:
-   ```bash
-   cd frontend
-   REACT_APP_SMART_WALLET_CONTRACT_ID=YOUR_NEW_ID \
-   REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_ID \
-   REACT_APP_DEFAULT_CONTRACT_ADDRESS=YOUR_NEW_ID \
-   npm run build
-   ```
+**Note**: Backend variables are read at runtime, so no redeployment is needed. Frontend variables must be set before building, so use GitHub Secrets (Option 1) for those.
 
 ## Where Contract IDs Are Used
 

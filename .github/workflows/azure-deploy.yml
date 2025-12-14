@@ -31,6 +31,11 @@ jobs:
       - name: Build frontend
         env:
           REACT_APP_MAPBOX_TOKEN: ${{ secrets.REACT_APP_MAPBOX_TOKEN }}
+          # Contract IDs - Set as GitHub Secrets to override defaults
+          # If secrets are not set, the frontend code will use its default values
+          REACT_APP_SMART_WALLET_CONTRACT_ID: ${{ secrets.REACT_APP_SMART_WALLET_CONTRACT_ID }}
+          REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID: ${{ secrets.REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID }}
+          REACT_APP_DEFAULT_CONTRACT_ADDRESS: ${{ secrets.REACT_APP_DEFAULT_CONTRACT_ADDRESS }}
           GENERATE_SOURCEMAP: false
           INLINE_RUNTIME_CHUNK: false
         run: |
