@@ -255,43 +255,48 @@ class RealNFTService {
           // Add mint operation using the contract's call method (align with contract signature)
           // Contract mint signature:
           // mint(env, to: Address, token_id: u32, name: String, symbol: String, uri: String, latitude: String, longitude: String, radius: u32)
+          
+          // Create recipient address ScVal properly (using explicit encoding like webauthnService)
+          const recipientAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(recipient);
+          const recipientScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+            StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(recipientAddressBytes)
+          );
+          const recipientScVal = StellarSdk.xdr.ScVal.scvAddress(recipientScAddress);
+          
+          // Prepare all ScVals
+          const latString = location.latitude.toString();
+          const lngString = location.longitude.toString();
+          
+          console.log('Latitude conversion:', {
+            original: location.latitude,
+            string: latString,
+            final: latString
+          });
+          console.log('Longitude conversion:', {
+            original: location.longitude,
+            string: lngString,
+            final: lngString
+          });
+          
           transaction.addOperation(
             mintContract.call(
               'mint',
-              // to
-              StellarSdk.xdr.ScVal.scvAddress(
-                StellarSdk.Address.fromString(recipient).toScAddress()
-              ),
-              // token_id
+              // to: Address
+              recipientScVal,
+              // token_id: u32
               StellarSdk.xdr.ScVal.scvU32(tokenId),
-              // name
+              // name: String
               StellarSdk.xdr.ScVal.scvString(nftMetadata.name),
-              // symbol (use SGL)
+              // symbol: String (use SGL)
               StellarSdk.xdr.ScVal.scvString('SGL'),
-              // uri
-              StellarSdk.xdr.ScVal.scvString(nftMetadata.image_url),
-              // latitude
-              (() => {
-                const latString = location.latitude.toString();
-                console.log('Latitude conversion:', {
-                  original: location.latitude,
-                  string: latString,
-                  final: latString
-                });
-                return StellarSdk.xdr.ScVal.scvString(latString);
-              })(),
-              // longitude
-              (() => {
-                const lngString = location.longitude.toString();
-                console.log('Longitude conversion:', {
-                  original: location.longitude,
-                  string: lngString,
-                  final: lngString
-                });
-                return StellarSdk.xdr.ScVal.scvString(lngString);
-              })(),
-              // radius
-              StellarSdk.xdr.ScVal.scvU32(nftMetadata.location.radius)
+              // uri: String
+              StellarSdk.xdr.ScVal.scvString(nftMetadata.image_url || ''),
+              // latitude: String
+              StellarSdk.xdr.ScVal.scvString(latString),
+              // longitude: String
+              StellarSdk.xdr.ScVal.scvString(lngString),
+              // radius: u32
+              StellarSdk.xdr.ScVal.scvU32(nftMetadata.location.radius || 100)
             )
           );
 
