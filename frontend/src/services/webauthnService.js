@@ -114,8 +114,10 @@ function decodeDERSignature(derSignature) {
   sPadded.set(s, 32 - s.length);
 
   // Normalize s (ensure s < n/2 for secp256r1)
+  // eslint-disable-next-line no-undef
   const n = BigInt('0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551');
   const nHalf = n / 2n;
+  // eslint-disable-next-line no-undef
   const sBigInt = BigInt('0x' + Array.from(sPadded)
     .map(b => b.toString(16).padStart(2, '0'))
     .join(''));
