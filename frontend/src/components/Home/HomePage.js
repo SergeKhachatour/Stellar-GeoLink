@@ -186,6 +186,9 @@ const HomePage = () => {
             {/* Stellar Network Monitoring */}
             <RealTimeNodeTracking />
 
+            {/* Smart Wallet Balance */}
+            <SmartWalletBalance />
+
             {/* Public NFT Showcase */}
             <PublicNFTShowcase />
 
