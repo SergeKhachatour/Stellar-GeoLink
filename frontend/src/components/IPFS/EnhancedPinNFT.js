@@ -256,21 +256,17 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         ...contractsList
       ];
       
-      // If no contracts from API and no env var, add placeholder
-      if (contractsList.length === 0 && !process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS) {
-        contracts.push({
-          id: 'existing-1',
-          name: 'StellarGeoLinkNFT (Placeholder)',
-          address: process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS || 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          description: 'Main LocationNFT contract - Update REACT_APP_DEFAULT_CONTRACT_ADDRESS in .env'
-        });
-      } else if (process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS) {
-        // Use contract from environment variable
+      // If no contracts from API, add default contract
+      if (contractsList.length === 0) {
+        // Use environment variable if set, otherwise use the default production contract
+        const defaultContractAddress = process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS || 'CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q';
         contracts.push({
           id: 'default-contract',
-          name: 'Default Contract',
-          address: process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS,
-          description: 'Contract from environment configuration'
+          name: 'StellarGeoLinkNFT',
+          address: defaultContractAddress,
+          description: process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS 
+            ? 'Contract from environment configuration' 
+            : 'Default LocationNFT contract'
         });
       }
       
