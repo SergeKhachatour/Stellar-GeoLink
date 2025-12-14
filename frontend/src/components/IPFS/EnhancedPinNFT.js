@@ -865,7 +865,24 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             return; // Exit early, will continue after payment
           }
           
-          // Step 3: Execute payment (if we reach here, passkey is selected)
+          // Step 3: Get or initialize contract ID
+          let contractId = nftDetails.smart_contract_address;
+          if (!contractId) {
+            console.log('📝 Auto-initializing contract...');
+            const realNFTService = await import('../../services/realNFTService');
+            const { default: RealNFTService } = realNFTService;
+            const StellarSdk = await import('@stellar/stellar-sdk');
+            const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
+            
+            const contractInfo = await RealNFTService.deployLocationNFTContract(
+              keypair,
+              'StellarGeoLinkNFT'
+            );
+            contractId = contractInfo.contractId;
+            console.log('✅ Contract initialized:', contractId);
+          }
+          
+          // Step 4: Execute payment (if we reach here, passkey is selected)
           await executePaymentAndMint(effectivePublicKey, effectiveSecretKey, upload, contractId);
           
         } else {
