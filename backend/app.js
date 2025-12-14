@@ -149,11 +149,68 @@ app.get('*', (req, res, next) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handling
+// Error handling middleware
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ error: 'Something broke!' });
+    console.error('Error:', err);
+    
+    // Handle multer errors
+    if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ 
+            error: 'File too large',
+            details: 'File size exceeds 10MB limit. Please upload a smaller file.'
+        });
+    }
+    
+    // Handle file type errors
+    if (err.message && err.message.includes('Only image files')) {
+        return res.status(400).json({ 
+            error: 'Invalid file type',
+            details: 'Only image files (JPEG, PNG, GIF, WebP, SVG) are allowed.'
+        });
+    }
+    
+    // Handle multer errors (check for multer error codes)
+    if (err.code && (err.code.startsWith('LIMIT_') || err.code === 'MULTER_ERROR')) {
+        return res.status(400).json({ 
+            error: 'File upload error',
+            details: err.message || 'File upload failed. Please check file type and size.'
+        });
+    }
+    
+    res.status(500).json({ 
+        error: 'Something broke!',
+        message: err.message || 'An unexpected error occurred'
+    });
 });
+
+// Ensure uploads directory exists on startup
+const fs = require('fs').promises;
+const path = require('path');
+
+const ensureUploadsDir = async () => {
+    try {
+        // Check if we're on Azure (Linux Web App)
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        let uploadDir;
+        
+        if (isAzure) {
+            // Azure: Use /home directory which is writable and persistent
+            uploadDir = '/home/uploads/nft-files';
+        } else {
+            // Local development: Use relative path
+            uploadDir = path.join(__dirname, 'uploads/nft-files');
+        }
+        
+        await fs.mkdir(uploadDir, { recursive: true });
+        console.log('✅ Upload directory ensured:', uploadDir);
+    } catch (error) {
+        console.error('❌ Error ensuring upload directory:', error);
+        // Don't exit - app can still run, but uploads will fail
+    }
+};
+
+// Ensure uploads directory exists before starting server
+ensureUploadsDir();
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

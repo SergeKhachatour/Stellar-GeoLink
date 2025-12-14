@@ -8,13 +8,27 @@ const { authenticateUser, requireRole } = require('../middleware/authUser');
 const router = express.Router();
 
 // Configure multer for file uploads
+// On Azure, use /home/uploads for writable storage, otherwise use local uploads folder
+const getUploadDir = () => {
+    // Check if we're on Azure (Linux Web App)
+    const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+    if (isAzure) {
+        // Azure: Use /home directory which is writable and persistent
+        return '/home/uploads/nft-files';
+    }
+    // Local development: Use relative path
+    return path.join(__dirname, '../uploads/nft-files');
+};
+
 const storage = multer.diskStorage({
     destination: async (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '../uploads/nft-files');
+        const uploadDir = getUploadDir();
         try {
             await fs.mkdir(uploadDir, { recursive: true });
+            console.log('📁 Upload directory ready:', uploadDir);
             cb(null, uploadDir);
         } catch (error) {
+            console.error('❌ Error creating upload directory:', error);
             cb(error);
         }
     },
@@ -384,10 +398,39 @@ router.delete('/servers/:id', authenticateUser, async (req, res) => {
  *       400:
  *         description: Invalid file or missing data
  */
-router.post('/upload', authenticateUser, upload.single('file'), async (req, res) => {
+// Wrapper to handle multer errors
+const handleUpload = (req, res, next) => {
+    upload.single('file')(req, res, (err) => {
+        if (err) {
+            // Handle multer errors
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({ 
+                    error: 'File too large',
+                    details: 'File size exceeds 10MB limit. Please upload a smaller file.'
+                });
+            }
+            if (err.message && err.message.includes('Only image files')) {
+                return res.status(400).json({ 
+                    error: 'Invalid file type',
+                    details: 'Only image files (JPEG, PNG, GIF, WebP, SVG) are allowed.'
+                });
+            }
+            return res.status(400).json({ 
+                error: 'File upload error',
+                details: err.message || 'File upload failed. Please check file type and size.'
+            });
+        }
+        next();
+    });
+};
+
+router.post('/upload', authenticateUser, handleUpload, async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return res.status(400).json({ 
+                error: 'No file uploaded',
+                details: 'Please select a file to upload.'
+            });
         }
 
         const { ipfs_server_id } = req.body;
@@ -444,7 +487,26 @@ router.post('/upload', authenticateUser, upload.single('file'), async (req, res)
         });
     } catch (error) {
         console.error('Error uploading file:', error);
-        res.status(500).json({ error: 'Failed to upload file' });
+        
+        // Handle specific error types
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({ 
+                error: 'File too large',
+                details: 'File size exceeds 10MB limit. Please upload a smaller file.'
+            });
+        }
+        
+        if (error.message && error.message.includes('Only image files')) {
+            return res.status(400).json({ 
+                error: 'Invalid file type',
+                details: 'Only image files (JPEG, PNG, GIF, WebP, SVG) are allowed.'
+            });
+        }
+        
+        res.status(500).json({ 
+            error: 'Failed to upload file',
+            details: error.message || 'An unexpected error occurred'
+        });
     }
 });
 
