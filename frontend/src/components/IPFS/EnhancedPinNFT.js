@@ -991,6 +991,18 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
               <StepLabel>Review & Pin NFT</StepLabel>
               <StepContent>
                 <Box>
+                  {error && (
+                    <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+                      {error}
+                    </Alert>
+                  )}
+
+                  {success && (
+                    <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+                      {success}
+                    </Alert>
+                  )}
+
                   {!selectedUpload && (
                     <Alert severity="warning" sx={{ mb: 2 }}>
                       Please go back to Step 1 and select an uploaded file.
