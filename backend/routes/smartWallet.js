@@ -2,12 +2,17 @@
  * Smart Wallet Routes
  * Handles smart wallet contract interactions
  * Based on CUSTOM_CONTRACT_INTEGRATION_ANALYSIS.md
+ * 
+ * Contract IDs:
+ * - Smart Wallet: CA7G33NKXPBMSRRKS4PVBCE56OZDXGQCDUEBJ36NX7NS6RXGBSSMNX6P
+ * - WebAuthn Verifier: CBPGL7FWVKVQKRYRU32ZRH7RYKJ3T5UBI4KF2RVLT3BP2UXY7HPAVCWL
  */
 
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
+const contracts = require('../config/contracts');
 const contracts = require('../config/contracts');
 
 /**
