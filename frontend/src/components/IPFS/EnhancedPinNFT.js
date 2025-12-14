@@ -77,6 +77,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const fileInputRef = useRef(null);
   const mapContainer = useRef(null);
   const map = useRef(null);
+  const pollIntervalRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -87,7 +88,21 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       setActiveStep(0);
       setError('');
       setSuccess('');
+    } else {
+      // Cleanup polling interval when dialog closes
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     }
+    
+    // Cleanup on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
   }, [open]);
 
   // Initialize Mapbox map
@@ -214,6 +229,15 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         ['uploaded', 'pinning', 'pinned'].includes(upload.upload_status)
       );
       setUploads(visibleUploads);
+      
+      // Log status summary for debugging
+      const statusCounts = visibleUploads.reduce((acc, u) => {
+        acc[u.upload_status] = (acc[u.upload_status] || 0) + 1;
+        return acc;
+      }, {});
+      if (Object.keys(statusCounts).length > 0) {
+        console.log('📊 Upload status summary:', statusCounts);
+      }
     } catch (error) {
       console.error('Error fetching uploads:', error);
     }
@@ -368,20 +392,77 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       
       // Auto-pin the file after upload
       try {
-        await api.post(`/ipfs/pin/${uploadedFileId}`);
-        setSuccess('File uploaded and pinned to IPFS successfully!');
-        setUploadProgress(100);
+        const pinResponse = await api.post(`/ipfs/pin/${uploadedFileId}`);
+        console.log('📌 Pin initiated:', pinResponse.data);
+        
+        // Poll for pin status
+        setSuccess('File uploaded! Waiting for IPFS pinning to complete...');
+        setUploadProgress(60);
+        
+        // Poll for pin completion (max 30 seconds)
+        let attempts = 0;
+        const maxAttempts = 30;
+        const pollInterval = 1000; // 1 second
+        
+        pollIntervalRef.current = setInterval(async () => {
+          attempts++;
+          try {
+            // Refresh uploads to get latest status
+            const uploadsResponse = await api.get('/ipfs/uploads');
+            const updatedUpload = uploadsResponse.data.uploads.find(u => u.id === uploadedFileId);
+            
+            console.log(`🔄 Polling attempt ${attempts}/${maxAttempts} - Upload status:`, updatedUpload?.upload_status, 'IPFS Hash:', updatedUpload?.ipfs_hash);
+            
+            if (updatedUpload) {
+              if (updatedUpload.upload_status === 'pinned' && updatedUpload.ipfs_hash) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+                setSuccess('File uploaded and pinned to IPFS successfully!');
+                setUploadProgress(100);
+                setUploading(false);
+                await fetchUploads(); // Refresh list
+                setSelectedUpload(uploadedFileId); // Auto-select
+                return;
+              } else if (updatedUpload.upload_status === 'failed') {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+                setError('IPFS pinning failed. Please check your Pinata API credentials in the IPFS server settings.');
+                setUploadProgress(0);
+                setUploading(false);
+                await fetchUploads(); // Refresh list
+                return;
+              }
+            }
+            
+            // Update progress (60% to 90%)
+            setUploadProgress(60 + Math.min(30, attempts * 1));
+            
+            if (attempts >= maxAttempts) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+              setError('IPFS pinning is taking longer than expected. The file may still be pinning in the background. Please refresh the page to check the status.');
+              setUploadProgress(0);
+              setUploading(false);
+              await fetchUploads(); // Refresh list
+            }
+          } catch (pollError) {
+            console.error('Error polling pin status:', pollError);
+            if (attempts >= maxAttempts) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+              setError('Error checking pin status. Please refresh and try again.');
+              setUploadProgress(0);
+              setUploading(false);
+            }
+          }
+        }, pollInterval);
+        
       } catch (pinError) {
         console.error('Error pinning file:', pinError);
-        setSuccess('File uploaded successfully! Pinning in progress...');
-        setUploadProgress(75);
+        setError(pinError.response?.data?.error || 'Failed to start IPFS pinning. Please check your Pinata API credentials.');
+        setUploadProgress(0);
+        await fetchUploads(); // Refresh list anyway
       }
-      
-      // Refresh uploads list
-      await fetchUploads();
-      
-      // Auto-select the newly uploaded file
-      setSelectedUpload(uploadedFileId);
       
       // Clear selected file
       setSelectedFile(null);
