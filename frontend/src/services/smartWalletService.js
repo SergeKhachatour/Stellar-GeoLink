@@ -109,7 +109,7 @@ class SmartWalletService {
       if (result.i128) {
         const parts = result.i128();
         const lo = parts.lo().toString();
-        const hi = parts.hi().toString();
+        // const hi = parts.hi().toString(); // High 64 bits (usually 0 for balances)
         // Combine hi and lo parts (hi is high 64 bits, lo is low 64 bits)
         // For most balances, lo should be sufficient
         return lo;

@@ -10,7 +10,6 @@ import {
 } from '@mui/material';
 import { AccountBalanceWallet } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
-import smartWalletService from '../../services/smartWalletService';
 import api from '../../services/api';
 
 const SmartWalletBalance = () => {
@@ -25,6 +24,7 @@ const SmartWalletBalance = () => {
     if (user && user.public_key) {
       fetchBalance();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const fetchBalance = async () => {
@@ -91,7 +91,15 @@ const SmartWalletBalance = () => {
               }) : '0.00'} XLM
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              {balance ? BigInt(balance).toLocaleString() : '0'} stroops
+              {balance ? (() => {
+                try {
+                  // Use BigInt for large numbers, fallback to Number
+                  // eslint-disable-next-line no-undef
+                  return BigInt(balance).toLocaleString();
+                } catch {
+                  return Number(balance).toLocaleString();
+                }
+              })() : '0'} stroops
             </Typography>
             {contractId && (
               <Chip 
