@@ -305,51 +305,33 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       setUploadProgress(0);
       setError('');
 
-      // Convert file to base64
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const base64Data = e.target.result.split(',')[1]; // Remove data:image/...;base64, prefix
-          
-          const uploadData = {
-            filename: selectedFile.name,
-            fileType: selectedFile.type,
-            fileSize: selectedFile.size,
-            fileData: base64Data,
-            ipfs_server_id: selectedServer
-          };
+      // Use FormData for multipart/form-data upload (required by multer)
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      if (selectedServer) {
+        formData.append('ipfs_server_id', selectedServer);
+      }
 
-          await api.post('/ipfs/upload', uploadData);
-          
-          setSuccess('File uploaded and pinned successfully!');
-          setUploadProgress(100);
-          
-          // Refresh uploads list
-          await fetchUploads();
-          
-          // Clear selected file
-          setSelectedFile(null);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-          }
-          
-          // Move to next step
-          setActiveStep(1);
-          
-        } catch (error) {
-          console.error('Error uploading file:', error);
-          setError('Failed to upload file');
-        } finally {
-          setUploading(false);
-        }
-      };
+      await api.post('/ipfs/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
       
-      reader.onerror = () => {
-        setError('Failed to read file');
-        setUploading(false);
-      };
+      setSuccess('File uploaded successfully!');
+      setUploadProgress(100);
       
-      reader.readAsDataURL(selectedFile);
+      // Refresh uploads list
+      await fetchUploads();
+      
+      // Clear selected file
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      
+      // Move to next step
+      setActiveStep(1);
       
     } catch (error) {
       console.error('Error uploading file:', error);

@@ -132,46 +132,38 @@ const FileUploadManager = ({ user }) => {
       setUploadProgress(0);
       setError('');
 
-      // Convert file to base64 for upload
-      const fileReader = new FileReader();
-      fileReader.onload = async (e) => {
-        try {
-          const fileData = e.target.result;
-          
-          const uploadData = {
-            filename: selectedFile.name,
-            fileType: selectedFile.type,
-            fileSize: selectedFile.size,
-            fileData: fileData,
-            ipfs_server_id: selectedServer
-          };
+      // Use FormData for multipart/form-data upload (required by multer)
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      if (selectedServer) {
+        formData.append('ipfs_server_id', selectedServer);
+      }
 
-          const response = await api.post('/ipfs/upload', uploadData, {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            onUploadProgress: (progressEvent) => {
-              const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              setUploadProgress(progress);
-            },
-          });
+      try {
+        const response = await api.post('/ipfs/upload', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          onUploadProgress: (progressEvent) => {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setUploadProgress(progress);
+          },
+        });
 
-          setSuccess(`File uploaded and pinned to Pinata! Hash: ${response.data.ipfsHash}`);
-          setSelectedFile(null);
-          setSelectedServer('');
-          if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-          }
-          fetchUploads();
-        } catch (error) {
-          console.error('Upload error:', error);
-          setError(error.response?.data?.error || 'Upload failed');
-        } finally {
-          setUploading(false);
+        setSuccess(`File uploaded successfully! Upload ID: ${response.data.upload.id}`);
+        setSelectedFile(null);
+        setSelectedServer('');
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
         }
-      };
-      
-      fileReader.readAsDataURL(selectedFile);
+        fetchUploads();
+      } catch (error) {
+        console.error('Upload error:', error);
+        setError(error.response?.data?.error || error.response?.data?.details || 'Upload failed');
+      } finally {
+        setUploading(false);
+        setUploadProgress(0);
+      }
     } catch (error) {
       console.error('Error uploading file:', error);
       setError('Failed to upload file');
