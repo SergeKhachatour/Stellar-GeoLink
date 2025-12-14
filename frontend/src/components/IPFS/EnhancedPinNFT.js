@@ -560,17 +560,22 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         const effectiveSecretKey = secretKey || savedSecretKey;
         const effectivePublicKey = publicKey || savedPublicKey;
         
+        // Check if we have the necessary credentials (don't rely solely on isConnected state)
+        const hasCredentials = effectiveSecretKey && effectivePublicKey;
+        
         console.log('🔍 Wallet connection check:', {
           isConnected,
           hasSecretKey: !!secretKey,
           hasSavedSecretKey: !!savedSecretKey,
-          effectiveSecretKey: !!effectiveSecretKey,
-          publicKey,
-          savedPublicKey,
-          effectivePublicKey
+          hasPublicKey: !!publicKey,
+          hasSavedPublicKey: !!savedPublicKey,
+          effectiveSecretKey: effectiveSecretKey ? `${effectiveSecretKey.substring(0, 8)}...` : null,
+          effectivePublicKey: effectivePublicKey || null,
+          hasCredentials,
+          willMint: hasCredentials
         });
         
-        if (isConnected && effectiveSecretKey && effectivePublicKey) {
+        if (hasCredentials) {
           console.log('🚀 Minting NFT on Stellar blockchain...');
           
           // Auto-initialize contract if needed
