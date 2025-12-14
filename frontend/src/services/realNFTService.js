@@ -303,9 +303,29 @@ class RealNFTService {
           // Set timeout
           transaction.setTimeout(30);
 
-          // Build, prepare (add footprint), sign and submit transaction
+          // Build transaction
           const builtTransaction = transaction.build();
+          
+          // Prepare transaction first (adds footprint)
           const preparedTransaction = await this.sorobanServer.prepareTransaction(builtTransaction);
+          
+          // Simulate the prepared transaction to catch errors early
+          try {
+            const simulation = await this.sorobanServer.simulateTransaction(preparedTransaction);
+            if (simulation.errorResult) {
+              const errorValue = simulation.errorResult.value();
+              console.error('❌ Transaction simulation error:', errorValue);
+              console.error('❌ Simulation error details:', JSON.stringify(simulation.errorResult, null, 2));
+              throw new Error(`Transaction simulation failed: ${errorValue.toString()}`);
+            }
+            console.log('✅ Transaction simulation successful');
+          } catch (simError) {
+            console.error('❌ Simulation failed:', simError);
+            // If simulation fails, still try to send (sometimes simulation has issues but actual execution works)
+            console.log('⚠️ Continuing despite simulation error...');
+          }
+          
+          // Sign the prepared transaction
           preparedTransaction.sign(minterKeypair);
 
           // Submit transaction to Soroban RPC

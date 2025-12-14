@@ -85,7 +85,21 @@ router.get('/balance', authenticateUser, async (req, res) => {
       .build();
 
     // Simulate transaction (read-only, no signing needed)
-    const simulation = await sorobanServer.simulateTransaction(transaction);
+    let simulation;
+    try {
+      simulation = await sorobanServer.simulateTransaction(transaction);
+    } catch (simError) {
+      console.error('Error simulating smart wallet balance transaction:', simError);
+      // If simulation fails, return zero balance instead of error
+      return res.json({ 
+        balance: '0', 
+        balanceInXLM: '0',
+        contractId: smartWalletContractId,
+        assetAddress: assetAddress || 'native',
+        userPublicKey: userPublicKey,
+        error: 'Simulation failed - contract may not be initialized or account may not exist'
+      });
+    }
 
     if (simulation.errorResult) {
       const errorValue = simulation.errorResult.value();
