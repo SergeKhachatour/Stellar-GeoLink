@@ -32,6 +32,7 @@ import {
 } from '@mui/icons-material';
 import PublicNFTShowcase from './PublicNFTShowcase';
 import RealTimeNodeTracking from './RealTimeNodeTracking';
+import SmartWalletBalance from './SmartWalletBalance';
 import ApiDocumentation from '../shared/ApiDocumentation';
 
 const HomePage = () => {
