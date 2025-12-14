@@ -48,11 +48,16 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   const [uploads, setUploads] = useState([]);
   
   // Get wallet context
-  const { isConnected, publicKey, secretKey } = useWallet();
+  const { isConnected, publicKey, secretKey, upgradeToFullAccess, loading: walletLoading } = useWallet();
   const [collections, setCollections] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Upgrade dialog state
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [upgradeSecretKey, setUpgradeSecretKey] = useState('');
+  const [upgradeError, setUpgradeError] = useState('');
   
   // Step 1: File Upload
   const [selectedFile, setSelectedFile] = useState(null);
@@ -574,6 +579,14 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         console.log('  effectivePublicKey:', effectivePublicKey || 'null');
         console.log('  hasCredentials:', hasCredentials);
         console.log('  willMint:', hasCredentials);
+        
+        // If wallet is connected but view-only (has public key but no secret key), prompt for upgrade
+        if (effectivePublicKey && !effectiveSecretKey && isConnected) {
+          console.log('⚠️ Wallet is view-only, prompting for secret key upgrade...');
+          setPinning(false);
+          setShowUpgradeDialog(true);
+          return; // Exit early, will retry after upgrade
+        }
         
         if (hasCredentials) {
           console.log('🚀 Minting NFT on Stellar blockchain...');
@@ -1228,6 +1241,91 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
       </DialogActions>
+
+      {/* Upgrade to Full Access Dialog */}
+      <Dialog 
+        open={showUpgradeDialog} 
+        onClose={() => {
+          setShowUpgradeDialog(false);
+          setUpgradeSecretKey('');
+          setUpgradeError('');
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Upgrade to Full Access</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Your wallet is currently in view-only mode. To mint NFTs on the blockchain, 
+            you need to provide your secret key to upgrade to full access.
+          </Typography>
+          
+          <TextField
+            label="Secret Key"
+            type="password"
+            value={upgradeSecretKey}
+            onChange={(e) => {
+              setUpgradeSecretKey(e.target.value);
+              setUpgradeError('');
+            }}
+            fullWidth
+            placeholder="Enter your secret key (starts with S...)"
+            helperText="Your secret key will be stored locally and used for transactions"
+            sx={{ mb: 2 }}
+            error={!!upgradeError}
+          />
+          
+          {upgradeError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {upgradeError}
+            </Alert>
+          )}
+          
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2">
+              <strong>Security Note:</strong> Your secret key is stored locally in your browser. 
+              Make sure you're on a secure device and network.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setShowUpgradeDialog(false);
+              setUpgradeSecretKey('');
+              setUpgradeError('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={async () => {
+              if (!upgradeSecretKey.trim()) {
+                setUpgradeError('Please enter your secret key');
+                return;
+              }
+
+              try {
+                setUpgradeError('');
+                await upgradeToFullAccess(upgradeSecretKey.trim());
+                setShowUpgradeDialog(false);
+                setUpgradeSecretKey('');
+                
+                // Retry pinning after upgrade
+                setTimeout(() => {
+                  handlePinNFT();
+                }, 500);
+              } catch (err) {
+                setUpgradeError(err.message || 'Failed to upgrade wallet. Please check your secret key.');
+              }
+            }}
+            variant="contained" 
+            disabled={walletLoading || !upgradeSecretKey.trim()}
+          >
+            {walletLoading ? <CircularProgress size={20} /> : 'Upgrade to Full Access'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };
