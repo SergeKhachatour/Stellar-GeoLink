@@ -171,12 +171,16 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   };
 
   // Initialize map when component mounts and map container is ready
+  // Also re-initialize when step 2 becomes active (NFT Details step where map is shown)
   useEffect(() => {
-    if (open && mapContainer.current && !map.current) {
-      initializeMap();
+    if (open && mapContainer.current && !map.current && activeStep >= 1) {
+      // Small delay to ensure container is fully rendered
+      setTimeout(() => {
+        initializeMap();
+      }, 100);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, activeStep]);
 
   const fetchServers = async () => {
     try {
@@ -225,25 +229,63 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
 
   const fetchContracts = async () => {
     try {
-      // For now, we'll create some mock contracts since we don't have a contracts API yet
-      // In a real implementation, this would fetch from a contracts table
-      const mockContracts = [
+      // Try to fetch contracts from API, fallback to mock/placeholder
+      let contractsList = [];
+      
+      try {
+        // Try to fetch from API if endpoint exists
+        const response = await api.get('/nft/contracts');
+        if (response.data && Array.isArray(response.data.contracts)) {
+          contractsList = response.data.contracts;
+        } else if (response.data && Array.isArray(response.data)) {
+          contractsList = response.data;
+        }
+      } catch (apiError) {
+        // API endpoint doesn't exist yet, use mock/placeholder
+        console.log('Contracts API not available, using placeholder');
+      }
+      
+      // Always include auto-deploy option
+      const contracts = [
         {
           id: 'auto-deploy',
           name: 'Auto-Deploy New Contract',
           address: '',
           description: 'Automatically deploy a new LocationNFT contract'
         },
-        {
-          id: 'existing-1',
-          name: 'StellarGeoLinkNFT',
-          address: 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          description: 'Main LocationNFT contract'
-        }
+        ...contractsList
       ];
-      setContracts(mockContracts);
+      
+      // If no contracts from API and no env var, add placeholder
+      if (contractsList.length === 0 && !process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS) {
+        contracts.push({
+          id: 'existing-1',
+          name: 'StellarGeoLinkNFT (Placeholder)',
+          address: process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS || 'CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          description: 'Main LocationNFT contract - Update REACT_APP_DEFAULT_CONTRACT_ADDRESS in .env'
+        });
+      } else if (process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS) {
+        // Use contract from environment variable
+        contracts.push({
+          id: 'default-contract',
+          name: 'Default Contract',
+          address: process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS,
+          description: 'Contract from environment configuration'
+        });
+      }
+      
+      setContracts(contracts);
     } catch (error) {
       console.error('Error fetching contracts:', error);
+      // Fallback to minimal contracts list
+      setContracts([
+        {
+          id: 'auto-deploy',
+          name: 'Auto-Deploy New Contract',
+          address: '',
+          description: 'Automatically deploy a new LocationNFT contract'
+        }
+      ]);
     }
   };
 
