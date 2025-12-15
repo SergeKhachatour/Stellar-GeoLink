@@ -688,6 +688,7 @@ const EnhancedNFTDashboard = () => {
       const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
       
       // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
+      // Set background image immediately
       el.style.backgroundImage = `url('${imageUrl}')`;
       el.style.backgroundSize = 'cover';
       el.style.backgroundRepeat = 'no-repeat';
@@ -697,8 +698,12 @@ const EnhancedNFTDashboard = () => {
       // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
       el.style.transition = 'none';
       
-      // Handle image load errors with fallback
+      // Handle image load errors with fallback - ensure image loads before setting background
       const img = new Image();
+      img.onload = () => {
+        // Image loaded successfully, ensure background is set
+        el.style.backgroundImage = `url('${imageUrl}')`;
+      };
       img.onerror = () => {
         console.log('Image failed to load:', imageUrl);
         el.style.backgroundImage = 'none';
@@ -1175,23 +1180,13 @@ const EnhancedNFTDashboard = () => {
         return; // Exit early if markers already exist and we don't need to recreate
       }
       
-      // Simple clustering logic
-      if (currentZoom < 10) {
-        // Zoomed out - create clusters
-        console.log(`[${callId}] 🔍 Zoomed out - creating clusters (zoom:`, currentZoom, ')');
-        createClusters(nearbyNFTs, currentMap.current, currentMarkersRef);
-        console.log(`[${callId}] 🔍 After cluster creation, markers:`, Object.keys(currentMarkersRef.current));
-        console.log(`[${callId}] 🔍 Total markers stored:`, Object.keys(currentMarkersRef.current).length);
-        console.log(`[${callId}] 🔍 currentMarkers ref after cluster creation:`, currentMarkersRef.current);
-      } else {
-        // Zoomed in - create individual markers
-        console.log(`[${callId}] 🔍 Zoomed in - creating individual markers (zoom:`, currentZoom, ')');
-        console.log(`[${callId}] 🔍 Number of NFTs to create individual markers for:`, nearbyNFTs.length);
-        createIndividualMarkers(nearbyNFTs, currentMap.current, currentMarkersRef);
-        console.log(`[${callId}] 🔍 After individual marker creation, markers:`, Object.keys(currentMarkersRef.current));
-        console.log(`[${callId}] 🔍 Total markers stored:`, Object.keys(currentMarkersRef.current).length);
-        console.log(`[${callId}] 🔍 currentMarkers ref after individual creation:`, currentMarkersRef.current);
-      }
+      // Always create individual markers (no clustering) - matching XYZ-Wallet guide
+      console.log(`[${callId}] 🔍 Creating individual markers for all NFTs (zoom:`, currentZoom, ')');
+      console.log(`[${callId}] 🔍 Number of NFTs to create individual markers for:`, nearbyNFTs.length);
+      createIndividualMarkers(nearbyNFTs, currentMap.current, currentMarkersRef);
+      console.log(`[${callId}] 🔍 After individual marker creation, markers:`, Object.keys(currentMarkersRef.current));
+      console.log(`[${callId}] 🔍 Total markers stored:`, Object.keys(currentMarkersRef.current).length);
+      console.log(`[${callId}] 🔍 currentMarkers ref after individual creation:`, currentMarkersRef.current);
       
       // Mark markers as created
       console.log(`[${callId}] ✅ Setting markersCreated to true`);
@@ -1210,7 +1205,7 @@ const EnhancedNFTDashboard = () => {
       setLoading(false);
       setMapLoading(false);
     }
-  }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createClusters, createIndividualMarkers, mapLoading]);
+  }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createIndividualMarkers, mapLoading]);
 
   // Filter Functions - Fetch filtered data from API
   const applyFilters = useCallback(async () => {
