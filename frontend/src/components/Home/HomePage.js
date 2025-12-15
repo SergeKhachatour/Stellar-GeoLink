@@ -854,7 +854,7 @@ const HomePage = () => {
                             color: 'white'
                         }}
                     >
-                        Join hundreds of companies already using Stellar GeoLink to track their most valuable assets
+                        Start tracking your most valuable assets with blockchain-powered geolocation technology
                     </Typography>
                     <Box sx={{ 
                         textAlign: 'center',
