@@ -270,14 +270,21 @@ const RealTimeNodeTracking = () => {
     el.style.backgroundColor = markerColor;
     el.style.border = '3px solid white';
     el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-    el.style.transition = 'transform 0.2s';
+    el.style.transition = 'opacity 0.2s, box-shadow 0.2s';
+    el.style.pointerEvents = 'auto';
+    el.style.position = 'relative';
+    el.style.zIndex = '1000';
     
-    // Hover effect
-    el.addEventListener('mouseenter', () => {
-      el.style.transform = 'scale(1.2)';
+    // Hover effect - use opacity and shadow instead of scale to prevent marker movement
+    el.addEventListener('mouseenter', (e) => {
+      e.stopPropagation();
+      el.style.opacity = '0.9';
+      el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
     });
-    el.addEventListener('mouseleave', () => {
-      el.style.transform = 'scale(1)';
+    el.addEventListener('mouseleave', (e) => {
+      e.stopPropagation();
+      el.style.opacity = '1';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
     });
 
     // Create popup content (mobile-friendly)
@@ -961,34 +968,38 @@ const RealTimeNodeTracking = () => {
               Track the Stellar network infrastructure across the globe in real-time.
             </Typography>
             
-            {/* Refresh Button */}
+            {/* Refresh Button - Compact */}
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-              <Button
-                variant="outlined"
-                onClick={handleRefresh}
-                disabled={loading}
-                startIcon={<RefreshIcon />}
-                sx={{ minWidth: 120 }}
-              >
-                {loading ? 'Refreshing...' : 'Refresh Data'}
-              </Button>
+              <Tooltip title="Refresh node data">
+                <IconButton
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  size="small"
+                  sx={{ 
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    '&:hover': {
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                >
+                  {loading ? <CircularProgress size={20} /> : <RefreshIcon />}
+                </IconButton>
+              </Tooltip>
             </Box>
             
-            {/* Stellar Network Stats with XLM Price - Mobile Friendly */}
+            {/* XLM Price Card - On its own row above others */}
             <Grid 
               container 
-              spacing={{ xs: 1, sm: 2 }} 
+              spacing={2} 
               justifyContent="center" 
-              mb={4}
+              mb={2}
               sx={{ px: { xs: 1, sm: 0 } }}
             >
-              {/* XLM Price Card */}
-              <Grid item xs={6} sm="auto">
+              <Grid item xs={12} sm={8} md={6}>
                 <Paper sx={{ 
-                  p: { xs: 1.5, sm: 2 }, 
+                  p: { xs: 2, sm: 2.5 }, 
                   textAlign: 'center', 
-                  minWidth: { xs: 'auto', sm: 140 },
-                  width: { xs: '100%', sm: 'auto' },
                   background: xlmPriceChange && xlmPriceChange > 0 
                     ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
                     : xlmPriceChange && xlmPriceChange < 0
@@ -1054,7 +1065,16 @@ const RealTimeNodeTracking = () => {
                   )}
                 </Paper>
               </Grid>
-              
+            </Grid>
+            
+            {/* Other Stats Cards - Below XLM Price */}
+            <Grid 
+              container 
+              spacing={{ xs: 1, sm: 2 }} 
+              justifyContent="center" 
+              mb={4}
+              sx={{ px: { xs: 1, sm: 0 } }}
+            >
               <Grid item xs={6} sm="auto">
                 <Paper sx={{ 
                   p: { xs: 1.5, sm: 2 }, 
