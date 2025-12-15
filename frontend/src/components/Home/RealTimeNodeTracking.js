@@ -1078,18 +1078,24 @@ const RealTimeNodeTracking = () => {
           <Grid container spacing={4} alignItems="center">
             {/* Map Preview */}
             <Grid item xs={12} md={8}>
-              <Card sx={{ height: { xs: 500, md: 600 }, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+              <Card sx={{ 
+                height: { xs: searchPanelExpanded ? 400 : 500, md: 600 }, 
+                position: 'relative', 
+                display: 'flex', 
+                flexDirection: 'column',
+                transition: 'height 0.3s ease-in-out'
+              }}>
                 <Box
                   ref={mapContainer}
                   sx={{
                     width: '100%',
                     flex: 1,
                     borderRadius: 1,
-                    minHeight: '400px'
+                    minHeight: { xs: searchPanelExpanded ? '250px' : '300px', md: '400px' }
                   }}
                 />
                 
-                {/* Top Action Buttons */}
+                {/* Top Action Buttons - IconButtons only to avoid duplicates */}
                 <Box
                   sx={{
                     position: 'absolute',
@@ -1101,48 +1107,36 @@ const RealTimeNodeTracking = () => {
                   }}
                 >
                   <Tooltip title="Refresh node data">
-                    <Button
+                    <IconButton
                       size="small"
-                      variant="contained"
-                      startIcon={<RefreshIcon />}
                       onClick={handleRefresh}
                       disabled={loading}
                       sx={{
                         backgroundColor: 'rgba(255, 255, 255, 0.95)',
                         color: 'text.primary',
-                        minWidth: { xs: 'auto', sm: 100 },
                         '&:hover': {
                           backgroundColor: 'rgba(255, 255, 255, 1)',
                         }
                       }}
                     >
                       {loading ? <CircularProgress size={16} /> : <RefreshIcon />}
-                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, ml: 0.5 }}>
-                        Refresh
-                      </Box>
-                    </Button>
+                    </IconButton>
                   </Tooltip>
                   
                   <Tooltip title="View fullscreen map">
-                    <Button
+                    <IconButton
                       size="small"
-                      variant="contained"
-                      startIcon={<FullscreenIcon />}
                       onClick={() => setOpen(true)}
                       sx={{
                         backgroundColor: 'rgba(255, 255, 255, 0.95)',
                         color: 'text.primary',
-                        minWidth: { xs: 'auto', sm: 120 },
                         '&:hover': {
                           backgroundColor: 'rgba(255, 255, 255, 1)',
                         }
                       }}
                     >
                       <FullscreenIcon />
-                      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' }, ml: 0.5 }}>
-                        Fullscreen
-                      </Box>
-                    </Button>
+                    </IconButton>
                   </Tooltip>
                 </Box>
 
@@ -1159,7 +1153,8 @@ const RealTimeNodeTracking = () => {
                     borderColor: 'divider',
                     boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
                     transition: 'transform 0.3s ease-in-out',
-                    transform: searchPanelExpanded ? 'translateY(0)' : 'translateY(calc(100% - 48px))'
+                    transform: searchPanelExpanded ? 'translateY(0)' : 'translateY(calc(100% - 48px))',
+                    maxHeight: { xs: searchPanelExpanded ? '50vh' : '48px', sm: 'none' }
                   }}
                 >
                   {/* Panel Header with Toggle */}
