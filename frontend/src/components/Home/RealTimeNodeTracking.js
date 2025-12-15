@@ -396,8 +396,11 @@ const RealTimeNodeTracking = () => {
       </div>
     `;
 
-    // Create marker with popup (matching NFT Dashboard - no draggable, stable positioning)
-    const marker = new mapboxgl.Marker(el)
+    // Create marker with popup (matching NFT Dashboard - draggable: false for stable positioning)
+    const marker = new mapboxgl.Marker({
+      element: el,
+      draggable: false // CRITICAL: Must be false for stable positioning
+    })
       .setLngLat([finalLng, finalLat])
       .setPopup(
         new mapboxgl.Popup({ 
