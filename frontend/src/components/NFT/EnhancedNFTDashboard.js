@@ -114,10 +114,8 @@ const markerStyles = `
     border: 3px solid #FFD700 !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
     overflow: hidden !important;
-    /* CRITICAL: Allow Mapbox to transform markers for 3D globe projection */
+    /* CRITICAL: Disable transitions to prevent animation, but allow Mapbox transforms for positioning */
     transition: none !important;
-    transform: none !important;
-    will-change: auto !important;
   }
   
   .nft-marker img,
@@ -695,10 +693,9 @@ const EnhancedNFTDashboard = () => {
       el.style.backgroundRepeat = 'no-repeat';
       el.style.backgroundPosition = 'center';
       
-      // CRITICAL: Disable transitions/transforms that interfere with Mapbox positioning
+      // CRITICAL: Disable transitions that interfere with Mapbox positioning
+      // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
       el.style.transition = 'none';
-      el.style.transform = 'none';
-      el.style.willChange = 'auto';
       
       // Handle image load errors with fallback
       const img = new Image();
