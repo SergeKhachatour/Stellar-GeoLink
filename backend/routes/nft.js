@@ -1613,10 +1613,21 @@ router.get('/public', async (req, res) => {
         `);
         console.log('📍 pinned_nfts columns:', columnCheck.rows);
         
+        // Join with ipfs_servers, nft_uploads, and ipfs_pins to get proper server_url and ipfs_hash
+        // This matches the logic in /nft/dashboard/nearby endpoint
         const result = await pool.query(`
-            SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level
+            SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
+                   COALESCE(ips.server_url, pn.server_url) as server_url,
+                   COALESCE(nu.ipfs_hash, pn.ipfs_hash) as ipfs_hash,
+                   nu.original_filename as upload_filename,
+                   nu.upload_status as upload_status,
+                   ips.server_name as ipfs_server_name,
+                   ip.pin_status as pin_status
             FROM pinned_nfts pn
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+            LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
+            LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
+            LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
             WHERE pn.is_active = true
             ORDER BY pn.created_at DESC
         `);
@@ -1643,9 +1654,18 @@ router.get('/public', async (req, res) => {
                     nc.name as collection_name,
                     nc.description as collection_description,
                     nc.image_url as collection_image_url,
-                    nc.rarity_level
+                    nc.rarity_level,
+                    COALESCE(ips.server_url, pn.server_url) as server_url,
+                    COALESCE(nu.ipfs_hash, pn.ipfs_hash) as ipfs_hash,
+                    nu.original_filename as upload_filename,
+                    nu.upload_status as upload_status,
+                    ips.server_name as ipfs_server_name,
+                    ip.pin_status as pin_status
                 FROM pinned_nfts pn
                 LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
+                LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
+                LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
+                LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
                 ORDER BY pn.created_at DESC
                 LIMIT 10
             `);
@@ -1660,6 +1680,16 @@ router.get('/public', async (req, res) => {
                 description: nft.description,
                 image_url: nft.image_url,
                 rarity_level: nft.rarity_level
+            },
+            // Include association data for Workflow 2 NFTs (matching /nft/dashboard/nearby)
+            associations: {
+                has_upload: !!nft.nft_upload_id,
+                has_ipfs_server: !!nft.ipfs_server_id,
+                has_pin: !!nft.pin_id,
+                upload_filename: nft.upload_filename,
+                upload_status: nft.upload_status,
+                ipfs_server_name: nft.ipfs_server_name,
+                pin_status: nft.pin_status
             }
         }));
         

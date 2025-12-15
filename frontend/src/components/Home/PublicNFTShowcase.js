@@ -28,6 +28,36 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import api from '../../services/api';
 
+// Helper function to construct IPFS URL from server_url and hash
+// Matches the implementation in NFT Dashboard for consistency
+const constructIPFSUrl = (serverUrl, hash) => {
+  if (!hash) return null;
+  if (!serverUrl) return `https://ipfs.io/ipfs/${hash}`; // Fallback to public gateway
+  
+  let baseUrl = serverUrl.trim();
+  
+  // Remove any existing /ipfs/ path and everything after it
+  // This handles cases where server_url might be: "domain.com/ipfs/somehash" or "domain.com/ipfs/somehash/"
+  baseUrl = baseUrl.replace(/\/ipfs\/.*$/i, '');
+  
+  // Remove trailing slashes
+  baseUrl = baseUrl.replace(/\/+$/, '');
+  
+  // Remove protocol if present (we'll add https://)
+  baseUrl = baseUrl.replace(/^https?:\/\//i, '');
+  
+  // Ensure it has https:// protocol
+  if (baseUrl) {
+    baseUrl = `https://${baseUrl}`;
+  } else {
+    // If baseUrl is empty after cleaning, fallback to public gateway
+    return `https://ipfs.io/ipfs/${hash}`;
+  }
+  
+  // Construct full IPFS URL
+  return `${baseUrl}/ipfs/${hash}`;
+};
+
 // Add CSS styles for stable NFT image markers (matching XYZ-Wallet guide)
 const markerStyles = `
   .nft-marker {
@@ -196,8 +226,8 @@ const PublicNFTShowcase = () => {
       const markerEl = document.createElement('div');
       markerEl.className = 'nft-marker'; // Use CSS class (defined in stylesheet above)
       
-      // Construct image URL
-      const imageUrl = nft.full_ipfs_url || (nft.ipfs_hash ? `https://ipfs.io/ipfs/${nft.ipfs_hash}` : null) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
+      // Construct image URL using the same logic as NFT Dashboard
+      const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
       
       // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
       markerEl.style.backgroundImage = `url('${imageUrl}')`;
@@ -337,13 +367,13 @@ const PublicNFTShowcase = () => {
       // Use the public endpoint that doesn't require authentication
       const response = await api.get('/nft/public');
       
-      // Process the NFTs to add full IPFS URLs
+      // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
-        full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+        full_ipfs_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash),
         collection: {
           ...nft.collection,
-          full_image_url: nft.collection?.image_url ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.collection.image_url}` : null
+          full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
         }
       }));
       
@@ -592,8 +622,8 @@ const PublicNFTShowcase = () => {
         markerEl.className = 'nft-marker'; // Use CSS class (defined in stylesheet above)
         markerEl.setAttribute('data-map', 'small');
         
-        // Construct image URL
-        const imageUrl = nft.full_ipfs_url || (nft.ipfs_hash ? `https://ipfs.io/ipfs/${nft.ipfs_hash}` : null) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
+        // Construct image URL using the same logic as NFT Dashboard
+        const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
         // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
         markerEl.style.backgroundImage = `url('${imageUrl}')`;
