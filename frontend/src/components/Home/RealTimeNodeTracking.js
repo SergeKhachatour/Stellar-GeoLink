@@ -999,54 +999,49 @@ const RealTimeNodeTracking = () => {
               <Grid item xs={12} sm={8} md={6}>
                 <Paper sx={{ 
                   p: { xs: 2, sm: 2.5 }, 
-                  textAlign: 'center', 
-                  background: xlmPriceChange && xlmPriceChange > 0 
-                    ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
-                    : xlmPriceChange && xlmPriceChange < 0
-                    ? 'linear-gradient(135deg, #F44336 0%, #d32f2f 100%)'
-                    : 'background.paper'
+                  textAlign: 'center'
                 }}>
                   {xlmPriceLoading ? (
-                    <CircularProgress size={20} sx={{ color: { xs: 'inherit', sm: 'white' } }} />
+                    <CircularProgress size={20} />
                   ) : xlmPrice ? (
                     <>
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
                         <MoneyIcon sx={{ 
-                          color: xlmPriceChange !== null ? 'white' : 'inherit', 
+                          color: xlmPriceChange !== null 
+                            ? (xlmPriceChange > 0 ? 'success.main' : 'error.main')
+                            : 'text.secondary', 
                           fontSize: { xs: 16, sm: 20 } 
                         }} />
                         <Typography 
-                          variant={xlmPriceChange !== null ? "h5" : "h6"} 
-                          color={xlmPriceChange !== null ? "white" : "inherit"} 
+                          variant="h5" 
+                          color={xlmPriceChange !== null 
+                            ? (xlmPriceChange > 0 ? 'success.main' : 'error.main')
+                            : 'text.primary'} 
                           fontWeight="bold"
                           sx={{ fontSize: { xs: '1rem', sm: '1.5rem' } }}
                         >
-                          {xlmPrice.toFixed(4)}
+                          {xlmPrice.toFixed(7)}
                         </Typography>
                       </Box>
                       <Typography 
                         variant="body2" 
-                        sx={{ 
-                          color: xlmPriceChange !== null ? 'rgba(255,255,255,0.9)' : 'text.secondary',
-                          fontSize: { xs: '0.7rem', sm: '0.875rem' }
-                        }}
+                        color="text.secondary"
+                        sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}
                       >
                         XLM Price
                       </Typography>
                       {xlmPriceChange !== null && (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 0.5 }}>
                           {xlmPriceChange > 0 ? (
-                            <TrendingUpIcon sx={{ color: 'white', fontSize: { xs: 12, sm: 16 } }} />
+                            <TrendingUpIcon sx={{ color: 'success.main', fontSize: { xs: 12, sm: 16 } }} />
                           ) : (
-                            <TrendingDownIcon sx={{ color: 'white', fontSize: { xs: 12, sm: 16 } }} />
+                            <TrendingDownIcon sx={{ color: 'error.main', fontSize: { xs: 12, sm: 16 } }} />
                           )}
                           <Typography 
                             variant="caption" 
-                            sx={{ 
-                              color: 'white', 
-                              fontWeight: 'bold',
-                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
-                            }}
+                            color={xlmPriceChange > 0 ? 'success.main' : 'error.main'}
+                            fontWeight="bold"
+                            sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}
                           >
                             {xlmPriceChange > 0 ? '+' : ''}{xlmPriceChange.toFixed(2)}%
                           </Typography>
