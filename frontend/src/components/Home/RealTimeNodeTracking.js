@@ -48,37 +48,54 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import stellarNetworkService from '../../services/stellarNetworkService';
 
-// Add CSS styles for Stellar node markers
+// Add CSS styles for Stellar node markers (matching NFT Dashboard style)
 const nodeMarkerStyles = `
   .node-marker {
+    width: 20px !important;
+    height: 20px !important;
     cursor: pointer !important;
+    position: relative !important;
+    z-index: 1000 !important;
     pointer-events: auto !important;
     border-radius: 50% !important;
-    border: 4px solid #ffffff !important;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
+    border: 3px solid #ffffff !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
     overflow: hidden !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    /* Allow Mapbox to transform markers for 3D globe projection */
+    transition: none !important;
   }
   
-  .node-marker.active {
-    animation: pulse 2s infinite !important;
+  .node-marker img,
+  .node-marker div {
+    pointer-events: none !important;
   }
   
-  .node-marker.inactive {
-    opacity: 0.7 !important;
+  /* Ensure popups appear above everything */
+  .mapboxgl-popup {
+    z-index: 2000 !important;
   }
   
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.1); }
-    100% { transform: scale(1); }
+  .mapboxgl-popup-content {
+    z-index: 2001 !important;
   }
   
+  .mapboxgl-popup-tip {
+    z-index: 2002 !important;
+  }
+  
+  /* Specific styling for node popups */
   .node-popup {
-    max-width: 250px;
-    font-family: 'Roboto', sans-serif;
+    z-index: 3000 !important;
+  }
+  
+  .node-popup .mapboxgl-popup-content {
+    z-index: 3001 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3) !important;
+  }
+  
+  .node-popup .mapboxgl-popup-tip {
+    z-index: 3002 !important;
   }
 `;
 
@@ -261,19 +278,11 @@ const RealTimeNodeTracking = () => {
       markerColor = '#F44336'; // Red for inactive
     }
 
-    // Create marker element with pointer cursor
+    // Create marker element with pointer cursor (matching NFT Dashboard style)
     const el = document.createElement('div');
+    el.className = 'node-marker';
     el.style.cursor = 'pointer';
-    el.style.width = '20px';
-    el.style.height = '20px';
-    el.style.borderRadius = '50%';
     el.style.backgroundColor = markerColor;
-    el.style.border = '3px solid white';
-    el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-    el.style.transition = 'opacity 0.2s, box-shadow 0.2s';
-    el.style.pointerEvents = 'auto';
-    el.style.position = 'relative';
-    el.style.zIndex = '1000';
     
     // Hover effect - use opacity and shadow instead of scale to prevent marker movement
     el.addEventListener('mouseenter', (e) => {
@@ -284,7 +293,7 @@ const RealTimeNodeTracking = () => {
     el.addEventListener('mouseleave', (e) => {
       e.stopPropagation();
       el.style.opacity = '1';
-      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
     });
 
     // Create popup content (mobile-friendly)
@@ -387,7 +396,7 @@ const RealTimeNodeTracking = () => {
       </div>
     `;
 
-    // Create marker with popup
+    // Create marker with popup (matching NFT Dashboard - no draggable, stable positioning)
     const marker = new mapboxgl.Marker(el)
       .setLngLat([finalLng, finalLat])
       .setPopup(
@@ -395,7 +404,8 @@ const RealTimeNodeTracking = () => {
           offset: 25,
           closeButton: true,
           closeOnClick: false,
-          maxWidth: '300px'
+          maxWidth: '300px',
+          className: 'node-popup'
         }).setDOMContent(popupContent)
       )
       .addTo(mapInstance);
@@ -555,7 +565,20 @@ const RealTimeNodeTracking = () => {
         bearing: 0,
         projection: 'globe',
         antialias: true,
-        interactive: true
+        optimizeForTerrain: true,
+        maxPitch: 85,
+        maxZoom: 22,
+        minZoom: 0,
+        maxBounds: [[-180, -85], [180, 85]],
+        renderWorldCopies: false,
+        interactive: true,
+        globe: {
+          enableAtmosphere: true,
+          atmosphereColor: '#FFD700',
+          atmosphereIntensity: 0.3,
+          enableStars: true,
+          starIntensity: 0.5
+        }
       });
 
       // Add navigation controls
@@ -654,7 +677,20 @@ const RealTimeNodeTracking = () => {
         bearing: 0,
         projection: 'globe',
         antialias: true,
-        interactive: true
+        optimizeForTerrain: true,
+        maxPitch: 85,
+        maxZoom: 22,
+        minZoom: 0,
+        maxBounds: [[-180, -85], [180, 85]],
+        renderWorldCopies: false,
+        interactive: true,
+        globe: {
+          enableAtmosphere: true,
+          atmosphereColor: '#FFD700',
+          atmosphereIntensity: 0.3,
+          enableStars: true,
+          starIntensity: 0.5
+        }
       });
 
       // console.log('✅ Fullscreen map created successfully');
