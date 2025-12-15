@@ -1615,6 +1615,8 @@ router.get('/public', async (req, res) => {
         
         // Join with ipfs_servers, nft_uploads, and ipfs_pins to get proper server_url and ipfs_hash
         // This matches the logic in /nft/dashboard/nearby endpoint
+        // IMPORTANT: Only return NFTs with valid coordinates (latitude and longitude are not null and not 0)
+        // This ensures we only return NFTs that can actually be displayed on a map
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -1629,6 +1631,10 @@ router.get('/public', async (req, res) => {
             LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
             LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
             WHERE pn.is_active = true
+            AND pn.latitude IS NOT NULL 
+            AND pn.longitude IS NOT NULL
+            AND pn.latitude != 0 
+            AND pn.longitude != 0
             ORDER BY pn.created_at DESC
         `);
         

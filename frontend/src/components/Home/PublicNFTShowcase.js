@@ -367,6 +367,12 @@ const PublicNFTShowcase = () => {
       // Use the public endpoint that doesn't require authentication
       const response = await api.get('/nft/public');
       
+      console.log('🌍 Public NFTs API response:', {
+        total: response.data.count,
+        nfts: response.data.nfts.length,
+        sample: response.data.nfts.slice(0, 3)
+      });
+      
       // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
@@ -377,9 +383,22 @@ const PublicNFTShowcase = () => {
         }
       }));
       
-      setNfts(processedNFTs);
-      setFilteredNFTs(processedNFTs);
-      nftsRef.current = processedNFTs;
+      // Filter out NFTs without valid coordinates (they can't be displayed on map)
+      const nftsWithCoordinates = processedNFTs.filter(nft => {
+        const lat = parseFloat(nft.latitude);
+        const lng = parseFloat(nft.longitude);
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      });
+      
+      console.log('🌍 Processed NFTs:', {
+        total: processedNFTs.length,
+        withCoordinates: nftsWithCoordinates.length,
+        withoutCoordinates: processedNFTs.length - nftsWithCoordinates.length
+      });
+      
+      setNfts(nftsWithCoordinates);
+      setFilteredNFTs(nftsWithCoordinates);
+      nftsRef.current = nftsWithCoordinates;
       
       // Try to add markers immediately if map is ready
       if (map.current) {
@@ -612,9 +631,21 @@ const PublicNFTShowcase = () => {
     // console.log('🚀 Clearing', existingMarkers.length, 'existing small map markers');
     existingMarkers.forEach(marker => marker.remove());
     
+    console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
+    
     // Create markers directly
+    let markersCreated = 0;
+    let markersSkipped = 0;
+    
     currentNFTs.forEach((nft, index) => {
-      // console.log(`🚀 Creating direct marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      
+      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+        console.warn(`⚠️ Skipping NFT ${index + 1} (${nft.name || 'Unnamed'}): Invalid coordinates`, { lat, lng });
+        markersSkipped++;
+        return;
+      }
       
       try {
         // Create marker element (matching XYZ-Wallet guide - using background-image CSS property)
@@ -677,13 +708,19 @@ const PublicNFTShowcase = () => {
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
+        markersCreated++;
         // console.log(`✅ Direct marker ${index + 1} created successfully with image`);
       } catch (error) {
         console.error(`❌ Error creating direct marker ${index + 1}:`, error);
+        markersSkipped++;
       }
     });
     
-    // console.log('🚀 Direct marker creation completed');
+    console.log('🚀 Marker creation completed:', {
+      created: markersCreated,
+      skipped: markersSkipped,
+      total: currentNFTs.length
+    });
   }, []);
 
   // Simple direct marker creation for fullscreen map - bypasses all complex logic
