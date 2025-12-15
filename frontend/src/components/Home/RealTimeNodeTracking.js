@@ -25,7 +25,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Tooltip
+  Tooltip,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -88,6 +90,9 @@ if (typeof document !== 'undefined') {
 }
 
 const RealTimeNodeTracking = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  
   const [open, setOpen] = useState(false);
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -103,8 +108,8 @@ const RealTimeNodeTracking = () => {
   const [countryFilter, setCountryFilter] = useState('all');
   const [validatorTypeFilter, setValidatorTypeFilter] = useState('all');
   
-  // Search panel state
-  const [searchPanelExpanded, setSearchPanelExpanded] = useState(true);
+  // Search panel state - minimized by default on mobile
+  const [searchPanelExpanded, setSearchPanelExpanded] = useState(!isMobile);
   
   // XLM Price state
   const [xlmPrice, setXlmPrice] = useState(null);
@@ -969,14 +974,21 @@ const RealTimeNodeTracking = () => {
               </Button>
             </Box>
             
-            {/* Stellar Network Stats with XLM Price */}
-            <Grid container spacing={2} justifyContent="center" mb={4}>
+            {/* Stellar Network Stats with XLM Price - Mobile Friendly */}
+            <Grid 
+              container 
+              spacing={{ xs: 1, sm: 2 }} 
+              justifyContent="center" 
+              mb={4}
+              sx={{ px: { xs: 1, sm: 0 } }}
+            >
               {/* XLM Price Card */}
-              <Grid item>
+              <Grid item xs={6} sm="auto">
                 <Paper sx={{ 
-                  p: 2, 
+                  p: { xs: 1.5, sm: 2 }, 
                   textAlign: 'center', 
-                  minWidth: 140,
+                  minWidth: { xs: 'auto', sm: 140 },
+                  width: { xs: '100%', sm: 'auto' },
                   background: xlmPriceChange && xlmPriceChange > 0 
                     ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)'
                     : xlmPriceChange && xlmPriceChange < 0
@@ -984,26 +996,47 @@ const RealTimeNodeTracking = () => {
                     : 'background.paper'
                 }}>
                   {xlmPriceLoading ? (
-                    <CircularProgress size={24} sx={{ color: 'white' }} />
+                    <CircularProgress size={20} sx={{ color: { xs: 'inherit', sm: 'white' } }} />
                   ) : xlmPrice ? (
                     <>
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5 }}>
-                        <MoneyIcon sx={{ color: 'white', fontSize: 20 }} />
-                        <Typography variant="h5" color="white" fontWeight="bold">
-                          ${xlmPrice.toFixed(4)}
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mb: 0.5, flexWrap: 'wrap' }}>
+                        <MoneyIcon sx={{ 
+                          color: xlmPriceChange !== null ? 'white' : 'inherit', 
+                          fontSize: { xs: 16, sm: 20 } 
+                        }} />
+                        <Typography 
+                          variant={xlmPriceChange !== null ? "h5" : "h6"} 
+                          color={xlmPriceChange !== null ? "white" : "inherit"} 
+                          fontWeight="bold"
+                          sx={{ fontSize: { xs: '1rem', sm: '1.5rem' } }}
+                        >
+                          {xlmPrice.toFixed(4)}
                         </Typography>
                       </Box>
-                      <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          color: xlmPriceChange !== null ? 'rgba(255,255,255,0.9)' : 'text.secondary',
+                          fontSize: { xs: '0.7rem', sm: '0.875rem' }
+                        }}
+                      >
                         XLM Price
                       </Typography>
                       {xlmPriceChange !== null && (
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, mt: 0.5 }}>
                           {xlmPriceChange > 0 ? (
-                            <TrendingUpIcon sx={{ color: 'white', fontSize: 16 }} />
+                            <TrendingUpIcon sx={{ color: 'white', fontSize: { xs: 12, sm: 16 } }} />
                           ) : (
-                            <TrendingDownIcon sx={{ color: 'white', fontSize: 16 }} />
+                            <TrendingDownIcon sx={{ color: 'white', fontSize: { xs: 12, sm: 16 } }} />
                           )}
-                          <Typography variant="caption" sx={{ color: 'white', fontWeight: 'bold' }}>
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              color: 'white', 
+                              fontWeight: 'bold',
+                              fontSize: { xs: '0.65rem', sm: '0.75rem' }
+                            }}
+                          >
                             {xlmPriceChange > 0 ? '+' : ''}{xlmPriceChange.toFixed(2)}%
                           </Typography>
                         </Box>
@@ -1011,10 +1044,10 @@ const RealTimeNodeTracking = () => {
                     </>
                   ) : (
                     <>
-                      <Typography variant="h6" color="text.secondary">
+                      <Typography variant="h6" color="text.secondary" sx={{ fontSize: { xs: '0.9rem', sm: '1.25rem' } }}>
                         N/A
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
                         XLM Price
                       </Typography>
                     </>
@@ -1022,53 +1055,99 @@ const RealTimeNodeTracking = () => {
                 </Paper>
               </Grid>
               
-              <Grid item>
-                <Paper sx={{ p: 2, textAlign: 'center', minWidth: 120 }}>
-                  <Typography variant="h4" color="primary" fontWeight="bold">
+              <Grid item xs={6} sm="auto">
+                <Paper sx={{ 
+                  p: { xs: 1.5, sm: 2 }, 
+                  textAlign: 'center', 
+                  minWidth: { xs: 'auto', sm: 120 },
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
+                  <Typography 
+                    variant="h4" 
+                    color="primary" 
+                    fontWeight="bold"
+                    sx={{ fontSize: { xs: '1.25rem', sm: '2.125rem' } }}
+                  >
                     {nodes.filter(n => n.status === 'active').length}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary"
+                    sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}
+                  >
                     Active Validators
                   </Typography>
                 </Paper>
               </Grid>
-              <Grid item>
-                <Paper sx={{ p: 2, textAlign: 'center', minWidth: 120 }}>
-                  <Typography variant="h4" color="text.primary" fontWeight="bold">
+              <Grid item xs={6} sm="auto">
+                <Paper sx={{ 
+                  p: { xs: 1.5, sm: 2 }, 
+                  textAlign: 'center', 
+                  minWidth: { xs: 'auto', sm: 120 },
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
+                  <Typography 
+                    variant="h4" 
+                    color="text.primary" 
+                    fontWeight="bold"
+                    sx={{ fontSize: { xs: '1.25rem', sm: '2.125rem' } }}
+                  >
                     {nodes.filter(n => n.validatorType === 'core').length}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary"
+                    sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}
+                  >
                     Core Nodes
                   </Typography>
                 </Paper>
               </Grid>
-              <Grid item>
-                <Paper sx={{ p: 2, textAlign: 'center', minWidth: 120 }}>
-                  <Typography variant="h4" color="success.main" fontWeight="bold">
+              <Grid item xs={6} sm="auto">
+                <Paper sx={{ 
+                  p: { xs: 1.5, sm: 2 }, 
+                  textAlign: 'center', 
+                  minWidth: { xs: 'auto', sm: 120 },
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
+                  <Typography 
+                    variant="h4" 
+                    color="success.main" 
+                    fontWeight="bold"
+                    sx={{ fontSize: { xs: '1.25rem', sm: '2.125rem' } }}
+                  >
                     {networkStats?.ledgerInfo?.sequence?.toLocaleString() || 'Loading...'}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary"
+                    sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}
+                  >
                     Current Ledger
-                    {!networkStats && (
-                      <Typography variant="caption" color="warning.main" display="block">
-                        Horizon API unavailable
-                      </Typography>
-                    )}
                   </Typography>
                 </Paper>
               </Grid>
-              <Grid item>
-                <Paper sx={{ p: 2, textAlign: 'center', minWidth: 120 }}>
-                  <Typography variant="h4" color="warning.main" fontWeight="bold">
+              <Grid item xs={6} sm="auto">
+                <Paper sx={{ 
+                  p: { xs: 1.5, sm: 2 }, 
+                  textAlign: 'center', 
+                  minWidth: { xs: 'auto', sm: 120 },
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
+                  <Typography 
+                    variant="h4" 
+                    color="info.main" 
+                    fontWeight="bold"
+                    sx={{ fontSize: { xs: '1.25rem', sm: '2.125rem' } }}
+                  >
                     {networkStats?.ledgerInfo?.protocol_version || networkStats?.networkInfo?.protocolVersion || 'Loading...'}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography 
+                    variant="body2" 
+                    color="text.secondary"
+                    sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}
+                  >
                     Protocol Version
-                    {!networkStats && (
-                      <Typography variant="caption" color="warning.main" display="block">
-                        Horizon API unavailable
-                      </Typography>
-                    )}
                   </Typography>
                 </Paper>
               </Grid>
