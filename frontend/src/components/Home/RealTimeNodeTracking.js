@@ -952,7 +952,7 @@ const RealTimeNodeTracking = () => {
                 mb: 2
               }}
             >
-              🌐 Stellar Network Monitoring
+              Stellar Network
             </Typography>
             {error && (
               <Alert severity="error" sx={{ mb: 2, maxWidth: 600, mx: 'auto' }}>
