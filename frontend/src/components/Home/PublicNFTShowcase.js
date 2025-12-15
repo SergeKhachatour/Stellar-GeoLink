@@ -672,11 +672,8 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet guide - draggable: false for stable positioning)
-        new mapboxgl.Marker({
-          element: markerEl,
-          draggable: false // CRITICAL: Must be false for stable positioning
-        })
+        // Create marker (matching XYZ-Wallet guide - simple creation without options for stable positioning)
+        new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
@@ -720,38 +717,39 @@ const PublicNFTShowcase = () => {
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
         markerEl.setAttribute('data-map', 'fullscreen');
-        markerEl.style.width = '50px';
-        markerEl.style.height = '50px';
-        markerEl.style.borderRadius = '8px';
-        markerEl.style.border = '3px solid #fff';
-        markerEl.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-        markerEl.style.cursor = 'pointer';
-        markerEl.style.display = 'flex';
-        markerEl.style.alignItems = 'center';
-        markerEl.style.justifyContent = 'center';
-        markerEl.style.fontSize = '12px';
-        markerEl.style.fontWeight = 'bold';
-        markerEl.style.color = '#fff';
-        markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-        markerEl.style.overflow = 'hidden';
 
-        // Add NFT image if available
-        if (nft.ipfs_hash) {
-          const img = document.createElement('img');
-          img.src = `https://ipfs.io/ipfs/${nft.ipfs_hash}`;
-          img.style.width = '100%';
-          img.style.height = '100%';
-          img.style.borderRadius = '6px';
-          img.style.objectFit = 'cover';
-          img.onerror = () => {
-            // console.log('Image failed to load for fullscreen NFT:', nft.id);
-            markerEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #4ecdc4 100%)';
-            markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-          };
-          markerEl.appendChild(img);
-        } else {
+        // Construct image URL using the same logic as NFT Dashboard (matching XYZ-Wallet)
+        const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
+        
+        // Use background-image CSS property (matching XYZ-Wallet guide)
+        markerEl.style.backgroundImage = `url('${imageUrl}')`;
+        markerEl.style.backgroundSize = 'cover';
+        markerEl.style.backgroundRepeat = 'no-repeat';
+        markerEl.style.backgroundPosition = 'center';
+        
+        // CRITICAL: Disable transitions that interfere with Mapbox positioning
+        markerEl.style.transition = 'none';
+        
+        // Handle image load errors with fallback
+        const img = new Image();
+        img.onload = () => {
+          // Image loaded successfully, ensure background is set
+          markerEl.style.backgroundImage = `url('${imageUrl}')`;
+        };
+        img.onerror = () => {
+          console.log('Image failed to load:', imageUrl);
+          markerEl.style.backgroundImage = 'none';
+          markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        }
+          markerEl.style.display = 'flex';
+          markerEl.style.alignItems = 'center';
+          markerEl.style.justifyContent = 'center';
+          markerEl.style.fontSize = '16px';
+          markerEl.style.fontWeight = 'bold';
+          markerEl.style.color = '#fff';
+        };
+        img.src = imageUrl; // Trigger image load check
+        
 
         // Add click handler for NFT details
         markerEl.addEventListener('click', (e) => {
