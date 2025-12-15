@@ -187,14 +187,275 @@ const HomePage = () => {
             {/* Stellar Network Section */}
             <RealTimeNodeTracking />
 
-            {/* Divider/Separator between Stellar Network and NFT Collection */}
+            {/* Real Estate Tokenization Section */}
             <Box sx={{ 
-                bgcolor: 'grey.100', 
-                py: { xs: 2, md: 3 },
-                borderTop: '1px solid',
-                borderBottom: '1px solid',
-                borderColor: 'divider'
-            }} />
+                background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
+                py: { xs: 6, md: 8 },
+                position: 'relative',
+                overflow: 'hidden'
+            }}>
+                <Container maxWidth="lg">
+                    <Grid container spacing={{ xs: 4, md: 6 }} alignItems="center">
+                        <Grid item xs={12} md={6}>
+                            <Typography 
+                                variant="h3" 
+                                component="h2" 
+                                gutterBottom
+                                sx={{ 
+                                    fontWeight: 'bold',
+                                    color: '#000000',
+                                    mb: 2,
+                                    fontSize: { xs: '2rem', sm: '2.5rem', md: '3rem' }
+                                }}
+                            >
+                                Tokenizing <strong>Real Estate</strong>
+                            </Typography>
+                            <Typography 
+                                variant="h5" 
+                                component="h3"
+                                sx={{ 
+                                    color: '#000000',
+                                    mb: 3,
+                                    opacity: 0.9,
+                                    fontSize: { xs: '1.25rem', md: '1.5rem' }
+                                }}
+                            >
+                                Transform physical properties into digital securities on the blockchain
+                            </Typography>
+                            <Typography 
+                                variant="body1" 
+                                paragraph
+                                sx={{ 
+                                    color: '#000000',
+                                    mb: 3,
+                                    opacity: 0.85,
+                                    fontSize: { xs: '1rem', md: '1.125rem' },
+                                    lineHeight: 1.8
+                                }}
+                            >
+                                Our platform enables the tokenization of commercial real estate assets, 
+                                creating fractional ownership opportunities through blockchain technology. 
+                                Track property performance, manage investments, and access liquidity 
+                                through digital securities backed by real-world assets.
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                                <Button 
+                                    variant="contained" 
+                                    size="large"
+                                    sx={{ 
+                                        backgroundColor: '#000000',
+                                        color: '#FFFFFF',
+                                        px: 4,
+                                        py: 1.5,
+                                        '&:hover': {
+                                            backgroundColor: '#1a1a1a',
+                                        }
+                                    }}
+                                >
+                                    Explore Opportunities
+                                </Button>
+                                <Button 
+                                    variant="outlined" 
+                                    size="large"
+                                    sx={{ 
+                                        borderColor: '#000000',
+                                        color: '#000000',
+                                        px: 4,
+                                        py: 1.5,
+                                        '&:hover': {
+                                            borderColor: '#000000',
+                                            backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                                        }
+                                    }}
+                                >
+                                    Learn More
+                                </Button>
+                            </Box>
+                        </Grid>
+                        <Grid item xs={12} md={6}>
+                            <Grid container spacing={3}>
+                                <Grid item xs={6}>
+                                    <Paper sx={{ 
+                                        p: 3, 
+                                        textAlign: 'center',
+                                        backgroundColor: 'rgba(255,255,255,0.95)',
+                                        backdropFilter: 'blur(10px)',
+                                        borderRadius: 2
+                                    }}>
+                                        <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                            Fractional
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                                            Ownership
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666', mt: 1 }}>
+                                            Invest in high-value properties with lower capital requirements
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                                <Grid item xs={6}>
+                                    <Paper sx={{ 
+                                        p: 3, 
+                                        textAlign: 'center',
+                                        backgroundColor: 'rgba(255,255,255,0.95)',
+                                        backdropFilter: 'blur(10px)',
+                                        borderRadius: 2
+                                    }}>
+                                        <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                            24/7
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                                            Liquidity
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666', mt: 1 }}>
+                                            Buy and sell tokenized assets anytime, anywhere
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                                <Grid item xs={6}>
+                                    <Paper sx={{ 
+                                        p: 3, 
+                                        textAlign: 'center',
+                                        backgroundColor: 'rgba(255,255,255,0.95)',
+                                        backdropFilter: 'blur(10px)',
+                                        borderRadius: 2
+                                    }}>
+                                        <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                            Global
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                                            Access
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666', mt: 1 }}>
+                                            Invest in premium properties worldwide without borders
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                                <Grid item xs={6}>
+                                    <Paper sx={{ 
+                                        p: 3, 
+                                        textAlign: 'center',
+                                        backgroundColor: 'rgba(255,255,255,0.95)',
+                                        backdropFilter: 'blur(10px)',
+                                        borderRadius: 2
+                                    }}>
+                                        <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                            Secure
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                                            Blockchain
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ color: '#666666', mt: 1 }}>
+                                            Transparent transactions secured by blockchain technology
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+
+                    {/* Key Features */}
+                    <Box sx={{ mt: { xs: 6, md: 8 } }}>
+                        <Typography 
+                            variant="h4" 
+                            component="h3"
+                            align="center"
+                            gutterBottom
+                            sx={{ 
+                                fontWeight: 'bold',
+                                color: '#000000',
+                                mb: 4,
+                                fontSize: { xs: '1.75rem', md: '2.25rem' }
+                            }}
+                        >
+                            Why Tokenize Real Estate?
+                        </Typography>
+                        <Grid container spacing={4}>
+                            <Grid item xs={12} md={4}>
+                                <Box sx={{ textAlign: 'center', p: 3 }}>
+                                    <Typography variant="h3" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                        $280T
+                                    </Typography>
+                                    <Typography variant="h6" sx={{ color: '#000000', mb: 2, opacity: 0.9 }}>
+                                        Global Real Estate Market
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: '#000000', opacity: 0.8 }}>
+                                        Tokenizing this massive market opens up opportunities for investors 
+                                        and property owners worldwide
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid item xs={12} md={4}>
+                                <Box sx={{ textAlign: 'center', p: 3 }}>
+                                    <Typography variant="h3" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                        Lower
+                                    </Typography>
+                                    <Typography variant="h6" sx={{ color: '#000000', mb: 2, opacity: 0.9 }}>
+                                        Entry Barriers
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: '#000000', opacity: 0.8 }}>
+                                        Fractional ownership makes high-value commercial real estate 
+                                        accessible to a broader range of investors
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                            <Grid item xs={12} md={4}>
+                                <Box sx={{ textAlign: 'center', p: 3 }}>
+                                    <Typography variant="h3" sx={{ fontWeight: 'bold', color: '#000000', mb: 1 }}>
+                                        Real-Time
+                                    </Typography>
+                                    <Typography variant="h6" sx={{ color: '#000000', mb: 2, opacity: 0.9 }}>
+                                        Performance Tracking
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: '#000000', opacity: 0.8 }}>
+                                        Monitor property performance, yields, and returns in real-time 
+                                        through our integrated platform
+                                    </Typography>
+                                </Box>
+                            </Grid>
+                        </Grid>
+                    </Box>
+
+                    {/* Property Types */}
+                    <Box sx={{ mt: { xs: 6, md: 8 } }}>
+                        <Typography 
+                            variant="h5" 
+                            component="h3"
+                            align="center"
+                            gutterBottom
+                            sx={{ 
+                                fontWeight: 'bold',
+                                color: '#000000',
+                                mb: 4,
+                                fontSize: { xs: '1.5rem', md: '2rem' }
+                            }}
+                        >
+                            Supported Property Types
+                        </Typography>
+                        <Grid container spacing={2} justifyContent="center">
+                            {['Commercial', 'Hospitality', 'Multifamily', 'Retail', 'Industrial', 'Mixed Use'].map((type) => (
+                                <Grid item key={type}>
+                                    <Chip 
+                                        label={type}
+                                        sx={{
+                                            backgroundColor: 'rgba(255,255,255,0.95)',
+                                            color: '#000000',
+                                            fontWeight: 'bold',
+                                            fontSize: '1rem',
+                                            px: 2,
+                                            py: 3,
+                                            height: 'auto',
+                                            '&:hover': {
+                                                backgroundColor: 'rgba(255,255,255,1)',
+                                            }
+                                        }}
+                                    />
+                                </Grid>
+                            ))}
+                        </Grid>
+                    </Box>
+                </Container>
+            </Box>
 
             {/* Public NFT Showcase Section */}
             <PublicNFTShowcase />
