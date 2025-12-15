@@ -233,10 +233,11 @@ const HomePage = () => {
                                     lineHeight: 1.8
                                 }}
                             >
-                                Our platform enables the tokenization of commercial real estate assets, 
-                                creating fractional ownership opportunities through blockchain technology. 
-                                Track property performance, manage investments, and access liquidity 
-                                through digital securities backed by real-world assets.
+                                We're developing data structures and integrations to support the tokenization 
+                                of commercial real estate assets, enabling fractional ownership opportunities 
+                                through blockchain technology. Our roadmap includes capabilities to track property 
+                                performance, manage investments, and provide liquidity through digital securities 
+                                backed by real-world assets.
                             </Typography>
                             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                                 <Button 
