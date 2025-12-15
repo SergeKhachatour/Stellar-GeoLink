@@ -184,19 +184,28 @@ const HomePage = () => {
                 </Container>
             </Box>
 
-            {/* Stellar Network Monitoring */}
+            {/* Stellar Network Section */}
             <RealTimeNodeTracking />
+
+            {/* Divider/Separator between Stellar Network and NFT Collection */}
+            <Box sx={{ 
+                bgcolor: 'grey.100', 
+                py: { xs: 2, md: 3 },
+                borderTop: '1px solid',
+                borderBottom: '1px solid',
+                borderColor: 'divider'
+            }} />
+
+            {/* Public NFT Showcase Section */}
+            <PublicNFTShowcase />
 
             {/* Smart Wallet Balance */}
             <SmartWalletBalance />
 
-            {/* Passkey Management */}
-            <Container maxWidth="lg" sx={{ mb: 4 }}>
+            {/* Passkey Management - Moved to after NFT section */}
+            <Container maxWidth="lg" sx={{ mb: 4, mt: 4 }}>
                 <PasskeyManager />
             </Container>
-
-            {/* Public NFT Showcase */}
-            <PublicNFTShowcase />
 
             {/* Core Features Section */}
             <Box sx={{ 

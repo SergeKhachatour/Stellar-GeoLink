@@ -1026,7 +1026,7 @@ const PublicNFTShowcase = () => {
   return (
     <>
       {/* Showcase Section */}
-      <Box sx={{ py: { xs: 4, md: 6 }, bgcolor: 'background.default' }}>
+      <Box sx={{ py: { xs: 4, md: 6 }, bgcolor: 'background.paper' }}>
         <Container maxWidth="lg">
           <Box textAlign="center" mb={4}>
             <Typography 
