@@ -485,6 +485,59 @@ const PublicNFTShowcase = () => {
         }, 1000);
       });
 
+      // Function to update marker positions when map moves/rotates/zooms
+      // This is critical for 3D globe projection where markers need repositioning
+      const updateMarkerPositions = () => {
+        // Update each marker's position by calling setLngLat
+        // Use stored original coordinates (offset is only for initial display)
+        Object.entries(currentMarkers.current).forEach(([nftId, marker]) => {
+          if (marker && typeof marker.setLngLat === 'function') {
+            // Use stored original coordinates, or fallback to finding NFT data
+            let finalLng = marker._originalLng;
+            let finalLat = marker._originalLat;
+            
+            if (finalLng === undefined || finalLat === undefined) {
+              // Fallback: find NFT data
+              const currentNFTs = nftsRef.current || [];
+              const nft = currentNFTs.find(n => n.id === parseInt(nftId));
+              if (nft && nft.longitude && nft.latitude) {
+                finalLng = parseFloat(nft.longitude);
+                finalLat = parseFloat(nft.latitude);
+              } else {
+                return; // Skip if no coordinates available
+              }
+            }
+            
+            // Normalize coordinates for globe projection
+            if (map.current.getProjection()?.name === 'globe') {
+              if (finalLng < -180) finalLng += 360;
+              if (finalLng > 180) finalLng -= 360;
+              if (finalLat < -90) finalLat = -90;
+              if (finalLat > 90) finalLat = 90;
+            }
+            
+            // Update marker position using original coordinates (no animation due to transition: none)
+            marker.setLngLat([finalLng, finalLat]);
+          }
+        });
+      };
+      
+      // Update marker positions on map movement events (debounced for performance)
+      let updateTimeout;
+      const debouncedUpdateMarkers = () => {
+        clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(() => {
+          updateMarkerPositions();
+        }, 16); // ~60fps
+      };
+      
+      // Listen to map movement events to update marker positions
+      map.current.on('move', debouncedUpdateMarkers);
+      map.current.on('rotate', debouncedUpdateMarkers);
+      map.current.on('zoom', debouncedUpdateMarkers);
+      map.current.on('pitch', debouncedUpdateMarkers);
+      map.current.on('bearing', debouncedUpdateMarkers);
+      
       // MARKER STABILITY: Track user map interaction to prevent marker updates during zoom/pan
       map.current.on('movestart', () => {
         setIsUserMovingMap(true);
@@ -492,6 +545,8 @@ const PublicNFTShowcase = () => {
       
       map.current.on('moveend', () => {
         setIsUserMovingMap(false);
+        // Final update after movement ends
+        updateMarkerPositions();
       });
       
       map.current.on('zoomstart', () => {
@@ -500,6 +555,8 @@ const PublicNFTShowcase = () => {
       
       map.current.on('zoomend', () => {
         setIsUserMovingMap(false);
+        // Final update after zoom ends
+        updateMarkerPositions();
       });
       
       map.current.on('dragstart', () => {
@@ -508,6 +565,8 @@ const PublicNFTShowcase = () => {
       
       map.current.on('dragend', () => {
         setIsUserMovingMap(false);
+        // Final update after drag ends
+        updateMarkerPositions();
       });
 
       // Markers will be added by useEffect when NFTs are available
@@ -602,35 +661,88 @@ const PublicNFTShowcase = () => {
         }, 1000);
       });
 
+      // Function to update fullscreen marker positions when map moves/rotates/zooms
+      const updateFullscreenMarkerPositions = () => {
+        // Update each marker's position by calling setLngLat
+        // Use stored original coordinates (offset is only for initial display)
+        Object.entries(fullscreenMarkers.current).forEach(([nftId, marker]) => {
+          if (marker && typeof marker.setLngLat === 'function') {
+            // Use stored original coordinates, or fallback to finding NFT data
+            let finalLng = marker._originalLng;
+            let finalLat = marker._originalLat;
+            
+            if (finalLng === undefined || finalLat === undefined) {
+              // Fallback: find NFT data
+              const currentNFTs = nftsRef.current || [];
+              const nftsToShow = filteredNFTs.length > 0 ? filteredNFTs : currentNFTs;
+              const nft = nftsToShow.find(n => n.id === parseInt(nftId));
+              if (nft && nft.longitude && nft.latitude) {
+                finalLng = parseFloat(nft.longitude);
+                finalLat = parseFloat(nft.latitude);
+              } else {
+                return; // Skip if no coordinates available
+              }
+            }
+            
+            // Normalize coordinates for globe projection
+            if (fullscreenMap.current.getProjection()?.name === 'globe') {
+              if (finalLng < -180) finalLng += 360;
+              if (finalLng > 180) finalLng -= 360;
+              if (finalLat < -90) finalLat = -90;
+              if (finalLat > 90) finalLat = 90;
+            }
+            
+            // Update marker position using original coordinates (no animation due to transition: none)
+            marker.setLngLat([finalLng, finalLat]);
+          }
+        });
+      };
+      
+      // Update fullscreen marker positions on map movement events (debounced for performance)
+      let fullscreenUpdateTimeout;
+      const debouncedUpdateFullscreenMarkers = () => {
+        clearTimeout(fullscreenUpdateTimeout);
+        fullscreenUpdateTimeout = setTimeout(() => {
+          updateFullscreenMarkerPositions();
+        }, 16); // ~60fps
+      };
+      
+      // Listen to fullscreen map movement events to update marker positions
+      fullscreenMap.current.on('move', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('rotate', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('zoom', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('pitch', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('bearing', debouncedUpdateFullscreenMarkers);
+      
       // MARKER STABILITY: Track user fullscreen map interaction to prevent marker updates during zoom/pan
       fullscreenMap.current.on('movestart', () => {
         setIsUserMovingMap(true);
-        // console.log('User started moving fullscreen map - BLOCKING marker updates');
       });
       
       fullscreenMap.current.on('moveend', () => {
         setIsUserMovingMap(false);
-        // console.log('User finished moving fullscreen map - allowing marker updates');
+        // Final update after movement ends
+        updateFullscreenMarkerPositions();
       });
       
       fullscreenMap.current.on('zoomstart', () => {
-        // console.log('Fullscreen map zoom started - BLOCKING marker updates');
         setIsUserMovingMap(true);
       });
       
       fullscreenMap.current.on('zoomend', () => {
-        // console.log('Fullscreen map zoom ended - allowing marker updates');
         setIsUserMovingMap(false);
+        // Final update after zoom ends
+        updateFullscreenMarkerPositions();
       });
       
       fullscreenMap.current.on('dragstart', () => {
         setIsUserMovingMap(true);
-        // console.log('Fullscreen map drag started - BLOCKING marker updates');
       });
       
       fullscreenMap.current.on('dragend', () => {
         setIsUserMovingMap(false);
-        // console.log('Fullscreen map drag ended - allowing marker updates');
+        // Final update after drag ends
+        updateFullscreenMarkerPositions();
       });
 
     } catch (err) {
@@ -809,6 +921,12 @@ const PublicNFTShowcase = () => {
           .setLngLat([finalLng, finalLat])
           .addTo(map.current);
         
+        // Store original coordinates on marker for position updates
+        marker._originalLng = parseFloat(nft.longitude);
+        marker._originalLat = parseFloat(nft.latitude);
+        marker._offsetLng = finalLng;
+        marker._offsetLat = finalLat;
+        
         // Store marker in ref (matching NFT Dashboard approach)
         currentMarkers.current[nft.id] = marker;
         
@@ -986,6 +1104,12 @@ const PublicNFTShowcase = () => {
         })
           .setLngLat([finalLng, finalLat])
           .addTo(fullscreenMap.current);
+        
+        // Store original coordinates on marker for position updates
+        marker._originalLng = parseFloat(nft.longitude);
+        marker._originalLat = parseFloat(nft.latitude);
+        marker._offsetLng = finalLng;
+        marker._offsetLat = finalLat;
         
         // Store marker in ref (matching NFT Dashboard approach)
         fullscreenMarkers.current[nft.id] = marker;

@@ -1322,6 +1322,12 @@ const EnhancedNFTDashboard = () => {
         let fogEnabled = true;
         this._container.querySelector('#toggle-fog').addEventListener('click', () => {
           try {
+            // Ensure map style is loaded before toggling fog
+            if (!map.isStyleLoaded()) {
+              console.warn('Map style not loaded, cannot toggle fog');
+              return;
+            }
+            
             if (fogEnabled) {
               map.setFog(null);
               fogEnabled = false;
@@ -1340,6 +1346,7 @@ const EnhancedNFTDashboard = () => {
           } catch (error) {
             console.warn('Fog toggle failed:', error.message);
             this._container.querySelector('#toggle-fog').textContent = '🌫️ Fog Unavailable';
+            fogEnabled = false; // Reset state on error
           }
         });
         
@@ -1571,15 +1578,36 @@ const EnhancedNFTDashboard = () => {
           }
           
           // Add fog for depth perception (if supported)
+          // Only set fog after ensuring map style is fully loaded
           try {
-            currentMap.current.setFog({
-              color: 'rgb(186, 210, 235)',
-              'high-color': 'rgb(36, 92, 223)',
-              'horizon-blend': 0.02,
-              'space-color': 'rgb(11, 11, 25)',
-              'star-intensity': 0.6
-            });
-            console.log('Fog effects added successfully');
+            if (currentMap.current && currentMap.current.isStyleLoaded()) {
+              currentMap.current.setFog({
+                color: 'rgb(186, 210, 235)',
+                'high-color': 'rgb(36, 92, 223)',
+                'horizon-blend': 0.02,
+                'space-color': 'rgb(11, 11, 25)',
+                'star-intensity': 0.6
+              });
+              console.log('Fog effects added successfully');
+            } else {
+              // Wait for style to load before setting fog
+              currentMap.current.once('style.load', () => {
+                try {
+                  if (currentMap.current) {
+                    currentMap.current.setFog({
+                      color: 'rgb(186, 210, 235)',
+                      'high-color': 'rgb(36, 92, 223)',
+                      'horizon-blend': 0.02,
+                      'space-color': 'rgb(11, 11, 25)',
+                      'star-intensity': 0.6
+                    });
+                    console.log('Fog effects added after style load');
+                  }
+                } catch (fogError) {
+                  console.warn('Fog effects not supported after style load:', fogError.message);
+                }
+              });
+            }
           } catch (fogError) {
             console.warn('Fog effects not supported:', fogError.message);
           }
@@ -1593,36 +1621,89 @@ const EnhancedNFTDashboard = () => {
         // TODO: Implement manual clustering control instead
         console.log('Zoom-based marker updates disabled to prevent infinite loops');
         
+        // Function to update marker positions when map moves/rotates/zooms
+        // This is critical for 3D globe projection where markers need repositioning
+        const updateMarkerPositions = () => {
+          const markersRef = mapType === 'overlay' ? overlayMarkers : markers;
+          const nftsData = nearbyNFTs;
+          
+          // Update each marker's position by calling setLngLat
+          // This forces Mapbox to recalculate the marker's screen position
+          Object.entries(markersRef.current).forEach(([nftId, marker]) => {
+            if (marker && typeof marker.setLngLat === 'function') {
+              // Find the NFT data to get original coordinates
+              const nft = nftsData.find(n => n.id === parseInt(nftId));
+              if (nft && nft.longitude && nft.latitude) {
+                let finalLng = parseFloat(nft.longitude);
+                let finalLat = parseFloat(nft.latitude);
+                
+                // Normalize coordinates for globe projection
+                if (currentMap.current.getProjection()?.name === 'globe') {
+                  if (finalLng < -180) finalLng += 360;
+                  if (finalLng > 180) finalLng -= 360;
+                  if (finalLat < -90) finalLat = -90;
+                  if (finalLat > 90) finalLat = 90;
+                }
+                
+                // Update marker position (no animation due to transition: none)
+                marker.setLngLat([finalLng, finalLat]);
+              }
+            }
+          });
+        };
+        
+        // Update marker positions on map movement events (debounced for performance)
+        let updateTimeout;
+        const debouncedUpdateMarkers = () => {
+          clearTimeout(updateTimeout);
+          updateTimeout = setTimeout(() => {
+            updateMarkerPositions();
+          }, 16); // ~60fps
+        };
+        
+        // Listen to map movement events to update marker positions
+        currentMap.current.on('move', debouncedUpdateMarkers);
+        currentMap.current.on('rotate', debouncedUpdateMarkers);
+        currentMap.current.on('zoom', debouncedUpdateMarkers);
+        currentMap.current.on('pitch', debouncedUpdateMarkers);
+        currentMap.current.on('bearing', debouncedUpdateMarkers);
+        
         // Track user map movement to prevent marker updates during user interaction
         currentMap.current.on('movestart', () => {
           setIsUserMovingMap(true);
-          console.log('User started moving map - BLOCKING marker updates');
+          console.log('User started moving map');
         });
         
         currentMap.current.on('moveend', () => {
           setIsUserMovingMap(false);
-          console.log('User finished moving map - allowing marker updates');
+          // Final update after movement ends
+          updateMarkerPositions();
+          console.log('User finished moving map - markers repositioned');
         });
         
         currentMap.current.on('zoomstart', () => {
-          console.log('Zoom started - BLOCKING marker updates');
+          console.log('Zoom started');
           setIsUserMovingMap(true);
         });
         
         // Additional map interaction events
         currentMap.current.on('dragstart', () => {
           setIsUserMovingMap(true);
-          console.log('Map drag started - BLOCKING marker updates');
+          console.log('Map drag started');
         });
         
         currentMap.current.on('dragend', () => {
           setIsUserMovingMap(false);
-          console.log('Map drag ended - allowing marker updates');
+          // Final update after drag ends
+          updateMarkerPositions();
+          console.log('Map drag ended - markers repositioned');
         });
         
         currentMap.current.on('zoomend', () => {
           console.log('Zoom ended');
           setIsUserMovingMap(false);
+          // Final update after zoom ends
+          updateMarkerPositions();
           
           // Check if any markers were recently dragged
           const hasRecentlyDraggedMarkers = Object.values(currentMarkers.current).some(marker => 
@@ -2382,6 +2463,15 @@ const EnhancedNFTDashboard = () => {
     setMapView(view);
     
     if (map.current) {
+      // Remove fog before style change to prevent state issues
+      try {
+        if (map.current.getFog()) {
+          map.current.setFog(null);
+        }
+      } catch (error) {
+        // Ignore errors when removing fog
+      }
+      
       switch (view) {
         case '2d':
           map.current.setStyle('mapbox://styles/mapbox/streets-v12');
@@ -2399,44 +2489,61 @@ const EnhancedNFTDashboard = () => {
           break;
       }
       
-      // Re-add 3D buildings for 3D view
+      // Re-add 3D buildings and fog for 3D view after style loads
       if (view === '3d') {
-        setTimeout(() => {
-          if (map.current && !map.current.getLayer('3d-buildings')) {
+        map.current.once('style.load', () => {
+          setTimeout(() => {
+            if (map.current && !map.current.getLayer('3d-buildings')) {
+              try {
+                // Check if the composite source and building layer exist
+                const sources = map.current.getStyle().sources;
+                if (sources && sources.composite && sources.composite.tiles) {
+                  map.current.addLayer({
+                    'id': '3d-buildings',
+                    'source': 'composite',
+                    'source-layer': 'building',
+                    'filter': ['==', 'extrude', 'true'],
+                    'type': 'fill-extrusion',
+                    'minzoom': 15,
+                    'paint': {
+                      'fill-extrusion-color': '#aaa',
+                      'fill-extrusion-height': [
+                        'case',
+                        ['has', 'height'],
+                        ['get', 'height'],
+                        0
+                      ],
+                      'fill-extrusion-base': [
+                        'case',
+                        ['has', 'min_height'],
+                        ['get', 'min_height'],
+                        0
+                      ],
+                      'fill-extrusion-opacity': 0.6
+                    }
+                  });
+                }
+              } catch (error) {
+                console.log('3D buildings not available for this style:', error);
+              }
+            }
+            
+            // Re-set fog after style loads
             try {
-              // Check if the composite source and building layer exist
-              const sources = map.current.getStyle().sources;
-              if (sources && sources.composite && sources.composite.tiles) {
-                map.current.addLayer({
-                  'id': '3d-buildings',
-                  'source': 'composite',
-                  'source-layer': 'building',
-                  'filter': ['==', 'extrude', 'true'],
-                  'type': 'fill-extrusion',
-                  'minzoom': 15,
-                  'paint': {
-                    'fill-extrusion-color': '#aaa',
-                    'fill-extrusion-height': [
-                      'case',
-                      ['has', 'height'],
-                      ['get', 'height'],
-                      0
-                    ],
-                    'fill-extrusion-base': [
-                      'case',
-                      ['has', 'min_height'],
-                      ['get', 'min_height'],
-                      0
-                    ],
-                    'fill-extrusion-opacity': 0.6
-                  }
+              if (map.current && map.current.isStyleLoaded()) {
+                map.current.setFog({
+                  color: 'rgb(186, 210, 235)',
+                  'high-color': 'rgb(36, 92, 223)',
+                  'horizon-blend': 0.02,
+                  'space-color': 'rgb(11, 11, 25)',
+                  'star-intensity': 0.6
                 });
               }
-            } catch (error) {
-              console.log('3D buildings not available for this style:', error);
+            } catch (fogError) {
+              console.warn('Fog not supported after style change:', fogError.message);
             }
-          }
-        }, 1000);
+          }, 500);
+        });
       }
     }
   };

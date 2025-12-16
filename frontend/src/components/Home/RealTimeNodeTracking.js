@@ -621,6 +621,49 @@ const RealTimeNodeTracking = () => {
         }
       }, 200);
 
+      // Function to update marker positions when map moves/rotates/zooms
+      // This is critical for 3D globe projection where markers need repositioning
+      const updateMarkerPositions = () => {
+        // Update each marker's position by calling setLngLat
+        Object.entries(currentMarkers.current).forEach(([nodeId, marker]) => {
+          if (marker && typeof marker.setLngLat === 'function') {
+            // Find the node data to get original coordinates
+            const node = filteredNodes.find(n => n.id === parseInt(nodeId));
+            if (node && node.location && node.location.lng && node.location.lat) {
+              let finalLng = parseFloat(node.location.lng);
+              let finalLat = parseFloat(node.location.lat);
+              
+              // Normalize coordinates for globe projection
+              if (map.current.getProjection()?.name === 'globe') {
+                if (finalLng < -180) finalLng += 360;
+                if (finalLng > 180) finalLng -= 360;
+                if (finalLat < -90) finalLat = -90;
+                if (finalLat > 90) finalLat = 90;
+              }
+              
+              // Update marker position (no animation due to transition: none)
+              marker.setLngLat([finalLng, finalLat]);
+            }
+          }
+        });
+      };
+      
+      // Update marker positions on map movement events (debounced for performance)
+      let updateTimeout;
+      const debouncedUpdateMarkers = () => {
+        clearTimeout(updateTimeout);
+        updateTimeout = setTimeout(() => {
+          updateMarkerPositions();
+        }, 16); // ~60fps
+      };
+      
+      // Listen to map movement events to update marker positions
+      map.current.on('move', debouncedUpdateMarkers);
+      map.current.on('rotate', debouncedUpdateMarkers);
+      map.current.on('zoom', debouncedUpdateMarkers);
+      map.current.on('pitch', debouncedUpdateMarkers);
+      map.current.on('bearing', debouncedUpdateMarkers);
+      
       // Wait for map to load
       map.current.on('load', () => {
         // console.log('Card map loaded, creating markers');
@@ -705,6 +748,48 @@ const RealTimeNodeTracking = () => {
       // Add navigation controls
       fullscreenMap.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
+      // Function to update fullscreen marker positions when map moves/rotates/zooms
+      const updateFullscreenMarkerPositions = () => {
+        // Update each marker's position by calling setLngLat
+        Object.entries(fullscreenMarkers.current).forEach(([nodeId, marker]) => {
+          if (marker && typeof marker.setLngLat === 'function') {
+            // Find the node data to get original coordinates
+            const node = filteredNodes.find(n => n.id === parseInt(nodeId));
+            if (node && node.location && node.location.lng && node.location.lat) {
+              let finalLng = parseFloat(node.location.lng);
+              let finalLat = parseFloat(node.location.lat);
+              
+              // Normalize coordinates for globe projection
+              if (fullscreenMap.current.getProjection()?.name === 'globe') {
+                if (finalLng < -180) finalLng += 360;
+                if (finalLng > 180) finalLng -= 360;
+                if (finalLat < -90) finalLat = -90;
+                if (finalLat > 90) finalLat = 90;
+              }
+              
+              // Update marker position (no animation due to transition: none)
+              marker.setLngLat([finalLng, finalLat]);
+            }
+          }
+        });
+      };
+      
+      // Update fullscreen marker positions on map movement events (debounced for performance)
+      let fullscreenUpdateTimeout;
+      const debouncedUpdateFullscreenMarkers = () => {
+        clearTimeout(fullscreenUpdateTimeout);
+        fullscreenUpdateTimeout = setTimeout(() => {
+          updateFullscreenMarkerPositions();
+        }, 16); // ~60fps
+      };
+      
+      // Listen to fullscreen map movement events to update marker positions
+      fullscreenMap.current.on('move', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('rotate', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('zoom', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('pitch', debouncedUpdateFullscreenMarkers);
+      fullscreenMap.current.on('bearing', debouncedUpdateFullscreenMarkers);
+      
       // Wait for map to load
       fullscreenMap.current.on('load', () => {
         // console.log('✅ Fullscreen map loaded, creating markers');
