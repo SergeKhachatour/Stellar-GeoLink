@@ -665,6 +665,22 @@ const PublicNFTShowcase = () => {
     console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
     console.log('🚀 NFT IDs to create markers for:', currentNFTs.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude })));
     
+    // Track coordinates to add small offsets for overlapping markers
+    const coordinateCounts = new Map();
+    
+    // First pass: count how many NFTs share each coordinate
+    currentNFTs.forEach((nft) => {
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+        const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
+        coordinateCounts.set(coordKey, (coordinateCounts.get(coordKey) || 0) + 1);
+      }
+    });
+    
+    // Track how many markers we've created at each coordinate
+    const coordinateIndices = new Map();
+    
     // Create markers directly
     let markersCreated = 0;
     let markersSkipped = 0;
@@ -685,7 +701,22 @@ const PublicNFTShowcase = () => {
         return;
       }
       
-      console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${lng}, ${lat}]`);
+      // Calculate offset for overlapping markers (small offset to make them all visible)
+      const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
+      const countAtLocation = coordinateCounts.get(coordKey) || 1;
+      const indexAtLocation = coordinateIndices.get(coordKey) || 0;
+      coordinateIndices.set(coordKey, indexAtLocation + 1);
+      
+      // Small offset: ~0.0001 degrees (roughly 10 meters) in a spiral pattern
+      const offsetDistance = 0.0001; // degrees
+      const angle = (indexAtLocation / countAtLocation) * 2 * Math.PI; // Distribute in a circle
+      const offsetLng = lng + (Math.cos(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
+      const offsetLat = lat + (Math.sin(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
+      
+      const finalLng = countAtLocation > 1 ? offsetLng : lng;
+      const finalLat = countAtLocation > 1 ? offsetLat : lat;
+      
+      console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${finalLng}, ${finalLat}]${countAtLocation > 1 ? ` (offset ${indexAtLocation + 1}/${countAtLocation} at [${lng}, ${lat}])` : ''}`);
       
       try {
         // Create marker element (matching XYZ-Wallet implementation exactly)
@@ -759,7 +790,7 @@ const PublicNFTShowcase = () => {
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
         const marker = new mapboxgl.Marker(markerEl)
-          .setLngLat([Number(nft.longitude), Number(nft.latitude)])
+          .setLngLat([finalLng, finalLat])
           .addTo(map.current);
         
         // Store marker in ref (matching NFT Dashboard approach)
@@ -810,6 +841,22 @@ const PublicNFTShowcase = () => {
     const existingMarkers = document.querySelectorAll('.nft-marker[data-map="fullscreen"]');
     existingMarkers.forEach(marker => marker.remove());
     
+    // Track coordinates to add small offsets for overlapping markers
+    const coordinateCounts = new Map();
+    
+    // First pass: count how many NFTs share each coordinate
+    nftsToShow.forEach((nft) => {
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+        const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
+        coordinateCounts.set(coordKey, (coordinateCounts.get(coordKey) || 0) + 1);
+      }
+    });
+    
+    // Track how many markers we've created at each coordinate
+    const coordinateIndices = new Map();
+    
     // Create markers directly
     let markersCreated = 0;
     let markersSkipped = 0;
@@ -829,6 +876,21 @@ const PublicNFTShowcase = () => {
         console.log(`Fullscreen marker for NFT ${nft.id} already exists, skipping creation`);
         return;
       }
+      
+      // Calculate offset for overlapping markers (small offset to make them all visible)
+      const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
+      const countAtLocation = coordinateCounts.get(coordKey) || 1;
+      const indexAtLocation = coordinateIndices.get(coordKey) || 0;
+      coordinateIndices.set(coordKey, indexAtLocation + 1);
+      
+      // Small offset: ~0.0001 degrees (roughly 10 meters) in a spiral pattern
+      const offsetDistance = 0.0001; // degrees
+      const angle = (indexAtLocation / countAtLocation) * 2 * Math.PI; // Distribute in a circle
+      const offsetLng = lng + (Math.cos(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
+      const offsetLat = lat + (Math.sin(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
+      
+      const finalLng = countAtLocation > 1 ? offsetLng : lng;
+      const finalLat = countAtLocation > 1 ? offsetLat : lat;
       
       // console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
       
@@ -894,7 +956,7 @@ const PublicNFTShowcase = () => {
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
         const marker = new mapboxgl.Marker(markerEl)
-          .setLngLat([Number(nft.longitude), Number(nft.latitude)])
+          .setLngLat([finalLng, finalLat])
           .addTo(fullscreenMap.current);
         
         // Store marker in ref (matching NFT Dashboard approach)
