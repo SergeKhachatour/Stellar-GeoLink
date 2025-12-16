@@ -435,6 +435,15 @@ const PublicNFTShowcase = () => {
       return;
     }
     
+    // Also check if markers exist in the DOM (double-check to prevent duplicates)
+    const existingMarkersInDOM = document.querySelectorAll('.nft-marker[data-map="small"]');
+    if (existingMarkersInDOM.length > 0 && existingMarkersInDOM.length === currentNFTs.length) {
+      console.log('⏸️ Markers already exist in DOM (', existingMarkersInDOM.length, 'markers), skipping duplicate creation');
+      // Update the ref to match what's in the DOM
+      lastMarkerCreationCount.current = currentNFTs.length;
+      return;
+    }
+    
     isCreatingMarkers.current = true;
     
     try {
@@ -1010,17 +1019,31 @@ const PublicNFTShowcase = () => {
     console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length, 'nftsRef.current.length:', currentNFTs.length);
     console.log('🔍 Map states - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current);
     
-    if (map.current && currentNFTs.length > 0) {
+    // Only create markers if:
+    // 1. Map is ready and loaded
+    // 2. We have NFTs
+    // 3. We haven't already created markers for this NFT count
+    const mapReady = map.current && (map.current.loaded ? map.current.loaded() : true);
+    
+    if (mapReady && currentNFTs.length > 0) {
+      // Check if markers have already been created for this NFT count
+      if (lastMarkerCreationCount.current === currentNFTs.length && Object.keys(currentMarkers.current).length > 0) {
+        console.log('⏸️ Markers already exist for', currentNFTs.length, 'NFTs, skipping creation');
+        return;
+      }
+      
       console.log('✅ NFTs useEffect: Using DIRECT marker creation for', currentNFTs.length, 'NFTs');
       createMarkersDirectly();
     } else {
       console.log('❌ NFTs useEffect: Conditions not met for card map', {
         hasMap: !!map.current,
+        mapLoaded: mapReady,
         hasNFTs: currentNFTs.length > 0
       });
     }
     // Note: Fullscreen markers are handled separately when dialog opens and when filteredNFTs changes
-  }, [nfts.length, createMarkersDirectly]); // Only depend on nfts.length and stable createMarkersDirectly
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nfts.length]); // Only depend on nfts.length - createMarkersDirectly is stable with empty deps
   // Removed duplicate marker creation effect to prevent multiple passes
 
   // Update fullscreen markers when search results change
