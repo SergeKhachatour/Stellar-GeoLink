@@ -424,12 +424,8 @@ const PublicNFTShowcase = () => {
       setFilteredNFTs(nftsWithCoordinates);
       nftsRef.current = nftsWithCoordinates;
       
-      // Try to add markers immediately if map is ready
-      if (map.current) {
-        setTimeout(() => {
-          addCardNFTMarkers();
-        }, 100);
-      }
+      // Markers will be created by useEffect when map is ready
+      // No need to call addCardNFTMarkers() - createMarkersDirectly() handles it
     } catch (err) {
       console.error('Error fetching public NFTs:', err);
       setError('Failed to load NFT locations. Please try again.');
@@ -485,58 +481,7 @@ const PublicNFTShowcase = () => {
         }, 1000);
       });
 
-      // Function to update marker positions when map moves/rotates/zooms
-      // This is critical for 3D globe projection where markers need repositioning
-      const updateMarkerPositions = () => {
-        // Update each marker's position by calling setLngLat
-        // Use stored original coordinates (offset is only for initial display)
-        Object.entries(currentMarkers.current).forEach(([nftId, marker]) => {
-          if (marker && typeof marker.setLngLat === 'function') {
-            // Use stored original coordinates, or fallback to finding NFT data
-            let finalLng = marker._originalLng;
-            let finalLat = marker._originalLat;
-            
-            if (finalLng === undefined || finalLat === undefined) {
-              // Fallback: find NFT data
-              const currentNFTs = nftsRef.current || [];
-              const nft = currentNFTs.find(n => n.id === parseInt(nftId));
-              if (nft && nft.longitude && nft.latitude) {
-                finalLng = parseFloat(nft.longitude);
-                finalLat = parseFloat(nft.latitude);
-              } else {
-                return; // Skip if no coordinates available
-              }
-            }
-            
-            // Normalize coordinates for globe projection
-            if (map.current.getProjection()?.name === 'globe') {
-              if (finalLng < -180) finalLng += 360;
-              if (finalLng > 180) finalLng -= 360;
-              if (finalLat < -90) finalLat = -90;
-              if (finalLat > 90) finalLat = 90;
-            }
-            
-            // Update marker position using original coordinates (no animation due to transition: none)
-            marker.setLngLat([finalLng, finalLat]);
-          }
-        });
-      };
-      
-      // Update marker positions on map movement events (debounced for performance)
-      let updateTimeout;
-      const debouncedUpdateMarkers = () => {
-        clearTimeout(updateTimeout);
-        updateTimeout = setTimeout(() => {
-          updateMarkerPositions();
-        }, 16); // ~60fps
-      };
-      
-      // Listen to map movement events to update marker positions
-      map.current.on('move', debouncedUpdateMarkers);
-      map.current.on('rotate', debouncedUpdateMarkers);
-      map.current.on('zoom', debouncedUpdateMarkers);
-      map.current.on('pitch', debouncedUpdateMarkers);
-      map.current.on('bearing', debouncedUpdateMarkers);
+      // NOTE: Mapbox handles marker positioning automatically - no manual updates needed
       
       // MARKER STABILITY: Track user map interaction to prevent marker updates during zoom/pan
       map.current.on('movestart', () => {
@@ -545,8 +490,6 @@ const PublicNFTShowcase = () => {
       
       map.current.on('moveend', () => {
         setIsUserMovingMap(false);
-        // Final update after movement ends
-        updateMarkerPositions();
       });
       
       map.current.on('zoomstart', () => {
@@ -555,8 +498,6 @@ const PublicNFTShowcase = () => {
       
       map.current.on('zoomend', () => {
         setIsUserMovingMap(false);
-        // Final update after zoom ends
-        updateMarkerPositions();
       });
       
       map.current.on('dragstart', () => {
@@ -565,8 +506,6 @@ const PublicNFTShowcase = () => {
       
       map.current.on('dragend', () => {
         setIsUserMovingMap(false);
-        // Final update after drag ends
-        updateMarkerPositions();
       });
 
       // Markers will be added by useEffect when NFTs are available
@@ -661,58 +600,7 @@ const PublicNFTShowcase = () => {
         }, 1000);
       });
 
-      // Function to update fullscreen marker positions when map moves/rotates/zooms
-      const updateFullscreenMarkerPositions = () => {
-        // Update each marker's position by calling setLngLat
-        // Use stored original coordinates (offset is only for initial display)
-        Object.entries(fullscreenMarkers.current).forEach(([nftId, marker]) => {
-          if (marker && typeof marker.setLngLat === 'function') {
-            // Use stored original coordinates, or fallback to finding NFT data
-            let finalLng = marker._originalLng;
-            let finalLat = marker._originalLat;
-            
-            if (finalLng === undefined || finalLat === undefined) {
-              // Fallback: find NFT data
-              const currentNFTs = nftsRef.current || [];
-              const nftsToShow = filteredNFTs.length > 0 ? filteredNFTs : currentNFTs;
-              const nft = nftsToShow.find(n => n.id === parseInt(nftId));
-              if (nft && nft.longitude && nft.latitude) {
-                finalLng = parseFloat(nft.longitude);
-                finalLat = parseFloat(nft.latitude);
-              } else {
-                return; // Skip if no coordinates available
-              }
-            }
-            
-            // Normalize coordinates for globe projection
-            if (fullscreenMap.current.getProjection()?.name === 'globe') {
-              if (finalLng < -180) finalLng += 360;
-              if (finalLng > 180) finalLng -= 360;
-              if (finalLat < -90) finalLat = -90;
-              if (finalLat > 90) finalLat = 90;
-            }
-            
-            // Update marker position using original coordinates (no animation due to transition: none)
-            marker.setLngLat([finalLng, finalLat]);
-          }
-        });
-      };
-      
-      // Update fullscreen marker positions on map movement events (debounced for performance)
-      let fullscreenUpdateTimeout;
-      const debouncedUpdateFullscreenMarkers = () => {
-        clearTimeout(fullscreenUpdateTimeout);
-        fullscreenUpdateTimeout = setTimeout(() => {
-          updateFullscreenMarkerPositions();
-        }, 16); // ~60fps
-      };
-      
-      // Listen to fullscreen map movement events to update marker positions
-      fullscreenMap.current.on('move', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('rotate', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('zoom', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('pitch', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('bearing', debouncedUpdateFullscreenMarkers);
+      // NOTE: Mapbox handles marker positioning automatically - no manual updates needed
       
       // MARKER STABILITY: Track user fullscreen map interaction to prevent marker updates during zoom/pan
       fullscreenMap.current.on('movestart', () => {
@@ -721,8 +609,6 @@ const PublicNFTShowcase = () => {
       
       fullscreenMap.current.on('moveend', () => {
         setIsUserMovingMap(false);
-        // Final update after movement ends
-        updateFullscreenMarkerPositions();
       });
       
       fullscreenMap.current.on('zoomstart', () => {
@@ -731,8 +617,6 @@ const PublicNFTShowcase = () => {
       
       fullscreenMap.current.on('zoomend', () => {
         setIsUserMovingMap(false);
-        // Final update after zoom ends
-        updateFullscreenMarkerPositions();
       });
       
       fullscreenMap.current.on('dragstart', () => {
@@ -741,8 +625,6 @@ const PublicNFTShowcase = () => {
       
       fullscreenMap.current.on('dragend', () => {
         setIsUserMovingMap(false);
-        // Final update after drag ends
-        updateFullscreenMarkerPositions();
       });
 
     } catch (err) {
@@ -784,23 +666,18 @@ const PublicNFTShowcase = () => {
     console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
     console.log('🚀 NFT IDs to create markers for:', currentNFTs.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude })));
     
-    // Track coordinates to add small offsets for overlapping markers
-    const coordinateCounts = new Map();
-    
-    // First pass: count how many NFTs share each coordinate
-    currentNFTs.forEach((nft) => {
-      const lat = parseFloat(nft.latitude);
-      const lng = parseFloat(nft.longitude);
-      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-        const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
-        coordinateCounts.set(coordKey, (coordinateCounts.get(coordKey) || 0) + 1);
+    // Log unique coordinates to see if multiple NFTs share the same location
+    const coordinateGroups = {};
+    currentNFTs.forEach(nft => {
+      const key = `${nft.latitude},${nft.longitude}`;
+      if (!coordinateGroups[key]) {
+        coordinateGroups[key] = [];
       }
+      coordinateGroups[key].push(nft.id);
     });
+    console.log('📍 Coordinate groups (NFTs sharing same location):', Object.entries(coordinateGroups).map(([coords, ids]) => ({ coords, count: ids.length, ids })));
     
-    // Track how many markers we've created at each coordinate
-    const coordinateIndices = new Map();
-    
-    // Create markers directly
+    // Create markers directly (matching XYZ-Wallet - no coordinate offsets)
     let markersCreated = 0;
     let markersSkipped = 0;
     
@@ -820,22 +697,7 @@ const PublicNFTShowcase = () => {
         return;
       }
       
-      // Calculate offset for overlapping markers (small offset to make them all visible)
-      const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
-      const countAtLocation = coordinateCounts.get(coordKey) || 1;
-      const indexAtLocation = coordinateIndices.get(coordKey) || 0;
-      coordinateIndices.set(coordKey, indexAtLocation + 1);
-      
-      // Small offset: ~0.0001 degrees (roughly 10 meters) in a spiral pattern
-      const offsetDistance = 0.0001; // degrees
-      const angle = (indexAtLocation / countAtLocation) * 2 * Math.PI; // Distribute in a circle
-      const offsetLng = lng + (Math.cos(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
-      const offsetLat = lat + (Math.sin(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
-      
-      const finalLng = countAtLocation > 1 ? offsetLng : lng;
-      const finalLat = countAtLocation > 1 ? offsetLat : lat;
-      
-      console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${finalLng}, ${finalLat}]${countAtLocation > 1 ? ` (offset ${indexAtLocation + 1}/${countAtLocation} at [${lng}, ${lat}])` : ''}`);
+      console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${lng}, ${lat}]`);
       
       try {
         // Create marker element (matching XYZ-Wallet implementation exactly)
@@ -857,24 +719,16 @@ const PublicNFTShowcase = () => {
         
         console.log(`🖼️ NFT ID ${nft.id} FULL image URL:`, imageUrl);
         
-        // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
-        // CRITICAL: transition: none !important prevents marker animation during zoom
-        markerEl.style.cssText = `
-          width: 64px;
-          height: 64px;
-          background-image: url('${imageUrl}');
-          background-size: cover;
-          background-repeat: no-repeat;
-          background-position: center;
-          border-radius: 8px;
-          border: 3px solid #FFD700;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-          transition: none !important;
-        `;
+        // Use CSS class for static styles (matching NFT Dashboard)
+        markerEl.className = 'nft-marker';
         
-        // CRITICAL: Also set transition: none inline to ensure it's applied
-        // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
+        // Set only dynamic styles inline (background-image) - matching NFT Dashboard
+        markerEl.style.backgroundImage = `url('${imageUrl}')`;
+        markerEl.style.backgroundSize = 'cover';
+        markerEl.style.backgroundRepeat = 'no-repeat';
+        markerEl.style.backgroundPosition = 'center';
+        
+        // CRITICAL: Disable transitions that interfere with Mapbox positioning (matching NFT Dashboard)
         markerEl.style.transition = 'none';
 
         // Handle image load errors with fallback
@@ -897,15 +751,34 @@ const PublicNFTShowcase = () => {
         };
         img.src = imageUrl; // Trigger image load check
 
-        // Add click handler for NFT details
+        // Add click handler for NFT details with delay to allow double-click (matching NFT Dashboard)
+        let clickTimeout;
         markerEl.addEventListener('click', (e) => {
+          e.preventDefault();
           e.stopPropagation();
-          handleNFTDetails(nft);
+          
+          // Clear any existing timeout
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+          }
+          
+          // Set a timeout to allow double-click to be detected
+          clickTimeout = setTimeout(() => {
+            handleNFTDetails(nft);
+          }, 200); // 200ms delay to allow double-click detection
         });
 
-        // Add double-click handler for zoom
+        // Add double-click handler for zoom (matching NFT Dashboard)
         markerEl.addEventListener('dblclick', (e) => {
+          e.preventDefault();
           e.stopPropagation();
+          
+          // Clear the click timeout to prevent single-click from firing
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+            clickTimeout = null;
+          }
+          
           map.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
@@ -913,19 +786,13 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet exactly - draggable: false for stable positioning)
+        // Create marker (matching NFT Dashboard exactly - draggable: false for stable positioning)
         const marker = new mapboxgl.Marker({
           element: markerEl,
           draggable: false // CRITICAL: Must be false for stable positioning
         })
-          .setLngLat([finalLng, finalLat])
+          .setLngLat([lng, lat])
           .addTo(map.current);
-        
-        // Store original coordinates on marker for position updates
-        marker._originalLng = parseFloat(nft.longitude);
-        marker._originalLat = parseFloat(nft.latitude);
-        marker._offsetLng = finalLng;
-        marker._offsetLat = finalLat;
         
         // Store marker in ref (matching NFT Dashboard approach)
         currentMarkers.current[nft.id] = marker;
@@ -944,6 +811,26 @@ const PublicNFTShowcase = () => {
       total: currentNFTs.length,
       storedInRef: Object.keys(currentMarkers.current).length
     });
+    
+    // Auto-zoom to show all NFTs after markers are created
+    if (markersCreated > 0 && map.current) {
+      const bounds = new mapboxgl.LngLatBounds();
+      currentNFTs.forEach(nft => {
+        const lat = parseFloat(nft.latitude);
+        const lng = parseFloat(nft.longitude);
+        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+          bounds.extend([lng, lat]);
+        }
+      });
+      
+      if (!bounds.isEmpty()) {
+        map.current.fitBounds(bounds, {
+          padding: 50,
+          maxZoom: 10,
+          duration: 2000
+        });
+      }
+    }
   }, []);
 
   // Simple direct marker creation for fullscreen map - bypasses all complex logic
@@ -978,23 +865,7 @@ const PublicNFTShowcase = () => {
     const existingMarkers = document.querySelectorAll('.nft-marker[data-map="fullscreen"]');
     existingMarkers.forEach(marker => marker.remove());
     
-    // Track coordinates to add small offsets for overlapping markers
-    const coordinateCounts = new Map();
-    
-    // First pass: count how many NFTs share each coordinate
-    nftsToShow.forEach((nft) => {
-      const lat = parseFloat(nft.latitude);
-      const lng = parseFloat(nft.longitude);
-      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-        const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
-        coordinateCounts.set(coordKey, (coordinateCounts.get(coordKey) || 0) + 1);
-      }
-    });
-    
-    // Track how many markers we've created at each coordinate
-    const coordinateIndices = new Map();
-    
-    // Create markers directly
+    // Create markers directly (matching XYZ-Wallet - no coordinate offsets)
     let markersCreated = 0;
     let markersSkipped = 0;
     
@@ -1014,23 +885,6 @@ const PublicNFTShowcase = () => {
         return;
       }
       
-      // Calculate offset for overlapping markers (small offset to make them all visible)
-      const coordKey = `${lng.toFixed(6)},${lat.toFixed(6)}`;
-      const countAtLocation = coordinateCounts.get(coordKey) || 1;
-      const indexAtLocation = coordinateIndices.get(coordKey) || 0;
-      coordinateIndices.set(coordKey, indexAtLocation + 1);
-      
-      // Small offset: ~0.0001 degrees (roughly 10 meters) in a spiral pattern
-      const offsetDistance = 0.0001; // degrees
-      const angle = (indexAtLocation / countAtLocation) * 2 * Math.PI; // Distribute in a circle
-      const offsetLng = lng + (Math.cos(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
-      const offsetLat = lat + (Math.sin(angle) * offsetDistance * Math.ceil(indexAtLocation / 4));
-      
-      const finalLng = countAtLocation > 1 ? offsetLng : lng;
-      const finalLat = countAtLocation > 1 ? offsetLat : lat;
-      
-      // console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
-      
       try {
         // Create marker element (matching XYZ-Wallet implementation exactly)
         const markerEl = document.createElement('div');
@@ -1041,24 +895,16 @@ const PublicNFTShowcase = () => {
         // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
-        // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
-        // CRITICAL: transition: none !important prevents marker animation during zoom
-        markerEl.style.cssText = `
-          width: 64px;
-          height: 64px;
-          background-image: url('${imageUrl}');
-          background-size: cover;
-          background-repeat: no-repeat;
-          background-position: center;
-          border-radius: 8px;
-          border: 3px solid #FFD700;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-          transition: none !important;
-        `;
+        // Use CSS class for static styles (matching NFT Dashboard)
+        markerEl.className = 'nft-marker';
         
-        // CRITICAL: Also set transition: none inline to ensure it's applied
-        // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
+        // Set only dynamic styles inline (background-image) - matching NFT Dashboard
+        markerEl.style.backgroundImage = `url('${imageUrl}')`;
+        markerEl.style.backgroundSize = 'cover';
+        markerEl.style.backgroundRepeat = 'no-repeat';
+        markerEl.style.backgroundPosition = 'center';
+        
+        // CRITICAL: Disable transitions that interfere with Mapbox positioning (matching NFT Dashboard)
         markerEl.style.transition = 'none';
         
         // Handle image load errors with fallback
@@ -1081,15 +927,34 @@ const PublicNFTShowcase = () => {
         };
         img.src = imageUrl; // Trigger image load check
 
-        // Add click handler for NFT details
+        // Add click handler for NFT details with delay to allow double-click (matching NFT Dashboard)
+        let clickTimeout;
         markerEl.addEventListener('click', (e) => {
+          e.preventDefault();
           e.stopPropagation();
-          handleNFTDetails(nft);
+          
+          // Clear any existing timeout
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+          }
+          
+          // Set a timeout to allow double-click to be detected
+          clickTimeout = setTimeout(() => {
+            handleNFTDetails(nft);
+          }, 200); // 200ms delay to allow double-click detection
         });
 
-        // Add double-click handler for zoom
+        // Add double-click handler for zoom (matching NFT Dashboard)
         markerEl.addEventListener('dblclick', (e) => {
+          e.preventDefault();
           e.stopPropagation();
+          
+          // Clear the click timeout to prevent single-click from firing
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+            clickTimeout = null;
+          }
+          
           fullscreenMap.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
@@ -1097,19 +962,13 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet exactly - draggable: false for stable positioning)
+        // Create marker (matching NFT Dashboard exactly - draggable: false for stable positioning)
         const marker = new mapboxgl.Marker({
           element: markerEl,
           draggable: false // CRITICAL: Must be false for stable positioning
         })
-          .setLngLat([finalLng, finalLat])
+          .setLngLat([lng, lat])
           .addTo(fullscreenMap.current);
-        
-        // Store original coordinates on marker for position updates
-        marker._originalLng = parseFloat(nft.longitude);
-        marker._originalLat = parseFloat(nft.latitude);
-        marker._offsetLng = finalLng;
-        marker._offsetLat = finalLat;
         
         // Store marker in ref (matching NFT Dashboard approach)
         fullscreenMarkers.current[nft.id] = marker;
