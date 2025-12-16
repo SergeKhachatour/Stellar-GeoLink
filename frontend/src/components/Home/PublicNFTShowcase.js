@@ -984,7 +984,7 @@ const PublicNFTShowcase = () => {
       total: nftsToShow.length,
       storedInRef: Object.keys(fullscreenMarkers.current).length
     });
-  }, [nfts, filteredNFTs]);
+  }, [filteredNFTs]);
 
   // Handle dialog open
   const handleOpen = () => {
