@@ -433,7 +433,7 @@ const PublicNFTShowcase = () => {
       setLoading(false);
       setFetchInProgress(false);
     }
-  }, [fetchInProgress, addCardNFTMarkers]);
+  }, [fetchInProgress]);
 
   // Initialize card map (interactive)
   const initializeCardMap = useCallback(() => {

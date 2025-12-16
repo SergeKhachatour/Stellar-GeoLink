@@ -295,7 +295,7 @@ const NFTDashboard = () => {
   const [radiusFilter] = useState(1000); // Removed setRadiusFilter as it's unused
   // Clustering removed - individual markers only
   // const [markerUpdateTimeout, setMarkerUpdateTimeout] = useState(null); // Removed unused variable
-  const [isUserMovingMap, setIsUserMovingMap] = useState(false);
+  // Removed isUserMovingMap state - no longer needed
   const [markersStable, setMarkersStable] = useState(false);
   const [markersCreated, setMarkersCreated] = useState(false);
   const [markersLocked, setMarkersLocked] = useState(false);
@@ -1577,7 +1577,7 @@ const NFTDashboard = () => {
       console.error('Error initializing map:', error);
       setError(`Failed to initialize map: ${error.message}`);
     }
-  }, [userLocation, nearbyNFTs, updateMapMarkers, pinMarkerProtected, pinMarker, createNFTFilterControl]);
+  }, [userLocation, nearbyNFTs, updateMapMarkers, createNFTFilterControl]);
 
 
   useEffect(() => {

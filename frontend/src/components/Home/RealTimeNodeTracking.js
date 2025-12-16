@@ -281,23 +281,37 @@ const RealTimeNodeTracking = () => {
     // Create marker element with pointer cursor (matching NFT Dashboard style)
     const el = document.createElement('div');
     el.className = 'node-marker';
-    el.style.cursor = 'pointer';
-    el.style.backgroundColor = markerColor;
     
-    // CRITICAL: Disable transitions that interfere with Mapbox positioning
-    // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
-    el.style.transition = 'none';
+    // CRITICAL: Set all styles at once using cssText to ensure consistency
+    // This matches the NFT Dashboard pattern exactly
+    el.style.cssText = `
+      width: 20px !important;
+      height: 20px !important;
+      cursor: pointer !important;
+      position: relative !important;
+      z-index: 1000 !important;
+      pointer-events: auto !important;
+      border-radius: 50% !important;
+      border: 3px solid #ffffff !important;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+      overflow: hidden !important;
+      background-color: ${markerColor} !important;
+      transition: none !important;
+    `;
     
     // Hover effect - use opacity and shadow instead of scale to prevent marker movement
+    // CRITICAL: Ensure transition remains 'none' during hover
     el.addEventListener('mouseenter', (e) => {
       e.stopPropagation();
       el.style.opacity = '0.9';
       el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+      el.style.transition = 'none'; // Re-enforce no transition
     });
     el.addEventListener('mouseleave', (e) => {
       e.stopPropagation();
       el.style.opacity = '1';
       el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
+      el.style.transition = 'none'; // Re-enforce no transition
     });
 
     // Create popup content (mobile-friendly)
@@ -621,48 +635,7 @@ const RealTimeNodeTracking = () => {
         }
       }, 200);
 
-      // Function to update marker positions when map moves/rotates/zooms
-      // This is critical for 3D globe projection where markers need repositioning
-      const updateMarkerPositions = () => {
-        // Update each marker's position by calling setLngLat
-        Object.entries(currentMarkers.current).forEach(([nodeId, marker]) => {
-          if (marker && typeof marker.setLngLat === 'function') {
-            // Find the node data to get original coordinates
-            const node = filteredNodes.find(n => n.id === parseInt(nodeId));
-            if (node && node.location && node.location.lng && node.location.lat) {
-              let finalLng = parseFloat(node.location.lng);
-              let finalLat = parseFloat(node.location.lat);
-              
-              // Normalize coordinates for globe projection
-              if (map.current.getProjection()?.name === 'globe') {
-                if (finalLng < -180) finalLng += 360;
-                if (finalLng > 180) finalLng -= 360;
-                if (finalLat < -90) finalLat = -90;
-                if (finalLat > 90) finalLat = 90;
-              }
-              
-              // Update marker position (no animation due to transition: none)
-              marker.setLngLat([finalLng, finalLat]);
-            }
-          }
-        });
-      };
-      
-      // Update marker positions on map movement events (debounced for performance)
-      let updateTimeout;
-      const debouncedUpdateMarkers = () => {
-        clearTimeout(updateTimeout);
-        updateTimeout = setTimeout(() => {
-          updateMarkerPositions();
-        }, 16); // ~60fps
-      };
-      
-      // Listen to map movement events to update marker positions
-      map.current.on('move', debouncedUpdateMarkers);
-      map.current.on('rotate', debouncedUpdateMarkers);
-      map.current.on('zoom', debouncedUpdateMarkers);
-      map.current.on('pitch', debouncedUpdateMarkers);
-      map.current.on('bearing', debouncedUpdateMarkers);
+      // NOTE: Mapbox handles marker positioning automatically - no manual updates needed
       
       // Wait for map to load
       map.current.on('load', () => {
@@ -699,7 +672,7 @@ const RealTimeNodeTracking = () => {
       console.error('Error initializing card map:', err);
       setError('Failed to initialize map');
     }
-  }, [createCardMarkers, filteredNodes.length]);
+  }, [createCardMarkers, filteredNodes]);
 
   // Initialize fullscreen map
   const initializeFullscreenMap = useCallback(() => {
@@ -748,47 +721,7 @@ const RealTimeNodeTracking = () => {
       // Add navigation controls
       fullscreenMap.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
-      // Function to update fullscreen marker positions when map moves/rotates/zooms
-      const updateFullscreenMarkerPositions = () => {
-        // Update each marker's position by calling setLngLat
-        Object.entries(fullscreenMarkers.current).forEach(([nodeId, marker]) => {
-          if (marker && typeof marker.setLngLat === 'function') {
-            // Find the node data to get original coordinates
-            const node = filteredNodes.find(n => n.id === parseInt(nodeId));
-            if (node && node.location && node.location.lng && node.location.lat) {
-              let finalLng = parseFloat(node.location.lng);
-              let finalLat = parseFloat(node.location.lat);
-              
-              // Normalize coordinates for globe projection
-              if (fullscreenMap.current.getProjection()?.name === 'globe') {
-                if (finalLng < -180) finalLng += 360;
-                if (finalLng > 180) finalLng -= 360;
-                if (finalLat < -90) finalLat = -90;
-                if (finalLat > 90) finalLat = 90;
-              }
-              
-              // Update marker position (no animation due to transition: none)
-              marker.setLngLat([finalLng, finalLat]);
-            }
-          }
-        });
-      };
-      
-      // Update fullscreen marker positions on map movement events (debounced for performance)
-      let fullscreenUpdateTimeout;
-      const debouncedUpdateFullscreenMarkers = () => {
-        clearTimeout(fullscreenUpdateTimeout);
-        fullscreenUpdateTimeout = setTimeout(() => {
-          updateFullscreenMarkerPositions();
-        }, 16); // ~60fps
-      };
-      
-      // Listen to fullscreen map movement events to update marker positions
-      fullscreenMap.current.on('move', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('rotate', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('zoom', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('pitch', debouncedUpdateFullscreenMarkers);
-      fullscreenMap.current.on('bearing', debouncedUpdateFullscreenMarkers);
+      // NOTE: Mapbox handles marker positioning automatically - no manual updates needed
       
       // Wait for map to load
       fullscreenMap.current.on('load', () => {
