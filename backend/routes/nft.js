@@ -1639,14 +1639,19 @@ router.get('/public', async (req, res) => {
         `);
         console.log('📍 pinned_nfts columns:', columnCheck.rows);
         
-        // Get NFTs within radius using PostGIS if available, otherwise use simple distance calculation
+        // Use the EXACT same query as /nft/dashboard/nearby to ensure consistency
+        // Use center point (0, 0) with very large radius (20000000 meters = ~20,000 km) to get ALL NFTs globally
+        // This matches how the NFT Dashboard fetches all NFTs with radius: 999999999
         // Join with ipfs_servers to get the current server URL (prefer ipfs_servers.server_url over pinned_nfts.server_url)
         // Also join with uploads and pins to get association data for Workflow 2 NFTs
         // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
         // The upload hash points directly to the file, so we don't need to append the filename
-        // This matches the logic in /nft/dashboard/nearby and /nft/nearby endpoints exactly
         // IMPORTANT: Only return NFTs with valid coordinates (latitude and longitude are not null and not 0)
         // This ensures we only return NFTs that can actually be displayed on a map
+        const centerLat = 0;
+        const centerLng = 0;
+        const radius = 20000000; // 20,000 km - large enough to cover the entire globe
+        
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -1655,7 +1660,11 @@ router.get('/public', async (req, res) => {
                    nu.upload_status as upload_status,
                    ips.server_name as ipfs_server_name,
                    ip.pin_status as pin_status,
-                   pn.pinned_by_user
+                   pn.pinned_by_user,
+                   ST_Distance(
+                       ST_Point($2, $1)::geography,
+                       ST_Point(pn.longitude, pn.latitude)::geography
+                   ) as distance
             FROM pinned_nfts pn
             LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
             LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
@@ -1668,8 +1677,13 @@ router.get('/public', async (req, res) => {
             AND pn.longitude != 0
             AND pn.latitude BETWEEN -90 AND 90
             AND pn.longitude BETWEEN -180 AND 180
-            ORDER BY pn.id DESC
-        `);
+            AND ST_DWithin(
+                ST_Point($2, $1)::geography,
+                ST_Point(pn.longitude, pn.latitude)::geography,
+                $3
+            )
+            ORDER BY distance ASC
+        `, [centerLat, centerLng, radius]);
         
         console.log('📍 Found public NFTs:', result.rows.length);
         
