@@ -560,17 +560,19 @@ const PublicNFTShowcase = () => {
 
       // Wait for map to load
       fullscreenMap.current.on('load', () => {
-        // console.log('🔍 Fullscreen map loaded, using DIRECT marker creation');
-        // console.log('🔍 Fullscreen map load - nfts.length:', nfts.length, 'filteredNFTs.length:', filteredNFTs.length);
+        console.log('🔍 Fullscreen map loaded, using DIRECT marker creation');
+        console.log('🔍 Fullscreen map load - nftsRef.current.length:', nftsRef.current?.length || 0, 'nfts.length:', nfts.length, 'filteredNFTs.length:', filteredNFTs.length);
         
         // Use direct marker creation - bypasses all complex logic
-        if (nfts.length > 0) {
-          // console.log('🚀 Fullscreen map loaded with NFTs available, using DIRECT creation');
+        // Use nftsRef.current to ensure we have the latest NFTs
+        const currentNFTs = nftsRef.current || [];
+        if (currentNFTs.length > 0) {
+          console.log('🚀 Fullscreen map loaded with NFTs available, using DIRECT creation');
           createFullscreenMarkersDirectly();
           
           // Auto-zoom to show all NFTs
           const bounds = new mapboxgl.LngLatBounds();
-          nfts.forEach(nft => {
+          currentNFTs.forEach(nft => {
             if (nft.latitude && nft.longitude) {
               bounds.extend([Number(nft.longitude), Number(nft.latitude)]);
             }
@@ -583,14 +585,17 @@ const PublicNFTShowcase = () => {
             });
           }
         } else {
-          // console.log('🚀 Fullscreen map loaded but no NFTs yet, will add markers when NFTs are available');
+          console.log('🚀 Fullscreen map loaded but no NFTs yet, will add markers when NFTs are available');
         }
         
         // Fallback: Try again after a delay
         setTimeout(() => {
-          if (nfts.length > 0) {
-            // console.log('🚀 Fallback: Direct fullscreen marker creation after delay');
+          const delayedNFTs = nftsRef.current || [];
+          if (delayedNFTs.length > 0) {
+            console.log('🚀 Fallback: Direct fullscreen marker creation after delay with', delayedNFTs.length, 'NFTs');
             createFullscreenMarkersDirectly();
+          } else {
+            console.log('🚀 Fallback: Still no NFTs available after delay');
           }
         }, 1000);
       });
@@ -814,18 +819,21 @@ const PublicNFTShowcase = () => {
 
   // Simple direct marker creation for fullscreen map - bypasses all complex logic
   const createFullscreenMarkersDirectly = useCallback(() => {
-    // console.log('🚀 DIRECT FULLSCREEN MARKER CREATION - bypassing all logic');
+    console.log('🚀 DIRECT FULLSCREEN MARKER CREATION - bypassing all logic');
     
     if (!fullscreenMap.current) {
-      // console.log('❌ No fullscreen map available for direct creation');
+      console.log('❌ No fullscreen map available for direct creation');
       return;
     }
     
-    const nftsToShow = filteredNFTs.length > 0 ? filteredNFTs : nfts;
-    // console.log('🚀 Direct fullscreen creation with', nftsToShow.length, 'NFTs');
+    // Use nftsRef.current (like small map) to ensure we have the latest NFTs
+    const currentNFTs = nftsRef.current || [];
+    const nftsToShow = filteredNFTs.length > 0 ? filteredNFTs : currentNFTs;
+    
+    console.log('🚀 Direct fullscreen creation with', nftsToShow.length, 'NFTs (from ref:', currentNFTs.length, ', filtered:', filteredNFTs.length, ')');
     
     if (nftsToShow.length === 0) {
-      // console.log('❌ No NFTs for direct fullscreen creation');
+      console.log('❌ No NFTs for direct fullscreen creation');
       return;
     }
     
@@ -1167,9 +1175,17 @@ const PublicNFTShowcase = () => {
 
   // Add markers to fullscreen map when it's ready and dialog is open
   useEffect(() => {
-    if (open && fullscreenMap.current && nfts.length > 0) {
-      // console.log('🚀 Fullscreen dialog opened with map ready - creating markers for', nfts.length, 'NFTs');
+    const currentNFTs = nftsRef.current || [];
+    if (open && fullscreenMap.current && currentNFTs.length > 0) {
+      console.log('🚀 Fullscreen dialog opened with map ready - creating markers for', currentNFTs.length, 'NFTs');
       createFullscreenMarkersDirectly();
+    } else {
+      console.log('🔍 Fullscreen marker useEffect conditions:', {
+        open,
+        hasMap: !!fullscreenMap.current,
+        nftsCount: currentNFTs.length,
+        nftsFromState: nfts.length
+      });
     }
   }, [open, nfts.length, createFullscreenMarkersDirectly]);
 
@@ -1177,21 +1193,27 @@ const PublicNFTShowcase = () => {
 
   // SIMPLIFIED: Add markers when NFTs are loaded (only one useEffect for markers)
   useEffect(() => {
-    // console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length);
-    // console.log('🔍 Map states - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current);
+    const currentNFTs = nftsRef.current || [];
+    console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length, 'nftsRef.current.length:', currentNFTs.length);
+    console.log('🔍 Map states - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current);
     
-    if (map.current && nfts.length > 0) {
-      // console.log('✅ NFTs useEffect: Using DIRECT marker creation for', nfts.length, 'NFTs');
+    if (map.current && currentNFTs.length > 0) {
+      console.log('✅ NFTs useEffect: Using DIRECT marker creation for', currentNFTs.length, 'NFTs');
       createMarkersDirectly();
     } else {
-      // console.log('❌ NFTs useEffect: Conditions not met', {
-      //   hasMap: !!map.current,
-      //   hasNFTs: nfts.length > 0
-      // });
+      console.log('❌ NFTs useEffect: Conditions not met for card map', {
+        hasMap: !!map.current,
+        hasNFTs: currentNFTs.length > 0
+      });
     }
-    if (fullscreenMap.current && nfts.length > 0) {
-      // console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
+    if (fullscreenMap.current && currentNFTs.length > 0) {
+      console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', currentNFTs.length, 'NFTs');
       createFullscreenMarkersDirectly();
+    } else {
+      console.log('❌ NFTs useEffect: Conditions not met for fullscreen map', {
+        hasMap: !!fullscreenMap.current,
+        hasNFTs: currentNFTs.length > 0
+      });
     }
   }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
   // Removed duplicate marker creation effect to prevent multiple passes
@@ -1199,10 +1221,10 @@ const PublicNFTShowcase = () => {
   // Update fullscreen markers when search results change
   useEffect(() => {
     if (fullscreenMap.current && open) {
-      // console.log('Search results changed, using DIRECT fullscreen marker creation');
+      console.log('Search results changed, using DIRECT fullscreen marker creation with', filteredNFTs.length, 'filtered NFTs');
       createFullscreenMarkersDirectly();
     }
-  }, [filteredNFTs, open, createFullscreenMarkersDirectly]);
+  }, [filteredNFTs.length, open, createFullscreenMarkersDirectly]);
 
   return (
     <>
