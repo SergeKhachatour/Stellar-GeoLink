@@ -258,12 +258,12 @@ const PublicNFTShowcase = () => {
         markerEl.style.backgroundImage = 'none';
         markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
         markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        markerEl.style.display = 'flex';
-        markerEl.style.alignItems = 'center';
-        markerEl.style.justifyContent = 'center';
+      markerEl.style.display = 'flex';
+      markerEl.style.alignItems = 'center';
+      markerEl.style.justifyContent = 'center';
         markerEl.style.fontSize = '16px';
-        markerEl.style.fontWeight = 'bold';
-        markerEl.style.color = '#fff';
+      markerEl.style.fontWeight = 'bold';
+      markerEl.style.color = '#fff';
       };
       img.src = imageUrl; // Trigger image load check
 
@@ -648,9 +648,8 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear any existing small map markers only
-    const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
-    // console.log('🚀 Clearing', existingMarkers.length, 'existing small map markers');
+    // Clear any existing markers on the small map to avoid duplicates
+    const existingMarkers = document.querySelectorAll('.nft-marker');
     existingMarkers.forEach(marker => marker.remove());
     
     console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
@@ -712,12 +711,12 @@ const PublicNFTShowcase = () => {
           markerEl.style.backgroundImage = 'none';
           markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-          markerEl.style.display = 'flex';
-          markerEl.style.alignItems = 'center';
-          markerEl.style.justifyContent = 'center';
+        markerEl.style.display = 'flex';
+        markerEl.style.alignItems = 'center';
+        markerEl.style.justifyContent = 'center';
           markerEl.style.fontSize = '16px';
-          markerEl.style.fontWeight = 'bold';
-          markerEl.style.color = '#fff';
+        markerEl.style.fontWeight = 'bold';
+        markerEl.style.color = '#fff';
         };
         img.src = imageUrl; // Trigger image load check
 
@@ -817,12 +816,12 @@ const PublicNFTShowcase = () => {
           markerEl.style.backgroundImage = 'none';
           markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-          markerEl.style.display = 'flex';
-          markerEl.style.alignItems = 'center';
-          markerEl.style.justifyContent = 'center';
+        markerEl.style.display = 'flex';
+        markerEl.style.alignItems = 'center';
+        markerEl.style.justifyContent = 'center';
           markerEl.style.fontSize = '16px';
-          markerEl.style.fontWeight = 'bold';
-          markerEl.style.color = '#fff';
+        markerEl.style.fontWeight = 'bold';
+        markerEl.style.color = '#fff';
         };
         img.src = imageUrl; // Trigger image load check
         
@@ -1056,33 +1055,7 @@ const PublicNFTShowcase = () => {
     }
   }, [open, nfts.length, createFullscreenMarkersDirectly]);
 
-  // Aggressive fullscreen marker creation when dialog opens
-  useEffect(() => {
-    if (open) {
-      // console.log('🚀 Dialog opened - attempting fullscreen marker creation');
-      // Try immediately
-      if (fullscreenMap.current && nfts.length > 0) {
-        // console.log('🚀 Immediate fullscreen marker creation');
-        createFullscreenMarkersDirectly();
-      }
-      
-      // Try after a short delay
-      setTimeout(() => {
-        if (fullscreenMap.current && nfts.length > 0) {
-          // console.log('🚀 Delayed fullscreen marker creation');
-          createFullscreenMarkersDirectly();
-        }
-      }, 500);
-      
-      // Try after a longer delay
-      setTimeout(() => {
-        if (fullscreenMap.current && nfts.length > 0) {
-          // console.log('🚀 Long delayed fullscreen marker creation');
-          createFullscreenMarkersDirectly();
-        }
-      }, 1500);
-    }
-  }, [open, nfts.length, createFullscreenMarkersDirectly]);
+  // Removed aggressive fullscreen retries to avoid duplicate markers
 
   // SIMPLIFIED: Add markers when NFTs are loaded (only one useEffect for markers)
   useEffect(() => {
@@ -1103,25 +1076,7 @@ const PublicNFTShowcase = () => {
       createFullscreenMarkersDirectly();
     }
   }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
-
-  // Add markers when map becomes available and NFTs exist
-  useEffect(() => {
-    // console.log('🔍 Map availability useEffect - card map:', !!map.current, 'fullscreen map:', !!fullscreenMap.current, 'NFTs:', nfts.length);
-    
-    if (map.current && nfts.length > 0) {
-      // console.log('✅ Map availability: Using DIRECT marker creation for', nfts.length, 'NFTs');
-      createMarkersDirectly();
-    } else {
-      // console.log('❌ Map availability: Conditions not met', {
-      //   hasMap: !!map.current,
-      //   hasNFTs: nfts.length > 0
-      // });
-    }
-    if (fullscreenMap.current && nfts.length > 0) {
-      // console.log('✅ Map availability: Using DIRECT fullscreen marker creation for', nfts.length, 'NFTs');
-      createFullscreenMarkersDirectly();
-    }
-  }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
+  // Removed duplicate marker creation effect to prevent multiple passes
 
   // Update fullscreen markers when search results change
   useEffect(() => {
