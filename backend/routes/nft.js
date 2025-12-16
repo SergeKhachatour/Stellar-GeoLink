@@ -1613,11 +1613,14 @@ router.get('/public', async (req, res) => {
         `);
         console.log('📍 pinned_nfts columns:', columnCheck.rows);
         
-        // Join with ipfs_servers, nft_uploads, and ipfs_pins to get proper server_url and ipfs_hash
+        // Get NFTs within radius using PostGIS if available, otherwise use simple distance calculation
+        // Join with ipfs_servers to get the current server URL (prefer ipfs_servers.server_url over pinned_nfts.server_url)
+        // Also join with uploads and pins to get association data for Workflow 2 NFTs
+        // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
+        // The upload hash points directly to the file, so we don't need to append the filename
         // This matches the logic in /nft/dashboard/nearby and /nft/nearby endpoints exactly
         // IMPORTANT: Only return NFTs with valid coordinates (latitude and longitude are not null and not 0)
         // This ensures we only return NFTs that can actually be displayed on a map
-        // Using the same query structure as /nft/nearby but without radius filtering
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -1644,45 +1647,8 @@ router.get('/public', async (req, res) => {
         console.log('📍 Found public NFTs:', result.rows.length);
         console.log('📍 Raw NFT data:', result.rows.slice(0, 2));
         
-        // If no active NFTs found, try to get any NFTs (fallback)
-        let nftsToFormat = result.rows;
-        if (result.rows.length === 0) {
-            console.log('📍 No active NFTs found, trying fallback query...');
-            const fallbackResult = await pool.query(`
-                SELECT 
-                    pn.id,
-                    pn.name,
-                    pn.description,
-                    pn.latitude,
-                    pn.longitude,
-                    pn.radius_meters,
-                    pn.image_url,
-                    pn.ipfs_hash,
-                    pn.created_at,
-                    pn.is_active,
-                    nc.name as collection_name,
-                    nc.description as collection_description,
-                    nc.image_url as collection_image_url,
-                    nc.rarity_level,
-                    COALESCE(ips.server_url, pn.server_url) as server_url,
-                    COALESCE(nu.ipfs_hash, pn.ipfs_hash) as ipfs_hash,
-                    nu.original_filename as upload_filename,
-                    nu.upload_status as upload_status,
-                    ips.server_name as ipfs_server_name,
-                    ip.pin_status as pin_status
-                FROM pinned_nfts pn
-                LEFT JOIN nft_collections nc ON pn.collection_id = nc.id
-                LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
-                LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
-                LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
-                ORDER BY pn.created_at DESC
-                LIMIT 10
-            `);
-            console.log('📍 Fallback query found:', fallbackResult.rows.length, 'NFTs');
-            nftsToFormat = fallbackResult.rows;
-        }
-        
-        const formattedNFTs = nftsToFormat.map(nft => ({
+        // Format NFTs exactly like /nft/nearby endpoint (matching XYZ-Wallet expectations)
+        const formattedNFTs = result.rows.map(nft => ({
             ...nft,
             collection: {
                 name: nft.collection_name,
@@ -1690,7 +1656,7 @@ router.get('/public', async (req, res) => {
                 image_url: nft.image_url,
                 rarity_level: nft.rarity_level
             },
-            // Include association data for Workflow 2 NFTs (matching /nft/dashboard/nearby)
+            // Include association data for Workflow 2 NFTs (matching /nft/dashboard/nearby and /nft/nearby)
             associations: {
                 has_upload: !!nft.nft_upload_id,
                 has_ipfs_server: !!nft.ipfs_server_id,
