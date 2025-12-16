@@ -31,6 +31,7 @@ import api from '../../services/api';
 // Helper function to construct IPFS URL from server_url and hash
 // Matches the implementation in NFT Dashboard for consistency
 // Handles cases where server_url might already contain /ipfs/ path
+// Always uses the hash from ipfs_hash field, not from server_url
 const constructIPFSUrl = (serverUrl, hash) => {
   if (!hash) return null;
   if (!serverUrl) return `https://ipfs.io/ipfs/${hash}`; // Fallback to public gateway
@@ -43,6 +44,7 @@ const constructIPFSUrl = (serverUrl, hash) => {
   // - "domain.com/ipfs/somehash/"
   // - "https://domain.com/ipfs/somehash"
   // - "domain.com/ipfs/" (just the path without hash)
+  // IMPORTANT: We always use the hash from ipfs_hash field, not from server_url
   baseUrl = baseUrl.replace(/\/ipfs\/.*$/i, '');
   
   // Remove trailing slashes
@@ -59,7 +61,7 @@ const constructIPFSUrl = (serverUrl, hash) => {
     return `https://ipfs.io/ipfs/${hash}`;
   }
   
-  // Construct full IPFS URL
+  // Construct full IPFS URL using the hash from ipfs_hash field
   // Note: hash might already include filename for Workflow 2 NFTs (e.g., "hash/filename.png")
   return `${baseUrl}/ipfs/${hash}`;
 };
