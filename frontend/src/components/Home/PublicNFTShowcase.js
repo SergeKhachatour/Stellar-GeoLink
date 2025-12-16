@@ -388,6 +388,11 @@ const PublicNFTShowcase = () => {
         }))
       });
       
+      // Log all NFT IDs to see which ones are returned
+      const allIds = response.data.nfts.map(nft => nft.id).sort((a, b) => a - b);
+      console.log('🌍 All NFT IDs returned (sorted):', allIds);
+      console.log('🌍 NFT ID range:', { min: Math.min(...allIds), max: Math.max(...allIds), count: allIds.length });
+      
       // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
       const processedNFTs = response.data.nfts.map(nft => ({
         ...nft,
@@ -678,8 +683,12 @@ const PublicNFTShowcase = () => {
           server_url: nft.server_url,
           ipfs_hash: nft.ipfs_hash,
           image_url: nft.image_url,
-          constructed_url: imageUrl
+          constructed_url: imageUrl,
+          full_constructed_url: imageUrl // Show full URL without truncation
         });
+        
+        // Log the full URL separately to see it without truncation
+        console.log(`🖼️ NFT ID ${nft.id} FULL image URL:`, imageUrl);
         
         // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
         markerEl.style.backgroundImage = `url('${imageUrl}')`;
