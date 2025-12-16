@@ -660,6 +660,13 @@ const PublicNFTShowcase = () => {
         // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
+        console.log(`🖼️ NFT ID ${nft.id} image URL:`, {
+          server_url: nft.server_url,
+          ipfs_hash: nft.ipfs_hash,
+          image_url: nft.image_url,
+          constructed_url: imageUrl
+        });
+        
         // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
         markerEl.style.backgroundImage = `url('${imageUrl}')`;
         markerEl.style.backgroundSize = 'cover';
@@ -707,8 +714,11 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet guide - simple creation without options for stable positioning)
-        new mapboxgl.Marker(markerEl)
+        // Create marker (matching NFT Dashboard - using options object with draggable: false)
+        new mapboxgl.Marker({
+          element: markerEl,
+          draggable: false // CRITICAL: Must be false for stable positioning (matching NFT Dashboard)
+        })
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
