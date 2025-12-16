@@ -67,7 +67,8 @@ const constructIPFSUrl = (serverUrl, hash) => {
 };
 
 // Add CSS styles for NFT image markers (matching XYZ-Wallet implementation)
-// Note: XYZ-Wallet doesn't set transition: none - Mapbox handles positioning naturally
+// CRITICAL: transition: none !important prevents marker animation during zoom
+// NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
 const markerStyles = `
   .nft-marker {
     width: 64px !important;
@@ -80,6 +81,7 @@ const markerStyles = `
     border: 3px solid #FFD700 !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
     overflow: hidden !important;
+    transition: none !important;
   }
   
   .nft-marker img,
@@ -744,6 +746,7 @@ const PublicNFTShowcase = () => {
         console.log(`🖼️ NFT ID ${nft.id} FULL image URL:`, imageUrl);
         
         // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
+        // CRITICAL: transition: none !important prevents marker animation during zoom
         markerEl.style.cssText = `
           width: 64px;
           height: 64px;
@@ -755,7 +758,12 @@ const PublicNFTShowcase = () => {
           border: 3px solid #FFD700;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          transition: none !important;
         `;
+        
+        // CRITICAL: Also set transition: none inline to ensure it's applied
+        // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
+        markerEl.style.transition = 'none';
 
         // Handle image load errors with fallback
         const img = new Image();
@@ -793,8 +801,11 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        const marker = new mapboxgl.Marker(markerEl)
+        // Create marker (matching XYZ-Wallet exactly - draggable: false for stable positioning)
+        const marker = new mapboxgl.Marker({
+          element: markerEl,
+          draggable: false // CRITICAL: Must be false for stable positioning
+        })
           .setLngLat([finalLng, finalLat])
           .addTo(map.current);
         
@@ -913,6 +924,7 @@ const PublicNFTShowcase = () => {
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
         // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
+        // CRITICAL: transition: none !important prevents marker animation during zoom
         markerEl.style.cssText = `
           width: 64px;
           height: 64px;
@@ -924,7 +936,12 @@ const PublicNFTShowcase = () => {
           border: 3px solid #FFD700;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          transition: none !important;
         `;
+        
+        // CRITICAL: Also set transition: none inline to ensure it's applied
+        // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
+        markerEl.style.transition = 'none';
         
         // Handle image load errors with fallback
         const img = new Image();
@@ -962,8 +979,11 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        const marker = new mapboxgl.Marker(markerEl)
+        // Create marker (matching XYZ-Wallet exactly - draggable: false for stable positioning)
+        const marker = new mapboxgl.Marker({
+          element: markerEl,
+          draggable: false // CRITICAL: Must be false for stable positioning
+        })
           .setLngLat([finalLng, finalLat])
           .addTo(fullscreenMap.current);
         

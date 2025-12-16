@@ -284,6 +284,10 @@ const RealTimeNodeTracking = () => {
     el.style.cursor = 'pointer';
     el.style.backgroundColor = markerColor;
     
+    // CRITICAL: Disable transitions that interfere with Mapbox positioning
+    // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
+    el.style.transition = 'none';
+    
     // Hover effect - use opacity and shadow instead of scale to prevent marker movement
     el.addEventListener('mouseenter', (e) => {
       e.stopPropagation();
