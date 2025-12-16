@@ -142,6 +142,7 @@ const PublicNFTShowcase = () => {
   const fullscreenMap = useRef(null);
   const nftsRef = useRef([]);
   const currentMarkers = useRef({});
+  const fullscreenMarkers = useRef({});
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -649,8 +650,16 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear any existing markers on the small map to avoid duplicates
-    const existingMarkers = document.querySelectorAll('.nft-marker');
+    // Clear existing markers from ref and map (matching NFT Dashboard approach)
+    Object.values(currentMarkers.current).forEach(marker => {
+      if (marker && typeof marker.remove === 'function') {
+        marker.remove();
+      }
+    });
+    currentMarkers.current = {};
+    
+    // Also clear any orphaned markers in DOM
+    const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
     existingMarkers.forEach(marker => marker.remove());
     
     console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
@@ -670,6 +679,12 @@ const PublicNFTShowcase = () => {
         return;
       }
       
+      // Check if marker already exists (prevent duplicates)
+      if (currentMarkers.current[nft.id]) {
+        console.log(`Marker for NFT ${nft.id} already exists, skipping creation`);
+        return;
+      }
+      
       console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${lng}, ${lat}]`);
       
       try {
@@ -677,6 +692,7 @@ const PublicNFTShowcase = () => {
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
         markerEl.setAttribute('data-map', 'small');
+        markerEl.setAttribute('data-nft-id', nft.id);
         
         // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
@@ -742,9 +758,12 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        new mapboxgl.Marker(markerEl)
+        const marker = new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
+        
+        // Store marker in ref (matching NFT Dashboard approach)
+        currentMarkers.current[nft.id] = marker;
         
         markersCreated++;
         console.log(`✅ Marker created for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}`);
@@ -757,7 +776,8 @@ const PublicNFTShowcase = () => {
     console.log('🚀 Marker creation completed:', {
       created: markersCreated,
       skipped: markersSkipped,
-      total: currentNFTs.length
+      total: currentNFTs.length,
+      storedInRef: Object.keys(currentMarkers.current).length
     });
   }, []);
 
@@ -778,13 +798,38 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear any existing fullscreen markers only
+    // Clear existing fullscreen markers from ref and map (matching NFT Dashboard approach)
+    Object.values(fullscreenMarkers.current).forEach(marker => {
+      if (marker && typeof marker.remove === 'function') {
+        marker.remove();
+      }
+    });
+    fullscreenMarkers.current = {};
+    
+    // Also clear any orphaned markers in DOM
     const existingMarkers = document.querySelectorAll('.nft-marker[data-map="fullscreen"]');
-    // console.log('🚀 Clearing', existingMarkers.length, 'existing fullscreen markers');
     existingMarkers.forEach(marker => marker.remove());
     
     // Create markers directly
+    let markersCreated = 0;
+    let markersSkipped = 0;
+    
     nftsToShow.forEach((nft, index) => {
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      
+      if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+        console.warn(`⚠️ Skipping fullscreen NFT ${index + 1} (ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}): Invalid coordinates`, { lat, lng });
+        markersSkipped++;
+        return;
+      }
+      
+      // Check if marker already exists (prevent duplicates)
+      if (fullscreenMarkers.current[nft.id]) {
+        console.log(`Fullscreen marker for NFT ${nft.id} already exists, skipping creation`);
+        return;
+      }
+      
       // console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
       
       try {
@@ -792,6 +837,7 @@ const PublicNFTShowcase = () => {
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
         markerEl.setAttribute('data-map', 'fullscreen');
+        markerEl.setAttribute('data-nft-id', nft.id);
 
         // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
@@ -847,17 +893,27 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        new mapboxgl.Marker(markerEl)
+        const marker = new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(fullscreenMap.current);
         
+        // Store marker in ref (matching NFT Dashboard approach)
+        fullscreenMarkers.current[nft.id] = marker;
+        
+        markersCreated++;
         // console.log(`✅ Direct fullscreen marker ${index + 1} created successfully with image`);
       } catch (error) {
         console.error(`❌ Error creating direct fullscreen marker ${index + 1}:`, error);
+        markersSkipped++;
       }
     });
     
-    // console.log('🚀 Direct fullscreen marker creation completed');
+    console.log('🚀 Fullscreen marker creation completed:', {
+      created: markersCreated,
+      skipped: markersSkipped,
+      total: nftsToShow.length,
+      storedInRef: Object.keys(fullscreenMarkers.current).length
+    });
   }, [nfts, filteredNFTs]);
 
   // Handle dialog open
