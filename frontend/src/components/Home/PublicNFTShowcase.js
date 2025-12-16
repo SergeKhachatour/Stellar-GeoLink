@@ -742,7 +742,7 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        const nftMarker = new mapboxgl.Marker(markerEl)
+        new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
@@ -847,7 +847,7 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
-        const nftMarker = new mapboxgl.Marker(markerEl)
+        new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(fullscreenMap.current);
         
