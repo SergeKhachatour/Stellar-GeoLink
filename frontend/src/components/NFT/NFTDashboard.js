@@ -277,6 +277,7 @@ const NFTDashboard = () => {
   const [pinMarker, setPinMarker] = useState(null);
   const [pinMarkerLocked, setPinMarkerLocked] = useState(false);
   const [isDraggingPin, setIsDraggingPin] = useState(false);
+  const isDraggingPinRef = useRef(false);
   const [pinMarkerProtected, setPinMarkerProtected] = useState(false);
   // const [addedRadiusCircles, setAddedRadiusCircles] = useState(new Set()); // Removed unused variables
   const [geocoding, setGeocoding] = useState(false);
@@ -652,10 +653,40 @@ const NFTDashboard = () => {
       };
       img.src = imageUrl; // Trigger image load check
 
+      // Check if current user is the creator of this NFT
+      // Only allow dragging if user created the NFT or is admin/nft_manager
+      const isCreator = nft.pinned_by_user && (
+        (user?.public_key && nft.pinned_by_user === user.public_key) ||
+        (publicKey && nft.pinned_by_user === publicKey)
+      );
+      const isAdminOrManager = user?.role === 'admin' || user?.role === 'nft_manager';
+      const canEdit = isCreator || isAdminOrManager;
+      
+      console.log(`🔐 NFT ${nft.id} edit permission check:`, {
+        pinned_by_user: nft.pinned_by_user,
+        user_public_key: user?.public_key,
+        wallet_publicKey: publicKey,
+        isCreator,
+        user_role: user?.role,
+        isAdminOrManager,
+        canEdit
+      });
+      
+      // Set cursor based on edit permission
+      el.style.cursor = canEdit ? 'grab' : 'pointer';
+      
+      // Track if marker is being dragged (using closure variable)
+      let isDraggingMarker = false;
+      
       // Add click handler to show NFT details
       // Add click handler for NFT details with delay to allow double-click
       let clickTimeout;
       el.addEventListener('click', (e) => {
+        // Don't trigger click if we just finished dragging
+        if (isDraggingMarker) {
+          return;
+        }
+        
         e.preventDefault();
         e.stopPropagation();
         
@@ -693,13 +724,89 @@ const NFTDashboard = () => {
         });
       });
 
-      // Create marker (matching XYZ-Wallet guide - draggable: false for stable positioning)
+      // Create marker with dragging enabled only if user can edit
       const marker = new Mapboxgl.Marker({
         element: el,
-        draggable: false // CRITICAL: Must be false for stable positioning
+        draggable: canEdit // Only enable dragging if user created the NFT or is admin/manager
       })
       .setLngLat([finalLng, finalLat])
       .addTo(map);
+
+      // Store NFT ID on marker for reference
+      marker._nftId = nft.id;
+      
+      // Add drag event handlers to update NFT location (only if user can edit)
+      if (canEdit) {
+        marker.on('dragstart', () => {
+          console.log(`🔄 NFT marker ${nft.id} drag started`);
+          isDraggingMarker = true;
+          el.style.cursor = 'grabbing';
+          el.style.opacity = '0.8';
+          // Mark as recently dragged to prevent marker updates during drag
+          marker._wasRecentlyDragged = true;
+          marker._isDragging = true;
+        });
+
+        marker.on('drag', () => {
+          const { lng, lat } = marker.getLngLat();
+          console.log(`🔄 NFT marker ${nft.id} dragging to:`, { lng, lat });
+          // Update visual feedback during drag
+          el.style.opacity = '0.9';
+        });
+
+        marker.on('dragend', async () => {
+          const { lng, lat } = marker.getLngLat();
+          console.log(`✅ NFT marker ${nft.id} drag ended at:`, { lng, lat });
+          
+          isDraggingMarker = false;
+          el.style.cursor = 'grab';
+          el.style.opacity = '1';
+          marker._isDragging = false;
+          
+          // Update NFT location in database
+          try {
+            setLoading(true);
+            await api.put(`/nft/pinned/${nft.id}`, {
+              latitude: lat,
+              longitude: lng
+            });
+            
+            // Update the NFT in nearbyNFTs state
+            setNearbyNFTs(prev => prev.map(item => 
+              item.id === nft.id 
+                ? { ...item, latitude: lat, longitude: lng }
+                : item
+            ));
+            
+            setSuccess(`✅ NFT location updated to ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            
+            // Clear success message after 3 seconds
+            setTimeout(() => {
+              setSuccess('');
+            }, 3000);
+            
+            // Mark as recently dragged to prevent marker updates
+            marker._wasRecentlyDragged = true;
+            marker._lastUpdated = Date.now();
+            
+            // Clear the recently dragged flag after a delay
+            setTimeout(() => {
+              marker._wasRecentlyDragged = false;
+            }, 5000);
+          } catch (error) {
+            console.error(`Error updating NFT ${nft.id} location:`, error);
+            setError(`Failed to update NFT location: ${error.response?.data?.error || error.message}`);
+            
+            // Revert marker position on error
+            marker.setLngLat([finalLng, finalLat]);
+          } finally {
+            setLoading(false);
+          }
+        });
+      } else {
+        // If user cannot edit, show a tooltip or message when they try to drag
+        el.title = 'Only the creator of this NFT can edit its location';
+      }
 
       // Store marker reference
       console.log(`🎯 Before storing marker ${nft.id} - currentMarkers ref:`, currentMarkersRef.current);
@@ -767,10 +874,7 @@ const NFTDashboard = () => {
     }
     
     // ZOOM-PROOF: Prevent any updates during zoom operations
-    if (isUserMovingMap && !forceUpdate) {
-      console.log('User is interacting with map - no marker updates allowed');
-      return;
-    }
+    // Removed isUserMovingMap check - no longer needed
     
     // AGGRESSIVE PROTECTION: If markers exist and are positioned correctly, don't update them
     if (markersCreated && Object.keys(currentMarkersRef.current).length > 0 && !forceUpdate) {
@@ -983,7 +1087,7 @@ const NFTDashboard = () => {
       setLoading(false);
       setMapLoading(false);
     }
-  }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, isUserMovingMap, markersNeverUpdate, pinMarkerProtected, pinMarker, createIndividualMarkers, mapLoading]);
+  }, [nearbyNFTs, map, overlayMap, markers, overlayMarkers, markersCreated, markersLocked, markersStable, markersNeverUpdate, pinMarkerProtected, pinMarker, createIndividualMarkers, mapLoading]);
 
   // Filter Functions - Fetch filtered data from API
   const applyFilters = useCallback(async () => {
@@ -1383,6 +1487,15 @@ const NFTDashboard = () => {
       currentMap.current.on('load', () => {
         console.log('Map loaded for', mapType);
         
+        // CRITICAL: Explicitly enable map dragging/panning
+        currentMap.current.dragPan.enable();
+        currentMap.current.scrollZoom.enable();
+        currentMap.current.boxZoom.enable();
+        currentMap.current.doubleClickZoom.enable();
+        currentMap.current.keyboard.enable();
+        currentMap.current.touchZoomRotate.enable();
+        currentMap.current.touchPitch.enable();
+        
         // Add enhanced navigation control with 3D features
         const navControl = new Mapboxgl.NavigationControl({
           showCompass: true,
@@ -1508,39 +1621,55 @@ const NFTDashboard = () => {
           }
           
           // Add fog for depth perception (if supported)
-          // Only set fog after ensuring map style is fully loaded
-          try {
-            if (currentMap.current && currentMap.current.isStyleLoaded()) {
-              currentMap.current.setFog({
-                color: 'rgb(186, 210, 235)',
-                'high-color': 'rgb(36, 92, 223)',
-                'horizon-blend': 0.02,
-                'space-color': 'rgb(11, 11, 25)',
-                'star-intensity': 0.6
-              });
-              console.log('Fog effects added successfully');
-            } else {
-              // Wait for style to load before setting fog
-              currentMap.current.once('style.load', () => {
-                try {
-                  if (currentMap.current) {
-                    currentMap.current.setFog({
-                      color: 'rgb(186, 210, 235)',
-                      'high-color': 'rgb(36, 92, 223)',
-                      'horizon-blend': 0.02,
-                      'space-color': 'rgb(11, 11, 25)',
-                      'star-intensity': 0.6
-                    });
-                    console.log('Fog effects added after style load');
+          // Only set fog after ensuring map style is fully loaded and map is ready
+          const setFogSafely = () => {
+            try {
+              if (currentMap.current && currentMap.current.isStyleLoaded() && currentMap.current.loaded()) {
+                // Additional delay to ensure fog state is initialized
+                setTimeout(() => {
+                  try {
+                    if (currentMap.current && currentMap.current.isStyleLoaded() && currentMap.current.loaded()) {
+                      currentMap.current.setFog({
+                        color: 'rgb(186, 210, 235)',
+                        'high-color': 'rgb(36, 92, 223)',
+                        'horizon-blend': 0.02,
+                        'space-color': 'rgb(11, 11, 25)',
+                        'star-intensity': 0.6
+                      });
+                      console.log('Fog effects added successfully');
+                    }
+                  } catch (innerFogError) {
+                    console.warn('Fog effects not supported (inner):', innerFogError.message);
                   }
-                } catch (fogError) {
-                  console.warn('Fog effects not supported after style load:', fogError.message);
-                }
-              });
+                }, 200);
+              } else {
+                // Wait for style to load before setting fog
+                currentMap.current.once('style.load', () => {
+                  setTimeout(() => {
+                    try {
+                      if (currentMap.current && currentMap.current.isStyleLoaded() && currentMap.current.loaded()) {
+                        currentMap.current.setFog({
+                          color: 'rgb(186, 210, 235)',
+                          'high-color': 'rgb(36, 92, 223)',
+                          'horizon-blend': 0.02,
+                          'space-color': 'rgb(11, 11, 25)',
+                          'star-intensity': 0.6
+                        });
+                        console.log('Fog effects added after style load');
+                      }
+                    } catch (fogError) {
+                      console.warn('Fog effects not supported after style load:', fogError.message);
+                    }
+                  }, 200);
+                });
+              }
+            } catch (fogError) {
+              console.warn('Fog effects not supported:', fogError.message);
             }
-          } catch (fogError) {
-            console.warn('Fog effects not supported:', fogError.message);
-          }
+          };
+          
+          // Set fog after a delay to ensure map is fully ready
+          setTimeout(setFogSafely, 500);
           
           console.log('3D terrain, fog, and enhanced buildings added');
         } catch (error) {
@@ -2293,11 +2422,16 @@ const NFTDashboard = () => {
     if (map.current) {
       // Remove fog before style change to prevent state issues
       try {
-        if (map.current.getFog()) {
-          map.current.setFog(null);
+        // Check if map is ready and fog exists before trying to get/remove it
+        if (map.current.isStyleLoaded()) {
+          const currentFog = map.current.getFog();
+          if (currentFog) {
+            map.current.setFog(null);
+          }
         }
       } catch (error) {
         // Ignore errors when removing fog
+        console.warn('Error removing fog before style change:', error.message);
       }
       
       switch (view) {
@@ -2356,16 +2490,25 @@ const NFTDashboard = () => {
               }
             }
             
-            // Re-set fog after style loads
+            // Re-set fog after style loads - with additional safety checks
             try {
-              if (map.current && map.current.isStyleLoaded()) {
-                map.current.setFog({
-                  color: 'rgb(186, 210, 235)',
-                  'high-color': 'rgb(36, 92, 223)',
-                  'horizon-blend': 0.02,
-                  'space-color': 'rgb(11, 11, 25)',
-                  'star-intensity': 0.6
-                });
+              if (map.current && map.current.isStyleLoaded() && map.current.loaded()) {
+                // Wait a bit more to ensure fog state is ready
+                setTimeout(() => {
+                  try {
+                    if (map.current && map.current.isStyleLoaded() && map.current.loaded()) {
+                      map.current.setFog({
+                        color: 'rgb(186, 210, 235)',
+                        'high-color': 'rgb(36, 92, 223)',
+                        'horizon-blend': 0.02,
+                        'space-color': 'rgb(11, 11, 25)',
+                        'star-intensity': 0.6
+                      });
+                    }
+                  } catch (innerFogError) {
+                    console.warn('Fog not supported after style change (inner):', innerFogError.message);
+                  }
+                }, 100);
               }
             } catch (fogError) {
               console.warn('Fog not supported after style change:', fogError.message);
@@ -2425,7 +2568,7 @@ const NFTDashboard = () => {
     }
     
     // Don't recreate pin marker if it's already locked or being dragged
-    if ((pinMarkerLocked && pinMarker) || isDraggingPin) {
+    if ((pinMarkerLocked && pinMarker) || isDraggingPinRef.current) {
       console.log('🚨 Pin marker is locked or being dragged, not recreating');
       return;
     }
@@ -2471,29 +2614,136 @@ const NFTDashboard = () => {
 
     // Create draggable pin marker with better visual design
     const pinElement = document.createElement('div');
-    pinElement.innerHTML = '📍';
-    pinElement.style.fontSize = '32px'; // Larger for better visibility
-    pinElement.style.cursor = 'move';
-    pinElement.style.zIndex = '1000';
-    pinElement.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
-    pinElement.style.transition = 'all 0.2s ease';
+    // Use textContent instead of innerHTML to avoid emoji rendering issues
+    pinElement.textContent = '📍';
+    pinElement.style.cssText = `
+      font-size: 32px;
+      cursor: move;
+      z-index: 1000;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+      transition: none !important;
+      pointer-events: auto !important;
+      user-select: none !important;
+      touch-action: none !important;
+      position: relative !important;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    `;
 
     console.log('Creating pin marker at coordinates:', [lng, lat]);
+    
+    // CRITICAL: Create marker with draggable enabled
     const marker = new Mapboxgl.Marker({
       element: pinElement,
-      draggable: true
+      draggable: true,
+      anchor: 'center'
     })
       .setLngLat([lng, lat]) // Use exact coordinates
       .addTo(map.current);
+    
+    // CRITICAL: Wait a tick to ensure marker is fully added to map before configuring
+    setTimeout(() => {
+      const markerElement = marker.getElement();
+      if (markerElement) {
+        // Remove any HTML5 draggable attribute that might interfere
+        markerElement.removeAttribute('draggable');
+        
+        // Ensure pointer events and cursor are set correctly
+        markerElement.style.pointerEvents = 'auto';
+        markerElement.style.cursor = 'move';
+        
+        // CRITICAL: Ensure the element can receive mouse/touch events
+        markerElement.style.touchAction = 'none';
+        markerElement.style.userSelect = 'none';
+        
+        // CRITICAL: Ensure the element is above everything and can receive events
+        markerElement.style.zIndex = '10000';
+        markerElement.style.position = 'relative';
+        
+        // Verify Mapbox dragging is enabled
+        const isDraggable = marker.isDraggable();
+        console.log('✅ Pin marker element configured for dragging:', {
+          pointerEvents: markerElement.style.pointerEvents,
+          cursor: markerElement.style.cursor,
+          isDraggable: isDraggable,
+          element: markerElement,
+          elementClasses: markerElement.className,
+          elementStyles: markerElement.style.cssText,
+          mapDragPanEnabled: map.current.dragPan.isEnabled()
+        });
+        
+        // Double-check that Mapbox recognizes this as draggable
+        if (!isDraggable) {
+          console.warn('⚠️ Marker isDraggable() returned false, attempting to fix...');
+          // Try to manually enable dragging by accessing internal Mapbox state
+          try {
+            // Mapbox stores draggable state internally
+            if (marker._draggable !== undefined) {
+              marker._draggable = true;
+              console.log('✅ Manually set marker._draggable = true');
+            }
+            // Also try to re-initialize the drag handler
+            if (marker._setupDragHandlers) {
+              marker._setupDragHandlers();
+              console.log('✅ Re-initialized drag handlers');
+            }
+          } catch (e) {
+            console.error('❌ Could not manually enable dragging:', e);
+          }
+        }
+        
+        // CRITICAL: Add direct event listeners to ensure dragging works
+        // Mapbox should handle this, but we'll add fallback listeners
+        let isDragging = false;
+        let startX, startY;
+        
+        markerElement.addEventListener('mousedown', (e) => {
+          console.log('🖱️ Mouse down on pin marker element');
+          isDragging = true;
+          startX = e.clientX;
+          startY = e.clientY;
+          e.stopPropagation(); // Prevent map from handling this
+        }, true); // Use capture phase to ensure we get the event first
+        
+        markerElement.addEventListener('mousemove', (e) => {
+          if (isDragging) {
+            console.log('🖱️ Mouse move while dragging pin marker');
+            e.stopPropagation(); // Prevent map from handling this
+          }
+        }, true);
+        
+        markerElement.addEventListener('mouseup', (e) => {
+          if (isDragging) {
+            console.log('🖱️ Mouse up on pin marker element - drag ended');
+            isDragging = false;
+            e.stopPropagation(); // Prevent map from handling this
+          }
+        }, true);
+      }
+    }, 100); // Small delay to ensure marker is fully added
 
     // Add drag event listeners with coordinate display
     marker.on('dragstart', () => {
       console.log('🔒 Pin drag started - ULTRA PROTECTION ACTIVATED');
       setIsDraggingPin(true);
+      isDraggingPinRef.current = true; // Update ref immediately
       setPinMarkerProtected(true);
+      
+      // Pause the lock interval during dragging
+      if (marker._lockInterval) {
+        clearInterval(marker._lockInterval);
+        marker._lockInterval = null;
+        console.log('🔒 Lock interval paused during drag');
+      }
+      
       pinElement.style.transform = 'scale(1.3)';
       pinElement.style.filter = 'drop-shadow(0 6px 12px rgba(0,0,0,0.5))';
       pinElement.style.zIndex = '1001';
+      pinElement.style.transition = 'none'; // Re-enforce no transition during drag
     });
 
     marker.on('drag', () => {
@@ -2511,6 +2761,11 @@ const NFTDashboard = () => {
       pinElement.style.transform = 'scale(1)';
       pinElement.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))';
       pinElement.style.zIndex = '1000';
+      pinElement.style.transition = 'none'; // Re-enforce no transition after drag
+      
+      // Update expected position for lock function
+      marker._expectedLng = lng;
+      marker._expectedLat = lat;
       
       // Update form and location with exact coordinates
       setPinForm(prev => ({
@@ -2530,13 +2785,37 @@ const NFTDashboard = () => {
       // Keep protection active for much longer
       setTimeout(() => {
         setIsDraggingPin(false);
+        isDraggingPinRef.current = false; // Update ref immediately
         console.log('🔒 Pin dragging flag reset, but PROTECTION REMAINS ACTIVE');
-      }, 2000); // Increased to 2000ms
+        
+        // Start the lock interval after dragging ends (only if not already running)
+        // Use a longer interval (500ms) to avoid interfering with user interactions
+        if (marker && !marker._lockInterval) {
+          const lockMarkerPosition = () => {
+            // CRITICAL: Don't lock position when user is dragging the marker
+            if (isDraggingPinRef.current) {
+              return;
+            }
+            if (marker && pinMarkerProtected) {
+              const currentPos = marker.getLngLat();
+              const expectedPos = [marker._expectedLng, marker._expectedLat];
+              if (Math.abs(currentPos.lng - expectedPos[0]) > 0.000001 || 
+                  Math.abs(currentPos.lat - expectedPos[1]) > 0.000001) {
+                console.log('🔒 Pin marker position corrected:', currentPos, '->', expectedPos);
+                marker.setLngLat(expectedPos);
+              }
+            }
+          };
+          // Use 500ms interval instead of 100ms to reduce interference
+          marker._lockInterval = setInterval(lockMarkerPosition, 500);
+          console.log('🔒 Lock interval started after drag');
+        }
+      }, 500); // Reduced to 500ms - start locking sooner but with less frequent checks
       
       // Keep protection active indefinitely
       setPinMarkerProtected(true);
       
-      // ULTRA-AGGRESSIVE: Lock the marker to its exact position
+      // Lock the marker to its new dragged position
       marker.setLngLat([lng, lat]);
       console.log('🔒 Pin marker locked to exact coordinates:', [lng, lat]);
     });
@@ -2547,24 +2826,13 @@ const NFTDashboard = () => {
     setPinMarkerProtected(true);
     console.log('🔒 Pin marker created, stored in state, locked, and PROTECTED');
     
-    // ULTRA-AGGRESSIVE: Continuously lock the marker to its position
-    const lockMarkerPosition = () => {
-      if (marker && pinMarkerProtected) {
-        const currentPos = marker.getLngLat();
-        const expectedPos = [lng, lat];
-        if (Math.abs(currentPos.lng - expectedPos[0]) > 0.000001 || 
-            Math.abs(currentPos.lat - expectedPos[1]) > 0.000001) {
-          console.log('🔒 Pin marker position corrected:', currentPos, '->', expectedPos);
-          marker.setLngLat(expectedPos);
-        }
-      }
-    };
+    // Store expected position in marker for later updates
+    marker._expectedLng = lng;
+    marker._expectedLat = lat;
     
-    // Lock position every 100ms
-    const lockInterval = setInterval(lockMarkerPosition, 100);
-    
-    // Store the interval ID for cleanup
-    marker._lockInterval = lockInterval;
+    // DON'T start the lock interval immediately - it interferes with dragging
+    // The interval will be started after the user finishes dragging (in dragend handler)
+    marker._lockInterval = null;
   };
 
   const handlePinNFT = async () => {

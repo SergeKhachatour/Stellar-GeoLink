@@ -442,6 +442,14 @@ router.get('/pinned', authenticateUser, async (req, res) => {
 // Update a pinned NFT
 router.put('/pinned/:id', authenticateUser, async (req, res) => {
     try {
+        // Get user's public_key from database
+        let userPublicKey;
+        try {
+            userPublicKey = await getUserPublicKey(req.user.id);
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+
         const { id } = req.params;
         const {
             collection_id,
@@ -453,6 +461,24 @@ router.put('/pinned/:id', authenticateUser, async (req, res) => {
             rarity_requirements,
             is_active
         } = req.body;
+
+        // Check if NFT exists and verify user has permission to update it
+        const nftCheck = await pool.query(`
+            SELECT pinned_by_user FROM pinned_nfts WHERE id = $1
+        `, [id]);
+
+        if (nftCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'NFT not found' });
+        }
+
+        const nft = nftCheck.rows[0];
+        const isCreator = nft.pinned_by_user === userPublicKey;
+        const isAdminOrManager = ['admin', 'nft_manager'].includes(req.user.role);
+
+        // Only allow update if user is the creator or admin/manager
+        if (!isCreator && !isAdminOrManager) {
+            return res.status(403).json({ error: 'Not authorized to update this NFT. Only the creator or admin/manager can update it.' });
+        }
 
         const result = await pool.query(`
             UPDATE pinned_nfts 
