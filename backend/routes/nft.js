@@ -1614,9 +1614,10 @@ router.get('/public', async (req, res) => {
         console.log('📍 pinned_nfts columns:', columnCheck.rows);
         
         // Join with ipfs_servers, nft_uploads, and ipfs_pins to get proper server_url and ipfs_hash
-        // This matches the logic in /nft/dashboard/nearby endpoint
+        // This matches the logic in /nft/dashboard/nearby and /nft/nearby endpoints exactly
         // IMPORTANT: Only return NFTs with valid coordinates (latitude and longitude are not null and not 0)
         // This ensures we only return NFTs that can actually be displayed on a map
+        // Using the same query structure as /nft/nearby but without radius filtering
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -1635,6 +1636,8 @@ router.get('/public', async (req, res) => {
             AND pn.longitude IS NOT NULL
             AND pn.latitude != 0 
             AND pn.longitude != 0
+            AND pn.latitude BETWEEN -90 AND 90
+            AND pn.longitude BETWEEN -180 AND 180
             ORDER BY pn.id DESC
         `);
         
