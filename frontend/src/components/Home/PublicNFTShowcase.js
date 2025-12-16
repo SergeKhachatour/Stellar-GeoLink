@@ -371,7 +371,15 @@ const PublicNFTShowcase = () => {
         total: response.data.count,
         nfts: response.data.nfts.length,
         sample: response.data.nfts.slice(0, 3),
-        allIds: response.data.nfts.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude }))
+        allIds: response.data.nfts.map(nft => ({ 
+          id: nft.id, 
+          name: nft.name, 
+          lat: nft.latitude, 
+          lng: nft.longitude,
+          server_url: nft.server_url,
+          ipfs_hash: nft.ipfs_hash,
+          image_url: nft.image_url
+        }))
       });
       
       // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
