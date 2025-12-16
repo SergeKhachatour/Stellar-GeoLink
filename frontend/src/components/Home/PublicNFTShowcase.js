@@ -370,7 +370,8 @@ const PublicNFTShowcase = () => {
       console.log('🌍 Public NFTs API response:', {
         total: response.data.count,
         nfts: response.data.nfts.length,
-        sample: response.data.nfts.slice(0, 3)
+        sample: response.data.nfts.slice(0, 3),
+        allIds: response.data.nfts.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude }))
       });
       
       // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
@@ -632,6 +633,7 @@ const PublicNFTShowcase = () => {
     existingMarkers.forEach(marker => marker.remove());
     
     console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
+    console.log('🚀 NFT IDs to create markers for:', currentNFTs.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude })));
     
     // Create markers directly
     let markersCreated = 0;
@@ -642,10 +644,12 @@ const PublicNFTShowcase = () => {
       const lng = parseFloat(nft.longitude);
       
       if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
-        console.warn(`⚠️ Skipping NFT ${index + 1} (${nft.name || 'Unnamed'}): Invalid coordinates`, { lat, lng });
+        console.warn(`⚠️ Skipping NFT ${index + 1} (ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}): Invalid coordinates`, { lat, lng });
         markersSkipped++;
         return;
       }
+      
+      console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${lng}, ${lat}]`);
       
       try {
         // Create marker element (matching XYZ-Wallet guide - using background-image CSS property)
@@ -709,7 +713,7 @@ const PublicNFTShowcase = () => {
           .addTo(map.current);
         
         markersCreated++;
-        // console.log(`✅ Direct marker ${index + 1} created successfully with image`);
+        console.log(`✅ Marker created for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}`);
       } catch (error) {
         console.error(`❌ Error creating direct marker ${index + 1}:`, error);
         markersSkipped++;
