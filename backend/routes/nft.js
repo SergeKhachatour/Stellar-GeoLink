@@ -1635,7 +1635,7 @@ router.get('/public', async (req, res) => {
             AND pn.longitude IS NOT NULL
             AND pn.latitude != 0 
             AND pn.longitude != 0
-            ORDER BY pn.created_at DESC
+            ORDER BY pn.id DESC
         `);
         
         console.log('📍 Found public NFTs:', result.rows.length);
