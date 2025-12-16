@@ -172,7 +172,10 @@ const PublicNFTShowcase = () => {
           lng: nft.longitude,
           server_url: nft.server_url,
           ipfs_hash: nft.ipfs_hash,
-          image_url: nft.image_url
+          image_url: nft.image_url,
+          nft_upload_id: nft.nft_upload_id,
+          ipfs_server_id: nft.ipfs_server_id,
+          associations: nft.associations
         }))
       });
       
@@ -181,15 +184,46 @@ const PublicNFTShowcase = () => {
       console.log('🌍 All NFT IDs returned (sorted):', allIds);
       console.log('🌍 NFT ID range:', { min: Math.min(...allIds), max: Math.max(...allIds), count: allIds.length });
       
+      // Enhanced data quality logging for Azure debugging
+      const missingServerUrl = response.data.nfts.filter(nft => !nft.server_url);
+      const missingIpfsHash = response.data.nfts.filter(nft => !nft.ipfs_hash);
+      const missingBoth = response.data.nfts.filter(nft => !nft.server_url && !nft.ipfs_hash);
+      
+      console.log('🌍 Data quality check:');
+      console.log(`  - NFTs missing server_url: ${missingServerUrl.length}`, missingServerUrl.map(nft => ({ id: nft.id, name: nft.name })));
+      console.log(`  - NFTs missing ipfs_hash: ${missingIpfsHash.length}`, missingIpfsHash.map(nft => ({ id: nft.id, name: nft.name })));
+      console.log(`  - NFTs missing both: ${missingBoth.length}`, missingBoth.map(nft => ({ id: nft.id, name: nft.name })));
+      
+      // Log Workflow 2 association data
+      const workflow2NFTs = response.data.nfts.filter(nft => nft.associations?.has_upload || nft.nft_upload_id);
+      console.log(`🌍 Workflow 2 NFTs found: ${workflow2NFTs.length}`, workflow2NFTs.map(nft => ({
+        id: nft.id,
+        nft_upload_id: nft.nft_upload_id,
+        ipfs_server_id: nft.ipfs_server_id,
+        associations: nft.associations
+      })));
+      
       // Process the NFTs to add full IPFS URLs using dynamic server_url (matching NFT Dashboard)
-      const processedNFTs = response.data.nfts.map(nft => ({
-        ...nft,
-        full_ipfs_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash),
-        collection: {
-          ...nft.collection,
-          full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
+      const processedNFTs = response.data.nfts.map(nft => {
+        const fullIpfsUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash);
+        
+        // Log if URL construction fails
+        if (!fullIpfsUrl && nft.server_url && nft.ipfs_hash) {
+          console.warn(`⚠️ Failed to construct IPFS URL for NFT ${nft.id}:`, {
+            server_url: nft.server_url,
+            ipfs_hash: nft.ipfs_hash
+          });
         }
-      }));
+        
+        return {
+          ...nft,
+          full_ipfs_url: fullIpfsUrl,
+          collection: {
+            ...nft.collection,
+            full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
+          }
+        };
+      });
       
       // Filter out NFTs without valid coordinates (they can't be displayed on map)
       const nftsWithCoordinates = processedNFTs.filter(nft => {
@@ -201,7 +235,9 @@ const PublicNFTShowcase = () => {
       console.log('🌍 Processed NFTs:', {
         total: processedNFTs.length,
         withCoordinates: nftsWithCoordinates.length,
-        withoutCoordinates: processedNFTs.length - nftsWithCoordinates.length
+        withoutCoordinates: processedNFTs.length - nftsWithCoordinates.length,
+        withValidImageUrl: processedNFTs.filter(nft => nft.full_ipfs_url || nft.image_url).length,
+        withoutImageUrl: processedNFTs.filter(nft => !nft.full_ipfs_url && !nft.image_url).length
       });
       
       setNfts(nftsWithCoordinates);
@@ -443,15 +479,28 @@ const PublicNFTShowcase = () => {
         // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
+        // Enhanced logging for Azure debugging
+        if (!imageUrl || imageUrl === 'https://via.placeholder.com/48x48?text=NFT') {
+          console.warn(`⚠️ NFT ID ${nft.id} missing image data:`, {
+            server_url: nft.server_url,
+            ipfs_hash: nft.ipfs_hash,
+            image_url: nft.image_url,
+            nft_upload_id: nft.nft_upload_id,
+            ipfs_server_id: nft.ipfs_server_id,
+            associations: nft.associations,
+            constructed_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash)
+          });
+        }
+        
         console.log(`🖼️ NFT ID ${nft.id} image URL:`, {
           server_url: nft.server_url,
           ipfs_hash: nft.ipfs_hash,
           image_url: nft.image_url,
           constructed_url: imageUrl,
-          full_constructed_url: imageUrl
+          full_constructed_url: imageUrl,
+          has_upload: !!nft.nft_upload_id,
+          has_ipfs_server: !!nft.ipfs_server_id
         });
-        
-        console.log(`🖼️ NFT ID ${nft.id} FULL image URL:`, imageUrl);
         
         // Use CSS class for static styles (matching NFT Dashboard)
         markerEl.className = 'nft-marker';
