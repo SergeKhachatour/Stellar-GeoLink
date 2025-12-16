@@ -888,7 +888,7 @@ const EnhancedNFTDashboard = () => {
     } catch (error) {
       console.error(`Error creating marker for NFT ${nft.id}:`, error);
     }
-  }, [currentMarkers]);
+  }, [currentMarkers, publicKey, user?.public_key, user?.role]);
 
 
   // Function to create individual markers when zoomed in
@@ -2767,13 +2767,10 @@ const EnhancedNFTDashboard = () => {
         // CRITICAL: Add direct event listeners to ensure dragging works
         // Mapbox should handle this, but we'll add fallback listeners
         let isDragging = false;
-        let startX, startY;
         
         markerElement.addEventListener('mousedown', (e) => {
           console.log('🖱️ Mouse down on pin marker element');
           isDragging = true;
-          startX = e.clientX;
-          startY = e.clientY;
           e.stopPropagation(); // Prevent map from handling this
         }, true); // Use capture phase to ensure we get the event first
         
