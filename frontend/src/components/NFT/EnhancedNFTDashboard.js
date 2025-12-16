@@ -562,7 +562,7 @@ const EnhancedNFTDashboard = () => {
     setLastRequestTime(now);
     setError('');
     try {
-      console.log('Fetching ALL NFTs globally with provided location:', location);
+      console.log('🎯 Enhanced NFT Dashboard: Fetching ALL NFTs globally with provided location:', location);
       const response = await api.get('/nft/dashboard/nearby', {
         params: {
           latitude: location.latitude,
@@ -571,20 +571,86 @@ const EnhancedNFTDashboard = () => {
         }
       });
       
-      console.log('Nearby NFTs API response (with location):', response.data);
+      console.log('🎯 Enhanced NFT Dashboard: Nearby NFTs API response (with location):', {
+        total: response.data.count,
+        nfts: response.data.nfts.length,
+        sample: response.data.nfts.slice(0, 3),
+        allIds: response.data.nfts.map(nft => ({ 
+          id: nft.id, 
+          name: nft.name, 
+          lat: nft.latitude, 
+          lng: nft.longitude,
+          server_url: nft.server_url,
+          ipfs_hash: nft.ipfs_hash,
+          image_url: nft.image_url,
+          nft_upload_id: nft.nft_upload_id,
+          ipfs_server_id: nft.ipfs_server_id,
+          associations: nft.associations
+        }))
+      });
+      
+      // Log all NFT IDs to see which ones are returned
+      const allIds = response.data.nfts.map(nft => nft.id).sort((a, b) => a - b);
+      console.log('🎯 Enhanced NFT Dashboard: All NFT IDs returned (sorted):', allIds);
+      console.log('🎯 Enhanced NFT Dashboard: NFT ID range:', { min: Math.min(...allIds), max: Math.max(...allIds), count: allIds.length });
+      
+      // Enhanced data quality logging for Azure debugging
+      const missingServerUrl = response.data.nfts.filter(nft => !nft.server_url);
+      const missingIpfsHash = response.data.nfts.filter(nft => !nft.ipfs_hash);
+      const missingBoth = response.data.nfts.filter(nft => !nft.server_url && !nft.ipfs_hash);
+      
+      console.log('🎯 Enhanced NFT Dashboard: Data quality check:');
+      console.log(`  - NFTs missing server_url: ${missingServerUrl.length}`, missingServerUrl.map(nft => ({ id: nft.id, name: nft.name })));
+      console.log(`  - NFTs missing ipfs_hash: ${missingIpfsHash.length}`, missingIpfsHash.map(nft => ({ id: nft.id, name: nft.name })));
+      console.log(`  - NFTs missing both: ${missingBoth.length}`, missingBoth.map(nft => ({ id: nft.id, name: nft.name })));
+      
+      // Log Workflow 2 association data
+      const workflow2NFTs = response.data.nfts.filter(nft => nft.associations?.has_upload || nft.nft_upload_id);
+      console.log(`🎯 Enhanced NFT Dashboard: Workflow 2 NFTs found: ${workflow2NFTs.length}`, workflow2NFTs.map(nft => ({
+        id: nft.id,
+        nft_upload_id: nft.nft_upload_id,
+        ipfs_server_id: nft.ipfs_server_id,
+        associations: nft.associations
+      })));
       
       // Process the NFTs to add full IPFS URLs using dynamic server_url
-      const processedNFTs = response.data.nfts.map(nft => ({
-        ...nft,
-        full_ipfs_url: constructIPFSUrl(nft.server_url, nft.ipfs_hash),
-        collection: {
-          ...nft.collection,
-          full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
+      const processedNFTs = response.data.nfts.map(nft => {
+        const fullIpfsUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash);
+        
+        // Log if URL construction fails
+        if (!fullIpfsUrl && nft.server_url && nft.ipfs_hash) {
+          console.warn(`⚠️ Enhanced NFT Dashboard: Failed to construct IPFS URL for NFT ${nft.id}:`, {
+            server_url: nft.server_url,
+            ipfs_hash: nft.ipfs_hash
+          });
         }
-      }));
+        
+        return {
+          ...nft,
+          full_ipfs_url: fullIpfsUrl,
+          collection: {
+            ...nft.collection,
+            full_image_url: constructIPFSUrl(nft.server_url, nft.collection?.image_url)
+          }
+        };
+      });
       
-      console.log('Processed NFTs (with location):', processedNFTs);
-      setNearbyNFTs(processedNFTs);
+      // Filter out NFTs without valid coordinates (they can't be displayed on map)
+      const nftsWithCoordinates = processedNFTs.filter(nft => {
+        const lat = parseFloat(nft.latitude);
+        const lng = parseFloat(nft.longitude);
+        return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+      });
+      
+      console.log('🎯 Enhanced NFT Dashboard: Processed NFTs (with location):', {
+        total: processedNFTs.length,
+        withCoordinates: nftsWithCoordinates.length,
+        withoutCoordinates: processedNFTs.length - nftsWithCoordinates.length,
+        withValidImageUrl: processedNFTs.filter(nft => nft.full_ipfs_url || nft.image_url).length,
+        withoutImageUrl: processedNFTs.filter(nft => !nft.full_ipfs_url && !nft.image_url).length
+      });
+      
+      setNearbyNFTs(nftsWithCoordinates);
     } catch (err) {
       console.error('Error fetching nearby NFTs:', err);
       setError('Failed to fetch nearby NFTs.');
