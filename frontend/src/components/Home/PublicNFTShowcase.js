@@ -144,6 +144,8 @@ const PublicNFTShowcase = () => {
   const nftsRef = useRef([]);
   const currentMarkers = useRef({});
   const fullscreenMarkers = useRef({});
+  const lastMarkerCreationCount = useRef(0); // Track last NFT count that markers were created for
+  const isCreatingMarkers = useRef(false); // Guard to prevent concurrent marker creation
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -421,19 +423,34 @@ const PublicNFTShowcase = () => {
       return;
     }
     
-    // Clear existing markers from ref and map (matching NFT Dashboard approach)
-    Object.values(currentMarkers.current).forEach(marker => {
-      if (marker && typeof marker.remove === 'function') {
-        marker.remove();
-      }
-    });
-    currentMarkers.current = {};
+    // Prevent duplicate marker creation: check if markers already exist for this NFT count
+    if (isCreatingMarkers.current) {
+      console.log('⏸️ Marker creation already in progress, skipping duplicate call');
+      return;
+    }
     
-    // Also clear any orphaned markers in DOM
-    const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
-    existingMarkers.forEach(marker => marker.remove());
+    // Check if markers have already been created for this NFT count
+    if (lastMarkerCreationCount.current === currentNFTs.length && Object.keys(currentMarkers.current).length > 0) {
+      console.log('⏸️ Markers already created for', currentNFTs.length, 'NFTs, skipping duplicate creation');
+      return;
+    }
     
-    console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
+    isCreatingMarkers.current = true;
+    
+    try {
+      // Clear existing markers from ref and map (matching NFT Dashboard approach)
+      Object.values(currentMarkers.current).forEach(marker => {
+        if (marker && typeof marker.remove === 'function') {
+          marker.remove();
+        }
+      });
+      currentMarkers.current = {};
+      
+      // Also clear any orphaned markers in DOM
+      const existingMarkers = document.querySelectorAll('.nft-marker[data-map="small"]');
+      existingMarkers.forEach(marker => marker.remove());
+      
+      console.log('🚀 Creating markers for', currentNFTs.length, 'NFTs');
     console.log('🚀 NFT IDs to create markers for:', currentNFTs.map(nft => ({ id: nft.id, name: nft.name, lat: nft.latitude, lng: nft.longitude })));
     
     // Log unique coordinates to see if multiple NFTs share the same location
@@ -588,31 +605,40 @@ const PublicNFTShowcase = () => {
       }
     });
     
-    console.log('🚀 Marker creation completed:', {
-      created: markersCreated,
-      skipped: markersSkipped,
-      total: currentNFTs.length,
-      storedInRef: Object.keys(currentMarkers.current).length
-    });
-    
-    // Auto-zoom to show all NFTs after markers are created
-    if (markersCreated > 0 && map.current) {
-      const bounds = new mapboxgl.LngLatBounds();
-      currentNFTs.forEach(nft => {
-        const lat = parseFloat(nft.latitude);
-        const lng = parseFloat(nft.longitude);
-        if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-          bounds.extend([lng, lat]);
-        }
+      console.log('🚀 Marker creation completed:', {
+        created: markersCreated,
+        skipped: markersSkipped,
+        total: currentNFTs.length,
+        storedInRef: Object.keys(currentMarkers.current).length
       });
       
-      if (!bounds.isEmpty()) {
-        map.current.fitBounds(bounds, {
-          padding: 50,
-          maxZoom: 10,
-          duration: 2000
+      // Track that markers have been created for this NFT count
+      lastMarkerCreationCount.current = currentNFTs.length;
+      
+      // Auto-zoom to show all NFTs after markers are created
+      if (markersCreated > 0 && map.current) {
+        const bounds = new mapboxgl.LngLatBounds();
+        currentNFTs.forEach(nft => {
+          const lat = parseFloat(nft.latitude);
+          const lng = parseFloat(nft.longitude);
+          if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+            bounds.extend([lng, lat]);
+          }
         });
+        
+        if (!bounds.isEmpty()) {
+          map.current.fitBounds(bounds, {
+            padding: 50,
+            maxZoom: 10,
+            duration: 2000
+          });
+        }
       }
+    } catch (error) {
+      console.error('❌ Error in createMarkersDirectly:', error);
+    } finally {
+      // Always reset the guard, even if there was an error
+      isCreatingMarkers.current = false;
     }
   }, []);
 
@@ -978,6 +1004,7 @@ const PublicNFTShowcase = () => {
   // Removed aggressive fullscreen retries to avoid duplicate markers
 
   // SIMPLIFIED: Add markers when NFTs are loaded (only one useEffect for markers)
+  // Only depend on nfts.length to prevent unnecessary re-runs when callbacks change
   useEffect(() => {
     const currentNFTs = nftsRef.current || [];
     console.log('🔍 NFTs useEffect triggered with nfts.length:', nfts.length, 'nftsRef.current.length:', currentNFTs.length);
@@ -992,16 +1019,8 @@ const PublicNFTShowcase = () => {
         hasNFTs: currentNFTs.length > 0
       });
     }
-    if (fullscreenMap.current && currentNFTs.length > 0) {
-      console.log('✅ NFTs useEffect: Using DIRECT fullscreen marker creation for', currentNFTs.length, 'NFTs');
-      createFullscreenMarkersDirectly();
-    } else {
-      console.log('❌ NFTs useEffect: Conditions not met for fullscreen map', {
-        hasMap: !!fullscreenMap.current,
-        hasNFTs: currentNFTs.length > 0
-      });
-    }
-  }, [nfts.length, createFullscreenMarkersDirectly, createMarkersDirectly]); // Add dependencies
+    // Note: Fullscreen markers are handled separately when dialog opens and when filteredNFTs changes
+  }, [nfts.length, createMarkersDirectly]); // Only depend on nfts.length and stable createMarkersDirectly
   // Removed duplicate marker creation effect to prevent multiple passes
 
   // Update fullscreen markers when search results change
