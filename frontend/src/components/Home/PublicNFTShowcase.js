@@ -66,7 +66,8 @@ const constructIPFSUrl = (serverUrl, hash) => {
   return `${baseUrl}/ipfs/${hash}`;
 };
 
-// Add CSS styles for stable NFT image markers (matching XYZ-Wallet guide)
+// Add CSS styles for NFT image markers (matching XYZ-Wallet implementation)
+// Note: XYZ-Wallet doesn't set transition: none - Mapbox handles positioning naturally
 const markerStyles = `
   .nft-marker {
     width: 64px !important;
@@ -79,8 +80,6 @@ const markerStyles = `
     border: 3px solid #FFD700 !important;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
     overflow: hidden !important;
-    /* CRITICAL: Disable transitions to prevent animation, but allow Mapbox transforms for positioning */
-    transition: none !important;
   }
   
   .nft-marker img,
@@ -96,7 +95,7 @@ const markerStyles = `
   .mapboxgl-popup-content {
     z-index: 2001 !important;
   }
-  
+
   .mapboxgl-popup-tip {
     z-index: 2002 !important;
   }
@@ -452,11 +451,12 @@ const PublicNFTShowcase = () => {
 
 
     try {
+      // Map initialization matching XYZ-Wallet settings exactly
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
         center: [0, 0], // Start with globe view
-        zoom: 1,
+        zoom: 0.5, // Matching XYZ-Wallet globe view zoom
         pitch: 0,
         bearing: 0,
         projection: 'globe',
@@ -536,11 +536,12 @@ const PublicNFTShowcase = () => {
     }
 
     try {
+      // Fullscreen map initialization matching XYZ-Wallet settings exactly
       fullscreenMap.current = new mapboxgl.Map({
         container: fullscreenMapContainer.current,
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
         center: [0, 0], // Start with globe view
-        zoom: 1,
+        zoom: 0.5, // Matching XYZ-Wallet globe view zoom
         pitch: 0,
         bearing: 0,
         projection: 'globe',
@@ -672,9 +673,9 @@ const PublicNFTShowcase = () => {
       console.log(`📍 Creating marker for NFT ID: ${nft.id}, Name: ${nft.name || 'Unnamed'}, Location: [${lng}, ${lat}]`);
       
       try {
-        // Create marker element (matching XYZ-Wallet guide - using background-image CSS property)
+        // Create marker element (matching XYZ-Wallet implementation exactly)
         const markerEl = document.createElement('div');
-        markerEl.className = 'nft-marker'; // Use CSS class (defined in stylesheet above)
+        markerEl.className = 'nft-marker';
         markerEl.setAttribute('data-map', 'small');
         
         // Construct image URL using the same logic as NFT Dashboard
@@ -685,21 +686,25 @@ const PublicNFTShowcase = () => {
           ipfs_hash: nft.ipfs_hash,
           image_url: nft.image_url,
           constructed_url: imageUrl,
-          full_constructed_url: imageUrl // Show full URL without truncation
+          full_constructed_url: imageUrl
         });
         
-        // Log the full URL separately to see it without truncation
         console.log(`🖼️ NFT ID ${nft.id} FULL image URL:`, imageUrl);
         
-        // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
-        markerEl.style.backgroundImage = `url('${imageUrl}')`;
-        markerEl.style.backgroundSize = 'cover';
-        markerEl.style.backgroundRepeat = 'no-repeat';
-        markerEl.style.backgroundPosition = 'center';
-        
-        // CRITICAL: Disable transitions that interfere with Mapbox positioning
-        markerEl.style.transition = 'none';
-        
+        // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
+        markerEl.style.cssText = `
+          width: 64px;
+          height: 64px;
+          background-image: url('${imageUrl}');
+          background-size: cover;
+          background-repeat: no-repeat;
+          background-position: center;
+          border-radius: 8px;
+          border: 3px solid #FFD700;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        `;
+
         // Handle image load errors with fallback
         const img = new Image();
         img.onload = () => {
@@ -711,25 +716,23 @@ const PublicNFTShowcase = () => {
           markerEl.style.backgroundImage = 'none';
           markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        markerEl.style.display = 'flex';
-        markerEl.style.alignItems = 'center';
-        markerEl.style.justifyContent = 'center';
+          markerEl.style.display = 'flex';
+          markerEl.style.alignItems = 'center';
+          markerEl.style.justifyContent = 'center';
           markerEl.style.fontSize = '16px';
-        markerEl.style.fontWeight = 'bold';
-        markerEl.style.color = '#fff';
+          markerEl.style.fontWeight = 'bold';
+          markerEl.style.color = '#fff';
         };
         img.src = imageUrl; // Trigger image load check
 
         // Add click handler for NFT details
         markerEl.addEventListener('click', (e) => {
-          e.preventDefault();
           e.stopPropagation();
           handleNFTDetails(nft);
         });
 
         // Add double-click handler for zoom
         markerEl.addEventListener('dblclick', (e) => {
-          e.preventDefault();
           e.stopPropagation();
           map.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
@@ -738,11 +741,8 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker (matching NFT Dashboard - using options object with draggable: false)
-        new mapboxgl.Marker({
-          element: markerEl,
-          draggable: false // CRITICAL: Must be false for stable positioning (matching NFT Dashboard)
-        })
+        // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
+        const nftMarker = new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(map.current);
         
@@ -788,22 +788,27 @@ const PublicNFTShowcase = () => {
       // console.log(`🚀 Creating direct fullscreen marker ${index + 1} for NFT:`, nft.name || 'Unnamed', 'at', nft.latitude, nft.longitude);
       
       try {
-        // Create marker element with NFT image
+        // Create marker element (matching XYZ-Wallet implementation exactly)
         const markerEl = document.createElement('div');
         markerEl.className = 'nft-marker';
         markerEl.setAttribute('data-map', 'fullscreen');
 
-        // Construct image URL using the same logic as NFT Dashboard (matching XYZ-Wallet)
+        // Construct image URL using the same logic as NFT Dashboard
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
-        // Use background-image CSS property (matching XYZ-Wallet guide)
-        markerEl.style.backgroundImage = `url('${imageUrl}')`;
-        markerEl.style.backgroundSize = 'cover';
-        markerEl.style.backgroundRepeat = 'no-repeat';
-        markerEl.style.backgroundPosition = 'center';
-        
-        // CRITICAL: Disable transitions that interfere with Mapbox positioning
-        markerEl.style.transition = 'none';
+        // Use cssText to set all styles at once (matching XYZ-Wallet exactly)
+        markerEl.style.cssText = `
+          width: 64px;
+          height: 64px;
+          background-image: url('${imageUrl}');
+          background-size: cover;
+          background-repeat: no-repeat;
+          background-position: center;
+          border-radius: 8px;
+          border: 3px solid #FFD700;
+          cursor: pointer;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        `;
         
         // Handle image load errors with fallback
         const img = new Image();
@@ -816,29 +821,24 @@ const PublicNFTShowcase = () => {
           markerEl.style.backgroundImage = 'none';
           markerEl.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
           markerEl.innerHTML = nft.name ? nft.name.charAt(0).toUpperCase() : 'N';
-        markerEl.style.display = 'flex';
-        markerEl.style.alignItems = 'center';
-        markerEl.style.justifyContent = 'center';
+          markerEl.style.display = 'flex';
+          markerEl.style.alignItems = 'center';
+          markerEl.style.justifyContent = 'center';
           markerEl.style.fontSize = '16px';
-        markerEl.style.fontWeight = 'bold';
-        markerEl.style.color = '#fff';
+          markerEl.style.fontWeight = 'bold';
+          markerEl.style.color = '#fff';
         };
         img.src = imageUrl; // Trigger image load check
-        
 
         // Add click handler for NFT details
         markerEl.addEventListener('click', (e) => {
-          e.preventDefault();
           e.stopPropagation();
-          // console.log('Direct fullscreen marker clicked, opening NFT details:', nft);
           handleNFTDetails(nft);
         });
 
         // Add double-click handler for zoom
         markerEl.addEventListener('dblclick', (e) => {
-          e.preventDefault();
           e.stopPropagation();
-          // console.log('Direct fullscreen marker double-clicked, zooming to location');
           fullscreenMap.current.flyTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
@@ -846,8 +846,8 @@ const PublicNFTShowcase = () => {
           });
         });
         
-        // Create marker
-        new mapboxgl.Marker(markerEl)
+        // Create marker (matching XYZ-Wallet exactly - no options object, draggable defaults to false)
+        const nftMarker = new mapboxgl.Marker(markerEl)
           .setLngLat([Number(nft.longitude), Number(nft.latitude)])
           .addTo(fullscreenMap.current);
         
