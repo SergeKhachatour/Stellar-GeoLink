@@ -82,6 +82,8 @@ const markerStyles = `
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
     overflow: hidden !important;
     transition: none !important;
+    will-change: auto !important;
+    transform-origin: center center !important;
   }
   
   .nft-marker img,
@@ -539,6 +541,8 @@ const PublicNFTShowcase = () => {
         
         // CRITICAL: Disable transitions that interfere with Mapbox positioning (matching NFT Dashboard)
         markerEl.style.transition = 'none';
+        markerEl.style.willChange = 'auto'; // Prevent browser from optimizing transforms that cause animation
+        markerEl.style.transformOrigin = 'center center'; // Ensure transform origin is centered
 
         // Handle image load errors with fallback
         const img = new Image();
@@ -596,9 +600,11 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching NFT Dashboard exactly - draggable: false for stable positioning)
+        // CRITICAL: anchor: 'center' ensures marker stays locked to coordinates on 3D globe
         const marker = new mapboxgl.Marker({
           element: markerEl,
-          draggable: false // CRITICAL: Must be false for stable positioning
+          draggable: false, // CRITICAL: Must be false for stable positioning
+          anchor: 'center' // CRITICAL: Center anchor prevents marker drift on 3D globe
         })
           .setLngLat([lng, lat])
           .addTo(map.current);
@@ -724,6 +730,8 @@ const PublicNFTShowcase = () => {
         
         // CRITICAL: Disable transitions that interfere with Mapbox positioning (matching NFT Dashboard)
         markerEl.style.transition = 'none';
+        markerEl.style.willChange = 'auto'; // Prevent browser from optimizing transforms that cause animation
+        markerEl.style.transformOrigin = 'center center'; // Ensure transform origin is centered
         
         // Handle image load errors with fallback
         const img = new Image();
@@ -781,9 +789,11 @@ const PublicNFTShowcase = () => {
         });
         
         // Create marker (matching NFT Dashboard exactly - draggable: false for stable positioning)
+        // CRITICAL: anchor: 'center' ensures marker stays locked to coordinates on 3D globe
         const marker = new mapboxgl.Marker({
           element: markerEl,
-          draggable: false // CRITICAL: Must be false for stable positioning
+          draggable: false, // CRITICAL: Must be false for stable positioning
+          anchor: 'center' // CRITICAL: Center anchor prevents marker drift on 3D globe
         })
           .setLngLat([lng, lat])
           .addTo(fullscreenMap.current);
