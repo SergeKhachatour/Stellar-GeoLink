@@ -274,18 +274,24 @@ const PublicNFTShowcase = () => {
 
 
     try {
-      // Map initialization matching XYZ-Wallet settings exactly
+      // Map initialization - using flat projection to prevent marker animation issues
+      // NOTE: 3D globe projection causes marker drift/animation during zoom/pan
+      // Using flat 'mercator' projection instead for stable marker positioning
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
-        center: [0, 0], // Start with globe view
-        zoom: 0.5, // Matching XYZ-Wallet globe view zoom
+        center: [0, 0], // Start with world view
+        zoom: 1, // Slightly zoomed in for better view
         pitch: 0,
         bearing: 0,
-        projection: 'globe',
+        projection: 'mercator', // Use flat projection instead of 'globe' to prevent marker animation
         antialias: true,
-        interactive: true // Enable interaction for card map
+        interactive: true, // Enable interaction for card map
+        renderWorldCopies: false // Disable world copies to prevent marker duplication
       });
+      
+      // CRITICAL: Disable all map transitions to prevent marker animation
+      map.current.setRenderWorldCopies(false);
 
       // Add navigation controls
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
@@ -336,17 +342,23 @@ const PublicNFTShowcase = () => {
     }
 
     try {
-      // Fullscreen map initialization matching XYZ-Wallet settings exactly
+      // Fullscreen map initialization - using flat projection to prevent marker animation issues
+      // NOTE: 3D globe projection causes marker drift/animation during zoom/pan
+      // Using flat 'mercator' projection instead for stable marker positioning
       fullscreenMap.current = new mapboxgl.Map({
         container: fullscreenMapContainer.current,
         style: 'mapbox://styles/mapbox/satellite-streets-v12',
-        center: [0, 0], // Start with globe view
-        zoom: 0.5, // Matching XYZ-Wallet globe view zoom
+        center: [0, 0], // Start with world view
+        zoom: 1, // Slightly zoomed in for better view
         pitch: 0,
         bearing: 0,
-        projection: 'globe',
-        antialias: true
+        projection: 'mercator', // Use flat projection instead of 'globe' to prevent marker animation
+        antialias: true,
+        renderWorldCopies: false // Disable world copies to prevent marker duplication
       });
+      
+      // CRITICAL: Disable all map transitions to prevent marker animation
+      fullscreenMap.current.setRenderWorldCopies(false);
 
       // Add navigation controls
       fullscreenMap.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
@@ -592,10 +604,10 @@ const PublicNFTShowcase = () => {
             clickTimeout = null;
           }
           
-          map.current.flyTo({
+          // Use jumpTo instead of flyTo to prevent marker animation
+          map.current.jumpTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
-            zoom: 15,
-            duration: 1000
+            zoom: 15
           });
         });
         
@@ -781,7 +793,8 @@ const PublicNFTShowcase = () => {
             clickTimeout = null;
           }
           
-          fullscreenMap.current.flyTo({
+          // Use jumpTo instead of flyTo to prevent marker animation
+          fullscreenMap.current.jumpTo({
             center: [Number(nft.longitude), Number(nft.latitude)],
             zoom: 15,
             duration: 1000
@@ -908,7 +921,8 @@ const PublicNFTShowcase = () => {
         const [lng, lat] = selectedResult.center;
         
         if (fullscreenMap.current) {
-          fullscreenMap.current.flyTo({
+          // Use jumpTo instead of flyTo to prevent marker animation
+          fullscreenMap.current.jumpTo({
             center: [lng, lat],
             zoom: 15,
             duration: 1000
@@ -1532,7 +1546,8 @@ const PublicNFTShowcase = () => {
                               setTimeout(() => {
                                 if (fullscreenMap.current && selectedNFT) {
                                   // console.log('Zooming to NFT location:', selectedNFT.latitude, selectedNFT.longitude);
-                                  fullscreenMap.current.flyTo({
+                                  // Use jumpTo instead of flyTo to prevent marker animation
+          fullscreenMap.current.jumpTo({
                                     center: [Number(selectedNFT.longitude), Number(selectedNFT.latitude)],
                                     zoom: 15,
                                     duration: 1000
@@ -1541,7 +1556,8 @@ const PublicNFTShowcase = () => {
                               }, 500); // Wait for map to be fully initialized
                             } else if (fullscreenMap.current) {
                               // Map already exists, just zoom to location
-                              fullscreenMap.current.flyTo({
+                              // Use jumpTo instead of flyTo to prevent marker animation
+          fullscreenMap.current.jumpTo({
                                 center: [Number(selectedNFT.longitude), Number(selectedNFT.latitude)],
                                 zoom: 15,
                                 duration: 1000
