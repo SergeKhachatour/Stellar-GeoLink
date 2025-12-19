@@ -56,7 +56,7 @@ function a11yProps(index) {
 }
 
 const WalletConnectionDialog = ({ open, onClose }) => {
-  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error, isConnected, publicKey: walletPublicKey } = useWallet();
+  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [secretKey, setSecretKey] = useState('');
   const [publicKey, setPublicKey] = useState('');

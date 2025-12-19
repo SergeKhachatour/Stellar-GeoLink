@@ -16,9 +16,7 @@ import {
   Tooltip,
   Accordion,
   AccordionSummary,
-  AccordionDetails,
-  Button,
-  Divider
+  AccordionDetails
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -48,7 +46,6 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [memoryBoxOpen, setMemoryBoxOpen] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [locationError, setLocationError] = useState(null);
   const [memoryChunks, setMemoryChunks] = useState([]);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -66,7 +63,6 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           });
         },
         (error) => {
-          setLocationError(error.message);
           console.warn('Geolocation error:', error);
         },
         {
@@ -76,7 +72,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         }
       );
     } else {
-      setLocationError('Geolocation is not supported by this browser');
+      console.warn('Geolocation is not supported by this browser');
     }
   }, []);
 
@@ -220,12 +216,6 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
       e.preventDefault();
       handleSend();
     }
-  };
-
-  const handleClear = () => {
-    setMessages([]);
-    setMemoryChunks([]);
-    hideMap();
   };
 
   // Parse AI response for map data and display map
