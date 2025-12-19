@@ -7,9 +7,18 @@ echo "🚀 Starting Azure Web App deployment..."
 
 # Deploy the backend
 echo "📦 Deploying backend..."
+# Note: Use Azure CLI or GitHub Actions for deployment instead of hardcoded credentials
+# For manual deployment, use: az webapp deployment source config-zip
+# Or set AZURE_DEPLOYMENT_CREDENTIALS environment variable
+if [ -z "$AZURE_DEPLOYMENT_CREDENTIALS" ]; then
+  echo "⚠️  Warning: AZURE_DEPLOYMENT_CREDENTIALS not set. Please use Azure CLI or GitHub Actions for deployment."
+  echo "   Example: az webapp deployment source config-zip --resource-group <rg> --name <app-name> --src backend.zip"
+  exit 1
+fi
+
 curl -X POST \
   -H "Content-Type: application/zip" \
-  -H "Authorization: Basic $(echo -n '$GeoLink:6qmmlK5DZrCEKzb4zuDSRqjDXTugkf85tTWRQv0sAKCedfcMa5a6S4NTu2hE' | base64)" \
+  -H "Authorization: Basic $(echo -n "$AZURE_DEPLOYMENT_CREDENTIALS" | base64)" \
   --data-binary @backend.zip \
   https://geolink-buavavc6gse5c9fw.scm.westus-01.azurewebsites.net/api/zipdeploy
 
