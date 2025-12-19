@@ -3,6 +3,7 @@ import { Box, Container, Typography, Grid, Card, CardContent } from '@mui/materi
 import Navbar from '../components/Navigation/Navbar';
 import PublicWalletMap from '../components/PublicWalletMap';
 import ApiDocumentation from '../components/shared/ApiDocumentation';
+import AIChat from '../components/AI/AIChat';
 
 const Home = () => {
     return (
@@ -135,6 +136,9 @@ const Home = () => {
                     </Container>
                 </Box>
             </Box>
+            
+            {/* AI Chat Component - Public Access */}
+            <AIChat isPublic={true} initialOpen={false} />
         </Box>
     );
 };

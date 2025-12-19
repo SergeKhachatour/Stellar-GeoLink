@@ -56,7 +56,7 @@ function a11yProps(index) {
 }
 
 const WalletConnectionDialog = ({ open, onClose }) => {
-  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error } = useWallet();
+  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error, isConnected, publicKey: walletPublicKey } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [secretKey, setSecretKey] = useState('');
   const [publicKey, setPublicKey] = useState('');
@@ -76,8 +76,15 @@ const WalletConnectionDialog = ({ open, onClose }) => {
     }
 
     try {
+      setLocalError('');
       await connectWallet(secretKey.trim());
-      onClose();
+      // Clear the form
+      setSecretKey('');
+      // Close dialog after a brief delay to allow state to update
+      // WalletConnectionGuard will detect the connection and show the content
+      setTimeout(() => {
+        onClose();
+      }, 300);
     } catch (err) {
       setLocalError(err.message || 'Failed to import wallet');
     }
@@ -90,8 +97,14 @@ const WalletConnectionDialog = ({ open, onClose }) => {
     }
 
     try {
+      setLocalError('');
       await connectWalletViewOnly(publicKey.trim());
-      onClose();
+      // Clear the form
+      setPublicKey('');
+      // Close dialog after a brief delay to allow state to update
+      setTimeout(() => {
+        onClose();
+      }, 300);
     } catch (err) {
       setLocalError(err.message || 'Failed to connect view-only wallet');
     }
@@ -111,8 +124,14 @@ const WalletConnectionDialog = ({ open, onClose }) => {
   const handleUseGeneratedWallet = async () => {
     if (generatedWallet) {
       try {
+        setLocalError('');
         await connectWallet(generatedWallet.secretKey);
-        onClose();
+        // Clear the generated wallet
+        setGeneratedWallet(null);
+        // Close dialog after a brief delay to allow state to update
+        setTimeout(() => {
+          onClose();
+        }, 300);
       } catch (err) {
         setLocalError(err.message || 'Failed to use generated wallet');
       }

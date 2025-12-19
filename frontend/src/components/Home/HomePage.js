@@ -33,8 +33,8 @@ import {
 import PublicNFTShowcase from './PublicNFTShowcase';
 import RealTimeNodeTracking from './RealTimeNodeTracking';
 import SmartWalletBalance from './SmartWalletBalance';
-import PasskeyManager from '../Wallet/PasskeyManager';
 import ApiDocumentation from '../shared/ApiDocumentation';
+import AIChat from '../AI/AIChat';
 
 const HomePage = () => {
     return (
@@ -463,11 +463,6 @@ const HomePage = () => {
 
             {/* Smart Wallet Balance */}
             <SmartWalletBalance />
-
-            {/* Passkey Management - Moved to after NFT section */}
-            <Container maxWidth="lg" sx={{ mb: 4, mt: 4 }}>
-                <PasskeyManager />
-            </Container>
 
             {/* Core Features Section */}
             <Box sx={{ 
@@ -967,6 +962,9 @@ const HomePage = () => {
                     </Box>
                 </Container>
             </Box>
+            
+            {/* AI Chat Component - Public Access */}
+            <AIChat isPublic={true} initialOpen={false} />
         </>
     );
 };

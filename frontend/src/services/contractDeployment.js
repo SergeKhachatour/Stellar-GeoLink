@@ -326,7 +326,7 @@ class ContractDeploymentService {
    */
   extractContractIdFromResponse(response) {
     // Return the real deployed contract ID
-    return 'CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q';
+    return 'CCDHRZSNWGW2KTRVPOW5QXR32DTWFLXHXDBC3OZO6CSW2JY7PYV2N4AQ';
   }
 
   /**
@@ -344,7 +344,7 @@ class ContractDeploymentService {
       console.log('Setting up deployed LocationNFT contract...');
       
       // Use the new deployed contract ID
-      const realContractId = 'CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q';
+      const realContractId = 'CCDHRZSNWGW2KTRVPOW5QXR32DTWFLXHXDBC3OZO6CSW2JY7PYV2N4AQ';
       
       console.log('🚀 Using deployed contract:', realContractId);
       

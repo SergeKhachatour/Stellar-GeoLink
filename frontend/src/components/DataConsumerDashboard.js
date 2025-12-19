@@ -27,8 +27,12 @@ import api from '../utils/api';
 import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
 import SharedMap from './SharedMap';
 import { Link } from 'react-router-dom';
+import { useWallet } from '../contexts/WalletContext';
+import { useAuth } from '../contexts/AuthContext';
+import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 
 const DataConsumerDashboard = () => {
+    const { user } = useAuth();
     const [apiKey, setApiKey] = useState(null);
     const [apiUsage, setApiUsage] = useState(null);
     const [, setRequestHistory] = useState([]);
@@ -44,6 +48,53 @@ const DataConsumerDashboard = () => {
     const [zoomTarget, setZoomTarget] = useState(null);
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
+
+    // Wallet state
+    const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
+    const [walletDialogOpen, setWalletDialogOpen] = useState(false);
+
+    // Notify WalletContext of current user
+    useEffect(() => {
+        if (user) {
+            setUser(user);
+        } else {
+            setUser(null);
+        }
+    }, [user, setUser]);
+
+    // Auto-connect wallet using user's stored public key
+    useEffect(() => {
+        if (user && user.public_key) {
+            const needsReconnection = !isConnected || (publicKey && publicKey !== user.public_key);
+            const isDifferentUser = publicKey && publicKey !== user.public_key;
+            
+            if (isDifferentUser) {
+                // Different user, wallet will be cleared by WalletContext
+                return;
+            }
+            
+            if (needsReconnection) {
+                // Add a delay to allow wallet restoration to complete first
+                const connectTimeout = setTimeout(() => {
+                    if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+                        console.log('DataConsumerDashboard: Attempting wallet auto-connection...');
+                        connectWalletViewOnly(user.public_key).catch(error => {
+                            console.error('DataConsumerDashboard: Auto-connection failed, will retry:', error);
+                            // Retry once after a delay
+                            setTimeout(() => {
+                                if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+                                    console.log('DataConsumerDashboard: Retrying wallet auto-connection...');
+                                    connectWalletViewOnly(user.public_key);
+                                }
+                            }, 1000);
+                        });
+                    }
+                }, 1000);
+                
+                return () => clearTimeout(connectTimeout);
+            }
+        }
+    }, [user, isConnected, publicKey, connectWalletViewOnly]);
 
     useEffect(() => {
         fetchDashboardData();
@@ -180,6 +231,49 @@ const DataConsumerDashboard = () => {
                         </>
                     )}
                 </Box>
+            </Box>
+
+            {/* Data Consumer Wallet Status */}
+            <Box sx={{ mb: 3 }}>
+                <Card>
+                    <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                            <Typography variant="h6" gutterBottom>
+                                Consumer Wallet
+                            </Typography>
+                            {isConnected && publicKey ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    Connected wallet:{' '}
+                                    <span style={{ fontFamily: 'monospace' }}>
+                                        {publicKey.substring(0, 6)}...{publicKey.substring(publicKey.length - 6)}
+                                    </span>
+                                </Typography>
+                            ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                    No Stellar wallet connected. Connect a wallet to sign and authenticate on-chain data requests.
+                                </Typography>
+                            )}
+                        </Box>
+                        <Box>
+                            {isConnected && publicKey ? (
+                                <Button
+                                    variant="outlined"
+                                    color="secondary"
+                                    onClick={disconnectWallet}
+                                >
+                                    Disconnect Wallet
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="contained"
+                                    onClick={() => setWalletDialogOpen(true)}
+                                >
+                                    Connect Wallet
+                                </Button>
+                            )}
+                        </Box>
+                    </CardContent>
+                </Card>
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -716,6 +810,12 @@ const DataConsumerDashboard = () => {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Wallet Connection Dialog */}
+            <WalletConnectionDialog
+                open={walletDialogOpen}
+                onClose={() => setWalletDialogOpen(false)}
+            />
         </Container>
     );
 };

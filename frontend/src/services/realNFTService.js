@@ -568,7 +568,7 @@ class RealNFTService {
    */
   getAllContracts() {
     // Always include the deployed contract
-    const deployedContractId = 'CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q';
+    const deployedContractId = 'CCDHRZSNWGW2KTRVPOW5QXR32DTWFLXHXDBC3OZO6CSW2JY7PYV2N4AQ';
     
     if (!this.contracts.has(deployedContractId)) {
       const contractInfo = {

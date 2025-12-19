@@ -28,8 +28,12 @@ import WalletLocationsManager from './WalletLocationsManager';
 import SharedMap from '../SharedMap';
 import api from '../../utils/api';
 import { Close as CloseIcon } from '@mui/icons-material';
+import { useWallet } from '../../contexts/WalletContext';
+import { useAuth } from '../../contexts/AuthContext';
+import WalletConnectionDialog from '../Wallet/WalletConnectionDialog';
 
 const AdminDashboard = () => {
+    const { user } = useAuth();
     const [tabValue, setTabValue] = useState(0);
     const [stats, setStats] = useState({
         total_locations: 0,
@@ -48,6 +52,53 @@ const AdminDashboard = () => {
     const [zoomTarget, setZoomTarget] = useState(null);
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
+
+    // Wallet state
+    const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
+    const [walletDialogOpen, setWalletDialogOpen] = useState(false);
+
+    // Notify WalletContext of current user
+    useEffect(() => {
+        if (user) {
+            setUser(user);
+        } else {
+            setUser(null);
+        }
+    }, [user, setUser]);
+
+    // Auto-connect wallet using user's stored public key
+    useEffect(() => {
+        if (user && user.public_key) {
+            const needsReconnection = !isConnected || (publicKey && publicKey !== user.public_key);
+            const isDifferentUser = publicKey && publicKey !== user.public_key;
+            
+            if (isDifferentUser) {
+                // Different user, wallet will be cleared by WalletContext
+                return;
+            }
+            
+            if (needsReconnection) {
+                // Add a delay to allow wallet restoration to complete first
+                const connectTimeout = setTimeout(() => {
+                    if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+                        console.log('AdminDashboard: Attempting wallet auto-connection...');
+                        connectWalletViewOnly(user.public_key).catch(error => {
+                            console.error('AdminDashboard: Auto-connection failed, will retry:', error);
+                            // Retry once after a delay
+                            setTimeout(() => {
+                                if (!isConnected || (publicKey && publicKey !== user.public_key)) {
+                                    console.log('AdminDashboard: Retrying wallet auto-connection...');
+                                    connectWalletViewOnly(user.public_key);
+                                }
+                            }, 1000);
+                        });
+                    }
+                }, 1000);
+                
+                return () => clearTimeout(connectTimeout);
+            }
+        }
+    }, [user, isConnected, publicKey, connectWalletViewOnly]);
 
     useEffect(() => {
         fetchDashboardStats();
@@ -413,7 +464,50 @@ const AdminDashboard = () => {
             }}>
                 Admin Dashboard
             </Typography>
-            
+
+            {/* Admin Wallet Status */}
+            <Box sx={{ mb: 3 }}>
+                <Card>
+                    <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                            <Typography variant="h6" gutterBottom>
+                                Admin Wallet
+                            </Typography>
+                            {isConnected && publicKey ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    Connected wallet:{' '}
+                                    <span style={{ fontFamily: 'monospace' }}>
+                                        {publicKey.substring(0, 6)}...{publicKey.substring(publicKey.length - 6)}
+                                    </span>
+                                </Typography>
+                            ) : (
+                                <Typography variant="body2" color="text.secondary">
+                                    No Stellar wallet connected. Connect a wallet to perform on-chain admin actions.
+                                </Typography>
+                            )}
+                        </Box>
+                        <Box>
+                            {isConnected && publicKey ? (
+                                <Button
+                                    variant="outlined"
+                                    color="secondary"
+                                    onClick={disconnectWallet}
+                                >
+                                    Disconnect Wallet
+                                </Button>
+                            ) : (
+                                <Button
+                                    variant="contained"
+                                    onClick={() => setWalletDialogOpen(true)}
+                                >
+                                    Connect Wallet
+                                </Button>
+                            )}
+                        </Box>
+                    </CardContent>
+                </Card>
+            </Box>
+
             {renderStats()}
 
             <Paper sx={{ width: '100%', mb: 2 }}>
@@ -615,6 +709,12 @@ const AdminDashboard = () => {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Wallet Connection Dialog */}
+            <WalletConnectionDialog
+                open={walletDialogOpen}
+                onClose={() => setWalletDialogOpen(false)}
+            />
         </Container>
     );
 };

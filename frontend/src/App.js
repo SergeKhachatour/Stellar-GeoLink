@@ -5,6 +5,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
 import { AuthProvider } from './contexts/AuthContext';
 import { WalletProvider } from './contexts/WalletContext';
+import { AIMapProvider } from './contexts/AIMapContext';
 import Navbar from './components/Navigation/Navbar';
 import HomePage from './components/Home/HomePage';
 import Features from './pages/Features';
@@ -20,6 +21,7 @@ import NFTDashboard from './components/NFT/NFTDashboard';
 import EnhancedNFTDashboard from './components/NFT/EnhancedNFTDashboard';
 import Profile from './components/Profile';
 import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytics';
+import WalletConnectionGuard from './components/Wallet/WalletConnectionGuard';
 
 function App() {
     return (
@@ -27,7 +29,8 @@ function App() {
             <CssBaseline />
             <AuthProvider>
                 <WalletProvider>
-                    <BrowserRouter>
+                    <AIMapProvider>
+                        <BrowserRouter>
                     <Navbar />
                     <Routes>
                         <Route path="/" element={<HomePage />} />
@@ -40,7 +43,9 @@ function App() {
                             path="/dashboard/consumer" 
                             element={
                                 <ProtectedRoute roles={['data_consumer']}>
-                                    <DataConsumerDashboard />
+                                    <WalletConnectionGuard>
+                                        <DataConsumerDashboard />
+                                    </WalletConnectionGuard>
                                 </ProtectedRoute>
                             } 
                         />
@@ -48,7 +53,9 @@ function App() {
                             path="/dashboard/provider" 
                             element={
                                 <ProtectedRoute roles={['wallet_provider']}>
-                                    <WalletProviderDashboard />
+                                    <WalletConnectionGuard>
+                                        <WalletProviderDashboard />
+                                    </WalletConnectionGuard>
                                 </ProtectedRoute>
                             } 
                         />
@@ -56,7 +63,9 @@ function App() {
                             path="/dashboard/nft" 
                             element={
                                 <ProtectedRoute roles={['nft_manager']}>
-                                    <NFTDashboard />
+                                    <WalletConnectionGuard>
+                                        <NFTDashboard />
+                                    </WalletConnectionGuard>
                                 </ProtectedRoute>
                             } 
                         />
@@ -64,7 +73,9 @@ function App() {
                             path="/enhanced-nft-dashboard" 
                             element={
                                 <ProtectedRoute roles={['nft_manager', 'admin']}>
-                                    <EnhancedNFTDashboard />
+                                    <WalletConnectionGuard>
+                                        <EnhancedNFTDashboard />
+                                    </WalletConnectionGuard>
                                 </ProtectedRoute>
                             } 
                         />
@@ -72,7 +83,9 @@ function App() {
                             path="/admin" 
                             element={
                                 <ProtectedRoute roles={['admin']}>
-                                    <AdminDashboard />
+                                    <WalletConnectionGuard>
+                                        <AdminDashboard />
+                                    </WalletConnectionGuard>
                                 </ProtectedRoute>
                             } 
                         />
@@ -102,6 +115,7 @@ function App() {
                         />
                     </Routes>
                     </BrowserRouter>
+                    </AIMapProvider>
                 </WalletProvider>
             </AuthProvider>
         </ThemeProvider>

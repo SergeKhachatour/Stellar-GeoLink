@@ -341,7 +341,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       // If no contracts from API, add default contract
       if (contractsList.length === 0) {
         // Use environment variable if set, otherwise use the default production contract
-        const defaultContractAddress = process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS || 'CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q';
+        const defaultContractAddress = process.env.REACT_APP_DEFAULT_CONTRACT_ADDRESS || 'CCDHRZSNWGW2KTRVPOW5QXR32DTWFLXHXDBC3OZO6CSW2JY7PYV2N4AQ';
         contracts.push({
           id: 'default-contract',
           name: 'StellarGeoLinkNFT',

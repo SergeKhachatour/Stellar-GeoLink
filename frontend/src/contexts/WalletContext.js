@@ -87,61 +87,80 @@ export const WalletProvider = ({ children }) => {
     setCurrentUser(user);
   };
 
-  // Load wallet from localStorage when user is set
+  // Load wallet from localStorage - supports both user-based and standalone connections
   useEffect(() => {
-    if (!currentUser) {
-      console.log('WalletContext: No current user, clearing wallet state');
-      setPublicKey(null);
-      setSecretKey(null);
-      setIsConnected(false);
-      setBalance(null);
-      setAccount(null);
-      setError(null);
-      return;
-    }
-
     const savedPublicKey = localStorage.getItem('stellar_public_key');
     const savedSecretKey = localStorage.getItem('stellar_secret_key');
     
     console.log('WalletContext: Checking saved wallet data:', { 
       savedPublicKey: savedPublicKey ? 'exists' : 'none',
       savedSecretKey: savedSecretKey ? 'exists' : 'none',
-      userPublicKey: currentUser.public_key,
+      userPublicKey: currentUser?.public_key,
       currentWalletState: { isConnected, publicKey }
     });
 
-    // Only restore if we have saved data and it matches the current user
-    if (savedPublicKey && currentUser.public_key && savedPublicKey === currentUser.public_key) {
-      console.log('WalletContext: Restoring wallet for current user');
-      setPublicKey(savedPublicKey);
-      setSecretKey(savedSecretKey); // This could be null for view-only wallets
-      setIsConnected(true);
-      console.log('WalletContext: Wallet restored, loading account info...');
-      loadAccountInfo(savedPublicKey).then(() => {
-        console.log('WalletContext: Account info loaded successfully');
-      }).catch(error => {
-        console.error('WalletContext: Failed to load account info:', error);
-      });
-    } else if (savedPublicKey && currentUser.public_key && savedPublicKey !== currentUser.public_key) {
-      console.log('WalletContext: Different user detected, clearing saved wallet data');
-      // Different user, clear saved data
-      localStorage.removeItem('stellar_public_key');
-      localStorage.removeItem('stellar_secret_key');
-      setPublicKey(null);
-      setSecretKey(null);
-      setIsConnected(false);
-      setBalance(null);
-      setAccount(null);
-      setError(null);
-    } else if (currentUser.public_key && !savedPublicKey) {
-      console.log('WalletContext: User has public key but no saved wallet, will auto-connect');
+    // If we have saved wallet data, restore it
+    if (savedPublicKey) {
+      // If there's a current user, check if the saved wallet matches
+      if (currentUser?.public_key) {
+        if (savedPublicKey === currentUser.public_key) {
+          // Wallet matches user, restore it
+          console.log('WalletContext: Restoring wallet for current user');
+          if (!isConnected || publicKey !== savedPublicKey) {
+            setPublicKey(savedPublicKey);
+            setSecretKey(savedSecretKey); // This could be null for view-only wallets
+            setIsConnected(true);
+            console.log('WalletContext: Wallet restored, loading account info...');
+            loadAccountInfo(savedPublicKey).then(() => {
+              console.log('WalletContext: Account info loaded successfully');
+            }).catch(error => {
+              console.error('WalletContext: Failed to load account info:', error);
+            });
+          }
+        } else {
+          // Different user, clear saved data
+          console.log('WalletContext: Different user detected, clearing saved wallet data');
+          localStorage.removeItem('stellar_public_key');
+          localStorage.removeItem('stellar_secret_key');
+          setPublicKey(null);
+          setSecretKey(null);
+          setIsConnected(false);
+          setBalance(null);
+          setAccount(null);
+          setError(null);
+        }
+      } else {
+        // No current user, but we have saved wallet - restore it for standalone connection
+        // This allows Admin/Data Consumer/Wallet Provider dashboards to work without a user
+        console.log('WalletContext: No current user, but restoring standalone wallet connection');
+        if (!isConnected || publicKey !== savedPublicKey) {
+          setPublicKey(savedPublicKey);
+          setSecretKey(savedSecretKey);
+          setIsConnected(true);
+          console.log('WalletContext: Standalone wallet restored, loading account info...');
+          loadAccountInfo(savedPublicKey).then(() => {
+            console.log('WalletContext: Account info loaded successfully');
+          }).catch(error => {
+            console.error('WalletContext: Failed to load account info:', error);
+          });
+        }
+      }
+    } else if (currentUser?.public_key && !savedPublicKey) {
       // User has public key but no saved wallet data, let NFTDashboard handle auto-connection
+      console.log('WalletContext: User has public key but no saved wallet, will auto-connect');
+      if (isConnected) {
+        // Don't clear if already connected (might be manually connected)
+        return;
+      }
       setPublicKey(null);
       setSecretKey(null);
       setIsConnected(false);
       setBalance(null);
       setAccount(null);
       setError(null);
+    } else if (!currentUser && !savedPublicKey && isConnected) {
+      // No user and no saved wallet, but somehow connected - keep it (manual connection)
+      console.log('WalletContext: Standalone wallet connection active (no user, no saved data)');
     }
   }, [currentUser, loadAccountInfo, isConnected, publicKey]);
 
