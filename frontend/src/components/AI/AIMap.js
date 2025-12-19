@@ -494,9 +494,9 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         bottom: 0,
         width: '100%',
         height: '100vh',
-        zIndex: 1, // Behind AI chat (z-index 1000)
+        zIndex: visible ? 100 : 1, // Higher z-index when visible, but still behind chat (z-index 1000)
         pointerEvents: visible ? 'auto' : 'none',
-        backgroundColor: '#1a1a1a' // Dark background so we can see if map is rendering
+        backgroundColor: visible ? 'transparent' : 'transparent' // Transparent so map shows through
       }}
     />
   );
