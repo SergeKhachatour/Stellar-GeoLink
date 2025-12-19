@@ -68,6 +68,15 @@ jobs:
           # Method: Copy everything, then remove public, then copy new build
           cp -r backend/* azure-deploy/
           
+          # Copy startup script and deployment config if they exist
+          if [ -f "startup.sh" ]; then
+            cp startup.sh azure-deploy/
+            chmod +x azure-deploy/startup.sh
+          fi
+          if [ -f ".deployment" ]; then
+            cp .deployment azure-deploy/
+          fi
+          
           # CRITICAL: Remove old public directory with stale build files
           rm -rf azure-deploy/public
           
