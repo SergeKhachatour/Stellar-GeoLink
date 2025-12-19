@@ -228,6 +228,111 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     });
   }, [clearMarkers]);
 
+  // Create geofence visualization
+  const createGeofenceVisualization = useCallback((geofence, mapInstance) => {
+    if (!mapInstance || !geofence) return;
+
+    clearMarkers();
+
+    // Remove existing geofence layers and sources if they exist
+    if (mapInstance.getLayer('geofence-fill')) {
+      mapInstance.removeLayer('geofence-fill');
+    }
+    if (mapInstance.getLayer('geofence-outline')) {
+      mapInstance.removeLayer('geofence-outline');
+    }
+    if (mapInstance.getSource('geofence')) {
+      mapInstance.removeSource('geofence');
+    }
+
+    const polygon = geofence.polygon || geofence;
+    
+    if (!polygon || !polygon.coordinates || !polygon.coordinates[0]) {
+      console.error('Invalid geofence polygon data');
+      return;
+    }
+
+    // Add geofence as a source
+    mapInstance.addSource('geofence', {
+      type: 'geojson',
+      data: {
+        type: 'Feature',
+        geometry: polygon
+      }
+    });
+
+    // Add fill layer
+    mapInstance.addLayer({
+      id: 'geofence-fill',
+      type: 'fill',
+      source: 'geofence',
+      paint: {
+        'fill-color': '#1976d2',
+        'fill-opacity': 0.2
+      }
+    });
+
+    // Add outline layer
+    mapInstance.addLayer({
+      id: 'geofence-outline',
+      type: 'line',
+      source: 'geofence',
+      paint: {
+        'line-color': '#1976d2',
+        'line-width': 3,
+        'line-opacity': 0.8
+      }
+    });
+
+    // Calculate bounds from polygon coordinates
+    const coordinates = polygon.coordinates[0];
+    const bounds = new mapboxgl.LngLatBounds();
+    
+    coordinates.forEach(coord => {
+      bounds.extend([coord[0], coord[1]]);
+    });
+
+    // Add center marker
+    const center = bounds.getCenter();
+    const el = document.createElement('div');
+    el.className = 'ai-map-marker geofence-center';
+    el.style.width = '24px';
+    el.style.height = '24px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = '#1976d2';
+    el.style.border = '3px solid white';
+    el.style.cursor = 'pointer';
+    el.style.boxShadow = '0 4px 8px rgba(0,0,0,0.4)';
+
+    const popup = new mapboxgl.Popup({ offset: 25 })
+      .setHTML(`
+        <div style="min-width: 200px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold;">${geofence.name || 'Geofence'}</h3>
+          ${geofence.description ? `<p style="margin: 4px 0; font-size: 12px;">${geofence.description}</p>` : ''}
+          ${geofence.id ? `<p style="margin: 4px 0; font-size: 12px;"><strong>ID:</strong> ${geofence.id}</p>` : ''}
+          ${geofence.blockchain ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Blockchain:</strong> ${geofence.blockchain}</p>` : ''}
+        </div>
+      `);
+
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat([center.lng, center.lat])
+      .setPopup(popup)
+      .addTo(mapInstance);
+
+    markersRef.current.push(marker);
+
+    // Animate zoom to geofence with padding
+    mapInstance.fitBounds(bounds, {
+      padding: { top: 100, bottom: 100, left: 100, right: 100 },
+      maxZoom: 16,
+      duration: 2000, // 2 second animation
+      easing: (t) => {
+        // Ease-in-out cubic function for smooth animation
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      }
+    });
+  }, [clearMarkers]);
+
   // Update map based on mapData
   useEffect(() => {
     if (!map.current || !mapInitialized || !mapData) return;
@@ -244,8 +349,21 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       case 'stellar_accounts':
         createStellarMarkers(data, map.current);
         break;
+      case 'geofence':
+        createGeofenceVisualization(data, map.current);
+        break;
       case 'clear':
         clearMarkers();
+        // Remove geofence layers if they exist
+        if (map.current.getLayer('geofence-fill')) {
+          map.current.removeLayer('geofence-fill');
+        }
+        if (map.current.getLayer('geofence-outline')) {
+          map.current.removeLayer('geofence-outline');
+        }
+        if (map.current.getSource('geofence')) {
+          map.current.removeSource('geofence');
+        }
         break;
       default:
         if (center && zoom) {
@@ -256,7 +374,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           });
         }
     }
-  }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, clearMarkers]);
+  }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, createGeofenceVisualization, clearMarkers]);
 
   if (!visible) return null;
 

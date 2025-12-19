@@ -723,7 +723,7 @@ async function executeToolCall(toolCall, userContext = {}) {
           longitude = longitude ?? userContext.location.longitude;
         }
         
-        return await geolinkOperations.createGeofence(
+        const geofenceResult = await geolinkOperations.createGeofence(
           functionArgs.name,
           functionArgs.description || null,
           functionArgs.polygon || null,
@@ -735,6 +735,15 @@ async function executeToolCall(toolCall, userContext = {}) {
           functionArgs.radius || 1000,
           placeName
         );
+        
+        // Return geofence with map data for visualization
+        return {
+          ...geofenceResult,
+          _mapData: {
+            type: 'geofence',
+            data: geofenceResult
+          }
+        };
 
       default:
         throw new Error(`Unknown function: ${functionName}`);
@@ -882,6 +891,23 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
           const result = JSON.parse(toolResult.content);
           
           console.log(`[Map Data Extraction] Tool: ${toolResult.name}, Result keys:`, Object.keys(result));
+          
+          // Check if result contains _mapData property (explicit map data)
+          if (result._mapData) {
+            mapData = result._mapData;
+            console.log(`[Map Data] Using explicit _mapData from ${toolResult.name}`);
+            break;
+          }
+          
+          // Check if result is a geofence (has polygon property)
+          if (result.polygon && (result.name || result.id)) {
+            mapData = {
+              type: 'geofence',
+              data: result
+            };
+            console.log(`[Map Data] Found geofence: ${result.name || result.id}`);
+            break;
+          }
           
           // Check if result contains location data (wallets)
           if (result.locations && Array.isArray(result.locations) && result.locations.length > 0) {
