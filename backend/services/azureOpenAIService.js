@@ -1054,9 +1054,10 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
       if (mapData && responseMessage.content) {
         // Append map data as a hidden JSON comment that frontend can parse
         responseMessage.content += `\n\n<!-- MAP_DATA:${JSON.stringify(mapData)} -->`;
+        console.log(`[Map Data] Added map data to response message`);
       }
 
-      return {
+      const finalResponse = {
         id: followUpResponse.id,
         model: followUpResponse.model,
         created: followUpResponse.created,
@@ -1067,6 +1068,18 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
         usage: followUpResponse.usage,
         mapData: mapData // Include map data in response
       };
+      
+      // Log final response for debugging
+      if (mapData) {
+        console.log(`[Map Data] Returning map data in follow-up response:`, {
+          type: mapData.type,
+          dataCount: mapData.data?.length || 0
+        });
+      } else {
+        console.log(`[Map Data] No map data in follow-up response`);
+      }
+      
+      return finalResponse;
     }
 
     // Check for map data in regular response (non-tool-call responses)
