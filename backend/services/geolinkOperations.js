@@ -3,6 +3,9 @@ const { findNearbyLocations, getGeospatialStats } = require('../utils/postgisUti
 const { verifyLocation } = require('../utils/locationUtils');
 const axios = require('axios');
 
+// Mapbox Geocoding API
+const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || process.env.REACT_APP_MAPBOX_TOKEN;
+
 // Base API URL - will be set from environment or use localhost
 const getApiBaseUrl = () => {
   return process.env.API_BASE_URL || 'http://localhost:4000/api';
@@ -257,6 +260,49 @@ async function getGeofences(token) {
 }
 
 /**
+ * Geocode a place name to coordinates using Mapbox Geocoding API
+ * @param {string} placeName - Place name (e.g., "New York", "San Francisco", "Times Square")
+ * @returns {Promise<{latitude: number, longitude: number, placeName: string}>} - Coordinates and place name
+ */
+async function geocodePlaceName(placeName) {
+  if (!MAPBOX_TOKEN) {
+    throw new Error('Mapbox token not configured. Please set MAPBOX_TOKEN environment variable.');
+  }
+
+  try {
+    const response = await axios.get(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(placeName)}.json`,
+      {
+        params: {
+          access_token: MAPBOX_TOKEN,
+          limit: 1,
+          types: 'place,poi,address,neighborhood,locality'
+        }
+      }
+    );
+
+    if (!response.data.features || response.data.features.length === 0) {
+      throw new Error(`Could not find location: ${placeName}`);
+    }
+
+    const feature = response.data.features[0];
+    const [longitude, latitude] = feature.center;
+    const fullPlaceName = feature.place_name || placeName;
+
+    return {
+      latitude,
+      longitude,
+      placeName: fullPlaceName
+    };
+  } catch (error) {
+    if (error.response) {
+      throw new Error(`Geocoding failed: ${error.response.data?.message || error.message}`);
+    }
+    throw new Error(`Geocoding failed: ${error.message}`);
+  }
+}
+
+/**
  * Generate a circular polygon from center point and radius
  * @param {number} latitude - Center latitude
  * @param {number} longitude - Center longitude
@@ -293,24 +339,49 @@ function generateCircularPolygon(latitude, longitude, radiusMeters) {
  * Create a geofence
  * @param {string} name - Geofence name
  * @param {string} description - Geofence description (optional)
- * @param {object} polygon - GeoJSON polygon coordinates (optional if latitude/longitude/radius provided)
+ * @param {object} polygon - GeoJSON polygon coordinates (optional if latitude/longitude/radius or placeName provided)
+ * @param {string} placeName - Place name to geocode (e.g., "New York", "San Francisco") (optional)
  * @param {number} latitude - Center latitude (optional, used with longitude and radius)
  * @param {number} longitude - Center longitude (optional, used with latitude and radius)
- * @param {number} radius - Radius in meters (optional, used with latitude and longitude, default: 1000)
+ * @param {number} radius - Radius in meters (optional, used with latitude/longitude or placeName, default: 1000)
  * @param {string} blockchain - Blockchain type (e.g., 'stellar')
  * @param {string} webhookUrl - Webhook URL for notifications (optional)
- * @param {string} token - User authentication token (API key)
+ * @param {string} token - User authentication token (API key or JWT Bearer token)
  * @returns {Promise<object>} - Created geofence
  */
-async function createGeofence(name, description, polygon, blockchain, webhookUrl = null, token, latitude = null, longitude = null, radius = 1000) {
+async function createGeofence(name, description, polygon, blockchain, webhookUrl = null, token, latitude = null, longitude = null, radius = 1000, placeName = null) {
   try {
     let geofencePolygon = polygon;
+    let finalLatitude = latitude;
+    let finalLongitude = longitude;
     
-    // If latitude and longitude are provided, generate a circular polygon
-    if (latitude !== null && longitude !== null && !polygon) {
-      geofencePolygon = generateCircularPolygon(latitude, longitude, radius);
-    } else if (!polygon && !latitude && !longitude) {
-      throw new Error('Either polygon coordinates or latitude/longitude/radius must be provided');
+    // If place name is provided, geocode it first
+    if (placeName && !latitude && !longitude && !polygon) {
+      const geocoded = await geocodePlaceName(placeName);
+      finalLatitude = geocoded.latitude;
+      finalLongitude = geocoded.longitude;
+      
+      // Update description to include the geocoded place name if not already set
+      if (!description && geocoded.placeName !== placeName) {
+        description = `Geofence for ${geocoded.placeName}`;
+      }
+    }
+    
+    // If latitude and longitude are provided (or geocoded), generate a circular polygon
+    if (finalLatitude !== null && finalLongitude !== null && !polygon) {
+      geofencePolygon = generateCircularPolygon(finalLatitude, finalLongitude, radius);
+    } else if (!polygon && !finalLatitude && !finalLongitude) {
+      throw new Error('Either polygon coordinates, latitude/longitude/radius, or placeName must be provided');
+    }
+    
+    // Determine authentication header (API key or JWT Bearer token)
+    const headers = {};
+    if (token.startsWith('Bearer ') || token.length > 50) {
+      // Likely a JWT token
+      headers['Authorization'] = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    } else {
+      // API key
+      headers['X-API-Key'] = token;
     }
     
     const response = await axios.post(
@@ -320,11 +391,12 @@ async function createGeofence(name, description, polygon, blockchain, webhookUrl
         description,
         polygon: geofencePolygon,
         blockchain,
-        webhook_url: webhookUrl
+        webhook_url: webhookUrl,
+        latitude: finalLatitude,
+        longitude: finalLongitude,
+        radius: radius
       },
-      {
-        headers: { 'X-API-Key': token }
-      }
+      { headers }
     );
     return response.data;
   } catch (error) {

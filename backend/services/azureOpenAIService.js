@@ -460,7 +460,7 @@ function getAvailableTools() {
       type: 'function',
       function: {
         name: 'geolink_createGeofence',
-        description: 'Create a new geofence. Geofences are geographic boundaries used for location-based alerts and tracking. You can create a geofence using either a GeoJSON polygon OR by providing a center point (latitude, longitude) with a radius. If location parameters are not provided, the AI will automatically use the user\'s current location from context.',
+        description: 'Create a new geofence. Geofences are geographic boundaries used for location-based alerts and tracking. You can create a geofence in multiple ways: 1) Provide a place name (e.g., "New York", "San Francisco", "Times Square") - the system will automatically geocode it, 2) Provide a center point (latitude, longitude) with a radius for a circular geofence, 3) Provide a custom GeoJSON polygon for complex shapes. If location parameters are not provided, the AI will automatically use the user\'s current location from context.',
         parameters: {
           type: 'object',
           properties: {
@@ -472,21 +472,25 @@ function getAvailableTools() {
               type: 'string',
               description: 'Geofence description (optional)'
             },
+            placeName: {
+              type: 'string',
+              description: 'Place name to geocode (e.g., "New York", "San Francisco", "Central Park", "Times Square"). The system will automatically convert this to coordinates. If provided, latitude/longitude are not needed.'
+            },
             polygon: {
               type: 'object',
-              description: 'GeoJSON polygon coordinates defining the geofence boundary (optional if latitude/longitude/radius provided)'
+              description: 'GeoJSON polygon coordinates defining the geofence boundary. Format: {"type": "Polygon", "coordinates": [[[lon1, lat1], [lon2, lat2], ...]]}. Optional if placeName or latitude/longitude/radius provided.'
             },
             latitude: {
               type: 'number',
-              description: 'Center latitude for circular geofence. If not provided, AI will use user\'s current location from context.'
+              description: 'Center latitude for circular geofence. If not provided and placeName is not provided, AI will use user\'s current location from context.'
             },
             longitude: {
               type: 'number',
-              description: 'Center longitude for circular geofence. If not provided, AI will use user\'s current location from context.'
+              description: 'Center longitude for circular geofence. If not provided and placeName is not provided, AI will use user\'s current location from context.'
             },
             radius: {
               type: 'number',
-              description: 'Radius in meters for circular geofence (default: 1000 meters). Only used with latitude/longitude.'
+              description: 'Radius in meters for circular geofence (default: 1000 meters). Used with latitude/longitude or placeName.'
             },
             blockchain: {
               type: 'string',
@@ -706,14 +710,19 @@ async function executeToolCall(toolCall, userContext = {}) {
         return await geolinkOperations.getGeofences(token);
 
       case 'geolink_createGeofence':
-        if (!token) throw new Error('API key required for this operation');
+        if (!token) throw new Error('Authentication required for this operation');
         // Automatically use user's location if not provided and available in context
         let latitude = functionArgs.latitude;
         let longitude = functionArgs.longitude;
-        if ((latitude === undefined || longitude === undefined) && userContext?.location) {
+        let placeName = functionArgs.placeName || null;
+        
+        // If place name is provided, use it (geocoding will happen in createGeofence)
+        // Otherwise, use user's location if available
+        if (!placeName && (latitude === undefined || longitude === undefined) && userContext?.location) {
           latitude = latitude ?? userContext.location.latitude;
           longitude = longitude ?? userContext.location.longitude;
         }
+        
         return await geolinkOperations.createGeofence(
           functionArgs.name,
           functionArgs.description || null,
@@ -723,7 +732,8 @@ async function executeToolCall(toolCall, userContext = {}) {
           token,
           latitude,
           longitude,
-          functionArgs.radius || 1000
+          functionArgs.radius || 1000,
+          placeName
         );
 
       default:
