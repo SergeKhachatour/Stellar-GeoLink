@@ -141,4 +141,3 @@ jobs:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: backend.zip
           slot-name: 'production'
-          startup-command: 'npm start'
