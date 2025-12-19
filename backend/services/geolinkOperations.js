@@ -257,23 +257,68 @@ async function getGeofences(token) {
 }
 
 /**
+ * Generate a circular polygon from center point and radius
+ * @param {number} latitude - Center latitude
+ * @param {number} longitude - Center longitude
+ * @param {number} radiusMeters - Radius in meters
+ * @returns {object} - GeoJSON polygon
+ */
+function generateCircularPolygon(latitude, longitude, radiusMeters) {
+  // Number of points to approximate the circle (more points = smoother circle)
+  const numPoints = 32;
+  const points = [];
+  
+  // Convert radius from meters to degrees (approximate)
+  // 1 degree latitude ≈ 111,320 meters
+  // 1 degree longitude ≈ 111,320 * cos(latitude) meters
+  const latRadius = radiusMeters / 111320;
+  const lonRadius = radiusMeters / (111320 * Math.cos(latitude * Math.PI / 180));
+  
+  // Generate points around the circle
+  for (let i = 0; i <= numPoints; i++) {
+    const angle = (i * 360 / numPoints) * (Math.PI / 180);
+    const lat = latitude + latRadius * Math.cos(angle);
+    const lon = longitude + lonRadius * Math.sin(angle);
+    points.push([lon, lat]); // GeoJSON format: [longitude, latitude]
+  }
+  
+  // Close the polygon (first point = last point)
+  return {
+    type: 'Polygon',
+    coordinates: [points]
+  };
+}
+
+/**
  * Create a geofence
  * @param {string} name - Geofence name
  * @param {string} description - Geofence description (optional)
- * @param {object} polygon - GeoJSON polygon coordinates
+ * @param {object} polygon - GeoJSON polygon coordinates (optional if latitude/longitude/radius provided)
+ * @param {number} latitude - Center latitude (optional, used with longitude and radius)
+ * @param {number} longitude - Center longitude (optional, used with latitude and radius)
+ * @param {number} radius - Radius in meters (optional, used with latitude and longitude, default: 1000)
  * @param {string} blockchain - Blockchain type (e.g., 'stellar')
  * @param {string} webhookUrl - Webhook URL for notifications (optional)
  * @param {string} token - User authentication token (API key)
  * @returns {Promise<object>} - Created geofence
  */
-async function createGeofence(name, description, polygon, blockchain, webhookUrl = null, token) {
+async function createGeofence(name, description, polygon, blockchain, webhookUrl = null, token, latitude = null, longitude = null, radius = 1000) {
   try {
+    let geofencePolygon = polygon;
+    
+    // If latitude and longitude are provided, generate a circular polygon
+    if (latitude !== null && longitude !== null && !polygon) {
+      geofencePolygon = generateCircularPolygon(latitude, longitude, radius);
+    } else if (!polygon && !latitude && !longitude) {
+      throw new Error('Either polygon coordinates or latitude/longitude/radius must be provided');
+    }
+    
     const response = await axios.post(
       `${getApiBaseUrl()}/geofence`,
       {
         name,
         description,
-        polygon,
+        polygon: geofencePolygon,
         blockchain,
         webhook_url: webhookUrl
       },

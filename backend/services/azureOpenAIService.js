@@ -460,7 +460,7 @@ function getAvailableTools() {
       type: 'function',
       function: {
         name: 'geolink_createGeofence',
-        description: 'Create a new geofence. Geofences are geographic boundaries used for location-based alerts and tracking.',
+        description: 'Create a new geofence. Geofences are geographic boundaries used for location-based alerts and tracking. You can create a geofence using either a GeoJSON polygon OR by providing a center point (latitude, longitude) with a radius. If location parameters are not provided, the AI will automatically use the user\'s current location from context.',
         parameters: {
           type: 'object',
           properties: {
@@ -474,7 +474,19 @@ function getAvailableTools() {
             },
             polygon: {
               type: 'object',
-              description: 'GeoJSON polygon coordinates defining the geofence boundary'
+              description: 'GeoJSON polygon coordinates defining the geofence boundary (optional if latitude/longitude/radius provided)'
+            },
+            latitude: {
+              type: 'number',
+              description: 'Center latitude for circular geofence. If not provided, AI will use user\'s current location from context.'
+            },
+            longitude: {
+              type: 'number',
+              description: 'Center longitude for circular geofence. If not provided, AI will use user\'s current location from context.'
+            },
+            radius: {
+              type: 'number',
+              description: 'Radius in meters for circular geofence (default: 1000 meters). Only used with latitude/longitude.'
             },
             blockchain: {
               type: 'string',
@@ -485,7 +497,7 @@ function getAvailableTools() {
               description: 'Webhook URL for geofence event notifications (optional)'
             }
           },
-          required: ['name', 'polygon', 'blockchain']
+          required: ['name', 'blockchain']
         }
       }
     }
@@ -503,7 +515,8 @@ async function executeToolCall(toolCall, userContext = {}) {
   const locationBasedTools = [
     'geolink_findNearbyWallets',
     'geolink_getNearbyNFTs',
-    'geolink_verifyNFTLocation'
+    'geolink_verifyNFTLocation',
+    'geolink_createGeofence'
   ];
   
   if (locationBasedTools.includes(functionName) && userContext.location) {
@@ -694,13 +707,23 @@ async function executeToolCall(toolCall, userContext = {}) {
 
       case 'geolink_createGeofence':
         if (!token) throw new Error('API key required for this operation');
+        // Automatically use user's location if not provided and available in context
+        let latitude = functionArgs.latitude;
+        let longitude = functionArgs.longitude;
+        if ((latitude === undefined || longitude === undefined) && userContext?.location) {
+          latitude = latitude ?? userContext.location.latitude;
+          longitude = longitude ?? userContext.location.longitude;
+        }
         return await geolinkOperations.createGeofence(
           functionArgs.name,
           functionArgs.description || null,
-          functionArgs.polygon,
+          functionArgs.polygon || null,
           functionArgs.blockchain,
           functionArgs.webhookUrl || null,
-          token
+          token,
+          latitude,
+          longitude,
+          functionArgs.radius || 1000
         );
 
       default:
@@ -740,7 +763,7 @@ Always stay focused on GeoLink and Stellar-related topics. When users ask about 
 - The system will AUTOMATICALLY use the user's location from userContext when those parameters are omitted.
 - DO NOT ask the user for their location - you already have it!
 - DO NOT ask for permission - the location is already available!
-- Simply call the function (e.g., geolink_getNearbyNFTs or geolink_findNearbyWallets) without latitude/longitude, and the system will use their location automatically.
+- Simply call the function (e.g., geolink_getNearbyNFTs, geolink_findNearbyWallets, or geolink_createGeofence) without latitude/longitude, and the system will use their location automatically.
 
 Be helpful, clear, and concise. If a user asks about something outside GeoLink/Stellar scope, politely redirect them back to GeoLink and Stellar topics.`;
 
