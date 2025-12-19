@@ -1049,12 +1049,26 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     const responseMessage = response.choices[0].message;
     
     // If response mentions showing location or map, show user's location
-    if (responseMessage.content) {
+    if (responseMessage.content && userContext.location) {
       const content = responseMessage.content.toLowerCase();
-      const showLocationKeywords = ['show my location', 'show me on the map', 'my location', 'where am i', 'show location'];
-      const hasShowLocationKeyword = showLocationKeywords.some(keyword => content.includes(keyword));
+      // Check if user asked to see their location
+      const userMessage = messages.find(m => m.role === 'user');
+      const userContent = userMessage?.content?.toLowerCase() || '';
       
-      if (hasShowLocationKeyword && userContext.location) {
+      const showLocationKeywords = [
+        'show my location', 'show me on the map', 'my location', 'where am i', 
+        'show location', 'show me where i am', 'display my location', 'map my location',
+        'on a map', 'show on map', 'view my location', 'see my location'
+      ];
+      
+      const hasShowLocationKeyword = showLocationKeywords.some(keyword => 
+        userContent.includes(keyword) || content.includes(keyword)
+      );
+      
+      // Also check if AI mentioned showing location
+      const aiMentionedMap = content.includes('showing') && (content.includes('map') || content.includes('location'));
+      
+      if (hasShowLocationKeyword || aiMentionedMap) {
         mapData = {
           type: 'user_location',
           center: [userContext.location.longitude, userContext.location.latitude],
@@ -1066,6 +1080,7 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             label: 'Your Location'
           }]
         };
+        console.log('[Map Data] Detected location request, showing user location on map');
       }
     }
 
