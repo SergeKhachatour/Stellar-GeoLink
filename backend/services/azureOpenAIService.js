@@ -1089,10 +1089,19 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
       }
     }
 
-    return {
+    const finalResponse = {
       ...response,
       mapData: mapData
     };
+    
+    // Log map data for debugging
+    if (mapData) {
+      console.log('[Map Data] Returning map data in response:', JSON.stringify(mapData, null, 2));
+    } else {
+      console.log('[Map Data] No map data in response');
+    }
+    
+    return finalResponse;
   } catch (error) {
     console.error('Azure OpenAI error:', error);
     throw new Error(`AI service error: ${error.message}`);
