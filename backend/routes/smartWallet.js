@@ -4,8 +4,8 @@
  * Based on CUSTOM_CONTRACT_INTEGRATION_ANALYSIS.md
  * 
  * Contract IDs:
- * - Smart Wallet: CA7G33NKXPBMSRRKS4PVBCE56OZDXGQCDUEBJ36NX7NS6RXGBSSMNX6P
- * - WebAuthn Verifier: CBPGL7FWVKVQKRYRU32ZRH7RYKJ3T5UBI4KF2RVLT3BP2UXY7HPAVCWL
+ * - Smart Wallet: CAAQTGMXO6VS7HUYH7YLBVSI6T64WWHAPQDR6QEO7EVEOD4CR3H3565U
+ * - WebAuthn Verifier: CARLXTWOUIRQVQILCBSA3CNG6QIVO3PIPKF66LDHQXGQGUAAWPFLND3L
  */
 
 const express = require('express');
@@ -47,7 +47,7 @@ router.get('/balance', authenticateUser, async (req, res) => {
 
     // Configure Soroban RPC server using config
     const network = contracts.STELLAR_NETWORK;
-    const sorobanServer = new StellarSdk.SorobanRpc.Server(contracts.SOROBAN_RPC_URL);
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = network === 'testnet'
       ? StellarSdk.Networks.TESTNET
       : StellarSdk.Networks.PUBLIC;
@@ -230,7 +230,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    const sorobanServer = new StellarSdk.SorobanRpc.Server(contracts.SOROBAN_RPC_URL);
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
       ? StellarSdk.Networks.TESTNET
       : StellarSdk.Networks.PUBLIC;
@@ -384,7 +384,7 @@ router.post('/register-signer', authenticateUser, async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    const sorobanServer = new StellarSdk.SorobanRpc.Server(contracts.SOROBAN_RPC_URL);
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
       ? StellarSdk.Networks.TESTNET
       : StellarSdk.Networks.PUBLIC;

@@ -40,7 +40,12 @@ router.post('/register', authenticateUser, async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    const sorobanServer = new StellarSdk.SorobanRpc.Server(contracts.SOROBAN_RPC_URL);
+    
+    // Use rpc.Server (correct for SDK v14+)
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+    const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+      ? StellarSdk.Networks.TESTNET
+      : StellarSdk.Networks.PUBLIC;
     const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
 
     // Extract 65-byte public key from SPKI
@@ -69,15 +74,18 @@ router.post('/register', authenticateUser, async (req, res) => {
       rpIdHashScVal
     );
 
-    // Build transaction
-    const account = await sorobanServer.getAccount(userPublicKey);
+    // Build transaction - need to use Horizon server for account loading
+    const horizonServer = new StellarSdk.Horizon.Server(
+      contracts.STELLAR_NETWORK === 'testnet'
+        ? 'https://horizon-testnet.stellar.org'
+        : 'https://horizon.stellar.org'
+    );
+    const account = await horizonServer.loadAccount(userPublicKey);
     const transaction = new StellarSdk.TransactionBuilder(
       new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
       {
         fee: StellarSdk.BASE_FEE,
-        networkPassphrase: contracts.STELLAR_NETWORK === 'testnet' 
-          ? StellarSdk.Networks.TESTNET 
-          : StellarSdk.Networks.PUBLIC
+        networkPassphrase: networkPassphrase
       }
     )
       .addOperation(registerOp)

@@ -12,7 +12,15 @@
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
-  "keywords": ["stellar", "nft", "location", "blockchain"],
+  "keywords": [
+    "stellar",
+    "nft",
+    "location",
+    "blockchain"
+  ],
   "author": "Stellar GeoLink Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.4.2"
+  }
 }

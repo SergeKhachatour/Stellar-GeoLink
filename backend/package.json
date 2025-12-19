@@ -19,6 +19,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@stellar/stellar-sdk": "^14.4.2",
     "axios": "^1.12.2",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -31,6 +32,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.3",
+    "openai": "^4.20.0",
     "pg": "^8.14.1",
     "redis": "^4.6.7",
     "swagger-jsdoc": "^6.2.8",

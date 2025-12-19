@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const stellarOperations = require('../services/stellarOperations');
+const { authenticateUser } = require('../middleware/authUser');
 
 const STELLAR_ATLAS_BASE_URL = 'https://api.stellaratlas.io';
 const STELLAR_HORIZON_BASE_URL = 'https://horizon.stellar.org';
@@ -196,6 +198,358 @@ router.get('/ledger', async (req, res) => {
       error: 'Failed to fetch ledger information',
       message: error.message
     });
+  }
+});
+
+// ============================================
+// Stellar Operations Endpoints (for AI tools)
+// ============================================
+
+/**
+ * @swagger
+ * /api/stellar/create-account:
+ *   post:
+ *     summary: Create a new Stellar account
+ *     description: Creates a new Stellar account and funds it on testnet
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account created successfully
+ */
+router.post('/create-account', authenticateUser, async (req, res) => {
+  try {
+    const result = await stellarOperations.createAccount();
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating account:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/issue-asset:
+ *   post:
+ *     summary: Issue a new asset on Stellar
+ *     description: Issues a new asset on the Stellar network
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - issuerSecret
+ *               - assetCode
+ *             properties:
+ *               issuerSecret:
+ *                 type: string
+ *               assetCode:
+ *                 type: string
+ */
+router.post('/issue-asset', authenticateUser, async (req, res) => {
+  try {
+    const { issuerSecret, assetCode } = req.body;
+    const result = await stellarOperations.issueAsset(issuerSecret, assetCode);
+    res.json(result);
+  } catch (error) {
+    console.error('Error issuing asset:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/create-trustline:
+ *   post:
+ *     summary: Create a trustline for an asset
+ *     description: Allows an account to hold a specific asset
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - accountSecret
+ *               - assetCode
+ *               - issuerPublicKey
+ *             properties:
+ *               accountSecret:
+ *                 type: string
+ *               assetCode:
+ *                 type: string
+ *               issuerPublicKey:
+ *                 type: string
+ *               limit:
+ *                 type: string
+ */
+router.post('/create-trustline', authenticateUser, async (req, res) => {
+  try {
+    const { accountSecret, assetCode, issuerPublicKey, limit } = req.body;
+    const result = await stellarOperations.createTrustline(accountSecret, assetCode, issuerPublicKey, limit);
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating trustline:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/transfer-asset:
+ *   post:
+ *     summary: Transfer an asset between accounts
+ *     description: Transfers an asset from one account to another
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - senderSecret
+ *               - recipientPublicKey
+ *               - assetCode
+ *               - issuerPublicKey
+ *               - amount
+ *             properties:
+ *               senderSecret:
+ *                 type: string
+ *               recipientPublicKey:
+ *                 type: string
+ *               assetCode:
+ *                 type: string
+ *               issuerPublicKey:
+ *                 type: string
+ *               amount:
+ *                 type: string
+ */
+router.post('/transfer-asset', authenticateUser, async (req, res) => {
+  try {
+    const { senderSecret, recipientPublicKey, assetCode, issuerPublicKey, amount } = req.body;
+    const result = await stellarOperations.transferAsset(senderSecret, recipientPublicKey, assetCode, issuerPublicKey, amount);
+    res.json(result);
+  } catch (error) {
+    console.error('Error transferring asset:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/show-balance:
+ *   post:
+ *     summary: Show balance of a Stellar account
+ *     description: Returns all balances for a Stellar account
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ */
+router.post('/show-balance', authenticateUser, async (req, res) => {
+  try {
+    const { publicKey } = req.body;
+    const result = await stellarOperations.showBalance(publicKey);
+    res.json(result);
+  } catch (error) {
+    console.error('Error showing balance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/show-trustlines:
+ *   post:
+ *     summary: Show all trustlines for an account
+ *     description: Returns all trustlines (non-native assets) for an account
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - publicKey
+ *             properties:
+ *               publicKey:
+ *                 type: string
+ */
+router.post('/show-trustlines', authenticateUser, async (req, res) => {
+  try {
+    const { publicKey } = req.body;
+    const result = await stellarOperations.showTrustlines(publicKey);
+    res.json(result);
+  } catch (error) {
+    console.error('Error showing trustlines:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/show-issued-assets:
+ *   post:
+ *     summary: Show assets issued by an account
+ *     description: Returns all assets where the specified account is the issuer
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - issuerPublicKey
+ *             properties:
+ *               issuerPublicKey:
+ *                 type: string
+ */
+router.post('/show-issued-assets', authenticateUser, async (req, res) => {
+  try {
+    const { issuerPublicKey } = req.body;
+    const result = await stellarOperations.showIssuedAssets(issuerPublicKey);
+    res.json(result);
+  } catch (error) {
+    console.error('Error showing issued assets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/setup-asset:
+ *   post:
+ *     summary: Setup an asset for issuance
+ *     description: Creates and issues an asset on Stellar
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - issuerSecret
+ *               - assetCode
+ *             properties:
+ *               issuerSecret:
+ *                 type: string
+ *               assetCode:
+ *                 type: string
+ */
+router.post('/setup-asset', authenticateUser, async (req, res) => {
+  try {
+    const { issuerSecret, assetCode } = req.body;
+    const result = await stellarOperations.setupAsset(issuerSecret, assetCode);
+    res.json(result);
+  } catch (error) {
+    console.error('Error setting up asset:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/test-asset-creation:
+ *   post:
+ *     summary: Test asset creation
+ *     description: Tests basic asset creation functionality
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - issuerSecret
+ *               - assetCode
+ *             properties:
+ *               issuerSecret:
+ *                 type: string
+ *               assetCode:
+ *                 type: string
+ */
+router.post('/test-asset-creation', authenticateUser, async (req, res) => {
+  try {
+    const { issuerSecret, assetCode } = req.body;
+    const result = await stellarOperations.testAssetCreation(issuerSecret, assetCode);
+    res.json(result);
+  } catch (error) {
+    console.error('Error testing asset creation:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * @swagger
+ * /api/stellar/call-contract-method:
+ *   post:
+ *     summary: Call a Soroban smart contract method
+ *     description: Executes a method on a Soroban smart contract
+ *     tags: [Stellar Operations]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - contractId
+ *               - method
+ *               - secret
+ *             properties:
+ *               contractId:
+ *                 type: string
+ *               method:
+ *                 type: string
+ *               secret:
+ *                 type: string
+ *               parameters:
+ *                 type: array
+ */
+router.post('/call-contract-method', authenticateUser, async (req, res) => {
+  try {
+    const { contractId, method, secret, parameters = [] } = req.body;
+    const result = await stellarOperations.callContractMethod(contractId, method, secret, parameters);
+    res.json(result);
+  } catch (error) {
+    console.error('Error calling contract method:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

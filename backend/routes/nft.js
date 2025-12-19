@@ -713,8 +713,8 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
     }
 });
 
-// Get nearby NFTs (API key authenticated for external consumers)
-router.get('/nearby', authenticateApiKey, async (req, res) => {
+// Get nearby NFTs - Public endpoint (no authentication required)
+router.get('/nearby', async (req, res) => {
     try {
         const { latitude, longitude, radius = 1000 } = req.query;
 

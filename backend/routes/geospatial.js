@@ -88,7 +88,8 @@ const { authenticateUser } = require('../middleware/authUser');
  *                     radius:
  *                       type: number
  */
-router.get('/nearby', authenticateUser, async (req, res) => {
+// Make nearby endpoint public for AI chat (no authentication required)
+router.get('/nearby', async (req, res) => {
     try {
         const { latitude, longitude, radius = 1000 } = req.query;
 
@@ -102,9 +103,12 @@ router.get('/nearby', authenticateUser, async (req, res) => {
             parseFloat(radius)
         );
 
+        // findNearbyLocations returns an array directly, not an object with rows
+        const locations = Array.isArray(result) ? result : (result?.rows || []);
+
         res.json({
-            locations: result.rows,
-            count: result.rows.length,
+            locations: locations,
+            count: locations.length,
             search_center: {
                 latitude: parseFloat(latitude),
                 longitude: parseFloat(longitude),
@@ -161,11 +165,14 @@ router.get('/nearest', authenticateUser, async (req, res) => {
             10000 // 10km radius for nearest location
         );
 
-        if (result.rows.length === 0) {
+        // findNearbyLocations returns an array directly, not an object with rows
+        const locations = Array.isArray(result) ? result : (result?.rows || []);
+
+        if (locations.length === 0) {
             return res.status(404).json({ error: 'No locations found' });
         }
 
-        res.json(result.rows[0]);
+        res.json(locations[0]);
     } catch (error) {
         console.error('Error finding nearest location:', error);
         res.status(500).json({ error: 'Internal server error' });
