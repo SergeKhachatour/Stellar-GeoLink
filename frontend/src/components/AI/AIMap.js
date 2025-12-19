@@ -333,6 +333,64 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     });
   }, [clearMarkers]);
 
+  // Create user location marker
+  const createUserLocationMarker = useCallback((location, mapInstance) => {
+    if (!mapInstance || !location) return;
+
+    clearMarkers();
+
+    const el = document.createElement('div');
+    el.className = 'ai-map-marker user-location-marker';
+    el.style.width = '32px';
+    el.style.height = '32px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = '#4caf50';
+    el.style.border = '4px solid white';
+    el.style.cursor = 'pointer';
+    el.style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.5)';
+    el.style.animation = 'pulse 2s infinite';
+
+    // Add pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0% { box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5); }
+        50% { box-shadow: 0 4px 20px rgba(76, 175, 80, 0.8); }
+        100% { box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5); }
+      }
+    `;
+    if (!document.head.querySelector('style[data-user-location-pulse]')) {
+      style.setAttribute('data-user-location-pulse', 'true');
+      document.head.appendChild(style);
+    }
+
+    const popup = new mapboxgl.Popup({ offset: 25 })
+      .setHTML(`
+        <div style="min-width: 200px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold;">📍 Your Location</h3>
+          <p style="margin: 4px 0; font-size: 12px;"><strong>Latitude:</strong> ${location.latitude.toFixed(6)}</p>
+          <p style="margin: 4px 0; font-size: 12px;"><strong>Longitude:</strong> ${location.longitude.toFixed(6)}</p>
+        </div>
+      `);
+
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat([location.longitude, location.latitude])
+      .setPopup(popup)
+      .addTo(mapInstance);
+
+    markersRef.current.push(marker);
+
+    // Animate zoom to user location
+    mapInstance.flyTo({
+      center: [location.longitude, location.latitude],
+      zoom: 15,
+      duration: 1500,
+      easing: (t) => {
+        return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      }
+    });
+  }, [clearMarkers]);
+
   // Update map based on mapData
   useEffect(() => {
     if (!map.current || !mapInitialized || !mapData) return;
@@ -351,6 +409,13 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         break;
       case 'geofence':
         createGeofenceVisualization(data, map.current);
+        break;
+      case 'user_location':
+        if (data && data.length > 0) {
+          createUserLocationMarker(data[0], map.current);
+        } else if (center) {
+          createUserLocationMarker({ latitude: center[1], longitude: center[0] }, map.current);
+        }
         break;
       case 'clear':
         clearMarkers();
@@ -374,7 +439,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           });
         }
     }
-  }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, createGeofenceVisualization, clearMarkers]);
+  }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, createGeofenceVisualization, createUserLocationMarker, clearMarkers]);
 
   if (!visible) return null;
 

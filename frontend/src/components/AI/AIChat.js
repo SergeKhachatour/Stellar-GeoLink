@@ -178,19 +178,27 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         let messageContent = response.data.choices[0].message.content || 'I apologize, but I could not generate a response.';
         
         // Check for map data in response
+        let hasMapData = false;
         if (response.data.mapData) {
           showMap(response.data.mapData);
+          hasMapData = true;
         } else {
           // Parse response for map data and remove HTML comment from content
           const mapData = parseAndDisplayMap(response.data);
           if (mapData) {
             // Remove HTML comment with map data from message content
             messageContent = messageContent.replace(/<!-- MAP_DATA:.*? -->/g, '').trim();
+            hasMapData = true;
           }
         }
         
         // Also remove any HTML comments that might be in the content
         messageContent = messageContent.replace(/<!-- MAP_DATA:.*? -->/g, '').trim();
+        
+        // If no map data, hide the map
+        if (!hasMapData && mapVisible) {
+          hideMap();
+        }
 
         const assistantMessage = {
           role: 'assistant',
@@ -393,7 +401,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   <MemoryIcon sx={{ fontSize: 20 }} />
                 </IconButton>
               </Tooltip>
-              {mapVisible && (
+              {mapVisible && mapData && (
                 <Tooltip title="Hide Map">
                   <IconButton
                     size="small"

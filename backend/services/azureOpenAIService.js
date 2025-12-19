@@ -1039,17 +1039,23 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     let mapData = null;
     const responseMessage = response.choices[0].message;
     
-    // If response mentions location-based queries, we might want to show a map
+    // If response mentions showing location or map, show user's location
     if (responseMessage.content) {
       const content = responseMessage.content.toLowerCase();
-      const locationKeywords = ['nearby', 'location', 'map', 'geographic', 'coordinates'];
-      const hasLocationKeyword = locationKeywords.some(keyword => content.includes(keyword));
+      const showLocationKeywords = ['show my location', 'show me on the map', 'my location', 'where am i', 'show location'];
+      const hasShowLocationKeyword = showLocationKeywords.some(keyword => content.includes(keyword));
       
-      if (hasLocationKeyword && userContext.location) {
+      if (hasShowLocationKeyword && userContext.location) {
         mapData = {
           type: 'user_location',
           center: [userContext.location.longitude, userContext.location.latitude],
-          zoom: 12
+          zoom: 15,
+          data: [{
+            type: 'user_location',
+            latitude: userContext.location.latitude,
+            longitude: userContext.location.longitude,
+            label: 'Your Location'
+          }]
         };
       }
     }
