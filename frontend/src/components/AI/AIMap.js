@@ -21,8 +21,20 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
   // Initialize map
   useEffect(() => {
-    if (!mapContainer.current || map.current || !MAPBOX_TOKEN) return;
+    if (!mapContainer.current || map.current) {
+      console.log('[AIMap] Map initialization skipped:', {
+        hasContainer: !!mapContainer.current,
+        hasMap: !!map.current
+      });
+      return;
+    }
+    
+    if (!MAPBOX_TOKEN) {
+      console.error('[AIMap] MAPBOX_TOKEN is missing! Map cannot be initialized.');
+      return;
+    }
 
+    console.log('[AIMap] Initializing map...');
     try {
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
@@ -33,10 +45,15 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       });
 
       map.current.on('load', () => {
+        console.log('[AIMap] Map loaded successfully');
         setMapInitialized(true);
         if (onMapReady) {
           onMapReady(map.current);
         }
+      });
+
+      map.current.on('error', (e) => {
+        console.error('[AIMap] Map error:', e);
       });
 
       // Add navigation controls
@@ -44,12 +61,13 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
       return () => {
         if (map.current) {
+          console.log('[AIMap] Cleaning up map');
           map.current.remove();
           map.current = null;
         }
       };
     } catch (error) {
-      console.error('Error initializing AI map:', error);
+      console.error('[AIMap] Error initializing AI map:', error);
     }
   }, [onMapReady]);
 
@@ -393,9 +411,22 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
   // Update map based on mapData
   useEffect(() => {
-    if (!map.current || !mapInitialized || !mapData) return;
+    console.log('[AIMap] Map data effect triggered:', {
+      hasMap: !!map.current,
+      mapInitialized,
+      hasMapData: !!mapData,
+      mapData
+    });
+    
+    if (!map.current || !mapInitialized || !mapData) {
+      if (!map.current) console.log('[AIMap] Map not initialized yet');
+      if (!mapInitialized) console.log('[AIMap] Map not loaded yet');
+      if (!mapData) console.log('[AIMap] No map data provided');
+      return;
+    }
 
     const { type, data, center, zoom } = mapData;
+    console.log('[AIMap] Processing map data:', { type, dataCount: data?.length, center, zoom });
 
     switch (type) {
       case 'wallets':
@@ -441,7 +472,16 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     }
   }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, createGeofenceVisualization, createUserLocationMarker, clearMarkers]);
 
-  if (!visible) return null;
+  useEffect(() => {
+    console.log('[AIMap] Visibility changed:', visible);
+  }, [visible]);
+
+  if (!visible) {
+    console.log('[AIMap] Map not visible, returning null');
+    return null;
+  }
+
+  console.log('[AIMap] Rendering map container');
 
   return (
     <Box
@@ -455,7 +495,8 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         width: '100%',
         height: '100vh',
         zIndex: 1, // Behind AI chat (z-index 1000)
-        pointerEvents: visible ? 'auto' : 'none'
+        pointerEvents: visible ? 'auto' : 'none',
+        backgroundColor: '#1a1a1a' // Dark background so we can see if map is rendering
       }}
     />
   );

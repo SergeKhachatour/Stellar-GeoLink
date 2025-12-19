@@ -15,8 +15,10 @@ export const AIMapProvider = ({ children }) => {
   const [mapVisible, setMapVisible] = useState(false);
 
   const showMap = (data) => {
+    console.log('[AIMapContext] showMap called with data:', data);
     setMapData(data);
     setMapVisible(true);
+    console.log('[AIMapContext] Map should now be visible');
   };
 
   const hideMap = () => {

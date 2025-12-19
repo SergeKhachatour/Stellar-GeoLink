@@ -179,16 +179,24 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         
         // Check for map data in response
         let hasMapData = false;
+        console.log('[AIChat] Response data:', response.data);
+        console.log('[AIChat] Map data in response:', response.data.mapData);
+        
         if (response.data.mapData) {
+          console.log('[AIChat] Found mapData in response, showing map:', response.data.mapData);
           showMap(response.data.mapData);
           hasMapData = true;
         } else {
           // Parse response for map data and remove HTML comment from content
           const mapData = parseAndDisplayMap(response.data);
           if (mapData) {
+            console.log('[AIChat] Parsed mapData from response, showing map:', mapData);
+            showMap(mapData);
             // Remove HTML comment with map data from message content
             messageContent = messageContent.replace(/<!-- MAP_DATA:.*? -->/g, '').trim();
             hasMapData = true;
+          } else {
+            console.log('[AIChat] No map data found in response');
           }
         }
         
@@ -197,6 +205,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         
         // If no map data, hide the map
         if (!hasMapData && mapVisible) {
+          console.log('[AIChat] No map data, hiding map');
           hideMap();
         }
 
