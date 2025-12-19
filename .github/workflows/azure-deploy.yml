@@ -127,19 +127,10 @@ jobs:
           zip -r ../backend.zip .
           cd ..
 
-      - name: Stop Azure Web App (if running)
-        uses: azure/webapps-deploy@v2
-        continue-on-error: true
-        with:
-          app-name: 'GeoLink'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend.zip
-          startup-command: 'echo "Stopping app for deployment"'
-
       - name: Wait for any ongoing deployments to complete
         run: |
-          echo "Waiting 10 seconds for any ongoing deployments to complete..."
-          sleep 10
+          echo "Waiting 15 seconds for any ongoing deployments to complete..."
+          sleep 15
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
