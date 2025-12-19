@@ -1048,25 +1048,28 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     let mapData = null;
     const responseMessage = response.choices[0].message;
     
-    // If response mentions showing location or map, show user's location
-    if (responseMessage.content && userContext.location) {
-      const content = responseMessage.content.toLowerCase();
-      // Check if user asked to see their location
-      const userMessage = messages.find(m => m.role === 'user');
-      const userContent = userMessage?.content?.toLowerCase() || '';
+    // Check if user asked to see their location - check ALL user messages, especially the last one
+    if (userContext.location) {
+      const userMessages = messages.filter(m => m.role === 'user');
+      const lastUserMessage = userMessages[userMessages.length - 1];
+      const userContent = lastUserMessage?.content?.toLowerCase() || '';
       
       const showLocationKeywords = [
         'show my location', 'show me on the map', 'my location', 'where am i', 
         'show location', 'show me where i am', 'display my location', 'map my location',
-        'on a map', 'show on map', 'view my location', 'see my location'
+        'on a map', 'show on map', 'view my location', 'see my location', 'show location on map'
       ];
       
-      const hasShowLocationKeyword = showLocationKeywords.some(keyword => 
-        userContent.includes(keyword) || content.includes(keyword)
-      );
+      // Check if any user message contains location keywords
+      const hasShowLocationKeyword = userMessages.some(msg => {
+        const msgContent = msg.content?.toLowerCase() || '';
+        return showLocationKeywords.some(keyword => msgContent.includes(keyword));
+      });
       
-      // Also check if AI mentioned showing location
-      const aiMentionedMap = content.includes('showing') && (content.includes('map') || content.includes('location'));
+      // Also check AI response for location-related content
+      const aiContent = responseMessage.content?.toLowerCase() || '';
+      const aiMentionedMap = (aiContent.includes('showing') || aiContent.includes('display')) && 
+                             (aiContent.includes('map') || aiContent.includes('location'));
       
       if (hasShowLocationKeyword || aiMentionedMap) {
         mapData = {
@@ -1081,6 +1084,8 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
           }]
         };
         console.log('[Map Data] Detected location request, showing user location on map');
+        console.log('[Map Data] User message:', lastUserMessage?.content);
+        console.log('[Map Data] Map data created:', mapData);
       }
     }
 
