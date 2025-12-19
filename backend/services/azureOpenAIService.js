@@ -897,7 +897,22 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
       let mapData = null;
       for (const toolResult of toolResults) {
         try {
-          const result = JSON.parse(toolResult.content);
+          let result;
+          try {
+            result = JSON.parse(toolResult.content);
+          } catch (parseError) {
+            // If parsing fails, try to extract as string
+            console.log(`[Map Data Extraction] Tool: ${toolResult.name}, Content is not JSON, trying to parse as string`);
+            const contentStr = toolResult.content;
+            // Try to extract JSON from string if it's wrapped
+            const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              result = JSON.parse(jsonMatch[0]);
+            } else {
+              console.log(`[Map Data Extraction] Tool: ${toolResult.name}, Could not parse content:`, contentStr.substring(0, 200));
+              continue;
+            }
+          }
           
           console.log(`[Map Data Extraction] Tool: ${toolResult.name}, Result keys:`, Object.keys(result));
           
@@ -933,13 +948,23 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                   latitude: parseFloat(loc.latitude),
                   longitude: parseFloat(loc.longitude),
                   public_key: loc.public_key,
-                  organization: loc.organization,
-                  last_updated: loc.last_updated
+                  organization: loc.organization || loc.asset_name || 'Unknown',
+                  last_updated: loc.last_updated,
+                  distance_meters: loc.distance || loc.distance_meters
                 }))
               };
               console.log(`[Map Data] Found ${validLocations.length} wallet locations`);
+              console.log(`[Map Data] Sample location:`, validLocations[0]);
               break;
+            } else {
+              console.log(`[Map Data] Found ${result.locations.length} locations but none have valid coordinates`);
             }
+          } else {
+            console.log(`[Map Data] Result does not contain locations array. Result structure:`, {
+              hasLocations: !!result.locations,
+              isArray: Array.isArray(result.locations),
+              keys: Object.keys(result)
+            });
           }
           
           // Check if result contains NFT data
