@@ -19,34 +19,8 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   const markersRef = useRef([]);
   const [mapInitialized, setMapInitialized] = useState(false);
 
-  // Initialize map when visible
-  useEffect(() => {
-    // Only initialize if visible and container is available
-    if (!visible) {
-      console.log('[AIMap] Map not visible, skipping initialization');
-      return;
-    }
-    
-    if (!mapContainer.current) {
-      console.log('[AIMap] Map container not available yet, will retry');
-      // Retry after a short delay to allow ref to be set
-      const timer = setTimeout(() => {
-        if (mapContainer.current && !map.current) {
-          initializeMap();
-        }
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-    
-    if (map.current) {
-      console.log('[AIMap] Map already initialized');
-      return;
-    }
-    
-    initializeMap();
-  }, [visible, onMapReady]);
-  
-  const initializeMap = () => {
+  // Initialize map function
+  const initializeMap = useCallback(() => {
     if (!mapContainer.current || map.current) {
       console.log('[AIMap] Map initialization skipped:', {
         hasContainer: !!mapContainer.current,
@@ -87,7 +61,34 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     } catch (error) {
       console.error('[AIMap] Error initializing AI map:', error);
     }
-  };
+  }, [onMapReady]);
+
+  // Initialize map when visible
+  useEffect(() => {
+    // Only initialize if visible and container is available
+    if (!visible) {
+      console.log('[AIMap] Map not visible, skipping initialization');
+      return;
+    }
+    
+    if (!mapContainer.current) {
+      console.log('[AIMap] Map container not available yet, will retry');
+      // Retry after a short delay to allow ref to be set
+      const timer = setTimeout(() => {
+        if (mapContainer.current && !map.current) {
+          initializeMap();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    
+    if (map.current) {
+      console.log('[AIMap] Map already initialized');
+      return;
+    }
+    
+    initializeMap();
+  }, [visible, initializeMap]);
   
   // Cleanup on unmount
   useEffect(() => {
