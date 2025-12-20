@@ -489,8 +489,11 @@ function getAvailableTools() {
               description: 'Center longitude for circular geofence. If not provided and placeName is not provided, AI will use user\'s current location from context.'
             },
             radius: {
-              type: 'number',
-              description: 'Radius in meters for circular geofence (default: 1000 meters). Used with latitude/longitude or placeName.'
+              oneOf: [
+                { type: 'number', description: 'Radius in meters' },
+                { type: 'string', description: 'Radius with units (e.g., "33 miles", "5 km", "1000 meters")' }
+              ],
+              description: 'Radius for circular geofence. Can be a number (in meters) or a string with units like "33 miles", "5 km", or "1000 meters". Default: 1000 meters. Used with latitude/longitude or placeName.'
             },
             blockchain: {
               type: 'string',
@@ -770,7 +773,12 @@ async function executeToolCall(toolCall, userContext = {}) {
         return await geolinkOperations.getGeofences(token);
 
       case 'geolink_createGeofence':
-        if (!token) throw new Error('Authentication required for this operation');
+        console.log(`[AI Tool] geolink_createGeofence - Token present:`, !!token);
+        console.log(`[AI Tool] geolink_createGeofence - User context:`, { userId, hasLocation: !!userContext?.location, role: userContext?.role });
+        if (!token) {
+          console.error(`[AI Tool] geolink_createGeofence - No token provided!`);
+          throw new Error('Authentication required for this operation. Please ensure you are logged in.');
+        }
         // Automatically use user's location if not provided and available in context
         let latitude = functionArgs.latitude;
         let longitude = functionArgs.longitude;
@@ -781,7 +789,35 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!placeName && (latitude === undefined || longitude === undefined) && userContext?.location) {
           latitude = latitude ?? userContext.location.latitude;
           longitude = longitude ?? userContext.location.longitude;
+          console.log(`[AI Tool] geolink_createGeofence - Using user location:`, { latitude, longitude });
         }
+        
+        // Handle radius conversion (support miles, km, meters)
+        let radius = functionArgs.radius || 1000;
+        if (typeof radius === 'string') {
+          // Try to parse radius string (e.g., "33 miles", "5 km", "1000 meters")
+          const radiusStr = radius.toLowerCase().trim();
+          if (radiusStr.includes('mile')) {
+            const miles = parseFloat(radiusStr.replace(/[^0-9.]/g, ''));
+            radius = miles * 1609.34; // Convert miles to meters
+            console.log(`[AI Tool] geolink_createGeofence - Converted ${miles} miles to ${radius} meters`);
+          } else if (radiusStr.includes('km') || radiusStr.includes('kilometer')) {
+            const km = parseFloat(radiusStr.replace(/[^0-9.]/g, ''));
+            radius = km * 1000; // Convert km to meters
+            console.log(`[AI Tool] geolink_createGeofence - Converted ${km} km to ${radius} meters`);
+          } else {
+            radius = parseFloat(radiusStr.replace(/[^0-9.]/g, '')) || 1000;
+          }
+        }
+        
+        console.log(`[AI Tool] geolink_createGeofence - Creating geofence with:`, {
+          name: functionArgs.name,
+          latitude,
+          longitude,
+          radius,
+          placeName,
+          blockchain: functionArgs.blockchain
+        });
         
         const geofenceResult = await geolinkOperations.createGeofence(
           functionArgs.name,
@@ -792,7 +828,7 @@ async function executeToolCall(toolCall, userContext = {}) {
           token,
           latitude,
           longitude,
-          functionArgs.radius || 1000,
+          radius,
           placeName
         );
         

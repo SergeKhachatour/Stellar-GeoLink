@@ -41,7 +41,8 @@ router.post('/chat', authenticateUser, async (req, res) => {
   try {
     const { messages, userContext } = req.body;
     const userId = req.user?.id || null;
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.replace(/^Bearer\s+/i, '') || authHeader; // Remove Bearer prefix if present
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required' });
@@ -55,6 +56,15 @@ router.post('/chat', authenticateUser, async (req, res) => {
       role: req.user?.role,
       ...userContext
     };
+
+    // Log authentication context for debugging
+    console.log('[AI Chat] Authentication context:', {
+      userId,
+      hasToken: !!token,
+      tokenLength: token?.length || 0,
+      role: req.user?.role,
+      email: req.user?.email
+    });
 
     // Log location context for debugging
     if (context.location) {
