@@ -413,14 +413,18 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   <MemoryIcon sx={{ fontSize: 20 }} />
                 </IconButton>
               </Tooltip>
-              {mapVisible && mapData && (
-                <Tooltip title="Hide Map">
+              {mapData && (
+                <Tooltip title={mapVisible ? "Hide Map" : "Show Map"}>
                   <IconButton
                     size="small"
                     sx={{ color: 'white' }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      hideMap();
+                      if (mapVisible) {
+                        hideMap();
+                      } else {
+                        showMap(mapData);
+                      }
                     }}
                   >
                     <MapIcon sx={{ fontSize: 20 }} />
