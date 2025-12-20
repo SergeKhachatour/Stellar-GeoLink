@@ -1145,10 +1145,17 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
       
       // Also check AI response for location-related content
       const aiContent = responseMessage.content?.toLowerCase() || '';
-      const aiMentionedMap = (aiContent.includes('showing') || aiContent.includes('display')) && 
-                             (aiContent.includes('map') || aiContent.includes('location'));
+      const aiMentionedMap = (aiContent.includes('showing') || aiContent.includes('display') || 
+                            aiContent.includes('here') || aiContent.includes('location')) && 
+                            (aiContent.includes('map') || aiContent.includes('location') || 
+                             aiContent.includes('coordinates'));
       
-      if (hasShowLocationKeyword || aiMentionedMap) {
+      // Also check if AI said "Sure!" or similar acknowledgment with location context
+      const aiAcknowledgedLocation = (aiContent.includes('sure') || aiContent.includes('here') || 
+                                     aiContent.includes('showing')) && 
+                                     (aiContent.includes('location') || aiContent.includes('map'));
+      
+      if (hasShowLocationKeyword || aiMentionedMap || aiAcknowledgedLocation) {
         mapData = {
           type: 'user_location',
           center: [userContext.location.longitude, userContext.location.latitude],
