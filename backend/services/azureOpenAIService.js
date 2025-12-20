@@ -780,11 +780,6 @@ async function executeToolCall(toolCall, userContext = {}) {
         throw new Error(`Unknown function: ${functionName}`);
     }
   } catch (error) {
-    return {
-      error: error.message,
-      function: functionName
-    };
-  } catch (error) {
     console.error(`[AI Tool] Error executing ${functionName}:`, error);
     // Return error in a format that can still be processed
     return {
