@@ -659,7 +659,8 @@ async function executeToolCall(toolCall, userContext = {}) {
                 latitude: parseFloat(loc.latitude),
                 longitude: parseFloat(loc.longitude),
                 public_key: loc.public_key,
-                organization: loc.organization || loc.asset_name || 'Unknown',
+                organization: loc.organization || loc.asset_name || loc.description || 'Unknown',
+                blockchain: loc.blockchain || 'Stellar',
                 last_updated: loc.last_updated,
                 distance_meters: loc.distance || loc.distance_meters
               })),
@@ -670,6 +671,7 @@ async function executeToolCall(toolCall, userContext = {}) {
               zoom: 13
             };
             console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${validLocations.length} wallets`);
+            console.log(`[AI Tool] Sample wallet data:`, walletResult._mapData.data[0]);
           }
         }
         
