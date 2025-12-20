@@ -84,6 +84,17 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     
     if (map.current) {
       console.log('[AIMap] Map already initialized');
+      // If map exists but container was removed from DOM, we need to reattach
+      // Check if map's container is still in the DOM
+      if (map.current.getContainer() && !document.body.contains(map.current.getContainer())) {
+        console.log('[AIMap] Map container was removed from DOM, reinitializing...');
+        // Remove old map instance
+        map.current.remove();
+        map.current = null;
+        setMapInitialized(false);
+        // Reinitialize
+        initializeMap();
+      }
       return;
     }
     
@@ -525,14 +536,22 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
   useEffect(() => {
     console.log('[AIMap] Visibility changed:', visible);
-  }, [visible]);
+    
+    // When map becomes visible, ensure it's properly displayed
+    if (visible && map.current && mapInitialized) {
+      // Resize map to ensure it renders correctly
+      setTimeout(() => {
+        if (map.current) {
+          map.current.resize();
+          console.log('[AIMap] Map resized after becoming visible');
+        }
+      }, 100);
+    }
+  }, [visible, mapInitialized]);
 
-  if (!visible) {
-    console.log('[AIMap] Map not visible, returning null');
-    return null;
-  }
-
-  console.log('[AIMap] Rendering map container');
+  // Always render the container, but hide it when not visible
+  // This ensures the map instance stays attached to the DOM
+  console.log('[AIMap] Rendering map container, visible:', visible);
 
   return (
     <Box
@@ -545,9 +564,10 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         bottom: 0,
         width: '100%',
         height: '100vh',
-        zIndex: visible ? 100 : 1, // Higher z-index when visible, but still behind chat (z-index 1000)
+        zIndex: visible ? 100 : -1, // Negative z-index when hidden to ensure it's behind everything
         pointerEvents: visible ? 'auto' : 'none',
-        backgroundColor: visible ? 'transparent' : 'transparent' // Transparent so map shows through
+        display: visible ? 'block' : 'none', // Hide with display instead of returning null
+        backgroundColor: 'transparent'
       }}
     />
   );
