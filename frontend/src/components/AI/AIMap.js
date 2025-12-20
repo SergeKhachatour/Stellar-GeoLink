@@ -474,6 +474,13 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
     switch (type) {
       case 'wallets':
+        console.log('[AIMap] Creating wallet markers for type "wallets"');
+        console.log('[AIMap] Wallet data array:', data);
+        console.log('[AIMap] First wallet sample:', data?.[0]);
+        if (!data || !Array.isArray(data) || data.length === 0) {
+          console.warn('[AIMap] No wallet data to display');
+          return;
+        }
         createWalletMarkers(data, map.current);
         break;
       case 'nfts':
