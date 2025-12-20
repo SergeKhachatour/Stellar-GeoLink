@@ -86,7 +86,7 @@ function getAvailableTools() {
       type: 'function',
       function: {
         name: 'stellar_showBalance',
-        description: 'Show the balance of a Stellar account. Returns all asset balances including XLM and custom assets.',
+        description: 'Show the balance of a Stellar account. Returns all asset balances including XLM and custom assets. IMPORTANT: If publicKey is not provided in the function call, the system will automatically use the user\'s public key from their wallet context. You should call this function without the publicKey parameter when the user asks for their account balance, and the system will use their wallet automatically.',
         parameters: {
           type: 'object',
           properties: {
@@ -539,6 +539,23 @@ async function executeToolCall(toolCall, userContext = {}) {
     }
   }
   
+  // Auto-inject public key for Stellar balance operations if not provided
+  const publicKeyTools = [
+    'stellar_showBalance',
+    'stellar_showTrustlines',
+    'stellar_showIssuedAssets',
+    'geolink_getSmartWalletBalance'
+  ];
+  
+  if (publicKeyTools.includes(functionName) && userContext.publicKey && !functionArgs.publicKey && !functionArgs.userPublicKey) {
+    console.log(`[AI Tool] ${functionName} - Auto-injecting user public key:`, userContext.publicKey);
+    if (functionName === 'geolink_getSmartWalletBalance') {
+      functionArgs.userPublicKey = userContext.publicKey;
+    } else {
+      functionArgs.publicKey = userContext.publicKey;
+    }
+  }
+  
   // Log location context for debugging
   if (userContext.location) {
     console.log(`[AI Tool] ${functionName} - User location available:`, userContext.location);
@@ -568,7 +585,12 @@ async function executeToolCall(toolCall, userContext = {}) {
         );
 
       case 'stellar_showBalance':
-        return await stellarOperations.showBalance(functionArgs.publicKey);
+        // Use public key from context if not provided
+        const balancePublicKey = functionArgs.publicKey || userContext.publicKey;
+        if (!balancePublicKey) {
+          throw new Error('Public key is required. Please connect your wallet or provide your Stellar public key.');
+        }
+        return await stellarOperations.showBalance(balancePublicKey);
 
       case 'stellar_transferAsset':
         return await stellarOperations.transferAsset(
@@ -715,8 +737,13 @@ async function executeToolCall(toolCall, userContext = {}) {
       // GeoLink Smart Wallet Operations
       case 'geolink_getSmartWalletBalance':
         if (!token) throw new Error('Authentication required for this operation');
+        // Use public key from context if not provided
+        const walletPublicKey = functionArgs.userPublicKey || userContext.publicKey;
+        if (!walletPublicKey) {
+          throw new Error('Public key is required. Please connect your wallet or provide your Stellar public key.');
+        }
         return await geolinkOperations.getSmartWalletBalance(
-          functionArgs.userPublicKey,
+          walletPublicKey,
           token,
           functionArgs.assetAddress || null
         );
@@ -817,6 +844,13 @@ Always stay focused on GeoLink and Stellar-related topics. When users ask about 
 - DO NOT ask the user for their location - you already have it!
 - DO NOT ask for permission - the location is already available!
 - Simply call the function (e.g., geolink_getNearbyNFTs, geolink_findNearbyWallets, or geolink_createGeofence) without latitude/longitude, and the system will use their location automatically.
+
+**CRITICAL - Wallet/Public Key Usage**:
+- You have DIRECT ACCESS to the user's Stellar public key in the userContext (if they have a connected wallet).
+- When a user asks to "show my account balance", "check my balance", "my balance", or similar requests, you MUST IMMEDIATELY call stellar_showBalance WITHOUT providing the publicKey parameter.
+- The system will AUTOMATICALLY use the user's public key from userContext when the parameter is omitted.
+- DO NOT ask the user for their public key - you already have it if their wallet is connected!
+- Simply call stellar_showBalance() without the publicKey parameter, and the system will use their wallet automatically.
 
 **CRITICAL - Map Visualization**:
 - You have access to an INTERACTIVE MAP SYSTEM that can display locations visually.
