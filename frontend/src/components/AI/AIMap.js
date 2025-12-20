@@ -446,7 +446,9 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       hasMap: !!map.current,
       mapInitialized,
       hasMapData: !!mapData,
-      mapData
+      mapDataType: mapData?.type,
+      mapDataKeys: mapData ? Object.keys(mapData) : [],
+      dataCount: mapData?.data?.length
     });
     
     if (!map.current || !mapInitialized || !mapData) {
@@ -457,7 +459,18 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     }
 
     const { type, data, center, zoom } = mapData;
-    console.log('[AIMap] Processing map data:', { type, dataCount: data?.length, center, zoom });
+    console.log('[AIMap] Processing map data:', { 
+      type, 
+      dataCount: data?.length, 
+      center, 
+      zoom,
+      dataSample: data?.[0]
+    });
+    
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      console.warn('[AIMap] Map data has no valid data array:', { type, data });
+      return;
+    }
 
     switch (type) {
       case 'wallets':
