@@ -92,10 +92,10 @@ function getAvailableTools() {
           properties: {
             publicKey: {
               type: 'string',
-              description: 'The Stellar account public key (starts with G)'
+              description: 'The Stellar account public key (starts with G). OPTIONAL - If not provided, system automatically uses user\'s public key from their wallet context.'
             }
           },
-          required: ['publicKey']
+          required: []
         }
       }
     },

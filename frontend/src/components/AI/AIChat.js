@@ -36,6 +36,7 @@ import api from '../../utils/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAIMap } from '../../contexts/AIMapContext';
+import { useWallet } from '../../contexts/WalletContext';
 import AIMap from './AIMap';
 
 const AIChat = ({ isPublic = false, initialOpen = false }) => {
@@ -50,6 +51,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { showMap, hideMap, mapVisible, mapData } = useAIMap();
+  const { publicKey } = useWallet();
 
   // Get user's location on component mount
   useEffect(() => {
@@ -161,12 +163,13 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     try {
       const endpoint = isPublic ? '/ai/chat/public' : '/ai/chat';
       
-      // Build user context with location
+      // Build user context with location and wallet public key
       const userContext = {
         location: userLocation ? {
           latitude: userLocation.latitude,
           longitude: userLocation.longitude
-        } : null
+        } : null,
+        publicKey: publicKey || null
       };
 
       const response = await api.post(endpoint, {
