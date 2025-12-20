@@ -784,6 +784,14 @@ async function executeToolCall(toolCall, userContext = {}) {
       error: error.message,
       function: functionName
     };
+  } catch (error) {
+    console.error(`[AI Tool] Error executing ${functionName}:`, error);
+    // Return error in a format that can still be processed
+    return {
+      error: true,
+      message: error.message || 'An error occurred while executing the tool',
+      function: functionName
+    };
   }
 }
 
