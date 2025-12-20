@@ -615,12 +615,43 @@ async function executeToolCall(toolCall, userContext = {}) {
           throw new Error('Location is required. Please provide latitude and longitude, or enable location sharing in your browser.');
         }
         
-        return await geolinkOperations.findNearbyWallets(
+        const walletResult = await geolinkOperations.findNearbyWallets(
           lat,
           lon,
           functionArgs.radius || 1000,
           token
         );
+        
+        // Add explicit map data to ensure it's detected
+        if (walletResult && walletResult.locations && Array.isArray(walletResult.locations)) {
+          const validLocations = walletResult.locations.filter(loc => 
+            loc.latitude != null && loc.longitude != null && 
+            loc.latitude !== 0 && loc.longitude !== 0
+          );
+          
+          if (validLocations.length > 0) {
+            walletResult._mapData = {
+              type: 'wallets',
+              data: validLocations.map(loc => ({
+                type: 'wallet',
+                latitude: parseFloat(loc.latitude),
+                longitude: parseFloat(loc.longitude),
+                public_key: loc.public_key,
+                organization: loc.organization || loc.asset_name || 'Unknown',
+                last_updated: loc.last_updated,
+                distance_meters: loc.distance || loc.distance_meters
+              })),
+              center: {
+                latitude: lat,
+                longitude: lon
+              },
+              zoom: 13
+            };
+            console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${validLocations.length} wallets`);
+          }
+        }
+        
+        return walletResult;
 
       case 'geolink_getGeospatialStats':
         return await geolinkOperations.getGeospatialStatistics(token);
