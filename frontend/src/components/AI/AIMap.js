@@ -19,8 +19,34 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   const markersRef = useRef([]);
   const [mapInitialized, setMapInitialized] = useState(false);
 
-  // Initialize map
+  // Initialize map when visible
   useEffect(() => {
+    // Only initialize if visible and container is available
+    if (!visible) {
+      console.log('[AIMap] Map not visible, skipping initialization');
+      return;
+    }
+    
+    if (!mapContainer.current) {
+      console.log('[AIMap] Map container not available yet, will retry');
+      // Retry after a short delay to allow ref to be set
+      const timer = setTimeout(() => {
+        if (mapContainer.current && !map.current) {
+          initializeMap();
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    
+    if (map.current) {
+      console.log('[AIMap] Map already initialized');
+      return;
+    }
+    
+    initializeMap();
+  }, [visible, onMapReady]);
+  
+  const initializeMap = () => {
     if (!mapContainer.current || map.current) {
       console.log('[AIMap] Map initialization skipped:', {
         hasContainer: !!mapContainer.current,
@@ -58,18 +84,22 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
       // Add navigation controls
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-      return () => {
-        if (map.current) {
-          console.log('[AIMap] Cleaning up map');
-          map.current.remove();
-          map.current = null;
-        }
-      };
     } catch (error) {
       console.error('[AIMap] Error initializing AI map:', error);
     }
-  }, [onMapReady]);
+  };
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (map.current) {
+        console.log('[AIMap] Cleaning up map');
+        map.current.remove();
+        map.current = null;
+        setMapInitialized(false);
+      }
+    };
+  }, []);
 
   // Clear all markers
   const clearMarkers = useCallback(() => {
