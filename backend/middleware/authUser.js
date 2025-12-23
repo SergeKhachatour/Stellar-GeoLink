@@ -18,25 +18,41 @@ const authenticateUser = async (req, res, next) => {
         console.log('🔐 authenticateUser - verifying token...');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         console.log('🔐 authenticateUser - token decoded successfully:', !!decoded);
+        console.log('🔐 authenticateUser - decoded payload:', JSON.stringify(decoded, null, 2));
         
-        // Check if decoded.user exists and has an id
+        // Handle both old token format (userId, role) and new format (user: { id, email, role })
+        let userId = null;
         if (decoded.user && decoded.user.id) {
-            // Fetch user's public key from database
+            // New format: { user: { id, email, role } }
+            userId = decoded.user.id;
+        } else if (decoded.userId) {
+            // Old format: { userId, role, status }
+            userId = decoded.userId;
+        }
+        
+        if (userId) {
+            // Fetch user's public key and role from database
             const result = await pool.query(
-                'SELECT public_key FROM users WHERE id = $1',
-                [decoded.user.id]
+                'SELECT id, email, role, public_key FROM users WHERE id = $1',
+                [userId]
             );
             
             if (result.rows.length > 0) {
+                const dbUser = result.rows[0];
                 req.user = {
-                    ...decoded.user,
-                    public_key: result.rows[0].public_key
+                    id: dbUser.id,
+                    email: dbUser.email,
+                    role: dbUser.role,
+                    public_key: dbUser.public_key
                 };
+                console.log('🔐 authenticateUser - user set:', { id: req.user.id, role: req.user.role });
             } else {
-                req.user = decoded.user;
+                console.warn('🔐 authenticateUser - user not found in database for userId:', userId);
+                req.user = null;
             }
         } else {
-            req.user = decoded.user || null;
+            console.warn('🔐 authenticateUser - no userId found in token payload');
+            req.user = null;
         }
         
         next();

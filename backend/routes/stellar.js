@@ -218,12 +218,20 @@ router.get('/ledger', async (req, res) => {
  *       200:
  *         description: Account created successfully
  */
-router.post('/create-account', authenticateUser, async (req, res) => {
+// Create account endpoint - optionally authenticated (allows public access for registration)
+router.post('/create-account', async (req, res) => {
+  console.log('[Stellar Routes] 🚀 Create account request received');
   try {
+    console.log('[Stellar Routes] 📞 Calling stellarOperations.createAccount()...');
     const result = await stellarOperations.createAccount();
+    console.log(`[Stellar Routes] ✅ Account created successfully - Public Key: ${result.publicKey}`);
     res.json(result);
   } catch (error) {
-    console.error('Error creating account:', error);
+    console.error('[Stellar Routes] ❌ Error creating account:', error);
+    console.error('[Stellar Routes] 📋 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -253,12 +261,20 @@ router.post('/create-account', authenticateUser, async (req, res) => {
  *                 type: string
  */
 router.post('/issue-asset', authenticateUser, async (req, res) => {
+  console.log('[Stellar Routes] 💎 Issue asset request received');
   try {
     const { issuerSecret, assetCode } = req.body;
+    console.log(`[Stellar Routes] 📋 Issue asset params - Asset Code: ${assetCode}, Issuer: ${issuerSecret ? issuerSecret.substring(0, 8) + '...' : 'N/A'}`);
+    console.log('[Stellar Routes] 📞 Calling stellarOperations.issueAsset()...');
     const result = await stellarOperations.issueAsset(issuerSecret, assetCode);
+    console.log(`[Stellar Routes] ✅ Asset issued successfully - Asset Code: ${assetCode}`);
     res.json(result);
   } catch (error) {
-    console.error('Error issuing asset:', error);
+    console.error('[Stellar Routes] ❌ Error issuing asset:', error);
+    console.error('[Stellar Routes] 📋 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -293,12 +309,20 @@ router.post('/issue-asset', authenticateUser, async (req, res) => {
  *                 type: string
  */
 router.post('/create-trustline', authenticateUser, async (req, res) => {
+  console.log('[Stellar Routes] 🔗 Create trustline request received');
   try {
     const { accountSecret, assetCode, issuerPublicKey, limit } = req.body;
+    console.log(`[Stellar Routes] 📋 Trustline params - Asset: ${assetCode}, Issuer: ${issuerPublicKey}, Limit: ${limit || 'unlimited'}`);
+    console.log('[Stellar Routes] 📞 Calling stellarOperations.createTrustline()...');
     const result = await stellarOperations.createTrustline(accountSecret, assetCode, issuerPublicKey, limit);
+    console.log(`[Stellar Routes] ✅ Trustline created successfully - Asset: ${assetCode}`);
     res.json(result);
   } catch (error) {
-    console.error('Error creating trustline:', error);
+    console.error('[Stellar Routes] ❌ Error creating trustline:', error);
+    console.error('[Stellar Routes] 📋 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -337,12 +361,20 @@ router.post('/create-trustline', authenticateUser, async (req, res) => {
  *                 type: string
  */
 router.post('/transfer-asset', authenticateUser, async (req, res) => {
+  console.log('[Stellar Routes] 💸 Transfer asset request received');
   try {
     const { senderSecret, recipientPublicKey, assetCode, issuerPublicKey, amount } = req.body;
+    console.log(`[Stellar Routes] 📋 Transfer params - To: ${recipientPublicKey}, Asset: ${assetCode}, Amount: ${amount}`);
+    console.log('[Stellar Routes] 📞 Calling stellarOperations.transferAsset()...');
     const result = await stellarOperations.transferAsset(senderSecret, recipientPublicKey, assetCode, issuerPublicKey, amount);
+    console.log(`[Stellar Routes] ✅ Asset transfer successful - Transaction Hash: ${result.transactionHash}`);
     res.json(result);
   } catch (error) {
-    console.error('Error transferring asset:', error);
+    console.error('[Stellar Routes] ❌ Error transferring asset:', error);
+    console.error('[Stellar Routes] 📋 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -543,12 +575,20 @@ router.post('/test-asset-creation', authenticateUser, async (req, res) => {
  *                 type: array
  */
 router.post('/call-contract-method', authenticateUser, async (req, res) => {
+  console.log('[Stellar Routes] 📞 Call contract method request received');
   try {
     const { contractId, method, secret, parameters = [] } = req.body;
+    console.log(`[Stellar Routes] 📋 Contract call params - Contract: ${contractId}, Method: ${method}, Parameters: ${parameters.length}`);
+    console.log('[Stellar Routes] 📞 Calling stellarOperations.callContractMethod()...');
     const result = await stellarOperations.callContractMethod(contractId, method, secret, parameters);
+    console.log(`[Stellar Routes] ✅ Contract method call successful`);
     res.json(result);
   } catch (error) {
-    console.error('Error calling contract method:', error);
+    console.error('[Stellar Routes] ❌ Error calling contract method:', error);
+    console.error('[Stellar Routes] 📋 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
     res.status(500).json({ error: error.message });
   }
 });

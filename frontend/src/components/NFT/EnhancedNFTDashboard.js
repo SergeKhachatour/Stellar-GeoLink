@@ -59,6 +59,7 @@ import RealPinNFT from './RealPinNFT';
 import IPFSServerManager from '../IPFS/IPFSServerManager';
 import FileUploadManager from '../IPFS/FileUploadManager';
 import EnhancedPinNFT from '../IPFS/EnhancedPinNFT';
+import SmartWalletBalance from '../Home/SmartWalletBalance';
 
 // IPFS Management Tabs Component
 const IPFSManagementTabs = ({ user }) => {
@@ -3430,6 +3431,10 @@ const EnhancedNFTDashboard = () => {
 
   return (
     <Container maxWidth="xl" sx={{ mt: { xs: 2, md: 4 }, mb: { xs: 2, md: 4 } }}>
+      {/* Smart Wallet Vault Balance */}
+      <Box sx={{ mb: 3 }}>
+        <SmartWalletBalance />
+      </Box>
       {/* Header with Dashboard Cards */}
       <Box sx={{ 
         background: 'linear-gradient(135deg, #000000 0%, #1a1a1a 100%)',

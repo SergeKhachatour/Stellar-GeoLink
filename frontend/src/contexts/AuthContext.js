@@ -116,6 +116,16 @@ export const AuthProvider = ({ children }) => {
             // console.log('Login response status:', response.status);
             // console.log('Login response headers:', response.headers);
 
+            // Check if multiple roles require selection
+            if (response.data.requiresRoleSelection && response.data.roles) {
+                // Return roles for selection instead of logging in
+                return {
+                    requiresRoleSelection: true,
+                    roles: response.data.roles,
+                    public_key: response.data.public_key
+                };
+            }
+
             const { token, refreshToken, user } = response.data;
 
             // console.log('Extracted from response:', { token: !!token, refreshToken: !!refreshToken, user: !!user });
@@ -183,12 +193,50 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const selectRole = async (roleData) => {
+        try {
+            setIsLoggingIn(true);
+            const response = await authApi.selectRole(roleData);
+            const { token, refreshToken, user } = response.data;
+
+            if (!token || !user) {
+                throw new Error('Invalid response from server');
+            }
+
+            localStorage.setItem('token', token);
+            if (refreshToken) {
+                localStorage.setItem('refreshToken', refreshToken);
+            }
+            api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+            setUser(user);
+            setError(null);
+            setIsLoggingIn(false);
+            return user;
+        } catch (err) {
+            console.error('Role selection error:', err);
+            setError(err.response?.data?.message || 'Role selection failed');
+            setIsLoggingIn(false);
+            throw err;
+        }
+    };
+
     const register = async (userData) => {
         try {
-            await authApi.register(userData);
+            const response = await authApi.register(userData);
             setError(null);
+            
+            // If registration returns a token and user, automatically log them in
+            if (response.data && response.data.token && response.data.user) {
+                const { token, user } = response.data;
+                localStorage.setItem('token', token);
+                api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+                setUser(user);
+                return { token, user };
+            }
+            
+            return response.data;
         } catch (err) {
-            setError(err.response?.data?.message || 'Registration failed');
+            setError(err.response?.data?.error || err.response?.data?.message || 'Registration failed');
             throw err;
         }
     };
@@ -215,6 +263,11 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const setUserFromToken = (userData) => {
+        setUser(userData);
+        setError(null);
+    };
+
     return (
         <AuthContext.Provider 
             value={{ 
@@ -224,6 +277,8 @@ export const AuthProvider = ({ children }) => {
                 login, 
                 logout, 
                 register,
+                selectRole,
+                setUserFromToken,
                 isAuthenticated: !!user 
             }}
         >

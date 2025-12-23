@@ -130,6 +130,7 @@ api.interceptors.response.use(
 
 export const authApi = {
     login: (credentials) => api.post('/auth/login', credentials),
+    selectRole: (roleData) => api.post('/auth/login/select-role', roleData),
     register: (userData) => api.post('/auth/register', userData),
     verifyToken: () => api.get('/auth/verify'),
     logout: () => api.post('/auth/logout'),

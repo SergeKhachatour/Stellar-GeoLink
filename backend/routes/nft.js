@@ -52,6 +52,10 @@ const authenticateApiKey = async (req, res, next) => {
 
 // Helper function to get user's public key from database
 const getUserPublicKey = async (userId) => {
+    if (!userId) {
+        throw new Error('User ID is required');
+    }
+    
     console.log('getUserPublicKey: Looking up user ID:', userId);
     const userResult = await pool.query(
         'SELECT public_key FROM users WHERE id = $1',

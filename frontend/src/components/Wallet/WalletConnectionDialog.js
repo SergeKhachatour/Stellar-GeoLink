@@ -55,7 +55,7 @@ function a11yProps(index) {
   };
 }
 
-const WalletConnectionDialog = ({ open, onClose }) => {
+const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
   const { connectWallet, connectWalletViewOnly, generateWallet, loading, error } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [secretKey, setSecretKey] = useState('');
@@ -112,12 +112,16 @@ const WalletConnectionDialog = ({ open, onClose }) => {
 
   const handleGenerateWallet = async () => {
     try {
+      setLocalError('');
       const wallet = await generateWallet();
       if (wallet) {
         setGeneratedWallet(wallet);
+      } else {
+        setLocalError('Failed to generate wallet: No wallet data returned');
       }
     } catch (err) {
-      setLocalError(err.message || 'Failed to generate wallet');
+      console.error('Error generating wallet:', err);
+      setLocalError(err.message || 'Failed to generate wallet. Please try again.');
     }
   };
 
@@ -125,13 +129,34 @@ const WalletConnectionDialog = ({ open, onClose }) => {
     if (generatedWallet) {
       try {
         setLocalError('');
+        
+        // Connect the wallet
         await connectWallet(generatedWallet.secretKey);
+        
+        // Passkey registration may be in progress (asynchronous)
+        // Show appropriate message based on status
+        if (generatedWallet.passkeyRegistered) {
+          console.log('✅ Wallet connected with passkey already registered');
+        } else if (generatedWallet.passkeyInProgress) {
+          console.log('⏳ Wallet connected - passkey registration in progress (will complete in background)');
+        } else if (generatedWallet.passkeyError) {
+          console.warn('⚠️ Wallet connected but passkey registration failed:', generatedWallet.passkeyError);
+        }
+        
         // Clear the generated wallet
         setGeneratedWallet(null);
-        // Close dialog after a brief delay to allow state to update
-        setTimeout(() => {
+        
+        // If onRegister callback is provided (e.g., from Login page), call it to redirect to registration
+        if (onRegister) {
+          console.log('Redirecting to registration with new wallet...');
           onClose();
-        }, 300);
+          onRegister();
+        } else {
+          // Otherwise, just close the dialog after a brief delay
+          setTimeout(() => {
+            onClose();
+          }, 300);
+        }
       } catch (err) {
         setLocalError(err.message || 'Failed to use generated wallet');
       }
@@ -264,7 +289,7 @@ const WalletConnectionDialog = ({ open, onClose }) => {
               fullWidth
               startIcon={loading ? <CircularProgress size={20} /> : <AddIcon />}
             >
-              {loading ? 'Generating...' : 'Generate New Wallet'}
+              {loading ? 'Generating Wallet & Registering Passkey...' : 'Generate New Wallet'}
             </Button>
           ) : (
             <Card sx={{ mb: 2 }}>
@@ -311,6 +336,21 @@ const WalletConnectionDialog = ({ open, onClose }) => {
                   sx={{ mb: 2 }}
                 />
 
+                {generatedWallet.passkeyRegistered && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <strong>✅ Passkey Registered!</strong> Your wallet is secured with a passkey. You can use biometrics or device security to sign transactions.
+                  </Alert>
+                )}
+                {generatedWallet.passkeyInProgress && (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <strong>⏳ Passkey Registration In Progress</strong> Your wallet is being created. Passkey registration is happening in the background and may take 30-60 seconds to complete. You can use your wallet now, and the passkey will be ready shortly.
+                  </Alert>
+                )}
+                {generatedWallet.passkeyError && (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <strong>⚠️ Passkey Registration Skipped:</strong> {generatedWallet.passkeyError}. You can register a passkey later from the Passkey Manager.
+                  </Alert>
+                )}
                 <Alert severity="error" sx={{ mb: 2 }}>
                   <strong>IMPORTANT:</strong> Save your secret key securely! You cannot recover your wallet without it.
                 </Alert>

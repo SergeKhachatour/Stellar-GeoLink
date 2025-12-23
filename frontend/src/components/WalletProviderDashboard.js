@@ -36,6 +36,7 @@ import SharedMap from './SharedMap';
 import { useWallet } from '../contexts/WalletContext';
 import { useAuth } from '../contexts/AuthContext';
 import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
+import SmartWalletBalance from './Home/SmartWalletBalance';
 
 const WalletProviderDashboard = () => {
     const { user } = useAuth();
@@ -57,7 +58,7 @@ const WalletProviderDashboard = () => {
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
 
     // Wallet state
-    const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
+    const { isConnected, publicKey, secretKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
     const [walletDialogOpen, setWalletDialogOpen] = useState(false);
     const [newWallet, setNewWallet] = useState({
         public_key: '',
@@ -90,10 +91,28 @@ const WalletProviderDashboard = () => {
             }
             
             if (needsReconnection) {
+                // Check if there's a saved secret key for this public key
+                const savedSecretKey = localStorage.getItem('stellar_secret_key');
+                const savedPublicKey = localStorage.getItem('stellar_public_key');
+                
+                // If we have a secret key saved for this user's public key, don't connect in view-only mode
+                // The WalletContext should restore it automatically
+                if (savedSecretKey && savedPublicKey === user.public_key) {
+                    console.log('WalletProviderDashboard: Secret key found in localStorage, WalletContext will restore it');
+                    return;
+                }
+                
                 // Add a delay to allow wallet restoration to complete first
                 const connectTimeout = setTimeout(() => {
+                    // Double-check that wallet still needs connection and no secret key was restored
+                    const currentSecretKey = localStorage.getItem('stellar_secret_key');
+                    if (currentSecretKey && localStorage.getItem('stellar_public_key') === user.public_key) {
+                        console.log('WalletProviderDashboard: Secret key restored, skipping view-only connection');
+                        return;
+                    }
+                    
                     if (!isConnected || (publicKey && publicKey !== user.public_key)) {
-                        console.log('WalletProviderDashboard: Attempting wallet auto-connection...');
+                        console.log('WalletProviderDashboard: Attempting wallet auto-connection (view-only)...');
                         connectWalletViewOnly(user.public_key).catch(error => {
                             console.error('WalletProviderDashboard: Auto-connection failed, will retry:', error);
                             // Retry once after a delay
@@ -288,6 +307,11 @@ const WalletProviderDashboard = () => {
                         </>
                     )}
                 </Box>
+            </Box>
+
+            {/* Smart Wallet Vault Balance */}
+            <Box sx={{ mb: 3 }}>
+                <SmartWalletBalance />
             </Box>
 
             {/* Wallet Provider Wallet Status */}

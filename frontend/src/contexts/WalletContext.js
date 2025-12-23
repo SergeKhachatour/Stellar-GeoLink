@@ -58,7 +58,35 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Failed to initialize Stellar SDK');
       }
       setLoading(true);
-      const account = await serverRef.current.loadAccount(pubKey);
+      
+      // Retry logic for newly created accounts that might not be on Horizon yet
+      let account;
+      let retries = 3;
+      let accountLoaded = false;
+      
+      while (retries > 0 && !accountLoaded) {
+        try {
+          account = await serverRef.current.loadAccount(pubKey);
+          accountLoaded = true;
+        } catch (err) {
+          if (err.message && err.message.includes('Not Found')) {
+            retries--;
+            if (retries > 0) {
+              console.log(`Account ${pubKey} not found yet, retrying in 2 seconds... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+              // Account doesn't exist yet - set balance to 0 and continue
+              console.warn('Account not found on network yet. It may still be funding.');
+              setBalance(0);
+              setError('Account not found on network. If this is a newly created account, please wait a few seconds for it to be funded.');
+              return;
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
+      
       setAccount(account);
       
       // Get XLM balance
@@ -104,18 +132,25 @@ export const WalletProvider = ({ children }) => {
       // If there's a current user, check if the saved wallet matches
       if (currentUser?.public_key) {
         if (savedPublicKey === currentUser.public_key) {
-          // Wallet matches user, restore it
+          // Wallet matches user, restore it WITH secret key if available
           console.log('WalletContext: Restoring wallet for current user');
           if (!isConnected || publicKey !== savedPublicKey) {
             setPublicKey(savedPublicKey);
-            setSecretKey(savedSecretKey); // This could be null for view-only wallets
+            setSecretKey(savedSecretKey); // Restore secret key if available
             setIsConnected(true);
-            console.log('WalletContext: Wallet restored, loading account info...');
+            console.log('WalletContext: Wallet restored', { 
+              hasSecretKey: !!savedSecretKey,
+              publicKey: savedPublicKey.substring(0, 8) + '...'
+            });
             loadAccountInfo(savedPublicKey).then(() => {
               console.log('WalletContext: Account info loaded successfully');
             }).catch(error => {
               console.error('WalletContext: Failed to load account info:', error);
             });
+          } else if (isConnected && publicKey === savedPublicKey && !secretKey && savedSecretKey) {
+            // Wallet is connected but missing secret key - restore it
+            console.log('WalletContext: Restoring missing secret key for connected wallet');
+            setSecretKey(savedSecretKey);
           }
         } else {
           // Different user, clear saved data
@@ -135,19 +170,57 @@ export const WalletProvider = ({ children }) => {
         console.log('WalletContext: No current user, but restoring standalone wallet connection');
         if (!isConnected || publicKey !== savedPublicKey) {
           setPublicKey(savedPublicKey);
-          setSecretKey(savedSecretKey);
+          setSecretKey(savedSecretKey); // Restore secret key if available
           setIsConnected(true);
-          console.log('WalletContext: Standalone wallet restored, loading account info...');
+          console.log('WalletContext: Standalone wallet restored', {
+            hasSecretKey: !!savedSecretKey,
+            publicKey: savedPublicKey.substring(0, 8) + '...'
+          });
           loadAccountInfo(savedPublicKey).then(() => {
             console.log('WalletContext: Account info loaded successfully');
           }).catch(error => {
             console.error('WalletContext: Failed to load account info:', error);
           });
+        } else if (isConnected && publicKey === savedPublicKey && !secretKey && savedSecretKey) {
+          // Wallet is connected but missing secret key - restore it
+          console.log('WalletContext: Restoring missing secret key for standalone wallet');
+          setSecretKey(savedSecretKey);
         }
       }
     } else if (currentUser?.public_key && !savedPublicKey) {
-      // User has public key but no saved wallet data, let NFTDashboard handle auto-connection
-      console.log('WalletContext: User has public key but no saved wallet, will auto-connect');
+      // User has public key but no saved wallet data
+      // Check if there's a secret key in localStorage that matches (from wallet creation)
+      const tempSecretKey = localStorage.getItem('stellar_secret_key');
+      if (tempSecretKey) {
+        // Try to derive public key from secret key to see if it matches
+        // Use async IIFE since useEffect callback can't be async
+        (async () => {
+          try {
+            const StellarSdk = await import('@stellar/stellar-sdk');
+            const keypair = StellarSdk.Keypair.fromSecret(tempSecretKey);
+            if (keypair.publicKey() === currentUser.public_key) {
+              // Secret key matches user's public key - restore wallet with secret key
+              console.log('WalletContext: Found matching secret key for user, restoring wallet');
+              setPublicKey(currentUser.public_key);
+              setSecretKey(tempSecretKey);
+              setIsConnected(true);
+              localStorage.setItem('stellar_public_key', currentUser.public_key);
+              loadAccountInfo(currentUser.public_key).then(() => {
+                console.log('WalletContext: Account info loaded successfully');
+              }).catch(error => {
+                console.error('WalletContext: Failed to load account info:', error);
+              });
+            }
+          } catch (err) {
+            console.warn('WalletContext: Could not verify secret key:', err);
+          }
+        })();
+        return; // Exit early, async check in progress
+      }
+      
+      // No matching secret key found, don't auto-connect in view-only mode
+      // Let the user manually connect if needed
+      console.log('WalletContext: User has public key but no saved wallet with secret key');
       if (isConnected) {
         // Don't clear if already connected (might be manually connected)
         return;
@@ -232,10 +305,13 @@ export const WalletProvider = ({ children }) => {
       const keypair = Keypair.fromSecret(secretKeyInput);
       const publicKey = keypair.publicKey();
 
-      // Test the keypair by loading account
-      await serverRef.current.loadAccount(publicKey);
+      // Validate the keypair is valid (can derive public key from secret)
+      // For newly created accounts, the account may not exist on Horizon yet
+      // So we don't require the account to exist - we'll connect anyway and load it later
+      console.log(`WalletContext: Connecting wallet with public key ${publicKey.substring(0, 8)}...`);
 
-      // Save to state and localStorage
+      // Save to state and localStorage immediately
+      // This allows connection even for newly created accounts that aren't on Horizon yet
       setPublicKey(publicKey);
       setSecretKey(secretKeyInput);
       setIsConnected(true);
@@ -243,21 +319,55 @@ export const WalletProvider = ({ children }) => {
       localStorage.setItem('stellar_public_key', publicKey);
       localStorage.setItem('stellar_secret_key', secretKeyInput);
 
-      // Load account info
-      await loadAccountInfo(publicKey);
-
-      // Update user's public key in backend
+      console.log(`WalletContext: Wallet connected successfully - Public Key: ${publicKey.substring(0, 8)}...`);
+      
+      // Try to load account info (with retry logic for newly created accounts)
+      // This will handle accounts that don't exist yet gracefully
       try {
-        await api.put('/auth/update-public-key', {
-          public_key: publicKey
-        });
-      } catch (err) {
-        console.warn('Failed to update public key in backend:', err);
+        await loadAccountInfo(publicKey);
+        console.log('WalletContext: Account info loaded successfully');
+      } catch (loadError) {
+        // If account doesn't exist yet, that's okay - it's a newly created account
+        // The account will appear once Friendbot funds it
+        if (loadError.message && (loadError.message.includes('Not Found') || loadError.message.includes('404'))) {
+          console.log(`WalletContext: Account ${publicKey} not found yet (newly created). It will appear once Friendbot funds it.`);
+          // Set balance to 0 for now
+          setBalance(0);
+          setAccount(null); // Clear account since it doesn't exist yet
+        } else {
+          // For other errors, log but don't fail the connection
+          console.warn('WalletContext: Error loading account info (wallet still connected):', loadError.message);
+        }
       }
 
+      // Update user's public key in backend (only if user is logged in)
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          await api.put('/auth/update-public-key', {
+            public_key: publicKey
+          });
+          console.log('WalletContext: Updated public key in backend');
+        } else {
+          console.log('WalletContext: No auth token, skipping backend public key update');
+        }
+      } catch (err) {
+        // Don't fail wallet connection if backend update fails
+        console.warn('WalletContext: Failed to update public key in backend (wallet still connected):', err.message);
+      }
+
+      console.log('WalletContext: Wallet connection complete');
+
     } catch (err) {
-      console.error('Error connecting wallet:', err);
+      console.error('WalletContext: Error connecting wallet:', err);
       setError(err.message || 'Failed to connect wallet');
+      // Clear state on error
+      setPublicKey(null);
+      setSecretKey(null);
+      setIsConnected(false);
+      localStorage.removeItem('stellar_public_key');
+      localStorage.removeItem('stellar_secret_key');
+      throw err; // Re-throw so caller can handle it
     } finally {
       setLoading(false);
     }
@@ -310,23 +420,105 @@ export const WalletProvider = ({ children }) => {
     }
   };
 
-  // Generate new wallet
-  const generateWallet = async () => {
+  // Generate new wallet using backend StellarOperations service
+  // Optionally registers a passkey automatically if WebAuthn is available
+  const generateWallet = async (autoRegisterPasskey = true) => {
     try {
-      const StellarSdk = await import('@stellar/stellar-sdk');
-      const Keypair = StellarSdk.Keypair;
-      const keypair = Keypair.random();
-      const newSecretKey = keypair.secret();
-      const newPublicKey = keypair.publicKey();
+      setLoading(true);
+      setError(null);
 
-      return {
-        publicKey: newPublicKey,
-        secretKey: newSecretKey
+      // Call backend endpoint to create and fund account
+      const response = await api.post('/stellar/create-account');
+      const accountData = response.data;
+
+      // Handle both possible response formats
+      const publicKey = accountData.publicKey || accountData.public_key;
+      const secretKey = accountData.secret || accountData.secretKey || accountData.secret_key;
+
+      if (!publicKey || !secretKey) {
+        throw new Error('Invalid response from server: missing publicKey or secret');
+      }
+
+      const wallet = {
+        publicKey: publicKey,
+        secretKey: secretKey
       };
+
+      // Automatically register passkey if WebAuthn is available and enabled
+      // Do this asynchronously - don't block wallet creation on passkey registration
+      // Friendbot can take 30+ seconds to fund accounts, so we'll try to register
+      // the passkey in the background with multiple attempts
+      if (autoRegisterPasskey && navigator.credentials && navigator.credentials.create) {
+        // Start passkey registration asynchronously (don't await)
+        // This allows wallet creation to complete immediately
+        (async () => {
+          try {
+            // Try to register passkey with extended retries
+            // Friendbot can be slow, so we'll try multiple times with increasing waits
+            let registered = false;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (!registered && attempts < maxAttempts) {
+              attempts++;
+              try {
+                // Wait before each attempt (increasing wait time: 15s, 30s, 45s)
+                const waitTime = attempts * 15000;
+                if (attempts > 1) {
+                  console.log(`⏳ Passkey registration attempt ${attempts}/${maxAttempts} - Waiting ${waitTime/1000} seconds for account to be funded...`);
+                } else {
+                  console.log(`⏳ Waiting ${waitTime/1000} seconds for account to be funded before first passkey registration attempt...`);
+                }
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                
+                // Import webauthnService dynamically to avoid circular dependencies
+                const webauthnService = (await import('../services/webauthnService')).default;
+                
+                // Register passkey with WebAuthn API
+                console.log(`🔐 Attempting passkey registration (attempt ${attempts}/${maxAttempts})...`);
+                const passkeyData = await webauthnService.registerPasskey(publicKey);
+                
+                // Register passkey on smart wallet contract via backend
+                // Use userPublicKey and secretKey since user might not be authenticated yet
+                await api.post('/webauthn/register', {
+                  passkeyPublicKeySPKI: passkeyData.publicKey,
+                  credentialId: passkeyData.credentialId,
+                  userPublicKey: publicKey,
+                  secretKey: secretKey
+                });
+
+                console.log('✅ Passkey automatically registered during wallet creation');
+                registered = true;
+              } catch (passkeyError) {
+                console.warn(`⚠️ Passkey registration attempt ${attempts} failed:`, passkeyError.message);
+                if (attempts >= maxAttempts) {
+                  console.warn('⚠️ Passkey registration failed after all attempts. You can register it later via Passkey Manager.');
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('⚠️ Background passkey registration error:', error.message);
+          }
+        })();
+        
+        // Mark that passkey registration is in progress (non-blocking)
+        wallet.passkeyRegistered = false;
+        wallet.passkeyInProgress = true;
+      } else {
+        wallet.passkeyRegistered = false;
+        if (!autoRegisterPasskey) {
+          wallet.passkeySkipped = true;
+        }
+      }
+
+      return wallet;
     } catch (err) {
       console.error('Error generating wallet:', err);
-      setError('Failed to generate wallet');
-      return null;
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to generate wallet';
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 

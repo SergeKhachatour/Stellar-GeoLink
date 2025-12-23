@@ -65,6 +65,7 @@ const validateRegistration = (req, res, next) => {
     const {
         email,
         password,
+        public_key,
         firstName,
         lastName,
         organization,
@@ -72,31 +73,70 @@ const validateRegistration = (req, res, next) => {
         useCase
     } = req.body;
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) {
-        return res.status(400).json({ error: 'Invalid email address' });
-    }
+    // Support two registration modes:
+    // 1. Traditional: email + password
+    // 2. Wallet-based: public_key (no email/password required)
 
-    // Password validation (at least 8 characters, 1 uppercase, 1 lowercase, 1 number)
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    if (!password || !passwordRegex.test(password)) {
-        return res.status(400).json({
-            error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number'
+    const isWalletBased = !!public_key;
+    const isTraditional = !!email && !!password;
+
+    if (!isWalletBased && !isTraditional) {
+        return res.status(400).json({ 
+            error: 'Either provide email/password OR public_key for wallet-based registration' 
         });
     }
 
-    // Other field validations
-    if (!firstName || firstName.trim().length < 2) {
-        return res.status(400).json({ error: 'First name is required (minimum 2 characters)' });
+    // Traditional registration validation
+    if (isTraditional) {
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ error: 'Invalid email address' });
+        }
+
+        // Password validation (at least 8 characters, 1 uppercase, 1 lowercase, 1 number)
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+        if (!passwordRegex.test(password)) {
+            return res.status(400).json({
+                error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number'
+            });
+        }
     }
 
-    if (!lastName || lastName.trim().length < 2) {
-        return res.status(400).json({ error: 'Last name is required (minimum 2 characters)' });
+    // Wallet-based registration validation
+    if (isWalletBased) {
+        // Validate public key format (Stellar public keys are 56 characters, start with 'G')
+        if (typeof public_key !== 'string' || public_key.length !== 56 || !public_key.startsWith('G')) {
+            return res.status(400).json({ error: 'Invalid Stellar public key format' });
+        }
     }
 
-    if (!organization || organization.trim().length < 2) {
-        return res.status(400).json({ error: 'Organization is required (minimum 2 characters)' });
+    // Common field validations (optional for wallet-based, required for traditional)
+    if (isTraditional) {
+        if (!firstName || firstName.trim().length < 2) {
+            return res.status(400).json({ error: 'First name is required (minimum 2 characters)' });
+        }
+
+        if (!lastName || lastName.trim().length < 2) {
+            return res.status(400).json({ error: 'Last name is required (minimum 2 characters)' });
+        }
+
+        if (!organization || organization.trim().length < 2) {
+            return res.status(400).json({ error: 'Organization is required (minimum 2 characters)' });
+        }
+    } else {
+        // For wallet-based, make these optional but validate if provided
+        if (firstName && firstName.trim().length > 0 && firstName.trim().length < 2) {
+            return res.status(400).json({ error: 'First name must be at least 2 characters if provided' });
+        }
+
+        if (lastName && lastName.trim().length > 0 && lastName.trim().length < 2) {
+            return res.status(400).json({ error: 'Last name must be at least 2 characters if provided' });
+        }
+
+        if (organization && organization.trim().length > 0 && organization.trim().length < 2) {
+            return res.status(400).json({ error: 'Organization must be at least 2 characters if provided' });
+        }
     }
 
     if (!role || !['wallet_provider', 'data_consumer', 'nft_manager'].includes(role)) {

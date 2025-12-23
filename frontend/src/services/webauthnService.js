@@ -16,12 +16,27 @@ function arrayBufferToBase64(buffer) {
 
 // Utility: Base64 to ArrayBuffer
 function base64ToArrayBuffer(base64) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  try {
+    // Handle both base64url and base64 formats
+    // Replace base64url characters with base64 characters
+    let normalizedBase64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+    
+    // Add padding if needed
+    while (normalizedBase64.length % 4) {
+      normalizedBase64 += '=';
+    }
+    
+    const binary = atob(normalizedBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (error) {
+    console.error('Error decoding base64:', error);
+    console.error('Input string:', base64);
+    throw new Error(`Invalid base64 string: ${error.message}`);
   }
-  return bytes.buffer;
 }
 
 /**
@@ -223,12 +238,35 @@ class WebAuthnService {
       throw new Error('WebAuthn is not supported in this browser');
     }
 
-    // Generate challenge from signature payload (first 32 bytes of SHA-256 hash)
-    const payloadHash = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(signaturePayload)
-    );
-    const challenge = new Uint8Array(payloadHash).slice(0, 32);
+    if (!credentialId || typeof credentialId !== 'string') {
+      throw new Error(`Invalid credentialId: expected string, got ${typeof credentialId}`);
+    }
+
+    // Generate challenge from signature payload
+    // The verifier contract expects: first 32 bytes of signaturePayload, base64url-encoded
+    // The contract does: extract first 32 bytes, base64url-encode them, compare with client_data.challenge
+    // So we need to use the first 32 bytes of signaturePayload (padded to 32 bytes if needed)
+    const payloadBytes = new TextEncoder().encode(signaturePayload);
+    const first32Bytes = new Uint8Array(32);
+    
+    // Copy first 32 bytes (or all bytes if payload is shorter than 32 bytes)
+    // Remaining bytes will be 0 (padded)
+    const bytesToCopy = Math.min(32, payloadBytes.length);
+    first32Bytes.set(payloadBytes.slice(0, bytesToCopy), 0);
+    
+    // The WebAuthn API expects the challenge as ArrayBuffer
+    // The contract will base64url-encode these exact 32 bytes and compare with client_data.challenge
+    const challenge = first32Bytes.buffer;
+
+    // Convert credentialId to ArrayBuffer with error handling
+    let credentialIdBuffer;
+    try {
+      credentialIdBuffer = base64ToArrayBuffer(credentialId);
+    } catch (error) {
+      console.error('Error converting credentialId to ArrayBuffer:', error);
+      console.error('credentialId value:', credentialId);
+      throw new Error(`Failed to decode credentialId: ${error.message}`);
+    }
 
     // Authenticate with passkey
     const credential = await navigator.credentials.get({
@@ -238,7 +276,7 @@ class WebAuthnService {
         rpId: window.location.hostname,
         userVerification: 'required',
         allowCredentials: [{
-          id: base64ToArrayBuffer(credentialId),
+          id: credentialIdBuffer,
           type: 'public-key'
         }]
       }
