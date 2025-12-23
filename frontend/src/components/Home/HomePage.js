@@ -35,10 +35,18 @@ import RealTimeNodeTracking from './RealTimeNodeTracking';
 import SmartWalletBalance from './SmartWalletBalance';
 import ApiDocumentation from '../shared/ApiDocumentation';
 import AIChat from '../AI/AIChat';
+import { useAIMap } from '../../contexts/AIMapContext';
 
 const HomePage = () => {
+    const { mapVisible } = useAIMap();
+    
     return (
         <>
+            {/* Smart Wallet Balance - Compact at top */}
+            <Container maxWidth="lg" sx={{ pt: { xs: 2, md: 3 }, pb: { xs: 1, md: 2 } }}>
+                <SmartWalletBalance compact={true} />
+            </Container>
+
             {/* Hero Section */}
             <Box
                 sx={{
@@ -184,8 +192,8 @@ const HomePage = () => {
                 </Container>
             </Box>
 
-            {/* Stellar Network Section */}
-            <RealTimeNodeTracking />
+            {/* Stellar Network Section - Hide when AI map is visible */}
+            {!mapVisible && <RealTimeNodeTracking />}
 
             {/* Real Estate Tokenization Section */}
             <Box sx={{ 
@@ -460,9 +468,6 @@ const HomePage = () => {
 
             {/* Public NFT Showcase Section */}
             <PublicNFTShowcase />
-
-            {/* Smart Wallet Balance */}
-            <SmartWalletBalance />
 
             {/* Core Features Section */}
             <Box sx={{ 

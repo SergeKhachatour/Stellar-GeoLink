@@ -631,7 +631,7 @@ async function executeToolCall(toolCall, userContext = {}) {
         );
 
       // GeoLink Location & Geospatial Operations
-      case 'geolink_findNearbyWallets':
+      case 'geolink_findNearbyWallets': {
         // Use user location from context if not provided
         const lat = functionArgs.latitude || userContext.location?.latitude;
         const lon = functionArgs.longitude || userContext.location?.longitude;
@@ -640,45 +640,91 @@ async function executeToolCall(toolCall, userContext = {}) {
           throw new Error('Location is required. Please provide latitude and longitude, or enable location sharing in your browser.');
         }
         
-        const walletResult = await geolinkOperations.findNearbyWallets(
-          lat,
-          lon,
-          functionArgs.radius || 1000,
-          token
-        );
+        const radius = functionArgs.radius || 1000;
         
-        // Add explicit map data to ensure it's detected
+        // Fetch both wallets and NFTs
+        const [walletResult, nftResult] = await Promise.all([
+          geolinkOperations.findNearbyWallets(lat, lon, radius, token),
+          geolinkOperations.getNearbyNFTs(lat, lon, radius).catch(err => {
+            console.warn('[AI Tool] Failed to fetch nearby NFTs:', err.message);
+            return { nfts: [] };
+          })
+        ]);
+        
+        // Combine wallets and NFTs for map display
+        const mapDataItems = [];
+        
+        // Add wallets to map data
         if (walletResult && walletResult.locations && Array.isArray(walletResult.locations)) {
           const validLocations = walletResult.locations.filter(loc => 
             loc.latitude != null && loc.longitude != null && 
             loc.latitude !== 0 && loc.longitude !== 0
           );
           
-          if (validLocations.length > 0) {
-            walletResult._mapData = {
-              type: 'wallets',
-              data: validLocations.map(loc => ({
-                type: 'wallet',
-                latitude: parseFloat(loc.latitude),
-                longitude: parseFloat(loc.longitude),
-                public_key: loc.public_key,
-                organization: loc.organization || loc.asset_name || loc.description || 'Unknown',
-                blockchain: loc.blockchain || 'Stellar',
-                last_updated: loc.last_updated,
-                distance_meters: loc.distance || loc.distance_meters
-              })),
-              center: {
-                latitude: lat,
-                longitude: lon
-              },
-              zoom: 13
-            };
-            console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${validLocations.length} wallets`);
-            console.log(`[AI Tool] Sample wallet data:`, walletResult._mapData.data[0]);
-          }
+          validLocations.forEach(loc => {
+            mapDataItems.push({
+              type: 'wallet',
+              latitude: parseFloat(loc.latitude),
+              longitude: parseFloat(loc.longitude),
+              public_key: loc.public_key,
+              organization: loc.organization || loc.asset_name || loc.description || 'Unknown',
+              blockchain: loc.blockchain || 'Stellar',
+              last_updated: loc.last_updated,
+              distance_meters: loc.distance || loc.distance_meters,
+              radius: radius
+            });
+          });
         }
         
+        // Add NFTs to map data
+        if (nftResult && nftResult.nfts && Array.isArray(nftResult.nfts)) {
+          const validNFTs = nftResult.nfts.filter(nft => 
+            nft.latitude != null && nft.longitude != null && 
+            nft.latitude !== 0 && nft.longitude !== 0
+          );
+          
+          validNFTs.forEach(nft => {
+            mapDataItems.push({
+              type: 'nft',
+              latitude: parseFloat(nft.latitude),
+              longitude: parseFloat(nft.longitude),
+              id: nft.id,
+              name: nft.name || `NFT #${nft.id}`,
+              collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
+              image_url: nft.image_url || null,
+              server_url: nft.server_url || null,
+              ipfs_hash: nft.ipfs_hash || null,
+              rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
+              distance_meters: nft.distance || nft.distance_meters,
+              radius: radius
+            });
+          });
+        }
+        
+        // Add explicit map data with combined wallets and NFTs
+        if (mapDataItems.length > 0) {
+          walletResult._mapData = {
+            type: 'combined',
+            data: mapDataItems,
+            userLocation: {
+              latitude: lat,
+              longitude: lon
+            },
+            radius: radius,
+            center: {
+              latitude: lat,
+              longitude: lon
+            },
+            zoom: 13
+          };
+          console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
+        }
+        
+        // Include NFTs in the result
+        walletResult.nfts = nftResult.nfts || [];
+        
         return walletResult;
+      }
 
       case 'geolink_getGeospatialStats':
         return await geolinkOperations.getGeospatialStatistics(token);
@@ -772,7 +818,7 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!token) throw new Error('API key required for this operation');
         return await geolinkOperations.getGeofences(token);
 
-      case 'geolink_createGeofence':
+      case 'geolink_createGeofence': {
         console.log(`[AI Tool] geolink_createGeofence - Token present:`, !!token);
         console.log(`[AI Tool] geolink_createGeofence - User context:`, { userId, hasLocation: !!userContext?.location, role: userContext?.role });
         if (!token) {
@@ -840,6 +886,7 @@ async function executeToolCall(toolCall, userContext = {}) {
             data: geofenceResult
           }
         };
+      }
 
       default:
         throw new Error(`Unknown function: ${functionName}`);
@@ -1073,6 +1120,16 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             });
           }
           
+          // Check if result contains _mapData (combined wallets and NFTs)
+          if (result._mapData) {
+            mapData = result._mapData;
+            console.log(`[Map Data] Using _mapData from result:`, {
+              type: mapData.type,
+              dataCount: mapData.data?.length || 0
+            });
+            break;
+          }
+          
           // Check if result contains NFT data
           if (result.nfts && Array.isArray(result.nfts) && result.nfts.length > 0) {
             // Filter to only include NFTs with valid coordinates
@@ -1090,7 +1147,9 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                   id: nft.id,
                   name: nft.name || `NFT #${nft.id}`,
                   collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
-                  image_url: nft.image_url || nft.server_url || null,
+                  image_url: nft.image_url || null,
+                  server_url: nft.server_url || null,
+                  ipfs_hash: nft.ipfs_hash || null,
                   rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
                   distance: nft.distance
                 }))
@@ -1139,7 +1198,9 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                       id: nft.id,
                       name: nft.name || `NFT #${nft.id}`,
                       collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
-                      image_url: nft.image_url || nft.server_url || null,
+                      image_url: nft.image_url || null,
+                      server_url: nft.server_url || null,
+                      ipfs_hash: nft.ipfs_hash || null,
                       rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common'
                     }))
                   };

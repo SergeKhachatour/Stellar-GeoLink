@@ -20,7 +20,7 @@ import DepositDialog from '../Wallet/DepositDialog';
 import TransactionHistoryDialog from '../Wallet/TransactionHistoryDialog';
 import webauthnService from '../../services/webauthnService';
 
-const SmartWalletBalance = () => {
+const SmartWalletBalance = ({ compact = false }) => {
   const { user } = useAuth();
   const { isConnected, publicKey, balance: walletBalance, loadAccountInfo } = useWallet();
   const [balance, setBalance] = useState(null);
@@ -179,6 +179,135 @@ const SmartWalletBalance = () => {
     return null; // Don't show if user is not logged in and no wallet is connected
   }
 
+  // Compact version for home page
+  if (compact) {
+    return (
+      <>
+        <Card sx={{ mb: { xs: 2, md: 3 }, mx: { xs: 1, md: 0 } }}>
+          <CardContent sx={{ py: { xs: 1.5, md: 2 }, px: { xs: 1.5, md: 2 } }}>
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: { xs: 'column', sm: 'row' },
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              justifyContent: 'space-between',
+              gap: { xs: 1.5, sm: 2 }
+            }}>
+              {/* Vault Balance */}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                  Vault Balance
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem' }, color: 'primary.main' }}>
+                  {vaultBalanceInXLM ? parseFloat(vaultBalanceInXLM).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 4
+                  }) : '0.00'} XLM
+                </Typography>
+              </Box>
+
+              {/* User Balance (if available) */}
+              {balance !== null && (
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                      Your Balance
+                    </Typography>
+                    {!xlmBalanceRevealed && (
+                      <Tooltip title="Reveal with passkey">
+                        <IconButton
+                          size="small"
+                          onClick={handleRevealBalance}
+                          disabled={revealingBalance}
+                          sx={{ p: 0.5, color: 'text.secondary' }}
+                        >
+                          {revealingBalance ? <CircularProgress size={12} /> : <VisibilityOff sx={{ fontSize: 14 }} />}
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
+                  {xlmBalanceRevealed ? (
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                      {balanceInXLM ? parseFloat(balanceInXLM).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 4
+                      }) : '0.00'} XLM
+                    </Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Lock sx={{ fontSize: 14, color: 'text.secondary' }} />
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: { xs: '1rem', sm: '1.25rem' }, color: 'text.secondary' }}>
+                        •••••• XLM
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Action Buttons */}
+              {isConnected && publicKey && (
+                <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<History sx={{ fontSize: 16 }} />}
+                    onClick={() => setTransactionHistoryOpen(true)}
+                    sx={{ 
+                      fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                      px: { xs: 1, sm: 1.5 },
+                      py: { xs: 0.5, sm: 0.75 },
+                      minWidth: 'auto'
+                    }}
+                  >
+                    <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>History</Box>
+                    <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Hist</Box>
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<ArrowDownward sx={{ fontSize: 16 }} />}
+                    onClick={() => setDepositDialogOpen(true)}
+                    sx={{ 
+                      fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                      px: { xs: 1, sm: 1.5 },
+                      py: { xs: 0.5, sm: 0.75 },
+                      minWidth: 'auto'
+                    }}
+                  >
+                    Deposit
+                  </Button>
+                </Box>
+              )}
+            </Box>
+
+            {loading && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+                <CircularProgress size={16} />
+              </Box>
+            )}
+
+            {error && (
+              <Alert severity="error" sx={{ mt: 1, py: 0.5, fontSize: '0.7rem' }}>
+                {error}
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        <DepositDialog
+          open={depositDialogOpen}
+          onClose={() => setDepositDialogOpen(false)}
+          onDepositSuccess={handleDepositSuccess}
+        />
+        
+        <TransactionHistoryDialog
+          open={transactionHistoryOpen}
+          onClose={() => setTransactionHistoryOpen(false)}
+        />
+      </>
+    );
+  }
+
+  // Full version for dashboards
   return (
     <>
       <Card sx={{ mb: 3 }}>
