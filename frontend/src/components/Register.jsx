@@ -13,8 +13,7 @@ import {
     Paper,
     Alert,
     Tabs,
-    Tab,
-    Divider
+    Tab
 } from '@mui/material';
 import { AccountBalanceWallet, Email } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,7 +26,7 @@ const Register = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { register } = useAuth();
-    const { publicKey: walletPublicKey, secretKey, isConnected, connectWallet } = useWallet();
+    const { publicKey: walletPublicKey, secretKey, isConnected } = useWallet();
     // Check if we're coming from login with a new wallet
     const [registrationMode, setRegistrationMode] = useState(
         (location.state?.walletMode || walletPublicKey) ? 1 : 0

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -34,13 +34,7 @@ const TransactionHistoryDialog = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    if (open && publicKey) {
-      fetchTransactions();
-    }
-  }, [open, publicKey]);
-
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     if (!publicKey) {
       setError('No wallet connected');
       return;
@@ -57,7 +51,13 @@ const TransactionHistoryDialog = ({ open, onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [publicKey, getTransactionHistory]);
+
+  useEffect(() => {
+    if (open && publicKey) {
+      fetchTransactions();
+    }
+  }, [open, publicKey, fetchTransactions]);
 
   const formatDate = (dateString) => {
     try {

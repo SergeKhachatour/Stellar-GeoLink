@@ -55,7 +55,7 @@ const AdminDashboard = () => {
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
 
     // Wallet state
-    const { isConnected, publicKey, secretKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
+    const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
     const [walletDialogOpen, setWalletDialogOpen] = useState(false);
 
     // Notify WalletContext of current user

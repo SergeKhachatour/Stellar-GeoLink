@@ -159,7 +159,7 @@ const SmartWalletBalance = () => {
       const challengeBase64 = btoa(String.fromCharCode(...challenge));
 
       // Authenticate with passkey
-      const authResult = await webauthnService.authenticateWithPasskey(
+      await webauthnService.authenticateWithPasskey(
         credentialId,
         challengeBase64
       );

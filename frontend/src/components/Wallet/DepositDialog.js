@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -51,7 +51,7 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
         fetchContractBalance();
       }
     }
-  }, [open, user, publicKey]);
+  }, [open, user, publicKey, fetchContractBalance]);
 
   // Close wallet dialog when wallet is connected with secret key
   useEffect(() => {
@@ -61,7 +61,7 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
     }
   }, [isConnected, publicKey, secretKey, showWalletDialog]);
 
-  const fetchContractBalance = async () => {
+  const fetchContractBalance = useCallback(async () => {
     try {
       // Use the effective public key (from wallet context or user)
       const effectivePublicKey = publicKey || (user && user.public_key);
@@ -80,7 +80,7 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
       console.error('Failed to fetch contract balance:', err);
       // Don't set to null on error, keep previous value
     }
-  };
+  }, [publicKey, user]);
 
   // Get available balance from wallet context
   // balance is the XLM balance as a number, or we can get it from account.balances

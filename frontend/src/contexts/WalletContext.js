@@ -235,7 +235,7 @@ export const WalletProvider = ({ children }) => {
       // No user and no saved wallet, but somehow connected - keep it (manual connection)
       console.log('WalletContext: Standalone wallet connection active (no user, no saved data)');
     }
-  }, [currentUser, loadAccountInfo, isConnected, publicKey]);
+  }, [currentUser, loadAccountInfo, isConnected, publicKey, secretKey]);
 
   // Clear wallet state when user logs out
   useEffect(() => {
