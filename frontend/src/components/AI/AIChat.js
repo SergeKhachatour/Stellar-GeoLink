@@ -338,14 +338,14 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     bottom: 0,
     width: '100%',
     height: '100vh',
-    zIndex: 9999,
+    zIndex: 10000, // Higher than map (9999) to ensure chat stays visible
     maxWidth: '100%',
     borderRadius: 0
   } : {
     position: 'fixed',
     bottom: 16,
     right: 16,
-    zIndex: 1000,
+    zIndex: 10000, // Higher than map (9999) to ensure chat stays visible
     maxWidth: 400,
     width: '100%'
   };

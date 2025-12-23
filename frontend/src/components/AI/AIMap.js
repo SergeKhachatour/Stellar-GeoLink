@@ -324,7 +324,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         duration: 1000
       });
     }
-  }, [clearMarkers, calculateDistance, createRadiusCircle]);
+  }, [calculateDistance, createRadiusCircle]);
 
   // Create NFT markers with distance and navigation
   const createNFTMarkers = useCallback((nfts, mapInstance, userLocation = null) => {
@@ -498,7 +498,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         duration: 1000
       });
     }
-  }, [clearMarkers, calculateDistance, createRadiusCircle]);
+  }, [calculateDistance, createRadiusCircle]);
 
   // Create Stellar account markers
   const createStellarMarkers = useCallback((accounts, mapInstance) => {
@@ -745,7 +745,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
       }
     });
-  }, [clearMarkers, createRadiusCircle]);
+  }, [createRadiusCircle]);
 
   // Update map based on mapData
   useEffect(() => {
