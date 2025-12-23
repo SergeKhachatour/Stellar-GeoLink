@@ -36,6 +36,27 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
   const [depositResponse, setDepositResponse] = useState(null);
   const [showWalletDialog, setShowWalletDialog] = useState(false);
 
+  const fetchContractBalance = useCallback(async () => {
+    try {
+      // Use the effective public key (from wallet context or user)
+      const effectivePublicKey = publicKey || (user && user.public_key);
+      if (!effectivePublicKey) {
+        return;
+      }
+      
+      const response = await api.get('/smart-wallet/balance', {
+        params: {
+          userPublicKey: effectivePublicKey
+        }
+      });
+      setContractBalance(response.data.balanceInXLM);
+      console.log('[DepositDialog] Contract balance updated:', response.data.balanceInXLM);
+    } catch (err) {
+      console.error('Failed to fetch contract balance:', err);
+      // Don't set to null on error, keep previous value
+    }
+  }, [publicKey, user]);
+
   useEffect(() => {
     if (open) {
       // Reset form when dialog opens
@@ -60,27 +81,6 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
       setError(''); // Clear any previous error
     }
   }, [isConnected, publicKey, secretKey, showWalletDialog]);
-
-  const fetchContractBalance = useCallback(async () => {
-    try {
-      // Use the effective public key (from wallet context or user)
-      const effectivePublicKey = publicKey || (user && user.public_key);
-      if (!effectivePublicKey) {
-        return;
-      }
-      
-      const response = await api.get('/smart-wallet/balance', {
-        params: {
-          userPublicKey: effectivePublicKey
-        }
-      });
-      setContractBalance(response.data.balanceInXLM);
-      console.log('[DepositDialog] Contract balance updated:', response.data.balanceInXLM);
-    } catch (err) {
-      console.error('Failed to fetch contract balance:', err);
-      // Don't set to null on error, keep previous value
-    }
-  }, [publicKey, user]);
 
   // Get available balance from wallet context
   // balance is the XLM balance as a number, or we can get it from account.balances
