@@ -15,7 +15,8 @@
     "build:frontend": "cd ../frontend && npm run build && cd ../backend && node ../deploy-frontend-to-backend.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "diagnose": "node scripts/diagnose-wallets-nfts.js",
-    "fix-data": "node scripts/fix-data-issues.js"
+    "fix-data": "node scripts/fix-data-issues.js",
+    "cleanup-testnet": "node scripts/cleanup-testnet-data.js"
   },
   "keywords": [],
   "author": "",

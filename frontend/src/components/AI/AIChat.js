@@ -49,8 +49,6 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  // Auto-open on first load to show suggestions, but respect initialOpen if explicitly set
-  const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
   const [open, setOpen] = useState(initialOpen);
   const [isMaximized, setIsMaximized] = useState(false);
   const [memoryBoxOpen, setMemoryBoxOpen] = useState(false);
@@ -257,16 +255,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     scrollToBottom();
   }, [messages]);
 
-  // Auto-open chat on first load to show suggestions (only once)
-  useEffect(() => {
-    if (!hasOpenedOnce && !initialOpen && messages.length === 0) {
-      // Small delay to ensure component is fully rendered
-      setTimeout(() => {
-        setOpen(true);
-        setHasOpenedOnce(true);
-      }, 300);
-    }
-  }, [hasOpenedOnce, initialOpen, messages.length]);
+  // Removed auto-open behavior - chat will start minimized unless initialOpen is true
 
   const handleSend = async (messageText = null) => {
     const textToSend = messageText || input.trim();
