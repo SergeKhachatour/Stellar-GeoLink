@@ -57,6 +57,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const [minimizeNotification, setMinimizeNotification] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const locationUpdateRef = useRef(false); // Track if we've already updated location
   const { showMap, hideMap, mapVisible, mapData, proximityRadius, updateUserLocation } = useAIMap();
   const { publicKey } = useWallet();
 
@@ -81,7 +82,11 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           console.log('[AIChat] Location retrieved:', location);
           setUserLocation(location);
           // Update AIMapContext with location so it's available globally
-          updateUserLocation(location);
+          // Only update once to prevent infinite loops
+          if (!locationUpdateRef.current) {
+            updateUserLocation(location);
+            locationUpdateRef.current = true;
+          }
         },
         (error) => {
           console.error('[AIChat] Geolocation error:', error);
@@ -141,42 +146,16 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     // Initial location request
     getLocation();
 
-    // Watch position for continuous updates (optional, but helpful for moving users)
-    let watchId = null;
-    try {
-      watchId = navigator.geolocation.watchPosition(
-        (position) => {
-          const location = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          };
-          console.log('[AIChat] Location updated:', location);
-          setUserLocation(location);
-          // Update AIMapContext with location so it's available globally
-          updateUserLocation(location);
-        },
-        (error) => {
-          // Silent error for watchPosition - we already logged the initial error
-          console.debug('[AIChat] Watch position error:', error.message);
-        },
-        {
-          enableHighAccuracy: false, // Use less accurate but faster location for updates
-          timeout: 30000,
-          maximumAge: 300000 // Accept cached location up to 5 minutes old
-        }
-      );
-    } catch (watchError) {
-      console.warn('[AIChat] Could not start watching position:', watchError);
-    }
+    // Don't use watchPosition to prevent infinite loops
+    // Instead, only get location once on mount
+    // If location updates are needed, they can be requested manually or on user action
 
-    // Cleanup watch on unmount
+    // Cleanup on unmount (no watch to clean up, but keeping structure for future use)
     return () => {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-      }
+      // No cleanup needed since we're not using watchPosition
     };
-  }, [updateUserLocation]); // Include updateUserLocation in dependencies
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount - don't include updateUserLocation to prevent infinite loop
 
   // Auto-minimize chat in mobile view when map becomes visible
   useEffect(() => {

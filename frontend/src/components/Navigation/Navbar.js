@@ -18,7 +18,7 @@ import {
     useMediaQuery,
     useTheme
 } from '@mui/material';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -27,11 +27,17 @@ import CloseIcon from '@mui/icons-material/Close';
 const Navbar = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('md'));
     
     const [anchorEl, setAnchorEl] = React.useState(null);
     const [mobileOpen, setMobileOpen] = React.useState(false);
+    
+    // Force re-render when location changes
+    React.useEffect(() => {
+        // This ensures the component re-renders when route changes
+    }, [location.pathname]);
 
     const handleMenu = (event) => {
         setAnchorEl(event.currentTarget);
@@ -66,10 +72,18 @@ const Navbar = () => {
                 {!user ? (
                     // Public navigation
                     <>
-                        <ListItemButton component={RouterLink} to="/" onClick={handleDrawerToggle}>
+                        <ListItemButton 
+                            component={RouterLink} 
+                            to="/" 
+                            onClick={handleDrawerToggle}
+                        >
                             <ListItemText primary="Home" />
                         </ListItemButton>
-                        <ListItemButton component={RouterLink} to="/features" onClick={handleDrawerToggle}>
+                        <ListItemButton 
+                            component={RouterLink} 
+                            to="/features" 
+                            onClick={handleDrawerToggle}
+                        >
                             <ListItemText primary="Features" />
                         </ListItemButton>
                         <ListItemButton 

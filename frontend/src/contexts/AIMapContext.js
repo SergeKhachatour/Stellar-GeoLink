@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 
 const AIMapContext = createContext();
 
@@ -38,10 +38,18 @@ export const AIMapProvider = ({ children }) => {
     console.log('[AIMapContext] Proximity radius updated to:', radius);
   };
 
-  const updateUserLocation = (location) => {
-    setUserLocation(location);
-    console.log('[AIMapContext] User location updated:', location);
-  };
+  const updateUserLocation = useCallback((location) => {
+    // Only update if location actually changed to prevent infinite loops
+    setUserLocation(prev => {
+      if (prev && location && 
+          prev.latitude === location.latitude && 
+          prev.longitude === location.longitude) {
+        return prev; // No change, return previous value to prevent re-render
+      }
+      console.log('[AIMapContext] User location updated:', location);
+      return location;
+    });
+  }, []);
 
   return (
     <AIMapContext.Provider
