@@ -37,6 +37,7 @@ import { useWallet } from '../contexts/WalletContext';
 import { useAuth } from '../contexts/AuthContext';
 import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 import SmartWalletBalance from './Home/SmartWalletBalance';
+import AIChat from './AI/AIChat';
 
 const WalletProviderDashboard = () => {
     const { user } = useAuth();
@@ -1227,6 +1228,9 @@ const WalletProviderDashboard = () => {
                 open={walletDialogOpen}
                 onClose={() => setWalletDialogOpen(false)}
             />
+            
+            {/* GeoLink Agent */}
+            <AIChat isPublic={false} initialOpen={false} />
         </Container>
     );
 };

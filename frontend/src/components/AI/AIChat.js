@@ -16,7 +16,11 @@ import {
   Tooltip,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Snackbar,
+  Alert,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -40,6 +44,8 @@ import { useWallet } from '../../contexts/WalletContext';
 import AIMap from './AIMap';
 
 const AIChat = ({ isPublic = false, initialOpen = false }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,35 +54,143 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const [memoryBoxOpen, setMemoryBoxOpen] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [memoryChunks, setMemoryChunks] = useState([]);
+  const [minimizeNotification, setMinimizeNotification] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const { showMap, hideMap, mapVisible, mapData } = useAIMap();
+  const { showMap, hideMap, mapVisible, mapData, proximityRadius, updateUserLocation } = useAIMap();
   const { publicKey } = useWallet();
 
-  // Get user's location on component mount
+  // Get user's location on component mount with improved error handling
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (!navigator.geolocation) {
+      console.warn('[AIChat] Geolocation is not supported by this browser');
+      return;
+    }
+
+    console.log('[AIChat] Requesting geolocation...');
+    
+    // Try to get current position first
+    const getLocation = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setUserLocation({
+          const location = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude,
             accuracy: position.coords.accuracy
-          });
+          };
+          console.log('[AIChat] Location retrieved:', location);
+          setUserLocation(location);
+          // Update AIMapContext with location so it's available globally
+          updateUserLocation(location);
         },
         (error) => {
-          console.warn('Geolocation error:', error);
+          console.error('[AIChat] Geolocation error:', error);
+          let errorMessage = 'Unable to retrieve location';
+          switch(error.code) {
+            case error.PERMISSION_DENIED:
+              errorMessage = 'Location access denied. Please enable location permissions in your browser settings.';
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMessage = 'Location information unavailable.';
+              break;
+            case error.TIMEOUT:
+              errorMessage = 'Location request timed out.';
+              break;
+            default:
+              errorMessage = `Location error: ${error.message || 'Unknown error'}`;
+              break;
+          }
+          console.warn(`[AIChat] ${errorMessage}`);
+          // Don't set userLocation to null - keep previous value if available
+          
+          // Try fallback with relaxed settings if timeout or unavailable
+          if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
+            console.log('[AIChat] Attempting fallback location request with relaxed settings...');
+            setTimeout(() => {
+              navigator.geolocation.getCurrentPosition(
+                (position) => {
+                  const location = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy
+                  };
+                  console.log('[AIChat] ✅ Fallback location retrieved:', location);
+                  setUserLocation(location);
+                  updateUserLocation(location);
+                },
+                (fallbackError) => {
+                  console.warn('[AIChat] ❌ Fallback location request also failed:', fallbackError.message);
+                },
+                {
+                  enableHighAccuracy: false,
+                  timeout: 10000,
+                  maximumAge: 600000 // Accept very old cached location (10 minutes)
+                }
+              );
+            }, 1000); // Wait 1 second before retry
+          }
         },
         {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 0
+          enableHighAccuracy: false, // Start with less accurate but faster location
+          timeout: 30000, // Increased timeout to 30 seconds
+          maximumAge: 300000 // Accept cached location up to 5 minutes old
         }
       );
-    } else {
-      console.warn('Geolocation is not supported by this browser');
+    };
+
+    // Initial location request
+    getLocation();
+
+    // Watch position for continuous updates (optional, but helpful for moving users)
+    let watchId = null;
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const location = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          };
+          console.log('[AIChat] Location updated:', location);
+          setUserLocation(location);
+          // Update AIMapContext with location so it's available globally
+          updateUserLocation(location);
+        },
+        (error) => {
+          // Silent error for watchPosition - we already logged the initial error
+          console.debug('[AIChat] Watch position error:', error.message);
+        },
+        {
+          enableHighAccuracy: false, // Use less accurate but faster location for updates
+          timeout: 30000,
+          maximumAge: 300000 // Accept cached location up to 5 minutes old
+        }
+      );
+    } catch (watchError) {
+      console.warn('[AIChat] Could not start watching position:', watchError);
     }
-  }, []);
+
+    // Cleanup watch on unmount
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [updateUserLocation]); // Include updateUserLocation in dependencies
+
+  // Auto-minimize chat in mobile view when map becomes visible
+  useEffect(() => {
+    if (mapVisible && isMobile && (open || isMaximized)) {
+      console.log('[AIChat] Map became visible on mobile - auto-minimizing chat');
+      setOpen(false);
+      setIsMaximized(false);
+      setMinimizeNotification(true);
+      // Auto-hide notification after 3 seconds
+      setTimeout(() => {
+        setMinimizeNotification(false);
+      }, 3000);
+    }
+  }, [mapVisible, isMobile, open, isMaximized]);
 
   // Extract and chunk important information from messages
   useEffect(() => {
@@ -163,14 +277,28 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     try {
       const endpoint = isPublic ? '/ai/chat/public' : '/ai/chat';
       
-      // Build user context with location and wallet public key
+      // Build user context with location, wallet public key, and proximity radius
       const userContext = {
         location: userLocation ? {
           latitude: userLocation.latitude,
           longitude: userLocation.longitude
         } : null,
-        publicKey: publicKey || null
+        publicKey: publicKey || null,
+        proximityRadius: proximityRadius || 20000000 // Include proximity radius in context (20,000 km - matches xyz-wallet)
       };
+
+      console.log('[AIChat] Sending request with userContext:', {
+        hasLocation: !!userContext.location,
+        location: userContext.location,
+        hasPublicKey: !!userContext.publicKey,
+        proximityRadius: userContext.proximityRadius,
+        userLocationState: userLocation // Also log the component state
+      });
+      
+      // Warn if location is missing
+      if (!userContext.location) {
+        console.warn('[AIChat] ⚠️ WARNING: No location available in userContext. Location-based features will not work.');
+      }
 
       const response = await api.post(endpoint, {
         messages: [...messages, userMessage],
@@ -210,6 +338,18 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         if (!hasMapData && mapVisible) {
           console.log('[AIChat] No map data, hiding map');
           hideMap();
+        }
+        
+        // Auto-minimize chat in mobile view when map shows
+        if (hasMapData && isMobile && (open || isMaximized)) {
+          console.log('[AIChat] Map shown on mobile - auto-minimizing chat');
+          setOpen(false);
+          setIsMaximized(false);
+          setMinimizeNotification(true);
+          // Auto-hide notification after 3 seconds
+          setTimeout(() => {
+            setMinimizeNotification(false);
+          }, 3000);
         }
 
         const assistantMessage = {
@@ -413,6 +553,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   <MemoryIcon sx={{ fontSize: 20 }} />
                 </IconButton>
               </Tooltip>
+              {/* Map button - always show if mapData exists, even if map is hidden */}
               {mapData && (
                 <Tooltip title={mapVisible ? "Hide Map" : "Show Map"}>
                   <IconButton
@@ -502,9 +643,13 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                       size="small"
                     />
                   </Box>
-                  {userLocation && (
+                  {userLocation ? (
                     <Typography variant="caption" color="success.main" sx={{ mt: 2, display: 'block' }}>
-                      ✓ Your location is available and will be used automatically
+                      ✓ Your location is available ({userLocation.latitude.toFixed(4)}, {userLocation.longitude.toFixed(4)})
+                    </Typography>
+                  ) : (
+                    <Typography variant="caption" color="warning.main" sx={{ mt: 2, display: 'block' }}>
+                      ⚠ Location not available. Please enable location permissions and ensure GPS is enabled.
                     </Typography>
                   )}
                 </Box>
@@ -697,6 +842,22 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           )}
         </DialogContent>
       </Dialog>
+      
+      {/* Minimize Notification */}
+      <Snackbar
+        open={minimizeNotification}
+        autoHideDuration={3000}
+        onClose={() => setMinimizeNotification(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setMinimizeNotification(false)} 
+          severity="info" 
+          sx={{ width: '100%' }}
+        >
+          Agent minimized
+        </Alert>
+      </Snackbar>
     </>
   );
 };

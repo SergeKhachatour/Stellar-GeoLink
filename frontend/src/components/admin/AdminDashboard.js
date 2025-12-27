@@ -28,6 +28,7 @@ import WalletLocationsManager from './WalletLocationsManager';
 import SharedMap from '../SharedMap';
 import api from '../../utils/api';
 import { Close as CloseIcon } from '@mui/icons-material';
+import AIChat from '../AI/AIChat';
 import { useWallet } from '../../contexts/WalletContext';
 import { useAuth } from '../../contexts/AuthContext';
 import WalletConnectionDialog from '../Wallet/WalletConnectionDialog';
@@ -739,6 +740,9 @@ const AdminDashboard = () => {
                 open={walletDialogOpen}
                 onClose={() => setWalletDialogOpen(false)}
             />
+            
+            {/* GeoLink Agent */}
+            <AIChat isPublic={false} initialOpen={false} />
         </Container>
     );
 };

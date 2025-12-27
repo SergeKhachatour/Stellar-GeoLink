@@ -13,6 +13,8 @@ export const useAIMap = () => {
 export const AIMapProvider = ({ children }) => {
   const [mapData, setMapData] = useState(null);
   const [mapVisible, setMapVisible] = useState(false);
+  const [proximityRadius, setProximityRadius] = useState(20000000); // Default to global (20,000 km - matches xyz-wallet)
+  const [userLocation, setUserLocation] = useState(null);
 
   const showMap = (data) => {
     console.log('[AIMapContext] showMap called with data:', data);
@@ -23,11 +25,22 @@ export const AIMapProvider = ({ children }) => {
 
   const hideMap = () => {
     setMapVisible(false);
-    setMapData(null);
+    // Don't clear mapData - keep it so user can show map again
+    // mapData is only cleared when explicitly needed (e.g., new query)
   };
 
   const updateMap = (data) => {
     setMapData(prev => ({ ...prev, ...data }));
+  };
+
+  const updateProximityRadius = (radius) => {
+    setProximityRadius(radius);
+    console.log('[AIMapContext] Proximity radius updated to:', radius);
+  };
+
+  const updateUserLocation = (location) => {
+    setUserLocation(location);
+    console.log('[AIMapContext] User location updated:', location);
   };
 
   return (
@@ -35,9 +48,13 @@ export const AIMapProvider = ({ children }) => {
       value={{
         mapData,
         mapVisible,
+        proximityRadius,
+        userLocation,
         showMap,
         hideMap,
-        updateMap
+        updateMap,
+        updateProximityRadius,
+        updateUserLocation
       }}
     >
       {children}

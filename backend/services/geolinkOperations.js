@@ -98,19 +98,49 @@ async function getPinnedNFTs(token) {
 
 /**
  * Get NFTs near a location
- * @param {number} latitude - Center latitude
- * @param {number} longitude - Center longitude
- * @param {number} radius - Search radius in meters (default: 1000)
+ * @param {number} latitude - Center latitude (optional - if not provided, fetches all NFTs globally)
+ * @param {number} longitude - Center longitude (optional - if not provided, fetches all NFTs globally)
+ * @param {number} radius - Search radius in meters (default: 1000, or very large if no location provided)
  * @returns {Promise<array>} - List of nearby NFTs
  */
 async function getNearbyNFTs(latitude, longitude, radius = 1000) {
   try {
-    const response = await axios.get(`${getApiBaseUrl()}/nft/nearby`, {
-      params: { latitude, longitude, radius }
-    });
-    console.log(`[getNearbyNFTs] Called with lat: ${latitude}, lon: ${longitude}, radius: ${radius}`);
-    console.log(`[getNearbyNFTs] Response:`, response.data);
-    return response.data;
+    // If no location provided, fetch all NFTs globally using /nft/public endpoint (no auth required)
+    if (latitude === undefined || longitude === undefined || latitude === null || longitude === null) {
+      console.log(`[getNearbyNFTs] No location provided, fetching all NFTs globally via /nft/public`);
+      const response = await axios.get(`${getApiBaseUrl()}/nft/public`);
+      console.log(`[getNearbyNFTs] Fetched ${response.data.nfts?.length || 0} NFTs globally`);
+      return response.data;
+    }
+    
+    // If radius is very large (>= 20000 km), fetch all NFTs globally using public endpoint
+    // This matches xyz-wallet which uses 20000000m (20,000 km) for global mode
+    if (radius >= 20000000) {
+      console.log(`[getNearbyNFTs] Very large radius (${radius}m = ${(radius / 1000).toFixed(0)}km), fetching all NFTs globally via /nft/public (Global mode)`);
+      const response = await axios.get(`${getApiBaseUrl()}/nft/public`);
+      console.log(`[getNearbyNFTs] Fetched ${response.data.nfts?.length || 0} NFTs globally`);
+      return response.data;
+    }
+    
+    // Otherwise, use the nearby endpoint with location and radius
+    // Note: /nft/nearby requires authentication, so we'll use /nft/public if auth fails
+    try {
+      const response = await axios.get(`${getApiBaseUrl()}/nft/nearby`, {
+        params: { latitude, longitude, radius }
+      });
+      console.log(`[getNearbyNFTs] Called with lat: ${latitude}, lon: ${longitude}, radius: ${radius}`);
+      console.log(`[getNearbyNFTs] Response:`, response.data);
+      return response.data;
+    } catch (nearbyError) {
+      // If /nft/nearby fails due to auth, fallback to /nft/public for global view
+      if (nearbyError.response?.status === 401 || nearbyError.response?.status === 403) {
+        console.log(`[getNearbyNFTs] Auth required for /nft/nearby, falling back to /nft/public for global view`);
+        const response = await axios.get(`${getApiBaseUrl()}/nft/public`);
+        console.log(`[getNearbyNFTs] Fetched ${response.data.nfts?.length || 0} NFTs globally (fallback)`);
+        return response.data;
+      }
+      throw nearbyError;
+    }
   } catch (error) {
     console.error(`[getNearbyNFTs] Error:`, error.response?.data || error.message);
     throw new Error(`Failed to get nearby NFTs: ${error.message}`);

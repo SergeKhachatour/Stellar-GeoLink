@@ -1,11 +1,88 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Box } from '@mui/material';
+import {
+  Box,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Typography,
+  Grid,
+  Button,
+  Slider,
+  Chip,
+  Card,
+  CardContent
+} from '@mui/material';
+import {
+  Close as CloseIcon,
+  LocationOn as LocationIcon,
+  Settings as SettingsIcon,
+  Info as InfoIcon
+} from '@mui/icons-material';
+import { useAIMap } from '../../contexts/AIMapContext';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {
   mapboxgl.accessToken = MAPBOX_TOKEN;
+}
+
+// Add CSS styles for NFT image markers (matching home page implementation exactly)
+// NOTE: Do not set position, transform, or will-change - Mapbox needs full control for 3D globe positioning
+const markerStyles = `
+  .nft-marker {
+    width: 64px !important;
+    height: 64px !important;
+    cursor: pointer !important;
+    z-index: 1000 !important;
+    pointer-events: auto !important;
+    border-radius: 8px !important;
+    border: 3px solid #FFD700 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+    overflow: hidden !important;
+  }
+  
+  .nft-marker img,
+  .nft-marker div {
+    pointer-events: none !important;
+  }
+  
+  /* Ensure popups appear above everything */
+  .mapboxgl-popup {
+    z-index: 2000 !important;
+  }
+  
+  .mapboxgl-popup-content {
+    z-index: 2001 !important;
+  }
+  
+  .mapboxgl-popup-tip {
+    z-index: 2002 !important;
+  }
+  
+  /* Specific styling for NFT popups */
+  .nft-popup {
+    z-index: 3000 !important;
+  }
+  
+  .nft-popup .mapboxgl-popup-content {
+    z-index: 3001 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3) !important;
+  }
+  
+  .nft-popup .mapboxgl-popup-tip {
+    z-index: 3002 !important;
+  }
+`;
+
+// Inject styles into the document (only once)
+if (typeof document !== 'undefined' && !document.getElementById('ai-map-marker-styles')) {
+  const styleSheet = document.createElement('style');
+  styleSheet.id = 'ai-map-marker-styles';
+  styleSheet.textContent = markerStyles;
+  document.head.appendChild(styleSheet);
 }
 
 // Helper function to construct IPFS URL from server_url and hash
@@ -56,6 +133,16 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   const map = useRef(null);
   const markersRef = useRef([]);
   const [mapInitialized, setMapInitialized] = useState(false);
+  const [selectedNFT, setSelectedNFT] = useState(null);
+  const [nftDetailsOpen, setNftDetailsOpen] = useState(false);
+  const [proximitySettingsOpen, setProximitySettingsOpen] = useState(false);
+  const [proximityRadius, setProximityRadius] = useState(20000000); // Default to global (20,000 km - matches xyz-wallet)
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationIntelligence, setLocationIntelligence] = useState(null);
+  const [overlayVisible, setOverlayVisible] = useState(true); // Overlay visibility state
+  
+  // Get updateProximityRadius from context
+  const { updateProximityRadius: updateContextProximityRadius } = useAIMap();
 
   // Initialize map function
   const initializeMap = useCallback(() => {
@@ -79,12 +166,60 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         style: 'mapbox://styles/mapbox/dark-v11',
         center: [0, 20],
         zoom: 2,
-        projection: 'globe'
+        projection: 'globe',
+        antialias: true
+      });
+      
+      // Disable fog to prevent opacity query errors
+      // The error occurs when Mapbox tries to query fog opacity before fog state is initialized
+      // Disable fog immediately after map creation
+      const disableFog = () => {
+        try {
+          if (map.current && typeof map.current.setFog === 'function') {
+            map.current.setFog(null); // Set to null to disable fog
+            console.log('[AIMap] Fog disabled to prevent opacity query errors');
+          }
+        } catch (e) {
+          // Fog might not be available in this style, which is fine
+          console.log('[AIMap] Fog not available or error disabling:', e.message);
+        }
+      };
+      
+      // Try to disable fog immediately (may fail if map not ready, that's OK)
+      setTimeout(disableFog, 0);
+      
+      // Also disable fog when style loads (as a fallback)
+      map.current.on('style.load', () => {
+        disableFog();
+      });
+      
+      // Also disable fog when map loads
+      map.current.on('load', () => {
+        disableFog();
       });
 
       map.current.on('load', () => {
         console.log('[AIMap] Map loaded successfully');
         setMapInitialized(true);
+        
+        // Get user location when map loads
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              const location = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy
+              };
+              setUserLocation(location);
+            },
+            (error) => {
+              console.warn('[AIMap] Geolocation error:', error);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          );
+        }
+        
         if (onMapReady) {
           onMapReady(map.current);
         }
@@ -347,79 +482,35 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         );
       }
 
+      // Ensure coordinates are numbers (not strings) for accurate positioning
+      const lat = parseFloat(nft.latitude);
+      const lng = parseFloat(nft.longitude);
+      
+      if (isNaN(lat) || isNaN(lng)) {
+        return; // Skip invalid coordinates
+      }
+      
+      // Construct image URL using the utility function that handles dynamic IPFS server URLs
+      // This matches the home page implementation exactly
+      const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/64x64?text=NFT';
+      
       const el = document.createElement('div');
-      el.className = 'ai-map-marker nft-marker';
+      el.className = 'nft-marker'; // Match home page class name exactly
       
-      // Construct proper IPFS URL - matching NFT Dashboard logic
-      // Priority: 1) constructIPFSUrl(server_url, ipfs_hash), 2) image_url, 3) server_url, 4) placeholder
-      let imageUrl = null;
-      
-      // Try to construct IPFS URL if we have ipfs_hash (works for both Workflow 1 and Workflow 2)
-      if (nft.ipfs_hash) {
-        imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash);
-        console.log(`[AIMap] NFT ${nft.id}: Constructed IPFS URL from server_url and ipfs_hash:`, {
-          server_url: nft.server_url,
-          ipfs_hash: nft.ipfs_hash,
-          constructed_url: imageUrl
-        });
-      }
-      
-      // Fallback to direct image_url if IPFS construction failed or no ipfs_hash
-      if (!imageUrl && nft.image_url) {
-        imageUrl = nft.image_url;
-        console.log(`[AIMap] NFT ${nft.id}: Using direct image_url:`, imageUrl);
-      }
-      
-      // Last resort: use server_url directly (shouldn't happen, but handle it)
-      if (!imageUrl && nft.server_url) {
-        imageUrl = nft.server_url;
-        console.warn(`[AIMap] NFT ${nft.id}: Using server_url as fallback (no ipfs_hash or image_url):`, imageUrl);
-      }
-      
-      // Log if we still don't have an image URL
-      if (!imageUrl) {
-        console.warn(`[AIMap] NFT ${nft.id}: No image URL available. NFT data:`, {
-          id: nft.id,
-          name: nft.name,
-          server_url: nft.server_url,
-          ipfs_hash: nft.ipfs_hash,
-          image_url: nft.image_url
-        });
-      }
-      
-      // Create NFT image marker
-      if (imageUrl) {
-        const img = document.createElement('img');
-        img.src = imageUrl;
-        img.style.width = '48px';
-        img.style.height = '48px';
-        img.style.borderRadius = '8px';
-        img.style.border = '3px solid #FFD700';
-        img.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
-        img.style.objectFit = 'cover';
-        img.style.cursor = 'pointer';
-        img.crossOrigin = 'anonymous'; // Allow CORS for IPFS images
-        img.onerror = () => {
-          console.warn(`[AIMap] Failed to load NFT image: ${imageUrl}`);
-          // Fallback to colored circle if image fails
-          el.innerHTML = ''; // Clear the img element
-          el.style.width = '24px';
-          el.style.height = '24px';
-          el.style.borderRadius = '50%';
-          el.style.backgroundColor = '#FFD700';
-          el.style.border = '2px solid white';
-        };
-        img.onload = () => {
-          console.log(`[AIMap] Successfully loaded NFT image: ${imageUrl}`);
-        };
-        el.appendChild(img);
-      } else {
-        el.style.width = '24px';
-        el.style.height = '24px';
-        el.style.borderRadius = '50%';
-        el.style.backgroundColor = '#FFD700';
-        el.style.border = '2px solid white';
-      }
+      // Use background-image CSS approach (matching home page exactly)
+      el.style.cssText = `
+        width: 64px;
+        height: 64px;
+        background-image: url('${imageUrl}');
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-position: center;
+        border-radius: 8px;
+        border: 3px solid #FFD700;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+      `;
 
       // Create radius circle for this NFT if radius is provided
       if (nft.radius && nft.radius > 0) {
@@ -469,6 +560,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         ? `https://www.google.com/maps/dir/${userLocation.latitude},${userLocation.longitude}/${nft.latitude},${nft.longitude}`
         : `https://www.google.com/maps/search/?api=1&query=${nft.latitude},${nft.longitude}`;
 
+      // Create popup with click handler to open details dialog
       const popup = new mapboxgl.Popup({ offset: 25 })
         .setHTML(`
           <div style="min-width: 200px;">
@@ -477,14 +569,60 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
             ${nft.collection_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Collection:</strong> ${nft.collection_name}</p>` : ''}
             ${nft.rarity_level ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Rarity:</strong> ${nft.rarity_level}</p>` : ''}
             ${distance ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${distanceText}</p>` : ''}
-            ${userLocation ? `<a href="${navUrl}" target="_blank" style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #FFD700; color: #000; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold;">🗺️ Navigate</a>` : ''}
+            <button 
+              id="nft-details-btn-${nft.id || index}" 
+              style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #1976d2; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; border: none; cursor: pointer; width: 100%;"
+            >
+              View Details
+            </button>
+            ${userLocation ? `<a href="${navUrl}" target="_blank" style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #FFD700; color: #000; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; width: 100%; text-align: center;">🗺️ Navigate</a>` : ''}
           </div>
         `);
 
+      // Create marker - matching home page exactly (no anchor specified, uses default 'center')
+      // Mapbox automatically handles 3D globe positioning - markers stay at exact coordinates when globe rotates
       const marker = new mapboxgl.Marker(el)
-        .setLngLat([nft.longitude, nft.latitude])
+        .setLngLat([lng, lat]) // Use parsed numbers for accurate positioning (matching home page)
         .setPopup(popup)
         .addTo(mapInstance);
+
+      // Add click event to marker element to show NFT info (matching home page)
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        console.log('[AIMap] NFT marker clicked:', nft);
+        // Prepare NFT data with full_ipfs_url for dialog
+        const nftData = {
+          ...nft,
+          full_ipfs_url: imageUrl || nft.image_url || null,
+          nft_name: nft.name,
+          nft_description: nft.description,
+          collection: nft.collection_name ? { name: nft.collection_name } : null
+        };
+        setSelectedNFT(nftData);
+        setNftDetailsOpen(true);
+      });
+
+      // Add click handler to popup content to open details dialog
+      popup.on('open', () => {
+        const btn = document.getElementById(`nft-details-btn-${nft.id || index}`);
+        if (btn) {
+          btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Prepare NFT data with full_ipfs_url for dialog
+            const nftData = {
+              ...nft,
+              full_ipfs_url: imageUrl || nft.image_url || null,
+              nft_name: nft.name,
+              nft_description: nft.description,
+              collection: nft.collection_name ? { name: nft.collection_name } : null
+            };
+            setSelectedNFT(nftData);
+            setNftDetailsOpen(true);
+            popup.remove(); // Close popup when opening dialog
+          };
+        }
+      });
 
       markersRef.current.push(marker);
       bounds.extend([nft.longitude, nft.latitude]);
@@ -913,23 +1051,439 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   // This ensures the map instance stays attached to the DOM
   console.log('[AIMap] Rendering map container, visible:', visible);
 
+  const handleNFTDetailsClose = () => {
+    setNftDetailsOpen(false);
+    setSelectedNFT(null);
+  };
+
+
+  // Update location intelligence when map data or proximity changes
+  useEffect(() => {
+    // Always show location intelligence if map is visible, even without mapData
+    if (visible) {
+      const intelligence = {
+        userLocation: userLocation || null,
+        searchRadius: proximityRadius,
+        radiusDisplay: proximityRadius >= 20000000 
+          ? 'Global' 
+          : proximityRadius < 1000 
+            ? `${proximityRadius}m` 
+            : `${(proximityRadius / 1000).toFixed(1)}km`,
+        itemsFound: 0,
+        nftsFound: 0,
+        walletsFound: 0
+      };
+
+      if (mapData && mapData.data && Array.isArray(mapData.data)) {
+        intelligence.itemsFound = mapData.data.length;
+        intelligence.nftsFound = mapData.data.filter(item => item.type === 'nft').length;
+        intelligence.walletsFound = mapData.data.filter(item => item.type === 'wallet').length;
+      }
+
+      setLocationIntelligence(intelligence);
+    } else {
+      setLocationIntelligence(null);
+    }
+  }, [userLocation, mapData, proximityRadius, visible]);
+
+  // Handle proximity radius change
+  const handleProximityChange = (newRadius) => {
+    setProximityRadius(newRadius);
+    // Update context so AI service can use the new radius
+    updateContextProximityRadius(newRadius);
+    console.log('[AIMap] Proximity radius changed to:', newRadius);
+    // Location intelligence will update automatically via useEffect
+  };
+
+  // Format radius for display
+  const formatRadius = (radius) => {
+    if (radius >= 20000000) return 'Global'; // 20,000 km - matches xyz-wallet
+    if (radius < 1000) return `${radius}m`;
+    return `${(radius / 1000).toFixed(1)}km`;
+  };
+
   return (
-    <Box
-      ref={mapContainer}
-      sx={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        width: '100%',
-        height: '100vh',
-        zIndex: visible ? 9999 : -1, // High z-index to be above all other components when visible
-        pointerEvents: visible ? 'auto' : 'none',
-        display: visible ? 'block' : 'none', // Hide with display instead of returning null
-        backgroundColor: 'transparent'
-      }}
-    />
+    <>
+      <Box
+        ref={mapContainer}
+        sx={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100vh',
+          zIndex: visible ? 9999 : -1, // High z-index to be above all other components when visible
+          pointerEvents: visible ? 'auto' : 'none',
+          display: visible ? 'block' : 'none', // Hide with display instead of returning null
+          backgroundColor: 'transparent'
+        }}
+      />
+
+      {/* NFT Details Dialog - matching PublicNFTShowcase */}
+      {/* Dialog uses Portal by default, rendering at root level */}
+      <Dialog
+        open={nftDetailsOpen}
+        onClose={handleNFTDetailsClose}
+        maxWidth="md"
+        fullWidth
+        sx={{
+          // Dialog container z-index (Material-UI default is 1300, we need higher)
+          zIndex: 10001, // Above map (9999) and chat (10000)
+          '& .MuiBackdrop-root': {
+            zIndex: 10000, // Backdrop should be above map but below dialog
+            backgroundColor: 'rgba(0, 0, 0, 0.5)'
+          },
+          '& .MuiDialog-container': {
+            zIndex: 10001 // Container should be above backdrop
+          },
+          '& .MuiDialog-paper': {
+            zIndex: 10001, // Paper should be on top
+            position: 'relative'
+          }
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            background: 'linear-gradient(135deg, #f8f9fa, #ffffff)',
+            position: 'relative',
+            zIndex: 10001 // Ensure dialog content is on top
+          }
+        }}
+        style={{
+          zIndex: 10001 // Inline style as fallback
+        }}
+      >
+        {selectedNFT && (
+          <>
+            <DialogTitle sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              bgcolor: 'primary.main',
+              color: 'white'
+            }}>
+              <Typography variant="h6" component="div">
+                🖼️ {selectedNFT.name || selectedNFT.nft_name || 'Unnamed NFT'}
+              </Typography>
+              <IconButton
+                onClick={handleNFTDetailsClose}
+                sx={{ color: 'white' }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </DialogTitle>
+            
+            <DialogContent sx={{ p: 3 }}>
+              <Grid container spacing={3}>
+                {/* NFT Image */}
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ 
+                    position: 'relative',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)'
+                  }}>
+                    {selectedNFT.full_ipfs_url ? (
+                      <img
+                        src={selectedNFT.full_ipfs_url}
+                        alt={selectedNFT.name || 'NFT'}
+                        style={{
+                          width: '100%',
+                          height: '300px',
+                          objectFit: 'cover',
+                          display: 'block'
+                        }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          if (e.target.nextSibling) {
+                            e.target.nextSibling.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <Box sx={{
+                      display: selectedNFT.full_ipfs_url ? 'none' : 'flex',
+                      width: '100%',
+                      height: '300px',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: 'grey.100',
+                      fontSize: '4rem'
+                    }}>
+                      🖼️
+                    </Box>
+                  </Box>
+                </Grid>
+
+                {/* NFT Details */}
+                <Grid item xs={12} md={6}>
+                  <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 2, color: 'primary.main' }}>
+                      {selectedNFT.name || selectedNFT.nft_name || 'Unnamed NFT'}
+                    </Typography>
+                    
+                    <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary', lineHeight: 1.6 }}>
+                      {selectedNFT.description || selectedNFT.nft_description || 'No description available'}
+                    </Typography>
+
+                    {/* Location Info */}
+                    <Box sx={{ mb: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'primary.main' }}>
+                        📍 Location
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                        {Number(selectedNFT.latitude)?.toFixed(6)}, {Number(selectedNFT.longitude)?.toFixed(6)}
+                      </Typography>
+                    </Box>
+
+                    {/* Collection Info */}
+                    {selectedNFT.collection?.name || selectedNFT.collection_name ? (
+                      <Box sx={{ mb: 3, p: 2, bgcolor: 'warning.light', borderRadius: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1, color: 'warning.contrastText' }}>
+                          🏷️ Collection
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: 'warning.contrastText' }}>
+                          {selectedNFT.collection?.name || selectedNFT.collection_name}
+                        </Typography>
+                      </Box>
+                    ) : null}
+
+                    {/* Action Buttons */}
+                    <Box sx={{ mt: 'auto', display: 'flex', gap: 2 }}>
+                      <Button
+                        variant="contained"
+                        startIcon={<LocationIcon />}
+                        onClick={() => {
+                          handleNFTDetailsClose();
+                          // Zoom to NFT location on map
+                          if (map.current && selectedNFT) {
+                            map.current.flyTo({
+                              center: [Number(selectedNFT.longitude), Number(selectedNFT.latitude)],
+                              zoom: 15,
+                              duration: 1000
+                            });
+                          }
+                        }}
+                        sx={{
+                          background: 'linear-gradient(135deg, #FFD700, #FFA500)',
+                          color: 'black',
+                          fontWeight: 'bold',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, #FFA500, #FF8C00)',
+                          }
+                        }}
+                      >
+                        Zoom to Location
+                      </Button>
+                      
+                      <Button
+                        variant="outlined"
+                        onClick={handleNFTDetailsClose}
+                        sx={{ borderColor: 'primary.main', color: 'primary.main' }}
+                      >
+                        Close
+                      </Button>
+                    </Box>
+                  </Box>
+                </Grid>
+              </Grid>
+            </DialogContent>
+          </>
+        )}
+      </Dialog>
+
+      {/* Proximity Settings Dialog */}
+      <Dialog
+        open={proximitySettingsOpen}
+        onClose={() => setProximitySettingsOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        sx={{
+          zIndex: 10002, // Above map (9999) and location intelligence overlay (10000)
+          '& .MuiBackdrop-root': {
+            zIndex: 10001 // Backdrop above map but below dialog
+          },
+          '& .MuiDialog-container': {
+            zIndex: 10002
+          },
+          '& .MuiDialog-paper': {
+            zIndex: 10002,
+            position: 'relative'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          bgcolor: 'primary.main',
+          color: 'white'
+        }}>
+          <Typography variant="h6">Proximity Settings</Typography>
+          <IconButton onClick={() => setProximitySettingsOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Adjust the search radius for nearby NFTs and wallets. A larger radius will show more items globally.
+          </Typography>
+          
+          <Box sx={{ px: 2 }}>
+            <Typography gutterBottom>
+              Search Radius: <strong>{formatRadius(proximityRadius)}</strong>
+            </Typography>
+            <Slider
+              value={proximityRadius >= 20000000 ? 20000000 : Math.min(proximityRadius, 20000000)}
+              onChange={(e, value) => {
+                const newRadius = value >= 20000000 ? 20000000 : value;
+                handleProximityChange(newRadius);
+              }}
+              min={100}
+              max={20000000}
+              step={100}
+              marks={[
+                { value: 100, label: '100m' },
+                { value: 1000, label: '1km' },
+                { value: 10000, label: '10km' },
+                { value: 100000, label: '100km' },
+                { value: 1000000, label: '1000km' },
+                { value: 20000000, label: 'Global' }
+              ]}
+              valueLabelDisplay="auto"
+              valueLabelFormat={(value) => formatRadius(value >= 20000000 ? 20000000 : value)}
+            />
+          </Box>
+
+          <Box sx={{ mt: 3, p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
+            <Typography variant="body2" color="info.contrastText">
+              <strong>Note:</strong> Changing the proximity will refresh the map data. Use "Global" to see all NFTs and wallets worldwide.
+            </Typography>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      {/* Location Intelligence Overlay - Bottom Left */}
+      {locationIntelligence && visible && overlayVisible && (
+        <Card
+          sx={{
+            position: 'fixed',
+            bottom: 16,
+            left: 16,
+            zIndex: 10000, // Above map but below dialogs
+            minWidth: 280,
+            maxWidth: 350,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(10px)'
+          }}
+        >
+          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <InfoIcon sx={{ fontSize: 18 }} />
+                Location Intelligence
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => setProximitySettingsOpen(true)}
+                  sx={{ color: 'primary.main' }}
+                  title="Settings"
+                >
+                  <SettingsIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={() => setOverlayVisible(false)}
+                  sx={{ color: 'text.secondary' }}
+                  title="Minimize"
+                >
+                  <CloseIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Box>
+            </Box>
+            
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Search Radius:</Typography>
+                <Chip 
+                  label={locationIntelligence.radiusDisplay} 
+                  size="small" 
+                  color="primary"
+                  sx={{ height: 20, fontSize: '0.7rem' }}
+                />
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Items Found:</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                  {locationIntelligence.itemsFound}
+                </Typography>
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">NFTs:</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                  {locationIntelligence.nftsFound}
+                </Typography>
+              </Box>
+              
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Wallets:</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                  {locationIntelligence.walletsFound}
+                </Typography>
+              </Box>
+              
+              {locationIntelligence.userLocation && (
+                <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Your Location:
+                  </Typography>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }}>
+                    {locationIntelligence.userLocation.latitude.toFixed(4)}, {locationIntelligence.userLocation.longitude.toFixed(4)}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Proximity Settings Button - Top Right (moved down to avoid zoom controls) */}
+      {visible && (
+        <IconButton
+          onClick={() => {
+            if (locationIntelligence && !overlayVisible) {
+              // If overlay is hidden, show it when clicking settings
+              setOverlayVisible(true);
+            } else {
+              // Otherwise, open settings dialog
+              setProximitySettingsOpen(true);
+            }
+          }}
+          sx={{
+            position: 'fixed',
+            top: 80, // Moved down to avoid overlapping with zoom controls (which are at top-right)
+            right: 16,
+            zIndex: 10000,
+            backgroundColor: overlayVisible ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.6)',
+            color: overlayVisible ? 'inherit' : 'white',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            '&:hover': {
+              backgroundColor: overlayVisible ? 'rgba(255, 255, 255, 1)' : 'rgba(0, 0, 0, 0.8)'
+            }
+          }}
+          size="small"
+          title={overlayVisible ? "Open Settings" : "Show Location Intelligence"}
+        >
+          <SettingsIcon />
+        </IconButton>
+      )}
+    </>
   );
 };
 

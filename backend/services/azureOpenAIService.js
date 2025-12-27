@@ -565,6 +565,7 @@ async function executeToolCall(toolCall, userContext = {}) {
     console.log(`[AI Tool] ${functionName} - Function args:`, functionArgs);
   } else {
     console.log(`[AI Tool] ${functionName} - No user location in context`);
+    console.log(`[AI Tool] ${functionName} - Full userContext:`, JSON.stringify(userContext, null, 2));
   }
 
   try {
@@ -640,12 +641,17 @@ async function executeToolCall(toolCall, userContext = {}) {
           throw new Error('Location is required. Please provide latitude and longitude, or enable location sharing in your browser.');
         }
         
-        const radius = functionArgs.radius || 1000;
+        const walletRadius = functionArgs.radius || 1000; // Use specified radius for wallets
+        // Use proximity radius from context for NFTs (defaults to 20000000m for global)
+        // This ensures NFTs are shown with the user's preferred search radius
+        const nftRadius = userContext.proximityRadius || 20000000;
         
-        // Fetch both wallets and NFTs
+        console.log(`[AI Tool] geolink_findNearbyWallets - Using wallet radius: ${walletRadius}m, NFT radius: ${nftRadius}m (${(nftRadius / 1000).toFixed(0)}km)`);
+        
+        // Fetch both wallets and NFTs with their respective radii
         const [walletResult, nftResult] = await Promise.all([
-          geolinkOperations.findNearbyWallets(lat, lon, radius, token),
-          geolinkOperations.getNearbyNFTs(lat, lon, radius).catch(err => {
+          geolinkOperations.findNearbyWallets(lat, lon, walletRadius, token),
+          geolinkOperations.getNearbyNFTs(lat, lon, nftRadius).catch(err => {
             console.warn('[AI Tool] Failed to fetch nearby NFTs:', err.message);
             return { nfts: [] };
           })
@@ -671,7 +677,7 @@ async function executeToolCall(toolCall, userContext = {}) {
               blockchain: loc.blockchain || 'Stellar',
               last_updated: loc.last_updated,
               distance_meters: loc.distance || loc.distance_meters,
-              radius: radius
+              radius: walletRadius // Use wallet radius for wallet items (from function args)
             });
           });
         }
@@ -696,7 +702,7 @@ async function executeToolCall(toolCall, userContext = {}) {
               ipfs_hash: nft.ipfs_hash || null,
               rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
               distance_meters: nft.distance || nft.distance_meters,
-              radius: radius
+              radius: nftRadius // Use NFT radius for map data
             });
           });
         }
@@ -710,7 +716,8 @@ async function executeToolCall(toolCall, userContext = {}) {
               latitude: lat,
               longitude: lon
             },
-            radius: radius,
+            radius: nftRadius, // Use NFT radius for overall map radius (shows search area for NFTs)
+            walletRadius: walletRadius, // Store wallet radius separately
             center: {
               latitude: lat,
               longitude: lon
@@ -718,6 +725,7 @@ async function executeToolCall(toolCall, userContext = {}) {
             zoom: 13
           };
           console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
+          console.log(`[AI Tool] geolink_findNearbyWallets - Wallet radius: ${walletRadius}m, NFT radius: ${nftRadius}m (${(nftRadius / 1000).toFixed(0)}km)`);
         }
         
         // Include NFTs in the result
@@ -738,24 +746,129 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!token) throw new Error('Authentication required for this operation');
         return await geolinkOperations.getPinnedNFTs(token);
 
-      case 'geolink_getNearbyNFTs':
+      case 'geolink_getNearbyNFTs': {
         // Use user location from context if not provided
         const nftLat = functionArgs.latitude || userContext.location?.latitude;
         const nftLon = functionArgs.longitude || userContext.location?.longitude;
         
-        if (!nftLat || !nftLon) {
-          // Return a helpful error that includes context about location availability
-          const errorMsg = userContext.location 
-            ? 'Location should be automatically available from your browser. Please try again or check location permissions.'
-            : 'Location is required. Please provide latitude and longitude, or enable location sharing in your browser.';
-          throw new Error(errorMsg);
+        // Default to global radius (20,000 km) to fetch all NFTs globally
+        // This matches xyz-wallet which uses 20000000m (20,000 km) for global mode
+        // Use proximity radius from user context if available, otherwise default to global radius
+        let radius = functionArgs.radius || userContext.proximityRadius || 20000000;
+        
+        // If user asks for "all NFTs" or similar, always use global fetch (no location, very large radius)
+        // This ensures we use the public endpoint which doesn't require authentication
+        // Check if radius is very large (global) or no location provided - always use public endpoint
+        const isGlobalRequest = !nftLat || !nftLon || radius >= 20000000;
+        
+        if (isGlobalRequest) {
+          // No location provided or user explicitly asked for all - fetch all NFTs globally
+          console.log(`[AI Tool] geolink_getNearbyNFTs - Global request detected, using NFT search radius: ${radius}m (Global mode)`);
+          radius = 20000000; // 20,000 km - matches xyz-wallet global mode
+          // Pass null/undefined to trigger public endpoint in getNearbyNFTs
+          const nftResult = await geolinkOperations.getNearbyNFTs(
+            null,
+            null,
+            radius
+          );
+          
+          // Create map data for NFTs
+          if (nftResult && nftResult.nfts && Array.isArray(nftResult.nfts)) {
+            const validNFTs = nftResult.nfts.filter(nft => 
+              nft.latitude != null && nft.longitude != null && 
+              nft.latitude !== 0 && nft.longitude !== 0
+            );
+            
+            if (validNFTs.length > 0) {
+              const mapDataItems = validNFTs.map(nft => ({
+                type: 'nft',
+                latitude: parseFloat(nft.latitude),
+                longitude: parseFloat(nft.longitude),
+                id: nft.id,
+                name: nft.name || `NFT #${nft.id}`,
+                collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
+                image_url: nft.image_url || null,
+                server_url: nft.server_url || null,
+                ipfs_hash: nft.ipfs_hash || null,
+                rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
+                distance_meters: nft.distance || nft.distance_meters,
+                radius: radius // Use NFT radius for map data
+              }));
+              
+              nftResult._mapData = {
+                type: 'combined',
+                data: mapDataItems,
+                userLocation: userContext.location ? {
+                  latitude: userContext.location.latitude,
+                  longitude: userContext.location.longitude
+                } : null,
+                radius: radius, // Use NFT radius for map data
+                center: userContext.location ? {
+                  latitude: userContext.location.latitude,
+                  longitude: userContext.location.longitude
+                } : { latitude: 0, longitude: 0 },
+                zoom: 2 // Global view
+              };
+              console.log(`[AI Tool] geolink_getNearbyNFTs - Added _mapData with ${mapDataItems.length} NFTs (global)`);
+            }
+          }
+          
+          return nftResult;
+        } else if (!functionArgs.radius) {
+          // Location provided but no radius specified - use proximity radius from context or default to global
+          console.log('[AI Tool] geolink_getNearbyNFTs - Using proximity radius from context:', radius);
         }
         
-        return await geolinkOperations.getNearbyNFTs(
+        const nftResult = await geolinkOperations.getNearbyNFTs(
           nftLat,
           nftLon,
-          functionArgs.radius || 1000
+          radius
         );
+        
+        // Create map data for NFTs (similar to geolink_findNearbyWallets)
+        if (nftResult && nftResult.nfts && Array.isArray(nftResult.nfts)) {
+          const validNFTs = nftResult.nfts.filter(nft => 
+            nft.latitude != null && nft.longitude != null && 
+            nft.latitude !== 0 && nft.longitude !== 0
+          );
+          
+          if (validNFTs.length > 0) {
+            const mapDataItems = validNFTs.map(nft => ({
+              type: 'nft',
+              latitude: parseFloat(nft.latitude),
+              longitude: parseFloat(nft.longitude),
+              id: nft.id,
+              name: nft.name || `NFT #${nft.id}`,
+              collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
+              image_url: nft.image_url || null,
+              server_url: nft.server_url || null,
+              ipfs_hash: nft.ipfs_hash || null,
+              rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
+              distance_meters: nft.distance || nft.distance_meters,
+              radius: radius // Use NFT radius for map data
+            }));
+            
+            nftResult._mapData = {
+              type: 'combined',
+              data: mapDataItems,
+              userLocation: {
+                latitude: nftLat,
+                longitude: nftLon
+              },
+              radius: radius, // Use NFT radius for map data
+              center: {
+                latitude: nftLat,
+                longitude: nftLon
+              },
+              zoom: 13
+            };
+            
+            console.log(`[AI Tool] geolink_getNearbyNFTs - Added _mapData with ${mapDataItems.length} NFTs`);
+          }
+        }
+        
+        return nftResult;
+      }
 
       case 'geolink_verifyNFTLocation':
         if (!token) throw new Error('Authentication required for this operation');
@@ -904,6 +1017,15 @@ async function executeToolCall(toolCall, userContext = {}) {
 
 // Process chat completion with function calling
 async function processChatCompletion(messages, userId = null, userContext = {}) {
+  console.log('[processChatCompletion] Received userContext:', {
+    hasLocation: !!userContext.location,
+    location: userContext.location,
+    hasPublicKey: !!userContext.publicKey,
+    proximityRadius: userContext.proximityRadius,
+    userId: userId,
+    allKeys: Object.keys(userContext)
+  });
+  
   const client = getAzureOpenAIClient();
   const tools = getAvailableTools();
   

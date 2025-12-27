@@ -60,6 +60,7 @@ import IPFSServerManager from '../IPFS/IPFSServerManager';
 import FileUploadManager from '../IPFS/FileUploadManager';
 import EnhancedPinNFT from '../IPFS/EnhancedPinNFT';
 import SmartWalletBalance from '../Home/SmartWalletBalance';
+import AIChat from '../AI/AIChat';
 
 // IPFS Management Tabs Component
 const IPFSManagementTabs = ({ user }) => {
@@ -5360,6 +5361,9 @@ const EnhancedNFTDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* GeoLink Agent */}
+      <AIChat isPublic={false} initialOpen={false} />
     </Container>
   );
 };
