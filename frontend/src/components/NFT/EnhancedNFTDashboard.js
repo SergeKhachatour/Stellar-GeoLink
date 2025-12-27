@@ -5232,14 +5232,13 @@ const EnhancedNFTDashboard = () => {
       <EnhancedPinNFT
         open={openEnhancedPinDialog}
         onClose={() => setOpenEnhancedPinDialog(false)}
-        onPinComplete={(nft) => {
-          console.log('Enhanced NFT pinning successful:', nft);
+        onPinComplete={(successData) => {
+          console.log('Enhanced NFT pinning successful:', successData);
           setOpenEnhancedPinDialog(false);
-          setSuccessOverlay({
-            title: 'NFT Pinned Successfully!',
-            message: `Your NFT has been pinned to IPFS and added to the blockchain.`,
-            nft: nft
-          });
+          // Use the success data directly (it already has all the required fields)
+          setSuccessOverlay(successData);
+          // Also save to localStorage for restoration
+          localStorage.setItem('nftMintSuccess', JSON.stringify(successData));
           // Refresh the map or show success message
         }}
       />

@@ -579,7 +579,7 @@ const RealTimeNodeTracking = () => {
     try {
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: [0, 0],
         zoom: 1,
         pitch: 0,
@@ -693,7 +693,7 @@ const RealTimeNodeTracking = () => {
     try {
       fullscreenMap.current = new mapboxgl.Map({
         container: fullscreenMapContainer.current,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: [0, 0],
         zoom: 1,
         pitch: 0,

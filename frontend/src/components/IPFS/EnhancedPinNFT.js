@@ -565,7 +565,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
   };
 
   // Execute payment and then mint NFT
-  const executePaymentAndMint = async (userPublicKey, userSecretKey, upload, contractId) => {
+  const executePaymentAndMint = async (userPublicKey, userSecretKey, upload, contractId, passkeyToUse = null) => {
     try {
       setPaymentLoading(true);
       setPaymentError('');
@@ -588,15 +588,31 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         console.log('✅ Contract initialized:', nftContractId);
       }
       
-      // Get selected passkey (should be set before calling this function)
-      if (!selectedPasskey) {
-        throw new Error('No passkey selected');
+      // Get passkey to use - prefer parameter, then state, then fetch
+      let passkey = passkeyToUse || selectedPasskey;
+      
+      if (!passkey) {
+        // Try to fetch passkeys and use the first one
+        console.log('🔑 No passkey provided, fetching from backend...');
+        const passkeysResponse = await api.get('/webauthn/passkeys');
+        const userPasskeys = passkeysResponse.data.passkeys || [];
+        
+        if (userPasskeys.length === 0) {
+          throw new Error('No passkey registered. Please register a passkey first.');
+        }
+        
+        passkey = userPasskeys[0];
+        console.log('✅ Using first available passkey:', passkey.credentialId?.substring(0, 20) + '...');
+      }
+      
+      if (!passkey || !passkey.credentialId) {
+        throw new Error('No passkey selected or invalid passkey data');
       }
       
       // Get passkey public key from backend
       const passkeysResponse = await api.get('/webauthn/passkeys');
       const passkeyInfo = passkeysResponse.data.passkeys.find(
-        p => p.credentialId === selectedPasskey.credentialId
+        p => (p.credentialId === passkey.credentialId) || (p.credential_id === passkey.credentialId)
       );
       
       if (!passkeyInfo || !passkeyInfo.publicKey) {
@@ -615,8 +631,9 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       const signaturePayload = JSON.stringify(transactionData);
       
       // Authenticate with passkey
+      const credentialId = passkey.credentialId || passkey.credential_id;
       const authResult = await webauthnService.authenticateWithPasskey(
-        selectedPasskey.credentialId,
+        credentialId,
         signaturePayload
       );
       
@@ -669,6 +686,15 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       );
       
       console.log('✅ NFT minted on blockchain:', mintResult);
+      console.log('📊 Mint result structure:', {
+        hasHash: !!mintResult.hash,
+        hasTransactionHash: !!mintResult.transactionHash,
+        hasLedger: !!mintResult.ledger,
+        hasLatestLedger: !!mintResult.latestLedger,
+        hasTokenId: !!mintResult.tokenId,
+        hasContractId: !!mintResult.contractId,
+        allKeys: Object.keys(mintResult)
+      });
       setSuccess('Payment executed and NFT minted successfully!');
       setShowPaymentDialog(false);
       
@@ -703,12 +729,13 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       const upload = uploads.find(u => u.id === selectedUpload);
       let contractId = nftDetails.smart_contract_address;
       
-      // Execute payment and mint
+      // Execute payment and mint with selected passkey
       const mintResult = await executePaymentAndMint(
         effectivePublicKey,
         effectiveSecretKey,
         upload,
-        contractId
+        contractId,
+        selectedPasskey // Pass the selected passkey directly
       );
       
       // Update mintResult for onPinComplete
@@ -728,20 +755,38 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         });
         
         const dbNft = response.data.nft;
+        
+        // Extract transaction details from mint result
+        const transactionHash = mintResult.hash || mintResult.transactionHash || mintResult.transaction_hash || null;
+        const ledger = mintResult.latestLedger || mintResult.ledger || mintResult.latest_ledger || null;
+        const tokenId = mintResult.tokenId || mintResult.token_id || dbNft.id || 'N/A';
+        const finalContractId = mintResult.contractId || mintResult.contract_id || contractId || 'N/A';
+        
         const successData = {
-          tokenId: mintResult.tokenId,
-          name: upload.original_filename,
-          contractId: mintResult.contractId || contractId,
-          transactionHash: mintResult.hash || mintResult.transactionHash,
+          tokenId: tokenId,
+          name: upload.original_filename || dbNft.name || 'Unnamed NFT',
+          contractId: finalContractId,
+          transactionHash: transactionHash,
           status: 'success',
-          ledger: mintResult.latestLedger || mintResult.ledger,
+          ledger: ledger,
           location: {
-            latitude: parseFloat(nftDetails.latitude),
-            longitude: parseFloat(nftDetails.longitude),
-            radius: parseInt(nftDetails.radius_meters)
+            latitude: parseFloat(nftDetails.latitude) || parseFloat(dbNft.latitude) || 0,
+            longitude: parseFloat(nftDetails.longitude) || parseFloat(dbNft.longitude) || 0,
+            radius: parseInt(nftDetails.radius_meters) || parseInt(dbNft.radius_meters) || 0
           },
+          stellarExpertUrl: transactionHash 
+            ? `https://stellar.expert/explorer/testnet/tx/${transactionHash}` 
+            : null,
+          contractUrl: finalContractId && finalContractId !== 'N/A'
+            ? `https://stellar.expert/explorer/testnet/contract/${finalContractId}`
+            : null,
           nft: dbNft
         };
+        console.log('📤 Passing success data to parent (handleConfirmPayment):', successData);
+        
+        // Save to localStorage for restoration (like RealPinNFT does)
+        localStorage.setItem('nftMintSuccess', JSON.stringify(successData));
+        
         onPinComplete(successData);
       }
       
@@ -848,35 +893,37 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             return;
           }
           
-          // If only one passkey, auto-select it
+          // If only one passkey, use it directly; otherwise show dialog
           if (userPasskeys.length === 1) {
-            setSelectedPasskey(userPasskeys[0]);
+            // Use the passkey directly instead of relying on state
+            const passkeyToUse = userPasskeys[0];
+            setSelectedPasskey(passkeyToUse); // Update state for UI consistency
+            
+            // Step 3: Get or initialize contract ID
+            let contractId = nftDetails.smart_contract_address;
+            if (!contractId) {
+              console.log('📝 Auto-initializing contract...');
+              const realNFTService = await import('../../services/realNFTService');
+              const { default: RealNFTService } = realNFTService;
+              const StellarSdk = await import('@stellar/stellar-sdk');
+              const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
+              
+              const contractInfo = await RealNFTService.deployLocationNFTContract(
+                keypair,
+                'StellarGeoLinkNFT'
+              );
+              contractId = contractInfo.contractId;
+              console.log('✅ Contract initialized:', contractId);
+            }
+            
+            // Step 4: Execute payment with passkey passed directly
+            await executePaymentAndMint(effectivePublicKey, effectiveSecretKey, upload, contractId, passkeyToUse);
           } else {
             // Show payment dialog to select passkey
             setPinning(false);
             setShowPaymentDialog(true);
             return; // Exit early, will continue after payment
           }
-          
-          // Step 3: Get or initialize contract ID
-          let contractId = nftDetails.smart_contract_address;
-          if (!contractId) {
-            console.log('📝 Auto-initializing contract...');
-            const realNFTService = await import('../../services/realNFTService');
-            const { default: RealNFTService } = realNFTService;
-            const StellarSdk = await import('@stellar/stellar-sdk');
-            const keypair = StellarSdk.Keypair.fromSecret(effectiveSecretKey);
-            
-            const contractInfo = await RealNFTService.deployLocationNFTContract(
-              keypair,
-              'StellarGeoLinkNFT'
-            );
-            contractId = contractInfo.contractId;
-            console.log('✅ Contract initialized:', contractId);
-          }
-          
-          // Step 4: Execute payment (if we reach here, passkey is selected)
-          await executePaymentAndMint(effectivePublicKey, effectiveSecretKey, upload, contractId);
           
         } else {
           console.log('⚠️ Wallet not connected, skipping blockchain minting', {
@@ -899,28 +946,46 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
         
         // If blockchain minting succeeded, format the data like RealPinNFT does
         if (mintResult) {
+          // Extract transaction details from mint result
+          // The mint result may have hash, transactionHash, ledger, latestLedger, etc.
+          const transactionHash = mintResult.hash || mintResult.transactionHash || mintResult.transaction_hash || null;
+          const ledger = mintResult.latestLedger || mintResult.ledger || mintResult.latest_ledger || null;
+          const tokenId = mintResult.tokenId || mintResult.token_id || dbNft.id || 'N/A';
+          const contractId = mintResult.contractId || mintResult.contract_id || nftDetails.smart_contract_address || 'N/A';
+          
           const successData = {
-            tokenId: mintResult.tokenId,
-            name: upload.original_filename,
-            contractId: mintResult.contractId || nftDetails.smart_contract_address,
-            transactionHash: mintResult.hash || mintResult.transactionHash,
+            tokenId: tokenId,
+            name: upload.original_filename || dbNft.name || 'Unnamed NFT',
+            contractId: contractId,
+            transactionHash: transactionHash,
             status: mintResult.status || 'success',
-            ledger: mintResult.latestLedger || mintResult.ledger,
+            ledger: ledger,
             location: {
-              latitude: parseFloat(nftDetails.latitude),
-              longitude: parseFloat(nftDetails.longitude),
-              radius: parseInt(nftDetails.radius_meters)
+              latitude: parseFloat(nftDetails.latitude) || parseFloat(dbNft.latitude) || 0,
+              longitude: parseFloat(nftDetails.longitude) || parseFloat(dbNft.longitude) || 0,
+              radius: parseInt(nftDetails.radius_meters) || parseInt(dbNft.radius_meters) || 0
             },
             imageUrl: mintResult.metadata?.image_url || (server ? `${server.server_url.replace(/\/$/, '')}/ipfs/${upload.ipfs_hash}` : ''),
-            stellarExpertUrl: mintResult.hash || mintResult.transactionHash 
-              ? `https://stellar.expert/explorer/testnet/tx/${mintResult.hash || mintResult.transactionHash}` 
+            stellarExpertUrl: transactionHash 
+              ? `https://stellar.expert/explorer/testnet/tx/${transactionHash}` 
               : null,
-            contractUrl: mintResult.contractId || nftDetails.smart_contract_address
-              ? `https://stellar.expert/explorer/testnet/contract/${mintResult.contractId || nftDetails.smart_contract_address}`
+            contractUrl: contractId && contractId !== 'N/A'
+              ? `https://stellar.expert/explorer/testnet/contract/${contractId}`
               : null,
             nft: dbNft // Include database NFT data as well
           };
           console.log('📤 Passing success data to parent:', successData);
+          console.log('📊 Success data details:', {
+            tokenId: successData.tokenId,
+            transactionHash: successData.transactionHash,
+            ledger: successData.ledger,
+            contractId: successData.contractId,
+            location: successData.location
+          });
+          
+          // Save to localStorage for restoration (like RealPinNFT does)
+          localStorage.setItem('nftMintSuccess', JSON.stringify(successData));
+          
           onPinComplete(successData);
         } else {
           // If no blockchain minting, format database NFT data for success overlay
@@ -944,6 +1009,10 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
             nft: dbNft // Include database NFT data as well
           };
           console.log('📤 Passing database NFT data to parent (no blockchain minting):', successData);
+          
+          // Save to localStorage for restoration (like RealPinNFT does)
+          localStorage.setItem('nftMintSuccess', JSON.stringify(successData));
+          
           onPinComplete(successData);
         }
       }

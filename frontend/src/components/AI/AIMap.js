@@ -163,31 +163,30 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     try {
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: [0, 20],
         zoom: 2,
         projection: 'globe',
         antialias: true
       });
       
-      // Configure fog with darker, less blue colors to reduce brightness
+      // Configure fog for light style
       // The error occurs when Mapbox tries to query fog opacity before fog state is initialized
-      // We need to set fog as early as possible with darker colors
+      // We need to set fog as early as possible
       const configureFog = () => {
         try {
           if (map.current && map.current.loaded && map.current.isStyleLoaded()) {
             // Only try to configure fog if map and style are fully loaded
             if (typeof map.current.setFog === 'function') {
-              // Set fog with darker space color (black/dark gray) instead of blue
-              // This reduces the bright blue background while keeping fog functionality
+              // Set fog with light colors for light style
               map.current.setFog({
-                color: 'rgb(20, 20, 30)', // Dark gray-blue instead of bright blue
-                'high-color': 'rgb(10, 10, 20)', // Very dark for high altitude
-                'horizon-blend': 0.1, // Reduce horizon blend
-                'space-color': 'rgb(0, 0, 0)', // Pure black space instead of blue
-                'star-intensity': 0.3 // Reduce star intensity for less brightness
+                color: 'rgb(240, 240, 250)', // Light gray-blue
+                'high-color': 'rgb(220, 230, 255)', // Light blue for high altitude
+                'horizon-blend': 0.2,
+                'space-color': 'rgb(240, 240, 240)', // Light gray space
+                'star-intensity': 0 // No stars for light style
               });
-              console.log('[AIMap] Fog configured with darker colors');
+              console.log('[AIMap] Fog configured for light style');
             }
           }
         } catch (e) {

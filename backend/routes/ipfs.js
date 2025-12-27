@@ -1020,12 +1020,20 @@ router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
         const uploadDir = getUploadDir();
         // filePath from wildcard could be:
         // 1. Full path: "/home/uploads/nft-files/file.png" -> use as-is
-        // 2. Relative path: "home/uploads/nft-files/file.png" -> join with uploadDir
-        // 3. Just filename: "file.png" -> join with uploadDir
+        // 2. Azure path without leading slash: "home/uploads/nft-files/file.png" -> add leading slash
+        // 3. Relative path: "nft-files/file.png" -> join with uploadDir
+        // 4. Just filename: "file.png" -> join with uploadDir
         let fullPath;
+        
+        // Handle Azure paths that might come without leading slash in URL
         if (filePath.startsWith('/')) {
             // Full absolute path - use as-is
             fullPath = filePath;
+        } else if (filePath.startsWith('home/') && isAzure) {
+            // Azure path without leading slash: "home/uploads/nft-files/file.png"
+            // Add leading slash to make it "/home/uploads/nft-files/file.png"
+            fullPath = '/' + filePath;
+            console.log(`${logPrefix} 🔧 Fixed Azure path (added leading slash):`, { original: filePath, fixed: fullPath });
         } else if (filePath.startsWith(uploadDir)) {
             // Already contains upload directory - use as-is
             fullPath = filePath;
@@ -1036,7 +1044,7 @@ router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
             
             // If path starts with upload dir structure, extract just the filename
             if (filePath.includes(uploadDirName)) {
-                // Extract filename from path like "home/uploads/nft-files/file.png" or "nft-files/file.png"
+                // Extract filename from path like "nft-files/file.png"
                 const parts = filePath.split(path.sep);
                 const filenameIndex = parts.indexOf(uploadDirName);
                 if (filenameIndex >= 0 && filenameIndex < parts.length - 1) {
@@ -1045,7 +1053,8 @@ router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
                     fullPath = path.join(uploadDir, filename);
                 } else {
                     // Fallback: just use the last part as filename
-                    fullPath = path.join(uploadDir, parts[parts.length - 1]);
+                    const filename = parts[parts.length - 1];
+                    fullPath = path.join(uploadDir, filename);
                 }
             } else {
                 // Just a filename or relative path - join with uploadDir
@@ -1053,14 +1062,25 @@ router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
             }
         }
         
-        console.log('📁 Resolved file path:', { uploadDir, filePath, fullPath });
+        console.log(`${logPrefix} 📁 Resolved file path:`, { uploadDir, filePath, fullPath, isAzure });
         
         // Security: Ensure the file is within the upload directory
         const resolvedPath = path.resolve(fullPath);
         const resolvedUploadDir = path.resolve(uploadDir);
         
+        console.log(`${logPrefix} 🔒 Security check:`, {
+            resolvedPath,
+            resolvedUploadDir,
+            pathStartsWith: resolvedPath.startsWith(resolvedUploadDir)
+        });
+        
         if (!resolvedPath.startsWith(resolvedUploadDir)) {
-            console.log('❌ Security check failed - path outside upload directory:', { resolvedPath, resolvedUploadDir });
+            console.error(`${logPrefix} ❌ Security check failed - path outside upload directory:`, { 
+                resolvedPath, 
+                resolvedUploadDir,
+                fullPath,
+                filePath
+            });
             return res.status(403).json({ error: 'Invalid file path' });
         }
 

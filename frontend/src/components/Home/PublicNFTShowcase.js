@@ -275,7 +275,7 @@ const PublicNFTShowcase = () => {
       
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: initialCenter,
         zoom: initialZoom,
         projection: 'globe', // Matching XYZ-Wallet - supports both globe and mercator
@@ -345,7 +345,7 @@ const PublicNFTShowcase = () => {
       
       fullscreenMap.current = new mapboxgl.Map({
         container: fullscreenMapContainer.current,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: initialCenter,
         zoom: initialZoom,
         projection: 'globe', // Matching XYZ-Wallet - supports both globe and mercator
