@@ -158,9 +158,10 @@ class ContractDeploymentService {
       // Contract initialization - proper initialization
       console.log('🚀 Initializing contract:', { contractId, name, symbol });
       
-      // Create contract address
-      const contractAddress = StellarSdk.Address.fromString(contractId);
-      console.log('Contract address created:', contractAddress.toString());
+      // Validate contract ID format (should be 56 characters, starts with C)
+      if (!contractId || contractId.length !== 56 || !contractId.startsWith('C')) {
+        throw new Error(`Invalid contract ID format: ${contractId}`);
+      }
       
       // The contract exists on StellarExpert, so it's valid
       console.log('✅ Contract ID is valid - exists on StellarExpert');
@@ -172,9 +173,8 @@ class ContractDeploymentService {
       
       try {
         // Try to call the 'name' function to check if contract is initialized
-        // Create contract address from contract ID
-        const contractAddress = StellarSdk.Address.fromString(contractId);
-        const testContract = new StellarSdk.Contract(contractAddress);
+        // Use contract ID string directly (Stellar SDK Contract constructor accepts string)
+        const testContract = new StellarSdk.Contract(contractId);
         const testTransaction = new StellarSdk.TransactionBuilder(adminAccount, {
           fee: StellarSdk.BASE_FEE,
           networkPassphrase: this.networkPassphrase
@@ -211,7 +211,7 @@ class ContractDeploymentService {
             networkPassphrase: this.networkPassphrase
           });
 
-          const contract = new StellarSdk.Contract(contractAddress);
+          const contract = new StellarSdk.Contract(contractId);
           
           initTransaction.addOperation(
             contract.call(

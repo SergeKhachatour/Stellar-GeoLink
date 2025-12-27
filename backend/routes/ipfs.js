@@ -14,27 +14,80 @@ const getUploadDir = () => {
     const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
     if (isAzure) {
         // Azure: Use /home directory which is writable and persistent
-        return '/home/uploads/nft-files';
+        const azureDir = '/home/uploads/nft-files';
+        console.log('🌐 [AZURE] Upload directory configured:', azureDir);
+        console.log('🌐 [AZURE] Environment check:', {
+            WEBSITE_SITE_NAME: process.env.WEBSITE_SITE_NAME,
+            AZURE_WEBSITE_INSTANCE_ID: process.env.AZURE_WEBSITE_INSTANCE_ID,
+            isAzure: true
+        });
+        return azureDir;
     }
     // Local development: Use relative path
-    return path.join(__dirname, '../uploads/nft-files');
+    const localDir = path.join(__dirname, '../uploads/nft-files');
+    console.log('💻 [LOCAL] Upload directory configured:', localDir);
+    return localDir;
 };
 
 const storage = multer.diskStorage({
     destination: async (req, file, cb) => {
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
         const uploadDir = getUploadDir();
         try {
             await fs.mkdir(uploadDir, { recursive: true });
-            console.log('📁 Upload directory ready:', uploadDir);
+            
+            // Azure-specific logging
+            if (isAzure) {
+                console.log('🌐 [AZURE] 📁 Upload directory ready:', uploadDir);
+                // Verify directory exists and is writable
+                try {
+                    const stats = await fs.stat(uploadDir);
+                    console.log('🌐 [AZURE] ✅ Directory exists and is accessible');
+                    console.log('🌐 [AZURE] Directory stats:', {
+                        isDirectory: stats.isDirectory(),
+                        mode: stats.mode.toString(8),
+                        path: uploadDir
+                    });
+                } catch (statError) {
+                    console.error('🌐 [AZURE] ❌ Cannot access directory:', statError);
+                }
+            } else {
+                console.log('💻 [LOCAL] 📁 Upload directory ready:', uploadDir);
+            }
+            
             cb(null, uploadDir);
         } catch (error) {
-            console.error('❌ Error creating upload directory:', error);
+            if (isAzure) {
+                console.error('🌐 [AZURE] ❌ Error creating upload directory:', error);
+                console.error('🌐 [AZURE] Error details:', {
+                    message: error.message,
+                    code: error.code,
+                    path: uploadDir,
+                    stack: error.stack
+                });
+            } else {
+                console.error('💻 [LOCAL] ❌ Error creating upload directory:', error);
+            }
             cb(error);
         }
     },
     filename: (req, file, cb) => {
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+        const filename = file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname);
+        
+        if (isAzure) {
+            console.log('🌐 [AZURE] 📝 Generated filename:', filename);
+            console.log('🌐 [AZURE] Original file info:', {
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+                fieldname: file.fieldname
+            });
+        } else {
+            console.log('💻 [LOCAL] 📝 Generated filename:', filename);
+        }
+        
+        cb(null, filename);
     }
 });
 
@@ -425,8 +478,23 @@ const handleUpload = (req, res, next) => {
 };
 
 router.post('/upload', authenticateUser, handleUpload, async (req, res) => {
+    const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+    const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+    
     try {
+        console.log(`${logPrefix} 📤 File upload request received`);
+        console.log(`${logPrefix} Request details:`, {
+            userId: req.user?.id,
+            hasFile: !!req.file,
+            body: req.body,
+            headers: {
+                'content-type': req.headers['content-type'],
+                'content-length': req.headers['content-length']
+            }
+        });
+        
         if (!req.file) {
+            console.error(`${logPrefix} ❌ No file in request`);
             return res.status(400).json({ 
                 error: 'No file uploaded',
                 details: 'Please select a file to upload.'
@@ -435,6 +503,34 @@ router.post('/upload', authenticateUser, handleUpload, async (req, res) => {
 
         const { ipfs_server_id } = req.body;
         const userId = req.user.id;
+        
+        console.log(`${logPrefix} 📄 File received:`, {
+            originalname: req.file.originalname,
+            filename: req.file.filename,
+            mimetype: req.file.mimetype,
+            size: req.file.size,
+            path: req.file.path,
+            destination: req.file.destination,
+            fieldname: req.file.fieldname
+        });
+        
+        // Verify file exists on disk
+        try {
+            const fileStats = await fs.stat(req.file.path);
+            console.log(`${logPrefix} ✅ File saved successfully to disk:`, {
+                path: req.file.path,
+                size: fileStats.size,
+                isFile: fileStats.isFile(),
+                created: fileStats.birthtime,
+                modified: fileStats.mtime
+            });
+        } catch (statError) {
+            console.error(`${logPrefix} ❌ File not found on disk after upload:`, {
+                path: req.file.path,
+                error: statError.message,
+                code: statError.code
+            });
+        }
 
         // Get IPFS server (default if not specified)
         let serverId = ipfs_server_id;
@@ -468,6 +564,7 @@ router.post('/upload', authenticateUser, handleUpload, async (req, res) => {
         const validationStatus = validationErrors.length > 0 ? 'invalid' : 'valid';
 
         // Save upload record
+        console.log(`${logPrefix} 💾 Saving upload record to database...`);
         const result = await pool.query(`
             INSERT INTO nft_uploads (
                 user_id, original_filename, file_path, file_size,
@@ -481,12 +578,26 @@ router.post('/upload', authenticateUser, handleUpload, async (req, res) => {
             validationStatus, validationErrors
         ]);
 
+        console.log(`${logPrefix} ✅ Upload record saved:`, {
+            uploadId: result.rows[0].id,
+            filePath: result.rows[0].file_path,
+            fileSize: result.rows[0].file_size,
+            uploadStatus: result.rows[0].upload_status,
+            validationStatus: result.rows[0].validation_status
+        });
+
         res.status(201).json({
             message: 'File uploaded successfully',
             upload: result.rows[0]
         });
     } catch (error) {
-        console.error('Error uploading file:', error);
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+        console.error(`${logPrefix} ❌ Error uploading file:`, {
+            message: error.message,
+            code: error.code,
+            stack: error.stack
+        });
         
         // Handle specific error types
         if (error.code === 'LIMIT_FILE_SIZE') {
@@ -587,9 +698,18 @@ router.get('/uploads', authenticateUser, async (req, res) => {
  *         description: Upload not found
  */
 router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
+    const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+    const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+    
     try {
         const { uploadId } = req.params;
         const userId = req.user.id;
+
+        console.log(`${logPrefix} 📌 Pin request received:`, {
+            uploadId: uploadId,
+            userId: userId,
+            isAzure: isAzure
+        });
 
         // Get upload details
         const uploadResult = await pool.query(`
@@ -600,10 +720,38 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
         `, [uploadId, userId]);
 
         if (uploadResult.rows.length === 0) {
+            console.error(`${logPrefix} ❌ Upload not found:`, { uploadId, userId });
             return res.status(404).json({ error: 'Upload not found' });
         }
 
         const upload = uploadResult.rows[0];
+        
+        console.log(`${logPrefix} 📄 Upload record found:`, {
+            uploadId: upload.id,
+            filePath: upload.file_path,
+            fileSize: upload.file_size,
+            originalFilename: upload.original_filename,
+            uploadStatus: upload.upload_status,
+            validationStatus: upload.validation_status
+        });
+        
+        // Verify file exists on disk
+        if (upload.file_path) {
+            try {
+                const fileStats = await fs.stat(upload.file_path);
+                console.log(`${logPrefix} ✅ File exists on disk:`, {
+                    path: upload.file_path,
+                    size: fileStats.size,
+                    isFile: fileStats.isFile()
+                });
+            } catch (statError) {
+                console.error(`${logPrefix} ❌ File not found on disk:`, {
+                    path: upload.file_path,
+                    error: statError.message,
+                    code: statError.code
+                });
+            }
+        }
 
         if (upload.validation_status !== 'valid') {
             return res.status(400).json({ 
@@ -638,17 +786,37 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
 
         // Pin file asynchronously
         (async () => {
+            const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+            const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+            
             try {
-                console.log('📌 Starting IPFS pinning for upload:', uploadId);
-                console.log('📁 File path:', upload.file_path);
-                console.log('📝 Filename:', upload.original_filename);
-                console.log('🔑 Has API key:', !!upload.api_key);
-                console.log('🔐 Has API secret:', !!upload.api_secret);
-                console.log('🌐 Server URL:', upload.server_url);
-                console.log('📦 Server type:', upload.server_type);
+                console.log(`${logPrefix} 📌 Starting IPFS pinning for upload:`, uploadId);
+                console.log(`${logPrefix} 📁 File path:`, upload.file_path);
+                console.log(`${logPrefix} 📝 Filename:`, upload.original_filename);
+                console.log(`${logPrefix} 🔑 Has API key:`, !!upload.api_key);
+                console.log(`${logPrefix} 🔐 Has API secret:`, !!upload.api_secret);
+                console.log(`${logPrefix} 🌐 Server URL:`, upload.server_url);
+                console.log(`${logPrefix} 📦 Server type:`, upload.server_type);
                 
                 const filePath = upload.file_path;
                 const filename = upload.original_filename;
+                
+                // Verify file exists before pinning
+                try {
+                    const fileStats = await fs.stat(filePath);
+                    console.log(`${logPrefix} ✅ File verified before pinning:`, {
+                        path: filePath,
+                        size: fileStats.size,
+                        isFile: fileStats.isFile()
+                    });
+                } catch (statError) {
+                    console.error(`${logPrefix} ❌ File not found before pinning:`, {
+                        path: filePath,
+                        error: statError.message,
+                        code: statError.code
+                    });
+                    throw new Error(`File not found: ${filePath}`);
+                }
 
                 // Validate API credentials
                 if (!upload.api_key || !upload.api_secret) {
@@ -665,15 +833,19 @@ router.post('/pin/:uploadId', authenticateUser, async (req, res) => {
                 };
 
                 // Pin to IPFS using Pinata (expects file path, not buffer)
-                console.log('🚀 Calling Pinata API...');
+                const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+                const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+                
+                console.log(`${logPrefix} 🚀 Calling Pinata API...`);
                 const ipfsResult = await ipfsPinner.pinFile(serverConfig, filePath, filename);
-                console.log('📥 Pinata API response:', ipfsResult);
+                console.log(`${logPrefix} 📥 Pinata API response:`, ipfsResult);
 
                 if (!ipfsResult.success) {
+                    console.error(`${logPrefix} ❌ IPFS pinning failed:`, ipfsResult.error);
                     throw new Error(ipfsResult.error || 'IPFS pinning failed');
                 }
 
-                console.log('✅ IPFS pinning successful:', ipfsResult.ipfsHash);
+                console.log(`${logPrefix} ✅ IPFS pinning successful:`, ipfsResult.ipfsHash);
 
                 // Update pin record
                 await pool.query(`
@@ -814,19 +986,23 @@ router.get('/pins', authenticateUser, async (req, res) => {
 // File serving route - use regex to match /files/:userId/... where ... is any path
 // Express doesn't support * wildcards, so we use a regex pattern
 router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
+    const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+    const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+    
     try {
         // Extract userId and filePath from regex match groups
         const userIdParam = req.params[0]; // First capture group (userId)
         const filePath = req.params[1]; // Second capture group (file path)
         
-        console.log('📁 File serving request:', { 
+        console.log(`${logPrefix} 📁 File serving request:`, { 
             userIdParam, 
             filePath, 
             reqPath: req.path,
             reqUrl: req.url,
             userFromAuth: req.user.id, 
             allParams: req.params,
-            matchGroups: req.params
+            matchGroups: req.params,
+            isAzure: isAzure
         });
         
         if (!filePath || filePath === '') {
@@ -889,26 +1065,51 @@ router.get(/^\/files\/(\d+)\/(.+)$/, authenticateUser, async (req, res) => {
         }
 
         // Check if file exists
+        console.log(`${logPrefix} 🔍 Checking if file exists:`, fullPath);
         try {
+            const fileStats = await fs.stat(fullPath);
+            console.log(`${logPrefix} ✅ File found:`, {
+                path: fullPath,
+                size: fileStats.size,
+                isFile: fileStats.isFile(),
+                created: fileStats.birthtime,
+                modified: fileStats.mtime
+            });
             await fs.access(resolvedPath);
-            console.log('✅ File exists, serving:', resolvedPath);
+            console.log(`${logPrefix} ✅ File exists, serving:`, resolvedPath);
         } catch (error) {
-            console.log('❌ File not found:', resolvedPath, error.message);
+            console.error(`${logPrefix} ❌ File not found:`, {
+                path: resolvedPath,
+                error: error.message,
+                code: error.code,
+                uploadDir: uploadDir,
+                requestedPath: filePath
+            });
             return res.status(404).json({ error: 'File not found', path: resolvedPath });
         }
 
         // Send file with proper content type
+        console.log(`${logPrefix} 📤 Sending file to client:`, resolvedPath);
         res.sendFile(resolvedPath, (err) => {
             if (err) {
-                console.error('❌ Error sending file:', err);
+                console.error(`${logPrefix} ❌ Error sending file:`, {
+                    path: resolvedPath,
+                    error: err.message,
+                    code: err.code
+                });
                 if (!res.headersSent) {
                     res.status(500).json({ error: 'Failed to serve file', details: err.message });
                 }
+            } else {
+                console.log(`${logPrefix} ✅ File sent successfully:`, resolvedPath);
             }
         });
     } catch (error) {
-        console.error('❌ Error serving file:', error);
-        console.error('❌ Error stack:', error.stack);
+        console.error(`${logPrefix} ❌ Error serving file:`, {
+            message: error.message,
+            code: error.code,
+            stack: error.stack
+        });
         if (!res.headersSent) {
             res.status(500).json({ error: 'Failed to serve file', details: error.message });
         }

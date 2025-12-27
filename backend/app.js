@@ -196,20 +196,47 @@ const ensureUploadsDir = async () => {
     try {
         // Check if we're on Azure (Linux Web App)
         const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
         let uploadDir;
         
         if (isAzure) {
             // Azure: Use /home directory which is writable and persistent
             uploadDir = '/home/uploads/nft-files';
+            console.log(`${logPrefix} 🔧 Configuring upload directory for Azure`);
+            console.log(`${logPrefix} Environment variables:`, {
+                WEBSITE_SITE_NAME: process.env.WEBSITE_SITE_NAME,
+                AZURE_WEBSITE_INSTANCE_ID: process.env.AZURE_WEBSITE_INSTANCE_ID
+            });
         } else {
             // Local development: Use relative path
             uploadDir = path.join(__dirname, 'uploads/nft-files');
+            console.log(`${logPrefix} 🔧 Configuring upload directory for local development`);
         }
         
         await fs.mkdir(uploadDir, { recursive: true });
-        console.log('✅ Upload directory ensured:', uploadDir);
+        console.log(`${logPrefix} ✅ Upload directory ensured:`, uploadDir);
+        
+        // Verify directory exists and get stats
+        try {
+            const stats = await fs.stat(uploadDir);
+            console.log(`${logPrefix} 📊 Directory stats:`, {
+                path: uploadDir,
+                isDirectory: stats.isDirectory(),
+                mode: stats.mode.toString(8),
+                size: stats.size
+            });
+        } catch (statError) {
+            console.error(`${logPrefix} ⚠️  Cannot get directory stats:`, statError.message);
+        }
     } catch (error) {
-        console.error('❌ Error ensuring upload directory:', error);
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+        console.error(`${logPrefix} ❌ Error ensuring upload directory:`, {
+            message: error.message,
+            code: error.code,
+            path: uploadDir,
+            stack: error.stack
+        });
         // Don't exit - app can still run, but uploads will fail
     }
 };
