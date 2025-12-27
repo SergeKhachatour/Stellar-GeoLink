@@ -49,6 +49,8 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  // Auto-open on first load to show suggestions, but respect initialOpen if explicitly set
+  const [hasOpenedOnce, setHasOpenedOnce] = useState(false);
   const [open, setOpen] = useState(initialOpen);
   const [isMaximized, setIsMaximized] = useState(false);
   const [memoryBoxOpen, setMemoryBoxOpen] = useState(false);
@@ -58,6 +60,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const locationUpdateRef = useRef(false); // Track if we've already updated location
+  const autoMinimizedRef = useRef(false); // Track if we've already auto-minimized for this map visibility
   const { showMap, hideMap, mapVisible, mapData, proximityRadius, updateUserLocation } = useAIMap();
   const { publicKey } = useWallet();
 
@@ -157,17 +160,30 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount - don't include updateUserLocation to prevent infinite loop
 
-  // Auto-minimize chat in mobile view when map becomes visible
+  // Auto-minimize chat in mobile view when map FIRST becomes visible
+  // Only minimize once per map visibility change, allow user to manually expand
   useEffect(() => {
-    if (mapVisible && isMobile && (open || isMaximized)) {
+    // Only auto-minimize if:
+    // 1. Map is visible
+    // 2. We're on mobile
+    // 3. Chat is currently open/maximized
+    // 4. We haven't already auto-minimized for this map visibility
+    // 5. User hasn't manually expanded after auto-minimize
+    if (mapVisible && isMobile && (open || isMaximized) && !autoMinimizedRef.current) {
       console.log('[AIChat] Map became visible on mobile - auto-minimizing chat');
       setOpen(false);
       setIsMaximized(false);
       setMinimizeNotification(true);
+      autoMinimizedRef.current = true; // Mark that we've auto-minimized
       // Auto-hide notification after 3 seconds
       setTimeout(() => {
         setMinimizeNotification(false);
       }, 3000);
+    }
+    
+    // Reset auto-minimize flag when map is hidden, so it can auto-minimize again next time
+    if (!mapVisible) {
+      autoMinimizedRef.current = false;
     }
   }, [mapVisible, isMobile, open, isMaximized]);
 
@@ -241,12 +257,24 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  // Auto-open chat on first load to show suggestions (only once)
+  useEffect(() => {
+    if (!hasOpenedOnce && !initialOpen && messages.length === 0) {
+      // Small delay to ensure component is fully rendered
+      setTimeout(() => {
+        setOpen(true);
+        setHasOpenedOnce(true);
+      }, 300);
+    }
+  }, [hasOpenedOnce, initialOpen, messages.length]);
+
+  const handleSend = async (messageText = null) => {
+    const textToSend = messageText || input.trim();
+    if (!textToSend || loading) return;
 
     const userMessage = {
       role: 'user',
-      content: input.trim()
+      content: textToSend
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -319,16 +347,11 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           hideMap();
         }
         
-        // Auto-minimize chat in mobile view when map shows
-        if (hasMapData && isMobile && (open || isMaximized)) {
-          console.log('[AIChat] Map shown on mobile - auto-minimizing chat');
-          setOpen(false);
-          setIsMaximized(false);
-          setMinimizeNotification(true);
-          // Auto-hide notification after 3 seconds
-          setTimeout(() => {
-            setMinimizeNotification(false);
-          }, 3000);
+        // Auto-minimize chat in mobile view when map shows (only if not already minimized)
+        // The useEffect hook will handle the actual minimization, this just triggers it
+        if (hasMapData && isMobile && (open || isMaximized) && !autoMinimizedRef.current) {
+          // The useEffect will handle the minimization, we just need to ensure mapVisible is set
+          // which happens when showMap is called above
         }
 
         const assistantMessage = {
@@ -425,27 +448,79 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     // Clean content: remove any HTML comments that might have slipped through
     const cleanedContent = content.replace(/<!--[\s\S]*?-->/g, '').trim();
     
-    // Check if content contains HTML or markdown
-    if (cleanedContent.includes('<') || cleanedContent.includes('```') || cleanedContent.includes('**')) {
-      return (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            // Render HTML safely, but filter out comments
-            html: ({ node, ...props }) => {
-              const htmlContent = node.value?.replace(/<!--[\s\S]*?-->/g, '') || '';
-              return <div dangerouslySetInnerHTML={{ __html: htmlContent }} {...props} />;
-            }
-          }}
-        >
-          {cleanedContent}
-        </ReactMarkdown>
-      );
-    }
+    // Always use ReactMarkdown to support links, HTML, and markdown
     return (
-      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Make links clickable and open in new tab
+          a: ({ node, children, ...props }) => (
+            <a
+              {...props}
+              href={props.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: '#1976d2',
+                textDecoration: 'underline',
+                cursor: 'pointer'
+              }}
+              onClick={(e) => {
+                // Allow normal link behavior
+                e.stopPropagation();
+              }}
+            >
+              {children || props.href}
+            </a>
+          ),
+          // Style paragraphs
+          p: ({ node, ...props }) => (
+            <Typography variant="body2" component="p" sx={{ margin: '0 0 8px 0', wordBreak: 'break-word' }} {...props} />
+          ),
+          // Style headings
+          h1: ({ node, ...props }) => <Typography variant="h5" component="h1" sx={{ fontWeight: 'bold', mb: 1 }} {...props} />,
+          h2: ({ node, ...props }) => <Typography variant="h6" component="h2" sx={{ fontWeight: 'bold', mb: 1 }} {...props} />,
+          h3: ({ node, ...props }) => <Typography variant="subtitle1" component="h3" sx={{ fontWeight: 'bold', mb: 0.5 }} {...props} />,
+          // Style lists
+          ul: ({ node, ...props }) => <Box component="ul" sx={{ pl: 2, mb: 1 }} {...props} />,
+          ol: ({ node, ...props }) => <Box component="ol" sx={{ pl: 2, mb: 1 }} {...props} />,
+          li: ({ node, ...props }) => <Typography variant="body2" component="li" sx={{ mb: 0.5 }} {...props} />,
+          // Style code blocks
+          code: ({ node, inline, ...props }) => (
+            <Typography
+              component="code"
+              sx={{
+                backgroundColor: inline ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.1)',
+                padding: inline ? '2px 4px' : '8px',
+                borderRadius: '4px',
+                fontFamily: 'monospace',
+                fontSize: '0.9em',
+                display: inline ? 'inline' : 'block',
+                overflow: 'auto',
+                mb: inline ? 0 : 1
+              }}
+              {...props}
+            />
+          ),
+          // Style blockquotes
+          blockquote: ({ node, ...props }) => (
+            <Box
+              component="blockquote"
+              sx={{
+                borderLeft: '4px solid #1976d2',
+                pl: 2,
+                ml: 0,
+                mb: 1,
+                fontStyle: 'italic',
+                color: 'text.secondary'
+              }}
+              {...props}
+            />
+          )
+        }}
+      >
         {cleanedContent}
-      </Typography>
+      </ReactMarkdown>
     );
   };
 
@@ -498,7 +573,15 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
               justifyContent: 'space-between',
               cursor: 'pointer'
             }}
-            onClick={() => !isMaximized && setOpen(!open)}
+            onClick={() => {
+              if (!isMaximized) {
+                setOpen(!open);
+                // Reset auto-minimize flag when user manually toggles
+                if (!open) {
+                  autoMinimizedRef.current = false;
+                }
+              }
+            }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Avatar sx={{ bgcolor: 'white', color: 'primary.main' }}>
@@ -558,7 +641,11 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   onClick={(e) => {
                     e.stopPropagation();
                     setIsMaximized(!isMaximized);
-                    if (!isMaximized) setOpen(true);
+                    if (!isMaximized) {
+                      setOpen(true);
+                      // Reset auto-minimize flag when user manually expands
+                      autoMinimizedRef.current = false;
+                    }
                   }}
                 >
                   {isMaximized ? <FullscreenExitIcon /> : <FullscreenIcon />}
@@ -571,6 +658,10 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   onClick={(e) => {
                     e.stopPropagation();
                     setOpen(!open);
+                    // Reset auto-minimize flag when user manually expands
+                    if (!open) {
+                      autoMinimizedRef.current = false;
+                    }
                   }}
                 >
                   {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -603,24 +694,130 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                     Ask me anything about Stellar blockchain operations, or try:
                   </Typography>
                   <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Chip
-                      label="Find nearby wallets"
-                      onClick={() => setInput('Find nearby wallets')}
-                      sx={{ cursor: 'pointer' }}
-                      size="small"
-                    />
-                    <Chip
-                      label="Create a new Stellar account"
-                      onClick={() => setInput('Create a new Stellar account')}
-                      sx={{ cursor: 'pointer' }}
-                      size="small"
-                    />
-                    <Chip
-                      label="Show my account balance"
-                      onClick={() => setInput('Show my account balance')}
-                      sx={{ cursor: 'pointer' }}
-                      size="small"
-                    />
+                    {/* Location & Map Shortcuts */}
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 1 }}>
+                      📍 Location & Map
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Chip
+                        label="📍 My Location"
+                        onClick={() => {
+                          handleSend('Show my location on the map');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                        color="primary"
+                      />
+                      <Chip
+                        label="🗺️ Show Nearby NFTs"
+                        onClick={() => {
+                          handleSend('Show me nearby NFTs on the map');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="👥 Find Nearby Wallets"
+                        onClick={() => {
+                          handleSend('Find nearby wallets');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="🌍 Show All NFTs"
+                        onClick={() => {
+                          handleSend('Show me all NFTs on the map');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                    </Box>
+                    
+                    {/* Stellar Operations */}
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                      ⭐ Stellar Operations
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Chip
+                        label="➕ Create Account"
+                        onClick={() => {
+                          handleSend('Create a new Stellar account');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="💰 My Balance"
+                        onClick={() => {
+                          handleSend('Show my account balance');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="💸 Transfer Assets"
+                        onClick={() => {
+                          handleSend('How do I transfer Stellar assets?');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="🔗 Manage Trustlines"
+                        onClick={() => {
+                          handleSend('How do I manage trustlines?');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                    </Box>
+                    
+                    {/* NFT Operations */}
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                      🖼️ NFT Operations
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Chip
+                        label="📚 NFT Collections"
+                        onClick={() => {
+                          handleSend('Show me all NFT collections');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="📍 Verify NFT Location"
+                        onClick={() => {
+                          handleSend('How do I verify an NFT location?');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                    </Box>
+                    
+                    {/* Smart Wallet */}
+                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                      🏦 Smart Wallet
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      <Chip
+                        label="💳 Smart Wallet Balance"
+                        onClick={() => {
+                          handleSend('Show my smart wallet balance');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                      <Chip
+                        label="📊 Geospatial Stats"
+                        onClick={() => {
+                          handleSend('Show geospatial statistics');
+                        }}
+                        sx={{ cursor: 'pointer' }}
+                        size="small"
+                      />
+                    </Box>
                   </Box>
                   {userLocation ? (
                     <Typography variant="caption" color="success.main" sx={{ mt: 2, display: 'block' }}>
@@ -664,8 +861,74 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                           {message.content}
                         </Typography>
                       ) : (
-                        <Box sx={{ '& p': { margin: 0, marginBottom: 1 }, '& p:last-child': { marginBottom: 0 } }}>
+                        <Box sx={{ 
+                          '& p': { margin: '0 0 8px 0' }, 
+                          '& p:last-child': { marginBottom: 0 },
+                          '& a': { color: '#1976d2', textDecoration: 'underline', cursor: 'pointer' },
+                          '& a:hover': { textDecoration: 'underline' }
+                        }}>
                           {renderMessageContent(message.content)}
+                          {/* Mini Map Preview - Show if mapData exists and this is the last assistant message with map-related content */}
+                          {mapData && index === messages.length - 1 && message.role === 'assistant' && (
+                            (message.content.toLowerCase().includes('map') || 
+                             message.content.toLowerCase().includes('location') ||
+                             message.content.toLowerCase().includes('nearby') ||
+                             message.content.toLowerCase().includes('wallet') ||
+                             message.content.toLowerCase().includes('nft'))
+                          ) && (
+                            <Box sx={{ mt: 2, mb: 1 }}>
+                              <Paper
+                                elevation={2}
+                                sx={{
+                                  p: 1,
+                                  borderRadius: 2,
+                                  cursor: 'pointer',
+                                  border: '2px solid #1976d2',
+                                  '&:hover': {
+                                    borderColor: '#1565c0',
+                                    boxShadow: 4
+                                  }
+                                }}
+                                onClick={() => {
+                                  showMap(mapData);
+                                  setOpen(true);
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                  <MapIcon sx={{ fontSize: 20, color: 'primary.main' }} />
+                                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                                    🗺️ Click to view on map
+                                  </Typography>
+                                </Box>
+                                <Box
+                                  sx={{
+                                    height: 150,
+                                    width: '100%',
+                                    borderRadius: 1,
+                                    backgroundColor: 'grey.200',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    position: 'relative',
+                                    overflow: 'hidden'
+                                  }}
+                                >
+                                  {/* Mini map preview - show location count */}
+                                  <Box sx={{ textAlign: 'center', zIndex: 1 }}>
+                                    <LocationIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+                                    <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold' }}>
+                                      {mapData.data?.length || 0} {mapData.data?.length === 1 ? 'location' : 'locations'}
+                                    </Typography>
+                                    {mapData.userLocation && (
+                                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                        Your location included
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                </Box>
+                              </Paper>
+                            </Box>
+                          )}
                         </Box>
                       )}
                     </Paper>
@@ -705,6 +968,24 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                 alignItems: 'flex-end'
               }}
             >
+              {/* New Chat Button - Always visible near input when there are messages */}
+              {messages.length > 0 && (
+                <Tooltip title="New Chat">
+                  <IconButton
+                    color="secondary"
+                    onClick={() => {
+                      setMessages([]);
+                      setInput('');
+                      hideMap();
+                      // Ensure chat is open to show suggestions
+                      setOpen(true);
+                    }}
+                    sx={{ mb: 0.5 }}
+                  >
+                    <Typography sx={{ fontSize: 20 }}>💬</Typography>
+                  </IconButton>
+                </Tooltip>
+              )}
               <TextField
                 inputRef={inputRef}
                 fullWidth

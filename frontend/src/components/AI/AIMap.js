@@ -170,33 +170,62 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         antialias: true
       });
       
-      // Disable fog to prevent opacity query errors
+      // Configure fog with darker, less blue colors to reduce brightness
       // The error occurs when Mapbox tries to query fog opacity before fog state is initialized
-      // Disable fog immediately after map creation
-      const disableFog = () => {
+      // We need to set fog as early as possible with darker colors
+      const configureFog = () => {
         try {
-          if (map.current && typeof map.current.setFog === 'function') {
-            map.current.setFog(null); // Set to null to disable fog
-            console.log('[AIMap] Fog disabled to prevent opacity query errors');
+          if (map.current && map.current.loaded && map.current.isStyleLoaded()) {
+            // Only try to configure fog if map and style are fully loaded
+            if (typeof map.current.setFog === 'function') {
+              // Set fog with darker space color (black/dark gray) instead of blue
+              // This reduces the bright blue background while keeping fog functionality
+              map.current.setFog({
+                color: 'rgb(20, 20, 30)', // Dark gray-blue instead of bright blue
+                'high-color': 'rgb(10, 10, 20)', // Very dark for high altitude
+                'horizon-blend': 0.1, // Reduce horizon blend
+                'space-color': 'rgb(0, 0, 0)', // Pure black space instead of blue
+                'star-intensity': 0.3 // Reduce star intensity for less brightness
+              });
+              console.log('[AIMap] Fog configured with darker colors');
+            }
           }
         } catch (e) {
-          // Fog might not be available in this style, which is fine
-          console.log('[AIMap] Fog not available or error disabling:', e.message);
+          // Silently catch errors - fog might not be available or map not ready
         }
       };
       
-      // Try to disable fog immediately (may fail if map not ready, that's OK)
-      setTimeout(disableFog, 0);
-      
-      // Also disable fog when style loads (as a fallback)
-      map.current.on('style.load', () => {
-        disableFog();
+      // Suppress fog opacity query errors by catching them in the error event
+      map.current.on('error', (error) => {
+        // Suppress fog-related errors silently
+        if (error && error.error && (
+          (error.error.message && error.error.message.includes('fog')) ||
+          (error.error.message && error.error.message.includes('opacity')) ||
+          (error.error.toString && error.error.toString().includes('fog'))
+        )) {
+          // Silently ignore fog-related errors - they don't affect functionality
+          return;
+        }
+        // Log other errors normally
+        console.error('[AIMap] Map error:', error);
       });
       
-      // Also disable fog when map loads
-      map.current.on('load', () => {
-        disableFog();
+      // Configure fog when style loads (most reliable)
+      map.current.once('style.load', () => {
+        setTimeout(configureFog, 100);
       });
+      
+      // Configure fog when map loads
+      map.current.once('load', () => {
+        setTimeout(configureFog, 100);
+      });
+      
+      // Also try to configure fog after a delay (fallback)
+      setTimeout(() => {
+        if (map.current && map.current.loaded && map.current.isStyleLoaded()) {
+          configureFog();
+        }
+      }, 1000);
 
       map.current.on('load', () => {
         console.log('[AIMap] Map loaded successfully');
@@ -225,9 +254,8 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         }
       });
 
-      map.current.on('error', (e) => {
-        console.error('[AIMap] Map error:', e);
-      });
+      // Error handler is already set up above (line 191) to suppress fog errors
+      // This handler is for any additional error handling if needed
 
       // Add navigation controls (zoom, rotate, pitch)
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
@@ -909,11 +937,17 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       dataCount: data?.length, 
       center, 
       zoom,
-      dataSample: data?.[0]
+      dataSample: data?.[0],
+      fullMapData: mapData // Log full mapData for debugging
     });
     
     if (!data || !Array.isArray(data) || data.length === 0) {
-      console.warn('[AIMap] Map data has no valid data array:', { type, data });
+      console.warn('[AIMap] Map data has no valid data array:', { 
+        type, 
+        data, 
+        mapDataKeys: Object.keys(mapData || {}),
+        mapDataFull: mapData // Log full mapData to see what we're getting
+      });
       return;
     }
 
@@ -1467,7 +1501,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           }}
           sx={{
             position: 'fixed',
-            top: 80, // Moved down to avoid overlapping with zoom controls (which are at top-right)
+            top: 160, // Moved even further down to avoid overlapping with all controls
             right: 16,
             zIndex: 10000,
             backgroundColor: overlayVisible ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.6)',

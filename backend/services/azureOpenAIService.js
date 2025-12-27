@@ -1191,11 +1191,31 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
           
           console.log(`[Map Data Extraction] Tool: ${toolResult.name}, Result keys:`, Object.keys(result));
           
-          // Check if result contains _mapData property (explicit map data)
+          // PRIORITY 1: Check if result contains _mapData property (explicit map data) FIRST
+          // This should be checked before result.locations to ensure combined data (wallets + NFTs) is used
           if (result._mapData) {
-            mapData = result._mapData;
-            console.log(`[Map Data] Using explicit _mapData from ${toolResult.name}`);
-            break;
+            // Validate _mapData structure
+            if (result._mapData.data && Array.isArray(result._mapData.data) && result._mapData.data.length > 0) {
+              mapData = result._mapData;
+              console.log(`[Map Data] Using explicit _mapData from ${toolResult.name} with ${result._mapData.data.length} items`);
+              console.log(`[Map Data] _mapData breakdown:`, {
+                type: mapData.type,
+                totalItems: mapData.data.length,
+                nftCount: mapData.data.filter(item => item.type === 'nft').length,
+                walletCount: mapData.data.filter(item => item.type === 'wallet').length
+              });
+              break; // Found valid _mapData, use it and stop checking
+            } else {
+              console.warn(`[Map Data] _mapData from ${toolResult.name} has invalid or empty data array:`, {
+                type: result._mapData.type,
+                hasData: !!result._mapData.data,
+                dataIsArray: Array.isArray(result._mapData.data),
+                dataLength: result._mapData.data?.length || 0,
+                hasNfts: !!result.nfts,
+                nftsCount: result.nfts?.length || 0
+              });
+              // Don't break - continue to check other sources (like result.nfts)
+            }
           }
           
           // Check if result is a geofence (has polygon property)
@@ -1208,7 +1228,7 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             break;
           }
           
-          // Check if result contains location data (wallets)
+          // PRIORITY 2: Check if result contains location data (wallets) - only if _mapData wasn't found
           if (result.locations && Array.isArray(result.locations) && result.locations.length > 0) {
             // Filter to only include items with valid coordinates
             const validLocations = result.locations.filter(loc => 
@@ -1242,17 +1262,32 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             });
           }
           
+          // This check is redundant since we already checked _mapData above, but keep it for safety
           // Check if result contains _mapData (combined wallets and NFTs)
-          if (result._mapData) {
-            mapData = result._mapData;
-            console.log(`[Map Data] Using _mapData from result:`, {
-              type: mapData.type,
-              dataCount: mapData.data?.length || 0
-            });
-            break;
+          if (result._mapData && !mapData) {
+            // Validate _mapData structure before using it
+            if (result._mapData.data && Array.isArray(result._mapData.data) && result._mapData.data.length > 0) {
+              mapData = result._mapData;
+              console.log(`[Map Data] Using _mapData from result (second check):`, {
+                type: mapData.type,
+                dataCount: mapData.data.length,
+                nftCount: mapData.data.filter(item => item.type === 'nft').length,
+                walletCount: mapData.data.filter(item => item.type === 'wallet').length
+              });
+              break;
+            } else {
+              console.warn(`[Map Data] _mapData from result has invalid or empty data array:`, {
+                type: result._mapData.type,
+                hasData: !!result._mapData.data,
+                dataIsArray: Array.isArray(result._mapData.data),
+                dataLength: result._mapData.data?.length || 0,
+                resultKeys: Object.keys(result)
+              });
+              // Don't break - continue to check other sources (like result.nfts)
+            }
           }
           
-          // Check if result contains NFT data
+          // Check if result contains NFT data (fallback if _mapData is invalid or empty)
           if (result.nfts && Array.isArray(result.nfts) && result.nfts.length > 0) {
             // Filter to only include NFTs with valid coordinates
             const validNFTs = result.nfts.filter(nft => 
@@ -1260,8 +1295,12 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
               nft.latitude !== 0 && nft.longitude !== 0
             );
             if (validNFTs.length > 0) {
+              // Use user location from context or result if available
+              const userLoc = userContext.location || result._mapData?.userLocation || null;
+              const mapRadius = result._mapData?.radius || userContext.proximityRadius || 20000000;
+              
               mapData = {
-                type: 'nfts',
+                type: 'combined', // Use 'combined' type to match expected format
                 data: validNFTs.map(nft => ({
                   type: 'nft',
                   latitude: parseFloat(nft.latitude),
@@ -1273,10 +1312,21 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                   server_url: nft.server_url || null,
                   ipfs_hash: nft.ipfs_hash || null,
                   rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
-                  distance: nft.distance
-                }))
+                  distance_meters: nft.distance || nft.distance_meters,
+                  radius: mapRadius
+                })),
+                userLocation: userLoc,
+                radius: mapRadius,
+                center: userLoc ? {
+                  latitude: userLoc.latitude,
+                  longitude: userLoc.longitude
+                } : (validNFTs.length > 0 ? {
+                  latitude: validNFTs[0].latitude,
+                  longitude: validNFTs[0].longitude
+                } : { latitude: 0, longitude: 0 }),
+                zoom: userLoc ? 13 : 2
               };
-              console.log(`[Map Data] Found ${validNFTs.length} NFT locations`);
+              console.log(`[Map Data] Created mapData from result.nfts with ${validNFTs.length} NFT locations (fallback)`);
               break;
             }
           }
@@ -1430,7 +1480,13 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     
     // Log map data for debugging
     if (mapData) {
-      console.log('[Map Data] Returning map data in response:', JSON.stringify(mapData, null, 2));
+      console.log('[Map Data] Returning map data in response:', {
+        type: mapData.type,
+        hasData: !!mapData.data,
+        dataCount: mapData.data?.length || 0,
+        dataIsArray: Array.isArray(mapData.data),
+        fullMapData: JSON.stringify(mapData, null, 2)
+      });
     } else {
       console.log('[Map Data] No map data in response');
     }

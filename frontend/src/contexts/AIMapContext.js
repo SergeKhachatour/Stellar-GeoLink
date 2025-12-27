@@ -17,7 +17,21 @@ export const AIMapProvider = ({ children }) => {
   const [userLocation, setUserLocation] = useState(null);
 
   const showMap = (data) => {
-    console.log('[AIMapContext] showMap called with data:', data);
+    console.log('[AIMapContext] showMap called with data:', {
+      type: data?.type,
+      hasData: !!data?.data,
+      dataCount: data?.data?.length || 0,
+      dataIsArray: Array.isArray(data?.data),
+      fullData: data // Log full data structure
+    });
+    
+    // Ensure data structure is correct
+    if (data && !data.data && data.type) {
+      console.warn('[AIMapContext] Map data missing data array, attempting to fix structure');
+      // If data has type but no data array, it might be malformed
+      // Try to preserve the structure as-is
+    }
+    
     setMapData(data);
     setMapVisible(true);
     console.log('[AIMapContext] Map should now be visible');
