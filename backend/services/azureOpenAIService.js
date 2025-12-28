@@ -1143,6 +1143,14 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
   });
 
   try {
+    // Check if user is asking about nearby wallets BEFORE calling AI
+    const lastUserMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
+    const walletKeywords = ['nearby wallets', 'wallets near', 'find wallets', 'show wallets', 'wallet locations', 'nearby wallet'];
+    const isAskingAboutWallets = walletKeywords.some(keyword => lastUserMessage.includes(keyword));
+    
+    console.log(`[AI Request] User message: "${lastUserMessage.substring(0, 100)}"`);
+    console.log(`[AI Request] Is asking about wallets: ${isAskingAboutWallets}`);
+    
     const response = await client.chat.completions.create(modelArgs);
 
     // Handle tool calls
@@ -1483,6 +1491,91 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     // Check for map data in regular response (non-tool-call responses)
     let mapData = null;
     const responseMessage = response.choices[0].message;
+    
+    // FALLBACK: If user asked about nearby wallets but AI didn't call the function, call it automatically
+    if (isAskingAboutWallets && userContext.location) {
+      console.log(`[AI Fallback] User asked about wallets but AI didn't call function. Automatically calling geolink_findNearbyWallets...`);
+      try {
+        const lat = userContext.location.latitude;
+        const lon = userContext.location.longitude;
+        const walletRadius = 1000;
+        const nftRadius = userContext.proximityRadius || 20000000;
+        
+        console.log(`[AI Fallback] Calling geolink_findNearbyWallets with location: ${lat}, ${lon}`);
+        
+        const [walletResult, nftResult] = await Promise.all([
+          geolinkOperations.findNearbyWallets(lat, lon, walletRadius, null),
+          geolinkOperations.getNearbyNFTs(lat, lon, nftRadius).catch(err => {
+            console.error('[AI Fallback] Error fetching NFTs:', err);
+            return { nfts: [] };
+          })
+        ]);
+        
+        // Build map data items
+        const mapDataItems = [];
+        
+        // Add wallets
+        if (walletResult.locations && Array.isArray(walletResult.locations)) {
+          walletResult.locations.forEach(wallet => {
+            if (wallet.latitude != null && wallet.longitude != null) {
+              mapDataItems.push({
+                type: 'wallet',
+                latitude: parseFloat(wallet.latitude),
+                longitude: parseFloat(wallet.longitude),
+                public_key: wallet.public_key,
+                organization: wallet.organization || wallet.asset_name || 'Unknown',
+                last_updated: wallet.last_updated,
+                distance_meters: wallet.distance || wallet.distance_meters
+              });
+            }
+          });
+        }
+        
+        // Add NFTs
+        if (nftResult.nfts && Array.isArray(nftResult.nfts)) {
+          nftResult.nfts.forEach(nft => {
+            if (nft.latitude != null && nft.longitude != null) {
+              mapDataItems.push({
+                type: 'nft',
+                latitude: parseFloat(nft.latitude),
+                longitude: parseFloat(nft.longitude),
+                id: nft.id,
+                name: nft.name || `NFT #${nft.id}`,
+                collection_name: nft.collection_name || nft.collection?.name || 'Unknown Collection',
+                image_url: nft.image_url || null,
+                server_url: nft.server_url || null,
+                ipfs_hash: nft.ipfs_hash || null,
+                rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
+                distance_meters: nft.distance || nft.distance_meters
+              });
+            }
+          });
+        }
+        
+        if (mapDataItems.length > 0) {
+          mapData = {
+            type: 'combined',
+            data: mapDataItems,
+            userLocation: {
+              latitude: lat,
+              longitude: lon
+            },
+            radius: nftRadius,
+            walletRadius: walletRadius,
+            center: {
+              latitude: lat,
+              longitude: lon
+            },
+            zoom: 13
+          };
+          console.log(`[AI Fallback] Created map data with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
+        } else {
+          console.log(`[AI Fallback] No map data items found after calling function`);
+        }
+      } catch (error) {
+        console.error(`[AI Fallback] Error calling geolink_findNearbyWallets:`, error);
+      }
+    }
     
     // Check if user asked to see their location - check ALL user messages, especially the last one
     if (userContext.location) {
