@@ -7,12 +7,24 @@
  * Documentation: https://developers.stellar.org/docs/tools/developer-tools/wallets
  */
 
-import {
-  StellarWalletsKit,
-  WalletNetwork,
-  ISupportedWallet,
-} from '@creit.tech/stellar-wallets-kit';
 import { Networks } from '@stellar/stellar-sdk';
+
+// Try to import Stellar Wallets Kit - handle gracefully if not available
+let StellarWalletsKit, WalletNetwork, ISupportedWallet;
+let kitAvailable = false;
+
+try {
+  const kitModule = require('@creit.tech/stellar-wallets-kit');
+  StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
+  WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
+  ISupportedWallet = kitModule.ISupportedWallet || kitModule.default?.ISupportedWallet;
+  if (StellarWalletsKit && WalletNetwork) {
+    kitAvailable = true;
+  }
+} catch (error) {
+  console.warn('Stellar Wallets Kit not available:', error.message);
+  kitAvailable = false;
+}
 
 // Import wallet modules dynamically to handle module resolution
 // The package structure may vary, so we'll try multiple import methods
@@ -20,6 +32,9 @@ let FreighterModule, AlbedoModule, WalletConnectModule, HanaModule, RabetModule,
 
 // Determine network from environment
 const getNetwork = () => {
+  if (!kitAvailable || !WalletNetwork) {
+    return null; // Return null if kit is not available
+  }
   // Check if we're on testnet or mainnet
   // You can set this via environment variable or detect from Horizon URL
   const isTestnet = process.env.REACT_APP_STELLAR_NETWORK === 'testnet' || 
@@ -41,9 +56,18 @@ const getNetworkPassphrase = () => {
 let kitInstance = null;
 
 const getKit = async () => {
+  if (!kitAvailable || !StellarWalletsKit) {
+    throw new Error('Stellar Wallets Kit is not available. Please ensure @creit.tech/stellar-wallets-kit is installed.');
+  }
+  
   if (!kitInstance) {
     await ensureModulesInitialized();
     const network = getNetwork();
+    
+    if (!network) {
+      throw new Error('Unable to determine network. Stellar Wallets Kit may not be properly initialized.');
+    }
+    
     const modules = [];
     
     // Add modules if they're available
