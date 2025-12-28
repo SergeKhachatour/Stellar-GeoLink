@@ -1497,8 +1497,10 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     let mapData = null;
     const responseMessage = response.choices[0].message;
     
-    // FALLBACK: If user asked about nearby wallets/location but AI didn't call the function, call it automatically
-    if (shouldShowMap && userContext.location) {
+    // FALLBACK: Always show nearby wallets/NFTs when user has location enabled and map is being shown
+    // This ensures the AI map always has useful data, regardless of what the user asks
+    if (userContext.location && !mapData) {
+      console.log(`[AI Fallback] User has location enabled, automatically fetching nearby wallets and NFTs for map...`);
       console.log(`[AI Fallback] User asked about wallets/location but AI didn't call function. Automatically calling geolink_findNearbyWallets...`);
       console.log(`[AI Fallback] Reason: isAskingAboutWallets=${isAskingAboutWallets}, isAskingAboutLocation=${isAskingAboutLocation}`);
       try {
