@@ -8,16 +8,22 @@ const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || process.env.REACT_APP_MAPBOX_TO
 
 // Base API URL - will be set from environment or detect from context
 const getApiBaseUrl = () => {
-  // If API_BASE_URL is explicitly set, use it
+  // If API_BASE_URL is explicitly set, use it (ensure it ends with /api)
   if (process.env.API_BASE_URL) {
-    return process.env.API_BASE_URL;
+    const baseUrl = process.env.API_BASE_URL;
+    return baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
   }
   
   // If running on Azure, use Azure URL
   const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
   if (isAzure) {
-    const siteName = process.env.WEBSITE_SITE_NAME || 'geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net';
-    return `https://${siteName}/api`;
+    // Get the hostname from environment or use default
+    const hostname = process.env.WEBSITE_HOSTNAME || process.env.WEBSITE_SITE_NAME || 'geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net';
+    // Ensure we use the full hostname (not just site name)
+    const fullHostname = hostname.includes('.') ? hostname : `${hostname}.azurewebsites.net`;
+    const apiUrl = `https://${fullHostname}/api`;
+    console.log(`[getApiBaseUrl] Azure detected, using: ${apiUrl}`);
+    return apiUrl;
   }
   
   // Default to localhost for local development
