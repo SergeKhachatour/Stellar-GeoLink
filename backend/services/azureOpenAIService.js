@@ -1513,19 +1513,38 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
         console.log(`[AI Fallback] Calling geolink_findNearbyWallets with location: ${lat}, ${lon}, walletRadius: ${walletRadius}, nftRadius: ${nftRadius}`);
         
         const [walletResult, nftResult] = await Promise.all([
-          geolinkOperations.findNearbyWallets(lat, lon, walletRadius, null),
+          geolinkOperations.findNearbyWallets(lat, lon, walletRadius, null).catch(err => {
+            console.error('[AI Fallback] Error fetching wallets:', err);
+            console.error('[AI Fallback] Error stack:', err.stack);
+            return { locations: [] };
+          }),
           geolinkOperations.getNearbyNFTs(lat, lon, nftRadius).catch(err => {
             console.error('[AI Fallback] Error fetching NFTs:', err);
+            console.error('[AI Fallback] Error stack:', err.stack);
             return { nfts: [] };
           })
         ]);
+        
+        console.log(`[AI Fallback] Wallet result:`, {
+          hasLocations: !!walletResult.locations,
+          locationsIsArray: Array.isArray(walletResult.locations),
+          locationsCount: walletResult.locations?.length || 0,
+          walletResultKeys: Object.keys(walletResult)
+        });
+        console.log(`[AI Fallback] NFT result:`, {
+          hasNfts: !!nftResult.nfts,
+          nftsIsArray: Array.isArray(nftResult.nfts),
+          nftsCount: nftResult.nfts?.length || 0,
+          nftResultKeys: Object.keys(nftResult)
+        });
         
         // Build map data items
         const mapDataItems = [];
         
         // Add wallets
         if (walletResult.locations && Array.isArray(walletResult.locations)) {
-          walletResult.locations.forEach(wallet => {
+          console.log(`[AI Fallback] Processing ${walletResult.locations.length} wallet locations`);
+          walletResult.locations.forEach((wallet, idx) => {
             if (wallet.latitude != null && wallet.longitude != null) {
               mapDataItems.push({
                 type: 'wallet',
@@ -1536,13 +1555,18 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                 last_updated: wallet.last_updated,
                 distance_meters: wallet.distance || wallet.distance_meters
               });
+            } else {
+              console.log(`[AI Fallback] Wallet ${idx} skipped - missing coordinates:`, wallet);
             }
           });
+        } else {
+          console.log(`[AI Fallback] Wallet result does not have valid locations array`);
         }
         
         // Add NFTs
         if (nftResult.nfts && Array.isArray(nftResult.nfts)) {
-          nftResult.nfts.forEach(nft => {
+          console.log(`[AI Fallback] Processing ${nftResult.nfts.length} NFTs`);
+          nftResult.nfts.forEach((nft, idx) => {
             if (nft.latitude != null && nft.longitude != null) {
               mapDataItems.push({
                 type: 'nft',
@@ -1557,9 +1581,15 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
                 rarity_level: nft.rarity_level || nft.collection?.rarity_level || 'common',
                 distance_meters: nft.distance || nft.distance_meters
               });
+            } else {
+              console.log(`[AI Fallback] NFT ${idx} skipped - missing coordinates:`, nft);
             }
           });
+        } else {
+          console.log(`[AI Fallback] NFT result does not have valid nfts array`);
         }
+        
+        console.log(`[AI Fallback] Total map data items created: ${mapDataItems.length}`);
         
         if (mapDataItems.length > 0) {
           mapData = {
@@ -1580,6 +1610,8 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
           console.log(`[AI Fallback] Created map data with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
         } else {
           console.log(`[AI Fallback] No map data items found after calling function`);
+          console.log(`[AI Fallback] walletResult:`, JSON.stringify(walletResult, null, 2));
+          console.log(`[AI Fallback] nftResult:`, JSON.stringify(nftResult, null, 2));
         }
       } catch (error) {
         console.error(`[AI Fallback] Error calling geolink_findNearbyWallets:`, error);
