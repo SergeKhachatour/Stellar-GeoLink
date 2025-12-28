@@ -19,11 +19,43 @@ import PasskeyManager from './PasskeyManager';
 const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
   const { isConnected, publicKey, loading } = useWallet();
   const [showConnectionDialog, setShowConnectionDialog] = React.useState(false);
+  const [isRestoring, setIsRestoring] = React.useState(true);
+
+  // Wait for initial wallet restoration to complete
+  React.useEffect(() => {
+    // Check if wallet restoration is in progress
+    const checkRestoration = () => {
+      const savedPublicKey = localStorage.getItem('stellar_public_key');
+      // If we have a saved wallet but it's not connected yet, we're still restoring
+      if (savedPublicKey && !isConnected && !loading) {
+        // Give it a bit more time (wallet restoration happens in WalletContext useEffect)
+        return true;
+      }
+      return false;
+    };
+
+    // Initial check
+    if (checkRestoration()) {
+      setIsRestoring(true);
+      // Wait a bit for restoration to complete
+      const timer = setTimeout(() => {
+        setIsRestoring(false);
+      }, 1500); // Give wallet restoration time to complete
+      return () => clearTimeout(timer);
+    } else {
+      setIsRestoring(false);
+    }
+  }, [isConnected, loading]);
 
   // Debug logging
   React.useEffect(() => {
-    console.log('WalletConnectionGuard: State update', { isConnected, publicKey: publicKey ? `${publicKey.substring(0, 8)}...` : null, loading });
-  }, [isConnected, publicKey, loading]);
+    console.log('WalletConnectionGuard: State update', { 
+      isConnected, 
+      publicKey: publicKey ? `${publicKey.substring(0, 8)}...` : null, 
+      loading,
+      isRestoring 
+    });
+  }, [isConnected, publicKey, loading, isRestoring]);
 
   // Close dialog when wallet successfully connects
   React.useEffect(() => {
@@ -36,6 +68,17 @@ const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
       return () => clearTimeout(timer);
     }
   }, [isConnected, publicKey, showConnectionDialog]);
+
+  // Show loading state while restoring wallet
+  if (isRestoring || loading) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 8, mb: 8, textAlign: 'center' }}>
+        <Typography variant="h6" color="text.secondary">
+          Restoring wallet connection...
+        </Typography>
+      </Container>
+    );
+  }
 
   // If wallet is connected, render children
   if (isConnected && publicKey) {

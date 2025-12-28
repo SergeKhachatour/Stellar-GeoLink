@@ -35,7 +35,7 @@ const Login = () => {
     const [availableRoles, setAvailableRoles] = useState([]);
     const [walletPublicKeyForRoles, setWalletPublicKeyForRoles] = useState(null);
     const { login, selectRole, error, setUserFromToken } = useAuth();
-    const { publicKey: walletPublicKey, isConnected, connectWalletViewOnly } = useWallet();
+    const { publicKey: walletPublicKey, isConnected, connectWalletViewOnly, connectWallet } = useWallet();
     const navigate = useNavigate();
 
     // Handle redirect to registration when new wallet is created during login
@@ -203,6 +203,42 @@ const Login = () => {
                 if (rememberMe) {
                     localStorage.setItem('rememberMe', 'true');
                 }
+                
+                // Auto-restore wallet if user has a public_key and we have saved wallet data
+                if (user.public_key) {
+                    const savedPublicKey = localStorage.getItem('stellar_public_key');
+                    const savedSecretKey = localStorage.getItem('stellar_secret_key');
+                    
+                    // If saved wallet matches user's public key, restore it immediately
+                    if (savedPublicKey === user.public_key) {
+                        console.log('Login: Restoring wallet from localStorage for user');
+                        try {
+                            // Restore wallet with secret key if available
+                            if (savedSecretKey) {
+                                // Use connectWallet to restore with secret key
+                                await connectWallet(savedSecretKey);
+                                console.log('Login: Wallet restored with secret key');
+                            } else {
+                                // Connect view-only
+                                await connectWalletViewOnly(user.public_key);
+                                console.log('Login: Wallet connected view-only');
+                            }
+                        } catch (error) {
+                            console.warn('Login: Failed to restore wallet, will restore on dashboard:', error);
+                            // Continue anyway - wallet will be restored by WalletContext
+                        }
+                    } else if (!savedPublicKey) {
+                        // No saved wallet, try to connect view-only
+                        try {
+                            await connectWalletViewOnly(user.public_key);
+                            console.log('Login: Wallet connected view-only (no saved wallet)');
+                        } catch (error) {
+                            console.warn('Login: Failed to connect wallet view-only:', error);
+                            // Continue anyway
+                        }
+                    }
+                }
+                
                 navigate(user.role === 'admin' ? '/admin' : '/dashboard');
             }
         } catch (err) {
