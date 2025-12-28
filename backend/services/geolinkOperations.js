@@ -6,9 +6,22 @@ const axios = require('axios');
 // Mapbox Geocoding API
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || process.env.REACT_APP_MAPBOX_TOKEN;
 
-// Base API URL - will be set from environment or use localhost
+// Base API URL - will be set from environment or detect from context
 const getApiBaseUrl = () => {
-  return process.env.API_BASE_URL || 'http://localhost:4000/api';
+  // If API_BASE_URL is explicitly set, use it
+  if (process.env.API_BASE_URL) {
+    return process.env.API_BASE_URL;
+  }
+  
+  // If running on Azure, use Azure URL
+  const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+  if (isAzure) {
+    const siteName = process.env.WEBSITE_SITE_NAME || 'geolink-buavavc6gse5c9fw.westus-01.azurewebsites.net';
+    return `https://${siteName}/api`;
+  }
+  
+  // Default to localhost for local development
+  return 'http://localhost:4000/api';
 };
 
 /**
@@ -21,28 +34,41 @@ const getApiBaseUrl = () => {
  */
 async function findNearbyWallets(latitude, longitude, radius = 1000, token = null) {
   try {
+    const apiUrl = `${getApiBaseUrl()}/geospatial/nearby`;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    const response = await axios.get(`${getApiBaseUrl()}/geospatial/nearby`, {
+    
+    console.log(`[findNearbyWallets] Calling API: ${apiUrl}`);
+    console.log(`[findNearbyWallets] Params: lat=${latitude}, lon=${longitude}, radius=${radius}`);
+    
+    const response = await axios.get(apiUrl, {
       params: { latitude, longitude, radius },
       headers
     });
-    console.log(`[findNearbyWallets] Called with lat: ${latitude}, lon: ${longitude}, radius: ${radius}`);
-    console.log(`[findNearbyWallets] Response:`, response.data);
+    
+    console.log(`[findNearbyWallets] Response status: ${response.status}`);
+    console.log(`[findNearbyWallets] Response data:`, JSON.stringify(response.data, null, 2));
+    console.log(`[findNearbyWallets] Response has locations: ${!!response.data?.locations}`);
+    console.log(`[findNearbyWallets] Locations count: ${response.data?.locations?.length || 0}`);
     
     // Ensure we return the data in the expected format
     if (response.data && response.data.locations) {
+      console.log(`[findNearbyWallets] Returning ${response.data.locations.length} locations`);
       return response.data;
     } else if (Array.isArray(response.data)) {
       // If response is directly an array, wrap it
+      console.log(`[findNearbyWallets] Response is array, wrapping with ${response.data.length} items`);
       return {
         locations: response.data,
         count: response.data.length
       };
     }
     
+    console.log(`[findNearbyWallets] Returning raw response data`);
     return response.data;
   } catch (error) {
     console.error(`[findNearbyWallets] Error:`, error.response?.data || error.message);
+    console.error(`[findNearbyWallets] Error status:`, error.response?.status);
+    console.error(`[findNearbyWallets] Error URL:`, error.config?.url);
     throw new Error(`Failed to find nearby wallets: ${error.response?.data?.error || error.message}`);
   }
 }

@@ -726,6 +726,11 @@ async function executeToolCall(toolCall, userContext = {}) {
           };
           console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
           console.log(`[AI Tool] geolink_findNearbyWallets - Wallet radius: ${walletRadius}m, NFT radius: ${nftRadius}m (${(nftRadius / 1000).toFixed(0)}km)`);
+        } else {
+          console.warn(`[AI Tool] geolink_findNearbyWallets - No map data items found!`);
+          console.warn(`[AI Tool] geolink_findNearbyWallets - walletResult:`, JSON.stringify(walletResult, null, 2));
+          console.warn(`[AI Tool] geolink_findNearbyWallets - walletResult.locations:`, walletResult?.locations);
+          console.warn(`[AI Tool] geolink_findNearbyWallets - nftResult:`, nftResult);
         }
         
         // Include NFTs in the result

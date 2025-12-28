@@ -17,7 +17,8 @@
     "diagnose": "node scripts/diagnose-wallets-nfts.js",
     "fix-data": "node scripts/fix-data-issues.js",
     "cleanup-testnet": "node scripts/cleanup-testnet-data.js",
-    "migrate-privacy-visibility": "node scripts/migrate-privacy-visibility-tables.js"
+    "migrate-privacy-visibility": "node scripts/migrate-privacy-visibility-tables.js",
+    "migrate-azure-privacy-visibility": "node scripts/migrate-azure-privacy-visibility.js"
   },
   "keywords": [],
   "author": "",
