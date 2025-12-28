@@ -601,7 +601,7 @@ export const WalletProvider = ({ children }) => {
   // Send XLM transaction
   const sendTransaction = async (destination, amount, memo = null) => {
     try {
-      if (!isConnected || !secretKey) {
+      if (!isConnected) {
         throw new Error('Wallet not connected');
       }
 
@@ -613,11 +613,9 @@ export const WalletProvider = ({ children }) => {
       setError(null);
 
       const StellarSdk = await import('@stellar/stellar-sdk');
-      const Keypair = StellarSdk.Keypair;
       const TransactionBuilder = StellarSdk.TransactionBuilder;
       const Operation = StellarSdk.Operation;
       
-      const keypair = Keypair.fromSecret(secretKey);
       const sourceAccount = await serverRef.current.loadAccount(publicKey);
 
       const transaction = new TransactionBuilder(sourceAccount, {
@@ -636,14 +634,26 @@ export const WalletProvider = ({ children }) => {
         transaction.addMemo(memo);
       }
 
-      transaction.sign(keypair);
-
-      const result = await serverRef.current.submitTransaction(transaction);
-      
-      // Reload account info
-      await loadAccountInfo(publicKey);
-      
-      return result;
+      // Check if wallet is connected via WalletConnect
+      const walletConnectId = localStorage.getItem('stellar_wallet_connect_id');
+      if (walletConnectId && !secretKey) {
+        // Use WalletConnect to sign the transaction
+        const walletConnectService = await import('../services/walletConnectService');
+        const signedTransaction = await walletConnectService.signTransaction(transaction, walletConnectId);
+        const result = await serverRef.current.submitTransaction(signedTransaction);
+        await loadAccountInfo(publicKey);
+        return result;
+      } else if (secretKey) {
+        // Use secret key to sign (traditional method)
+        const Keypair = StellarSdk.Keypair;
+        const keypair = Keypair.fromSecret(secretKey);
+        transaction.sign(keypair);
+        const result = await serverRef.current.submitTransaction(transaction);
+        await loadAccountInfo(publicKey);
+        return result;
+      } else {
+        throw new Error('No signing method available. Please connect a wallet with signing capability.');
+      }
     } catch (err) {
       console.error('Error sending transaction:', err);
       setError(err.message || 'Failed to send transaction');
@@ -656,7 +666,7 @@ export const WalletProvider = ({ children }) => {
   // Sign transaction
   const signTransaction = async (transactionXDR) => {
     try {
-      if (!isConnected || !secretKey) {
+      if (!isConnected) {
         throw new Error('Wallet not connected');
       }
 
@@ -665,14 +675,26 @@ export const WalletProvider = ({ children }) => {
       }
 
       const StellarSdk = await import('@stellar/stellar-sdk');
-      const Keypair = StellarSdk.Keypair;
       const TransactionBuilder = StellarSdk.TransactionBuilder;
       
-      const keypair = Keypair.fromSecret(secretKey);
       const transaction = TransactionBuilder.fromXDR(transactionXDR, networkPassphraseRef.current);
-      transaction.sign(keypair);
       
-      return transaction.toXDR();
+      // Check if wallet is connected via WalletConnect
+      const walletConnectId = localStorage.getItem('stellar_wallet_connect_id');
+      if (walletConnectId && !secretKey) {
+        // Use WalletConnect to sign the transaction
+        const walletConnectService = await import('../services/walletConnectService');
+        const signedTransaction = await walletConnectService.signTransaction(transaction, walletConnectId);
+        return signedTransaction.toXDR();
+      } else if (secretKey) {
+        // Use secret key to sign (traditional method)
+        const Keypair = StellarSdk.Keypair;
+        const keypair = Keypair.fromSecret(secretKey);
+        transaction.sign(keypair);
+        return transaction.toXDR();
+      } else {
+        throw new Error('No signing method available. Please connect a wallet with signing capability.');
+      }
     } catch (err) {
       console.error('Error signing transaction:', err);
       setError(err.message || 'Failed to sign transaction');
@@ -857,6 +879,11 @@ export const WalletProvider = ({ children }) => {
     loading,
     error,
     wallet: { publicKey, secretKey, isConnected },
+    
+    // Setters (for external wallet connections like WalletConnect)
+    setPublicKey,
+    setSecretKey,
+    setIsConnected,
     
     // Basic Actions
     connectWallet,

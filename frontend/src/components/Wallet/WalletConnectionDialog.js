@@ -56,13 +56,15 @@ function a11yProps(index) {
 }
 
 const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
-  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error } = useWallet();
+  const { connectWallet, connectWalletViewOnly, generateWallet, loading, error, setPublicKey: setWalletPublicKey, setSecretKey: setWalletSecretKey, setIsConnected } = useWallet();
   const [tabValue, setTabValue] = useState(0);
   const [secretKey, setSecretKey] = useState('');
   const [publicKey, setPublicKey] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [generatedWallet, setGeneratedWallet] = useState(null);
   const [localError, setLocalError] = useState('');
+  const [availableWallets, setAvailableWallets] = useState([]);
+  const [connectingWallet, setConnectingWallet] = useState(null);
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
@@ -167,6 +169,36 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
     navigator.clipboard.writeText(text);
   };
 
+  const handleWalletConnect = async (walletId) => {
+    try {
+      setConnectingWallet(walletId);
+      setLocalError('');
+      
+      const result = await walletConnectService.connectWallet(walletId);
+      
+      // Update wallet context with connected wallet
+      setWalletPublicKey(result.address);
+      // Note: External wallets don't provide secret keys, so we set it to null
+      // The wallet will be used for signing transactions through the wallet connect service
+      setWalletSecretKey(null);
+      setIsConnected(true);
+      
+      // Store wallet connection info in localStorage
+      localStorage.setItem('stellar_public_key', result.address);
+      localStorage.setItem('stellar_wallet_connect_id', walletId);
+      
+      // Close dialog after a brief delay
+      setTimeout(() => {
+        onClose();
+      }, 300);
+    } catch (err) {
+      console.error('Error connecting wallet:', err);
+      setLocalError(err.message || 'Failed to connect wallet');
+    } finally {
+      setConnectingWallet(null);
+    }
+  };
+
   const handleClose = () => {
     setSecretKey('');
     setPublicKey('');
@@ -192,14 +224,70 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
       <DialogContent>
         <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="wallet connection tabs">
-            <Tab label="Import Wallet" {...a11yProps(0)} />
-            <Tab label="View Only" {...a11yProps(1)} />
-            <Tab label="Create New" {...a11yProps(2)} />
+            <Tab label="Wallet Connect" {...a11yProps(0)} />
+            <Tab label="Import Wallet" {...a11yProps(1)} />
+            <Tab label="View Only" {...a11yProps(2)} />
+            <Tab label="Create New" {...a11yProps(3)} />
           </Tabs>
         </Box>
 
-        {/* Import Wallet Tab */}
+        {/* Wallet Connect Tab */}
         <TabPanel value={tabValue} index={0}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Connect using a Stellar wallet extension or mobile wallet. Supported wallets include Freighter, Albedo, WalletConnect, Hana, Rabet, Lobstr, and xBull.
+          </Typography>
+          
+          {availableWallets.length === 0 ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Loading available wallets...
+            </Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {availableWallets.map((wallet) => (
+                <Card key={wallet.id} sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}>
+                  <CardContent>
+                    <Box display="flex" alignItems="center" justifyContent="space-between">
+                      <Box display="flex" alignItems="center" gap={2}>
+                        {wallet.icon && (
+                          <Box
+                            component="img"
+                            src={wallet.icon}
+                            alt={wallet.name}
+                            sx={{ width: 40, height: 40, borderRadius: 1 }}
+                          />
+                        )}
+                        <Box>
+                          <Typography variant="h6">{wallet.name}</Typography>
+                          {wallet.installUrl && (
+                            <Typography variant="caption" color="text.secondary">
+                              {wallet.installed ? 'Installed' : 'Not installed'}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                      <Button
+                        variant="contained"
+                        onClick={() => handleWalletConnect(wallet.id)}
+                        disabled={connectingWallet === wallet.id || loading}
+                        startIcon={connectingWallet === wallet.id ? <CircularProgress size={20} /> : <WalletIcon />}
+                      >
+                        {connectingWallet === wallet.id ? 'Connecting...' : 'Connect'}
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          )}
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <strong>About Wallet Connect:</strong> When using external wallets, your secret key never leaves your wallet. 
+            Transactions are signed securely through your wallet extension or mobile app.
+          </Alert>
+        </TabPanel>
+
+        {/* Import Wallet Tab */}
+        <TabPanel value={tabValue} index={1}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Enter your existing Stellar secret key to import your wallet.
           </Typography>
@@ -244,7 +332,7 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
         </TabPanel>
 
         {/* View Only Tab */}
-        <TabPanel value={tabValue} index={1}>
+        <TabPanel value={tabValue} index={2}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Enter a public key to view wallet information without the ability to send transactions.
           </Typography>
@@ -276,7 +364,7 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
         </TabPanel>
 
         {/* Create New Tab */}
-        <TabPanel value={tabValue} index={2}>
+        <TabPanel value={tabValue} index={3}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Generate a new Stellar wallet. Make sure to save your secret key securely.
           </Typography>
