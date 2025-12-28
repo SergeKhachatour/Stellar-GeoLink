@@ -1080,7 +1080,8 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     systemMessage += `\n\n**CURRENT USER CONTEXT:**
 - User Location: Latitude ${userContext.location.latitude}, Longitude ${userContext.location.longitude}
 - You have automatic access to this location. Use it immediately when users ask for nearby items without asking for permission.
-- IMPORTANT: When users ask to "show my location" or "show me on the map", respond naturally and the system will automatically display their location on an interactive map. Just acknowledge their request and the map will appear!`;
+- IMPORTANT: When users ask to "show my location" or "show me on the map", respond naturally and the system will automatically display their location on an interactive map. Just acknowledge their request and the map will appear!
+- **CRITICAL**: When users ask about "nearby wallets", "show me nearby wallets", "find wallets near me", or similar requests, you MUST call geolink_findNearbyWallets() function immediately. Do not skip this step!`;
   }
 
   if (userContext.userId) {
