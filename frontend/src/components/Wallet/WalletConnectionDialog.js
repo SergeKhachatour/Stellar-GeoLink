@@ -27,6 +27,7 @@ import {
   Add as AddIcon
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
+import { getAvailableWallets, connectWallet as connectExternalWallet } from '../../services/walletConnectService';
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -174,7 +175,7 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
       setConnectingWallet(walletId);
       setLocalError('');
       
-      const result = await walletConnectService.connectWallet(walletId);
+      const result = await connectExternalWallet(walletId);
       
       // Update wallet context with connected wallet
       setWalletPublicKey(result.address);

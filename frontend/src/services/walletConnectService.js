@@ -22,7 +22,6 @@ const checkKitAvailability = async () => {
     const kitModule = await import('@creit.tech/stellar-wallets-kit');
     StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
     WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
-    ISupportedWallet = kitModule.ISupportedWallet || kitModule.default?.ISupportedWallet;
     if (StellarWalletsKit && WalletNetwork) {
       kitAvailable = true;
     }
@@ -39,6 +38,42 @@ const checkKitAvailability = async () => {
 // Import wallet modules dynamically to handle module resolution
 // The package structure may vary, so we'll try multiple import methods
 let FreighterModule, AlbedoModule, WalletConnectModule, HanaModule, RabetModule, LobstrModule, xBullModule;
+
+// Try to import modules - handle cases where they might not be available
+const initializeModules = async () => {
+  const isAvailable = await checkKitAvailability();
+  if (!isAvailable) {
+    return; // Skip if kit is not available
+  }
+  
+  try {
+    // Try ES6 import first
+    const kitPackage = await import('@creit.tech/stellar-wallets-kit');
+    
+    // Check if modules are exported directly
+    if (kitPackage.FreighterModule) FreighterModule = kitPackage.FreighterModule;
+    if (kitPackage.AlbedoModule) AlbedoModule = kitPackage.AlbedoModule;
+    if (kitPackage.WalletConnectModule) WalletConnectModule = kitPackage.WalletConnectModule;
+    if (kitPackage.HanaModule) HanaModule = kitPackage.HanaModule;
+    if (kitPackage.RabetModule) RabetModule = kitPackage.RabetModule;
+    if (kitPackage.LobstrModule) LobstrModule = kitPackage.LobstrModule;
+    if (kitPackage.xBullModule) xBullModule = kitPackage.xBullModule;
+    
+    // If not found, try importing from subpaths (may fail if package structure is different)
+    // We'll handle errors gracefully
+  } catch (error) {
+    console.warn('Could not import wallet modules, WalletConnect features may be limited:', error);
+  }
+};
+
+// Initialize modules on first use
+let modulesInitialized = false;
+const ensureModulesInitialized = async () => {
+  if (!modulesInitialized) {
+    await initializeModules();
+    modulesInitialized = true;
+  }
+};
 
 // Determine network from environment
 const getNetwork = () => {
@@ -255,7 +290,7 @@ export const getWalletAddress = async (walletId) => {
   }
 };
 
-export default {
+const walletConnectService = {
   getAvailableWallets,
   connectWallet,
   signTransaction,
@@ -265,4 +300,6 @@ export default {
   getNetwork,
   getNetworkPassphrase,
 };
+
+export default walletConnectService;
 
