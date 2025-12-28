@@ -40,9 +40,11 @@ const getApiBaseUrl = () => {
  */
 async function findNearbyWallets(latitude, longitude, radius = 1000, token = null) {
   try {
-    const apiUrl = `${getApiBaseUrl()}/geospatial/nearby`;
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/geospatial/nearby`;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     
+    console.log(`[findNearbyWallets] Base URL: ${baseUrl}`);
     console.log(`[findNearbyWallets] Calling API: ${apiUrl}`);
     console.log(`[findNearbyWallets] Params: lat=${latitude}, lon=${longitude}, radius=${radius}`);
     
@@ -52,7 +54,17 @@ async function findNearbyWallets(latitude, longitude, radius = 1000, token = nul
     });
     
     console.log(`[findNearbyWallets] Response status: ${response.status}`);
-    console.log(`[findNearbyWallets] Response data:`, JSON.stringify(response.data, null, 2));
+    console.log(`[findNearbyWallets] Response content-type: ${response.headers['content-type']}`);
+    
+    // Check if response is HTML (wrong endpoint)
+    if (typeof response.data === 'string' && response.data.includes('<!doctype html>')) {
+      console.error(`[findNearbyWallets] ERROR: Received HTML instead of JSON!`);
+      console.error(`[findNearbyWallets] This means the API URL is wrong. Base URL: ${baseUrl}, Full URL: ${apiUrl}`);
+      throw new Error(`API endpoint returned HTML instead of JSON. Check API base URL configuration. Expected JSON but got HTML.`);
+    }
+    
+    console.log(`[findNearbyWallets] Response data type: ${typeof response.data}`);
+    console.log(`[findNearbyWallets] Response data:`, typeof response.data === 'string' ? response.data.substring(0, 200) : JSON.stringify(response.data, null, 2));
     console.log(`[findNearbyWallets] Response has locations: ${!!response.data?.locations}`);
     console.log(`[findNearbyWallets] Locations count: ${response.data?.locations?.length || 0}`);
     
