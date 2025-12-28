@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -199,6 +199,22 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
       setConnectingWallet(null);
     }
   };
+
+  // Fetch available wallets when dialog opens
+  useEffect(() => {
+    const fetchWallets = async () => {
+      try {
+        const wallets = await getAvailableWallets();
+        setAvailableWallets(wallets);
+      } catch (err) {
+        console.error('Error fetching available wallets:', err);
+        setLocalError('Failed to load external wallets.');
+      }
+    };
+    if (open) {
+      fetchWallets();
+    }
+  }, [open]);
 
   const handleClose = () => {
     setSecretKey('');
