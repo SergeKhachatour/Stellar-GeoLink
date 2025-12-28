@@ -1056,6 +1056,7 @@ Always stay focused on GeoLink and Stellar-related topics. When users ask about 
 - DO NOT ask the user for their location - you already have it!
 - DO NOT ask for permission - the location is already available!
 - Simply call the function (e.g., geolink_getNearbyNFTs, geolink_findNearbyWallets, or geolink_createGeofence) without latitude/longitude, and the system will use their location automatically.
+- **IMPORTANT**: When a user asks "show me nearby wallets", "find nearby wallets", "nearby wallets", or similar, you MUST call geolink_findNearbyWallets() immediately. Do not just respond with text - call the function!
 
 **CRITICAL - Wallet/Public Key Usage**:
 - You have DIRECT ACCESS to the user's Stellar public key in the userContext (if they have a connected wallet).
@@ -1146,10 +1147,23 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     // Handle tool calls
     if (response.choices[0].message.tool_calls) {
       const toolCalls = response.choices[0].message.tool_calls;
+      console.log(`[AI Response] AI made ${toolCalls.length} tool call(s):`, toolCalls.map(tc => ({
+        id: tc.id,
+        function: tc.function.name,
+        arguments: tc.function.arguments ? JSON.parse(tc.function.arguments) : null
+      })));
+      
       const toolResults = [];
 
       for (const toolCall of toolCalls) {
+        console.log(`[AI Tool] Executing tool call: ${toolCall.function.name}`);
         const result = await executeToolCall(toolCall, userContext);
+        console.log(`[AI Tool] Tool call ${toolCall.function.name} completed, result keys:`, result ? Object.keys(result) : 'null');
+        console.log(`[AI Tool] Tool call ${toolCall.function.name} has _mapData:`, !!(result?._mapData));
+        console.log(`[AI Tool] Tool call ${toolCall.function.name} has locations:`, !!(result?.locations));
+        if (result?.locations) {
+          console.log(`[AI Tool] Tool call ${toolCall.function.name} locations count:`, result.locations.length);
+        }
         toolResults.push({
           tool_call_id: toolCall.id,
           role: 'tool',
@@ -1394,11 +1408,50 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
 
       const responseMessage = followUpResponse.choices[0].message;
       
+      // Log all tool calls to see what functions were called
+      if (followUpResponse.choices[0].message.tool_calls) {
+        console.log(`[AI Response] Follow-up response has tool calls:`, followUpResponse.choices[0].message.tool_calls.map(tc => ({
+          id: tc.id,
+          function: tc.function.name,
+          arguments: tc.function.arguments
+        })));
+      } else {
+        console.log(`[AI Response] Follow-up response has no tool calls`);
+      }
+      
+      // Log map data extraction summary
+      console.log(`[Map Data] Extraction summary:`, {
+        mapDataFound: !!mapData,
+        mapDataType: mapData?.type,
+        mapDataCount: mapData?.data?.length || 0,
+        toolResultsCount: toolResults.length,
+        toolResultNames: toolResults.map(tr => tr.name)
+      });
+      
       // Add map data hint to response if available
       if (mapData && responseMessage.content) {
         // Append map data as a hidden JSON comment that frontend can parse
         responseMessage.content += `\n\n<!-- MAP_DATA:${JSON.stringify(mapData)} -->`;
         console.log(`[Map Data] Added map data to response message`);
+      } else {
+        console.warn(`[Map Data] No map data to add to response!`);
+        console.warn(`[Map Data] mapData value:`, mapData);
+        console.warn(`[Map Data] Tool results processed:`, toolResults.length);
+        if (toolResults.length > 0) {
+          toolResults.forEach((tr, idx) => {
+            try {
+              const parsed = JSON.parse(tr.content);
+              console.warn(`[Map Data] Tool result ${idx} (${tr.name}):`, {
+                hasMapData: !!parsed._mapData,
+                hasLocations: !!parsed.locations,
+                locationsCount: parsed.locations?.length || 0,
+                keys: Object.keys(parsed)
+              });
+            } catch (e) {
+              console.warn(`[Map Data] Tool result ${idx} (${tr.name}): Could not parse content`);
+            }
+          });
+        }
       }
 
       const finalResponse = {
