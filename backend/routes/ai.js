@@ -126,11 +126,15 @@ router.post('/chat', authenticateUser, async (req, res) => {
  */
 router.post('/chat/public', async (req, res) => {
   try {
+    console.log('[AI Chat Public] Request received');
     const { messages, userContext } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Messages array is required' });
     }
+
+    console.log('[AI Chat Public] Messages count:', messages.length);
+    console.log('[AI Chat Public] Last user message:', messages[messages.length - 1]?.content?.substring(0, 100));
 
     // Public chat has limited context (no authentication)
     const context = {
@@ -146,7 +150,13 @@ router.post('/chat/public', async (req, res) => {
       console.log('[AI Chat Public] No user location in context');
     }
 
+    console.log('[AI Chat Public] Calling processChatCompletion...');
     const response = await processChatCompletion(messages, null, context);
+    console.log('[AI Chat Public] Response received, mapData:', response.mapData ? 'present' : 'null');
+    if (response.mapData) {
+      console.log('[AI Chat Public] Map data type:', response.mapData.type);
+      console.log('[AI Chat Public] Map data count:', response.mapData.data?.length || 0);
+    }
 
     res.json({
       id: response.id,
@@ -157,7 +167,8 @@ router.post('/chat/public', async (req, res) => {
       mapData: response.mapData || null
     });
   } catch (error) {
-    console.error('AI chat error:', error);
+    console.error('[AI Chat Public] Error:', error);
+    console.error('[AI Chat Public] Error stack:', error.stack);
     res.status(500).json({ 
       error: 'Failed to process chat request',
       message: error.message 
