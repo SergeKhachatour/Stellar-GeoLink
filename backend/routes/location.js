@@ -125,6 +125,44 @@ router.get('/nearby', authenticateApiKey, async (req, res) => {
     }
 
     try {
+        // Check if privacy and visibility settings tables exist
+        const privacyTableCheck = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'user_privacy_settings'
+        `);
+        const hasPrivacySettings = privacyTableCheck.rows.length > 0;
+        
+        const visibilityTableCheck = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'user_visibility_settings'
+        `);
+        const hasVisibilitySettings = visibilityTableCheck.rows.length > 0;
+        
+        // Build privacy and visibility filters
+        let privacyFilter = '';
+        let visibilityFilter = '';
+        let joinClause = '';
+        
+        if (hasPrivacySettings && hasVisibilitySettings) {
+            joinClause = `
+                LEFT JOIN user_privacy_settings ups ON w.public_key = ups.public_key AND wp.user_id = ups.user_id
+                LEFT JOIN user_visibility_settings uvs ON w.public_key = uvs.public_key AND wp.user_id = uvs.user_id
+            `;
+            // If settings don't exist (NULL), allow visibility (backward compatibility)
+            // If settings exist, require: location_sharing = true AND privacy_level = 'public'
+            // AND show_location = true AND visibility_level = 'public'
+            privacyFilter = `AND (ups.public_key IS NULL OR (ups.location_sharing = true AND ups.privacy_level = 'public'))`;
+            visibilityFilter = `AND (uvs.public_key IS NULL OR (uvs.show_location = true AND uvs.visibility_level = 'public'))`;
+        } else if (hasPrivacySettings) {
+            joinClause = `LEFT JOIN user_privacy_settings ups ON w.public_key = ups.public_key AND wp.user_id = ups.user_id`;
+            privacyFilter = `AND (ups.public_key IS NULL OR (ups.location_sharing = true AND ups.privacy_level = 'public'))`;
+        } else if (hasVisibilitySettings) {
+            joinClause = `LEFT JOIN user_visibility_settings uvs ON w.public_key = uvs.public_key AND wp.user_id = uvs.user_id`;
+            visibilityFilter = `AND (uvs.public_key IS NULL OR (uvs.show_location = true AND uvs.visibility_level = 'public'))`;
+        }
+        
         const result = await pool.query(
             `SELECT 
                 w.public_key,
@@ -135,11 +173,15 @@ router.get('/nearby', authenticateApiKey, async (req, res) => {
                 wp.name as provider_name
             FROM wallet_locations w
             JOIN wallet_providers wp ON w.wallet_provider_id = wp.id
-            WHERE ST_DWithin(
+            ${joinClause}
+            WHERE w.location_enabled = true
+            AND ST_DWithin(
                 ST_MakePoint(w.longitude, w.latitude)::geography,
                 ST_MakePoint($1, $2)::geography,
                 $3
-            )`,
+            )
+            ${privacyFilter}
+            ${visibilityFilter}`,
             [lon, lat, radius]
         );
 

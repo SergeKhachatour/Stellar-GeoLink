@@ -13,25 +13,106 @@ async function findNearbyLocations(latitude, longitude, radius, tableName = 'wal
         
         const hasLocationEnabled = columnCheck.rows.length > 0;
         
+        // Check if privacy and visibility settings tables exist
+        const privacyTableCheck = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'user_privacy_settings'
+        `);
+        const hasPrivacySettings = privacyTableCheck.rows.length > 0;
+        
+        const visibilityTableCheck = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'user_visibility_settings'
+        `);
+        const hasVisibilitySettings = visibilityTableCheck.rows.length > 0;
+        
         // Build query with location_enabled filter if column exists
-        const locationEnabledFilter = hasLocationEnabled ? 'AND location_enabled = true' : '';
+        const locationEnabledFilter = hasLocationEnabled ? 'AND wl.location_enabled = true' : '';
+        
+        // Build privacy and visibility filters
+        // Default behavior: if settings don't exist, allow visibility (backward compatibility)
+        // If settings exist: must have location_sharing = true AND privacy_level = 'public'
+        // AND show_location = true AND visibility_level = 'public'
+        let privacyFilter = '';
+        let visibilityFilter = '';
+        let joinClause = '';
+        
+        if (hasPrivacySettings && hasVisibilitySettings) {
+            // Join through wallet_providers to match user_id for privacy/visibility settings
+            // This ensures we match the correct user's settings for their wallet
+            joinClause = `
+                LEFT JOIN wallet_providers wp ON wl.wallet_provider_id = wp.id
+                LEFT JOIN user_privacy_settings ups ON wl.public_key = ups.public_key AND wp.user_id = ups.user_id
+                LEFT JOIN user_visibility_settings uvs ON wl.public_key = uvs.public_key AND wp.user_id = uvs.user_id
+            `;
+            // Visibility takes precedence: if visibility is public, show wallet regardless of privacy
+            // If visibility is private or not set, check privacy settings
+            // Logic: Show if (visibility is public) OR (no visibility settings AND privacy allows) OR (no settings at all)
+            // Simplified: Show if visibility is public OR no visibility settings exist (then privacy will be checked separately if needed)
+            privacyFilter = '';
+            visibilityFilter = `AND (
+                uvs.public_key IS NULL OR 
+                (uvs.show_location = true AND uvs.visibility_level = 'public')
+            )`;
+        } else if (hasPrivacySettings) {
+            joinClause = `
+                LEFT JOIN wallet_providers wp ON wl.wallet_provider_id = wp.id
+                LEFT JOIN user_privacy_settings ups ON wl.public_key = ups.public_key AND wp.user_id = ups.user_id
+            `;
+            privacyFilter = `AND (ups.public_key IS NULL OR (ups.location_sharing = true AND ups.privacy_level = 'public'))`;
+        } else if (hasVisibilitySettings) {
+            joinClause = `
+                LEFT JOIN wallet_providers wp ON wl.wallet_provider_id = wp.id
+                LEFT JOIN user_visibility_settings uvs ON wl.public_key = uvs.public_key AND wp.user_id = uvs.user_id
+            `;
+            visibilityFilter = `AND (uvs.public_key IS NULL OR (uvs.show_location = true AND uvs.visibility_level = 'public'))`;
+        }
         
         const query = `
-            SELECT *,
+            SELECT wl.*,
                    ST_Distance(
                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
-                       location
-                   ) as distance
-            FROM ${tableName}
+                       wl.location
+                   ) as distance,
+                   ups.privacy_level as privacy_level,
+                   ups.location_sharing as location_sharing,
+                   uvs.visibility_level as visibility_level,
+                   uvs.show_location as show_location
+            FROM ${tableName} wl
+            ${joinClause}
             WHERE ST_DWithin(
-                location,
+                wl.location,
                 ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                 $3
             )
             ${locationEnabledFilter}
+            ${privacyFilter}
+            ${visibilityFilter}
             ORDER BY distance
         `;
+        
+        console.log(`[findNearbyLocations] Query filters: location_enabled=${hasLocationEnabled}, privacy=${hasPrivacySettings}, visibility=${hasVisibilitySettings}`);
+        console.log(`[findNearbyLocations] Privacy filter: ${privacyFilter}`);
+        console.log(`[findNearbyLocations] Visibility filter: ${visibilityFilter}`);
+        console.log(`[findNearbyLocations] Search params: lat=${latitude}, lon=${longitude}, radius=${radius}m`);
+        
         const result = await pool.query(query, [latitude, longitude, radius]);
+        console.log(`[findNearbyLocations] Found ${result.rows.length} wallets`);
+        
+        // Log first few wallets for debugging
+        if (result.rows.length > 0) {
+            console.log(`[findNearbyLocations] Sample wallets:`, result.rows.slice(0, 3).map(w => ({
+                public_key: w.public_key?.substring(0, 10) + '...',
+                distance: w.distance,
+                visibility_level: w.visibility_level,
+                show_location: w.show_location,
+                privacy_level: w.privacy_level,
+                location_sharing: w.location_sharing
+            })));
+        }
+        
         return result.rows;
     } catch (error) {
         console.error('Error finding nearby locations:', error);
@@ -120,3 +201,4 @@ module.exports = {
     performDBSCAN,
     getGeospatialStats
 };
+

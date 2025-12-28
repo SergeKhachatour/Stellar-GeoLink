@@ -4,6 +4,85 @@ const pool = require('../config/database');
 const { authenticateUser, requireRole } = require('../middleware/authUser');
 const { findNearbyLocations, calculateDistance, getBoundingBox, performDBSCAN, getGeospatialStats } = require('../utils/postgisUtils-simple');
 
+// API key authentication middleware for wallet providers (similar to location.js)
+const authenticateApiKey = async (req, res, next) => {
+    const apiKey = req.header('X-API-Key');
+    
+    if (!apiKey) {
+        return res.status(401).json({ error: 'API key required' });
+    }
+
+    try {
+        // Check wallet_providers (using JOIN with api_keys table)
+        const providerResult = await pool.query(
+            `SELECT wp.id, wp.user_id FROM wallet_providers wp
+             JOIN api_keys ak ON ak.id = wp.api_key_id
+             WHERE ak.api_key = $1 AND wp.status = true`,
+            [apiKey]
+        );
+
+        if (providerResult.rows.length > 0) {
+            req.providerId = providerResult.rows[0].id;
+            req.userId = providerResult.rows[0].user_id;
+            req.userType = 'wallet_provider';
+            // Set req.user for compatibility with existing code
+            req.user = { id: providerResult.rows[0].user_id };
+            return next();
+        }
+
+        return res.status(401).json({ error: 'Invalid or inactive API key' });
+    } catch (error) {
+        console.error('API key authentication error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+// Combined authentication: supports both JWT and API key
+const authenticateWalletProvider = async (req, res, next) => {
+    // First try API key authentication
+    const apiKey = req.header('X-API-Key');
+    if (apiKey) {
+        try {
+            // Check wallet_providers (using JOIN with api_keys table)
+            const providerResult = await pool.query(
+                `SELECT wp.id, wp.user_id FROM wallet_providers wp
+                 JOIN api_keys ak ON ak.id = wp.api_key_id
+                 WHERE ak.api_key = $1 AND wp.status = true`,
+                [apiKey]
+            );
+
+            if (providerResult.rows.length > 0) {
+                req.providerId = providerResult.rows[0].id;
+                req.userId = providerResult.rows[0].user_id;
+                req.userType = 'wallet_provider';
+                // Set req.user for compatibility with existing code (including role)
+                req.user = { 
+                    id: providerResult.rows[0].user_id,
+                    role: 'wallet_provider'
+                };
+                return next();
+            }
+
+            return res.status(401).json({ error: 'Invalid or inactive API key' });
+        } catch (error) {
+            console.error('API key authentication error:', error);
+            return res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+    
+    // If no API key, try JWT authentication
+    return authenticateUser(req, res, (err) => {
+        if (err) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+        // Check if user has wallet_provider role
+        if (!req.user || !req.user.role || req.user.role !== 'wallet_provider') {
+            return res.status(403).json({ error: 'Wallet provider role required' });
+        }
+        return next();
+    });
+};
+
 /**
  * @swagger
  * components:
@@ -983,7 +1062,7 @@ router.get('/nearby-wallets', authenticateUser, requireRole(['wallet_provider'])
  *       500:
  *         description: Internal server error
  */
-router.post('/privacy-settings', authenticateUser, requireRole(['wallet_provider']), async (req, res) => {
+router.post('/privacy-settings', authenticateWalletProvider, async (req, res) => {
     try {
         const { public_key, privacy_level, location_sharing, data_retention_days } = req.body;
         
@@ -991,6 +1070,13 @@ router.post('/privacy-settings', authenticateUser, requireRole(['wallet_provider
             return res.status(400).json({ 
                 error: 'public_key and privacy_level are required' 
             });
+        }
+
+        // Get user_id from either JWT (req.user.id) or API key (req.userId)
+        const userId = req.user?.id || req.userId;
+        
+        if (!userId) {
+            return res.status(401).json({ error: 'Unable to determine user ID' });
         }
 
         // Verify the public_key belongs to the authenticated wallet provider
@@ -1001,7 +1087,7 @@ router.post('/privacy-settings', authenticateUser, requireRole(['wallet_provider
             WHERE wp.user_id = $1 AND wl.public_key = $2
             LIMIT 1
         `;
-        const verificationResult = await pool.query(verificationQuery, [req.user.id, public_key]);
+        const verificationResult = await pool.query(verificationQuery, [userId, public_key]);
         
         if (verificationResult.rows.length === 0) {
             return res.status(403).json({ 
@@ -1023,7 +1109,7 @@ router.post('/privacy-settings', authenticateUser, requireRole(['wallet_provider
         `;
         
         const result = await pool.query(upsertQuery, [
-            req.user.id,
+            userId,
             public_key,
             privacy_level,
             location_sharing !== undefined ? location_sharing : true,
@@ -1097,7 +1183,7 @@ router.post('/privacy-settings', authenticateUser, requireRole(['wallet_provider
  *       500:
  *         description: Internal server error
  */
-router.post('/visibility-settings', authenticateUser, requireRole(['wallet_provider']), async (req, res) => {
+router.post('/visibility-settings', authenticateWalletProvider, async (req, res) => {
     try {
         const { public_key, visibility_level, show_location, show_activity } = req.body;
         
@@ -1105,6 +1191,13 @@ router.post('/visibility-settings', authenticateUser, requireRole(['wallet_provi
             return res.status(400).json({ 
                 error: 'public_key and visibility_level are required' 
             });
+        }
+
+        // Get user_id from either JWT (req.user.id) or API key (req.userId)
+        const userId = req.user?.id || req.userId;
+        
+        if (!userId) {
+            return res.status(401).json({ error: 'Unable to determine user ID' });
         }
 
         // Verify the public_key belongs to the authenticated wallet provider
@@ -1115,7 +1208,7 @@ router.post('/visibility-settings', authenticateUser, requireRole(['wallet_provi
             WHERE wp.user_id = $1 AND wl.public_key = $2
             LIMIT 1
         `;
-        const verificationResult = await pool.query(verificationQuery, [req.user.id, public_key]);
+        const verificationResult = await pool.query(verificationQuery, [userId, public_key]);
         
         if (verificationResult.rows.length === 0) {
             return res.status(403).json({ 
@@ -1137,7 +1230,7 @@ router.post('/visibility-settings', authenticateUser, requireRole(['wallet_provi
         `;
         
         const result = await pool.query(upsertQuery, [
-            req.user.id,
+            userId,
             public_key,
             visibility_level,
             show_location !== undefined ? show_location : true,
