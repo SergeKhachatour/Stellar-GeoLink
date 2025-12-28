@@ -10,7 +10,7 @@
 import { Networks } from '@stellar/stellar-sdk';
 
 // Try to import Stellar Wallets Kit - handle gracefully if not available
-let StellarWalletsKit, WalletNetwork, ISupportedWallet;
+let StellarWalletsKit, WalletNetwork;
 let kitAvailable = false;
 let kitModuleLoaded = false;
 
@@ -168,7 +168,7 @@ export const getAvailableWallets = async () => {
 /**
  * Connect to a wallet
  * @param {string} walletId - The ID of the wallet to connect to
- * @returns {Promise<{address: string, wallet: ISupportedWallet}>}
+ * @returns {Promise<{address: string, wallet: object, walletId: string}>}
  */
 export const connectWallet = async (walletId) => {
   try {
