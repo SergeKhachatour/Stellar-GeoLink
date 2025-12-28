@@ -4,6 +4,18 @@ const pool = require('../config/database');
 // Function to find nearby locations using ST_DWithin
 async function findNearbyLocations(latitude, longitude, radius, tableName = 'wallet_locations') {
     try {
+        // Check if location_enabled column exists in the table
+        const columnCheck = await pool.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = $1 AND column_name = 'location_enabled'
+        `, [tableName]);
+        
+        const hasLocationEnabled = columnCheck.rows.length > 0;
+        
+        // Build query with location_enabled filter if column exists
+        const locationEnabledFilter = hasLocationEnabled ? 'AND location_enabled = true' : '';
+        
         const query = `
             SELECT *,
                    ST_Distance(
@@ -16,6 +28,7 @@ async function findNearbyLocations(latitude, longitude, radius, tableName = 'wal
                 ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                 $3
             )
+            ${locationEnabledFilter}
             ORDER BY distance
         `;
         const result = await pool.query(query, [latitude, longitude, radius]);

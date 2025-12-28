@@ -262,8 +262,8 @@ router.post('/update', authenticateApiKey, async (req, res) => {
 
         const result = await pool.query(
             `INSERT INTO wallet_locations 
-            (public_key, blockchain, latitude, longitude, wallet_type_id, description, wallet_provider_id, location)
-            VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6, $7, ST_SetSRID(ST_MakePoint($4::numeric, $3::numeric), 4326)::geography)
+            (public_key, blockchain, latitude, longitude, wallet_type_id, description, wallet_provider_id, location, location_enabled)
+            VALUES ($1, $2, $3::numeric, $4::numeric, $5, $6, $7, ST_SetSRID(ST_MakePoint($4::numeric, $3::numeric), 4326)::geography, true)
             ON CONFLICT (public_key, blockchain) 
             DO UPDATE SET 
                 latitude = EXCLUDED.latitude,
@@ -272,6 +272,7 @@ router.post('/update', authenticateApiKey, async (req, res) => {
                 description = EXCLUDED.description,
                 wallet_provider_id = EXCLUDED.wallet_provider_id,
                 location = ST_SetSRID(ST_MakePoint(EXCLUDED.longitude::numeric, EXCLUDED.latitude::numeric), 4326)::geography,
+                location_enabled = true,
                 last_updated = CURRENT_TIMESTAMP
             RETURNING *`,
             [public_key, blockchain, parseFloat(latitude), parseFloat(longitude), walletTypeId, description || null, req.providerId]
