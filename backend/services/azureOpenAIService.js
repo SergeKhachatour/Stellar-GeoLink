@@ -1143,13 +1143,18 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
   });
 
   try {
-    // Check if user is asking about nearby wallets BEFORE calling AI
+    // Check if user is asking about nearby wallets or location-based queries BEFORE calling AI
     const lastUserMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
-    const walletKeywords = ['nearby wallets', 'wallets near', 'find wallets', 'show wallets', 'wallet locations', 'nearby wallet'];
+    const walletKeywords = ['nearby wallets', 'wallets near', 'find wallets', 'show wallets', 'wallet locations', 'nearby wallet', 'wallets', 'wallet'];
+    const locationKeywords = ['nearby', 'near me', 'around me', 'close to me', 'in my area', 'local', 'location', 'map', 'show me'];
     const isAskingAboutWallets = walletKeywords.some(keyword => lastUserMessage.includes(keyword));
+    const isAskingAboutLocation = locationKeywords.some(keyword => lastUserMessage.includes(keyword));
+    const shouldShowMap = isAskingAboutWallets || (isAskingAboutLocation && userContext.location);
     
     console.log(`[AI Request] User message: "${lastUserMessage.substring(0, 100)}"`);
     console.log(`[AI Request] Is asking about wallets: ${isAskingAboutWallets}`);
+    console.log(`[AI Request] Is asking about location: ${isAskingAboutLocation}`);
+    console.log(`[AI Request] Should show map: ${shouldShowMap}`);
     
     const response = await client.chat.completions.create(modelArgs);
 
@@ -1492,9 +1497,10 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     let mapData = null;
     const responseMessage = response.choices[0].message;
     
-    // FALLBACK: If user asked about nearby wallets but AI didn't call the function, call it automatically
-    if (isAskingAboutWallets && userContext.location) {
-      console.log(`[AI Fallback] User asked about wallets but AI didn't call function. Automatically calling geolink_findNearbyWallets...`);
+    // FALLBACK: If user asked about nearby wallets/location but AI didn't call the function, call it automatically
+    if (shouldShowMap && userContext.location) {
+      console.log(`[AI Fallback] User asked about wallets/location but AI didn't call function. Automatically calling geolink_findNearbyWallets...`);
+      console.log(`[AI Fallback] Reason: isAskingAboutWallets=${isAskingAboutWallets}, isAskingAboutLocation=${isAskingAboutLocation}`);
       try {
         const lat = userContext.location.latitude;
         const lon = userContext.location.longitude;
