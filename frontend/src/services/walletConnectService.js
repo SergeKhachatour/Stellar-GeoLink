@@ -12,19 +12,29 @@ import { Networks } from '@stellar/stellar-sdk';
 // Try to import Stellar Wallets Kit - handle gracefully if not available
 let StellarWalletsKit, WalletNetwork, ISupportedWallet;
 let kitAvailable = false;
+let kitModuleLoaded = false;
 
-try {
-  const kitModule = require('@creit.tech/stellar-wallets-kit');
-  StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
-  WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
-  ISupportedWallet = kitModule.ISupportedWallet || kitModule.default?.ISupportedWallet;
-  if (StellarWalletsKit && WalletNetwork) {
-    kitAvailable = true;
+// Initialize kit availability check
+const checkKitAvailability = async () => {
+  if (kitModuleLoaded) return kitAvailable;
+  
+  try {
+    const kitModule = await import('@creit.tech/stellar-wallets-kit');
+    StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
+    WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
+    ISupportedWallet = kitModule.ISupportedWallet || kitModule.default?.ISupportedWallet;
+    if (StellarWalletsKit && WalletNetwork) {
+      kitAvailable = true;
+    }
+  } catch (error) {
+    console.warn('Stellar Wallets Kit not available:', error.message);
+    kitAvailable = false;
+  } finally {
+    kitModuleLoaded = true;
   }
-} catch (error) {
-  console.warn('Stellar Wallets Kit not available:', error.message);
-  kitAvailable = false;
-}
+  
+  return kitAvailable;
+};
 
 // Import wallet modules dynamically to handle module resolution
 // The package structure may vary, so we'll try multiple import methods
@@ -32,7 +42,7 @@ let FreighterModule, AlbedoModule, WalletConnectModule, HanaModule, RabetModule,
 
 // Determine network from environment
 const getNetwork = () => {
-  if (!kitAvailable || !WalletNetwork) {
+  if (!WalletNetwork) {
     return null; // Return null if kit is not available
   }
   // Check if we're on testnet or mainnet
@@ -56,7 +66,9 @@ const getNetworkPassphrase = () => {
 let kitInstance = null;
 
 const getKit = async () => {
-  if (!kitAvailable || !StellarWalletsKit) {
+  // Check kit availability first
+  const isAvailable = await checkKitAvailability();
+  if (!isAvailable || !StellarWalletsKit) {
     throw new Error('Stellar Wallets Kit is not available. Please ensure @creit.tech/stellar-wallets-kit is installed.');
   }
   
@@ -102,6 +114,12 @@ const getKit = async () => {
  * Get list of available wallets
  */
 export const getAvailableWallets = async () => {
+  const isAvailable = await checkKitAvailability();
+  if (!isAvailable) {
+    console.warn('Stellar Wallets Kit is not available');
+    return [];
+  }
+  
   try {
     const kit = await getKit();
     return kit.getSupportedWallets();
