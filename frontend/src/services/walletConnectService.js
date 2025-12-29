@@ -177,11 +177,56 @@ export const connectWallet = async (walletId) => {
     // Set the selected wallet
     kit.setWallet(walletId);
     
+    // Track if connection was successful
+    let connectionResolved = false;
+    let connectionRejected = false;
+    
     // Open the connection modal
     return new Promise((resolve, reject) => {
+      // Set a timeout to check if connection succeeded after modal closes
+      let closedTimeout = null;
+      
+      const checkConnectionAfterClose = async () => {
+        // Wait a bit for async connection to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (!connectionResolved && !connectionRejected) {
+          try {
+            // Try to get the address - if successful, connection worked
+            const address = await kit.getAddress();
+            if (address && address.address) {
+              connectionResolved = true;
+              resolve({
+                address: address.address,
+                wallet: { id: walletId },
+                walletId: walletId,
+              });
+              return;
+            }
+          } catch (error) {
+            // Address not available, connection failed
+            console.log('Connection check failed:', error);
+          }
+          
+          // If we get here, connection didn't succeed
+          if (!connectionResolved) {
+            connectionRejected = true;
+            reject(new Error('Wallet connection cancelled or failed'));
+          }
+        }
+      };
+      
       kit.openModal({
         onWalletSelected: async (wallet) => {
           try {
+            // Clear the closed timeout since we got a selection
+            if (closedTimeout) {
+              clearTimeout(closedTimeout);
+              closedTimeout = null;
+            }
+            
+            connectionResolved = true;
+            
             // Get the connected address
             const address = await kit.getAddress();
             
@@ -191,11 +236,21 @@ export const connectWallet = async (walletId) => {
               walletId: walletId,
             });
           } catch (error) {
+            connectionRejected = true;
             reject(error);
           }
         },
         onClosed: () => {
-          reject(new Error('Wallet connection cancelled'));
+          // For extension wallets like Freighter, the modal might close
+          // immediately after user approves in the extension, but before
+          // onWalletSelected is called. Give it a moment to complete.
+          if (!connectionResolved && !connectionRejected) {
+            closedTimeout = setTimeout(checkConnectionAfterClose, 100);
+          } else if (!connectionResolved) {
+            // Only reject if we haven't already resolved or rejected
+            connectionRejected = true;
+            reject(new Error('Wallet connection cancelled'));
+          }
         },
       });
     });
