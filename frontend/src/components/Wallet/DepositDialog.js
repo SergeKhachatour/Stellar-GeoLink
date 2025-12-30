@@ -25,6 +25,7 @@ import WalletConnectionDialog from './WalletConnectionDialog';
 
 const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
   const { isConnected, publicKey, secretKey, balance, account } = useWallet();
+  const walletConnectId = localStorage.getItem('stellar_wallet_connect_id');
   const { user } = useAuth();
   const [amount, setAmount] = useState('');
   const [asset, setAsset] = useState('XLM');
@@ -109,9 +110,19 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
       return;
     }
 
-    if (!secretKey) {
-      setError('Secret key is required for deposits. Please import your wallet with secret key using the "Import Wallet" option.');
+    // Check if wallet is connected via WalletConnect (external wallet)
+    // If so, we can't use WebAuthn deposits - we need to use direct wallet signing
+    // For now, WalletConnect wallets need to use regular transactions, not smart wallet deposits
+    if (!secretKey && !walletConnectId) {
+      setError('Secret key or external wallet connection is required for deposits. Please import your wallet with secret key using the "Import Wallet" option, or connect an external wallet.');
       setShowWalletDialog(true); // Open wallet connection dialog to allow importing with secret key
+      return;
+    }
+    
+    // If connected via WalletConnect, inform user that smart wallet deposits require WebAuthn
+    // They can still send regular transactions
+    if (walletConnectId && !secretKey) {
+      setError('Smart wallet deposits require WebAuthn passkeys. External wallets (like Freighter) can sign regular transactions but not smart wallet deposits. Please import your wallet with a secret key to use smart wallet deposits, or use regular transactions instead.');
       return;
     }
 

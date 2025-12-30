@@ -174,8 +174,27 @@ export const connectWallet = async (walletId) => {
   try {
     const kit = await getKit();
     
-    // Set the selected wallet
+    // Set the selected wallet BEFORE opening modal
+    // This ensures the kit knows which wallet to connect to
     kit.setWallet(walletId);
+    
+    // For extension wallets like Freighter, try to connect directly first
+    // If that fails, fall back to modal
+    try {
+      // Check if wallet is already connected or can connect directly
+      const address = await kit.getAddress();
+      if (address && address.address) {
+        console.log('Wallet already connected:', address.address);
+        return {
+          address: address.address,
+          wallet: { id: walletId },
+          walletId: walletId,
+        };
+      }
+    } catch (error) {
+      // Not connected yet, proceed with modal
+      console.log('Wallet not connected, opening modal...');
+    }
     
     // Track if connection was successful
     let connectionResolved = false;
@@ -216,6 +235,8 @@ export const connectWallet = async (walletId) => {
         }
       };
       
+      // Open modal - this will show the Stellar Wallets Kit modal
+      // For Freighter, this will trigger the extension popup
       kit.openModal({
         onWalletSelected: async (wallet) => {
           try {
@@ -246,7 +267,7 @@ export const connectWallet = async (walletId) => {
           // onWalletSelected is called. Give it a moment to complete.
           if (!connectionResolved && !connectionRejected) {
             closedTimeout = setTimeout(checkConnectionAfterClose, 100);
-          } else if (!connectionResolved) {
+          } else if (!connectionResolved && !connectionRejected) {
             // Only reject if we haven't already resolved or rejected
             connectionRejected = true;
             reject(new Error('Wallet connection cancelled'));

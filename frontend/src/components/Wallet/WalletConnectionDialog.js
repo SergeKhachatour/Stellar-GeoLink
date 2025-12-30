@@ -175,6 +175,13 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
       setConnectingWallet(walletId);
       setLocalError('');
       
+      // Close our dialog before opening the kit's modal
+      // The Stellar Wallets Kit will show its own modal
+      onClose();
+      
+      // Small delay to ensure our dialog closes before kit modal opens
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       const result = await connectExternalWallet(walletId);
       
       // Update wallet context with connected wallet
@@ -187,14 +194,11 @@ const WalletConnectionDialog = ({ open, onClose, onRegister }) => {
       // Store wallet connection info in localStorage
       localStorage.setItem('stellar_public_key', result.address);
       localStorage.setItem('stellar_wallet_connect_id', walletId);
-      
-      // Close dialog after a brief delay
-      setTimeout(() => {
-        onClose();
-      }, 300);
     } catch (err) {
       console.error('Error connecting wallet:', err);
       setLocalError(err.message || 'Failed to connect wallet');
+      // Re-open dialog on error so user can try again
+      // Note: We can't directly reopen, but the error will be shown if dialog is reopened
     } finally {
       setConnectingWallet(null);
     }

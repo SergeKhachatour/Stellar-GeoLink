@@ -318,7 +318,30 @@ const Login = () => {
                     )}
 
                     {loginMode === 1 && isConnected && walletPublicKey && (
-                        <Alert severity="success" sx={{ mb: 2 }}>
+                        <Alert 
+                            severity="success" 
+                            sx={{ mb: 2 }}
+                            action={
+                                <Button
+                                    color="inherit"
+                                    size="small"
+                                    onClick={async () => {
+                                        await disconnectWallet();
+                                        // Also clear WalletConnect connection
+                                        localStorage.removeItem('stellar_wallet_connect_id');
+                                        // Clear wallet connect service connection
+                                        try {
+                                            const walletConnectService = await import('../services/walletConnectService');
+                                            walletConnectService.disconnectWallet();
+                                        } catch (err) {
+                                            console.warn('Error disconnecting WalletConnect:', err);
+                                        }
+                                    }}
+                                >
+                                    Disconnect
+                                </Button>
+                            }
+                        >
                             Wallet connected: {walletPublicKey.substring(0, 8)}...{walletPublicKey.substring(48)}
                         </Alert>
                     )}
