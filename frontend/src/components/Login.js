@@ -35,7 +35,7 @@ const Login = () => {
     const [availableRoles, setAvailableRoles] = useState([]);
     const [walletPublicKeyForRoles, setWalletPublicKeyForRoles] = useState(null);
     const { login, selectRole, error, setUserFromToken } = useAuth();
-    const { publicKey: walletPublicKey, isConnected, connectWalletViewOnly, connectWallet } = useWallet();
+    const { publicKey: walletPublicKey, isConnected, connectWalletViewOnly, connectWallet, disconnectWallet } = useWallet();
     const navigate = useNavigate();
 
     // Handle redirect to registration when new wallet is created during login
