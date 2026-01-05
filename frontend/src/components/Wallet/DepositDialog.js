@@ -112,15 +112,6 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
 
     // Check if wallet is connected via WalletConnect (external wallet)
     // If so, we can't use WebAuthn deposits - we need to use direct wallet signing
-    // For now, WalletConnect wallets need to use regular transactions, not smart wallet deposits
-    if (!secretKey && !walletConnectId) {
-      setError('Secret key or external wallet connection is required for deposits. Please import your wallet with secret key using the "Import Wallet" option, or connect an external wallet.');
-      setShowWalletDialog(true); // Open wallet connection dialog to allow importing with secret key
-      return;
-    }
-    
-    // If connected via WalletConnect, inform user that smart wallet deposits require WebAuthn
-    // They can still send regular transactions
     if (walletConnectId && !secretKey) {
       setError('Smart wallet deposits require WebAuthn passkeys. External wallets (like Freighter) can sign regular transactions but not smart wallet deposits. Please import your wallet with a secret key to use smart wallet deposits, or use regular transactions instead.');
       return;
@@ -132,6 +123,37 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
     setLoading(true);
 
     try {
+      // Retrieve secret key from localStorage (like xyz-wallet does)
+      // This allows deposits to work even if wallet is connected in view-only mode
+      let userSecretKey = secretKey;
+      if (!userSecretKey) {
+        const storedSecretKey = localStorage.getItem('stellar_secret_key');
+        if (storedSecretKey) {
+          // Verify the stored secret key matches the current public key
+          try {
+            const StellarSdk = await import('@stellar/stellar-sdk');
+            const keypair = StellarSdk.Keypair.fromSecret(storedSecretKey);
+            if (keypair.publicKey() === publicKey) {
+              userSecretKey = storedSecretKey;
+              console.log('DepositDialog: Using secret key from localStorage');
+            } else {
+              throw new Error('Stored secret key does not match current wallet address');
+            }
+          } catch (err) {
+            console.error('DepositDialog: Invalid secret key in localStorage:', err);
+            setError('Secret key in storage is invalid. Please import your wallet with secret key using the "Import Wallet" option.');
+            setShowWalletDialog(true);
+            setLoading(false);
+            return;
+          }
+        } else {
+          setError('Secret key is required for deposits. Please import your wallet with secret key using the "Import Wallet" option.');
+          setShowWalletDialog(true);
+          setLoading(false);
+          return;
+        }
+      }
+
       // Get user's passkeys
       const passkeysResponse = await api.get('/webauthn/passkeys');
       const passkeys = passkeysResponse.data.passkeys || [];
@@ -192,7 +214,7 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
       // Call backend deposit endpoint
       const depositResponse = await api.post('/smart-wallet/deposit', {
         userPublicKey: publicKey,
-        userSecretKey: secretKey,
+        userSecretKey: userSecretKey, // Use retrieved secret key
         amount: depositData.amount, // In stroops
         assetAddress: null, // Native XLM
         signaturePayload,
