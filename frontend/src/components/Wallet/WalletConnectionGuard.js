@@ -1,7 +1,8 @@
 import React from 'react';
-import { Box, Container, Typography, Button, Card, CardContent, Alert } from '@mui/material';
+import { Box, Container, Typography, Button, Card, CardContent, Alert, CircularProgress } from '@mui/material';
 import { AccountBalanceWallet, Lock } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
+import { useAuth } from '../../contexts/AuthContext';
 import WalletConnectionDialog from './WalletConnectionDialog';
 import PasskeyManager from './PasskeyManager';
 
@@ -18,6 +19,7 @@ import PasskeyManager from './PasskeyManager';
  */
 const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
   const { isConnected, publicKey, loading } = useWallet();
+  const { user } = useAuth();
   const [showConnectionDialog, setShowConnectionDialog] = React.useState(false);
   const [isRestoring, setIsRestoring] = React.useState(true);
 
@@ -26,6 +28,13 @@ const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
     // Check if wallet restoration is in progress
     const checkRestoration = () => {
       const savedPublicKey = localStorage.getItem('stellar_public_key');
+      const userPublicKey = user?.public_key;
+      
+      // If user has a public_key, we should wait for wallet to connect
+      if (userPublicKey && !isConnected && !loading) {
+        return true;
+      }
+      
       // If we have a saved wallet but it's not connected yet, we're still restoring
       if (savedPublicKey && !isConnected && !loading) {
         // Give it a bit more time (wallet restoration happens in WalletContext useEffect)
@@ -40,12 +49,12 @@ const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
       // Wait a bit for restoration to complete
       const timer = setTimeout(() => {
         setIsRestoring(false);
-      }, 1500); // Give wallet restoration time to complete
+      }, 2000); // Give wallet restoration more time to complete (increased from 1500ms)
       return () => clearTimeout(timer);
     } else {
       setIsRestoring(false);
     }
-  }, [isConnected, loading]);
+  }, [isConnected, loading, user]);
 
   // Debug logging
   React.useEffect(() => {
@@ -73,9 +82,15 @@ const WalletConnectionGuard = ({ children, showPasskeyManager = true }) => {
   if (isRestoring || loading) {
     return (
       <Container maxWidth="md" sx={{ mt: 8, mb: 8, textAlign: 'center' }}>
+        <CircularProgress size={60} sx={{ mb: 3 }} />
         <Typography variant="h6" color="text.secondary">
           Restoring wallet connection...
         </Typography>
+        {user?.public_key && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Connecting wallet for {user.public_key.substring(0, 8)}...
+          </Typography>
+        )}
       </Container>
     );
   }

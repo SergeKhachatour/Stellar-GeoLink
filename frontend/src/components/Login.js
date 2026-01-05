@@ -503,6 +503,30 @@ const Login = () => {
                                             userId: roleOption.id
                                         });
                                         setShowRoleDialog(false);
+                                        
+                                        // Auto-connect wallet if user has a public_key (same as passkey login)
+                                        if (user.public_key) {
+                                            try {
+                                                // Check if we have a secret key in localStorage
+                                                const savedSecretKey = localStorage.getItem('stellar_secret_key');
+                                                const savedPublicKey = localStorage.getItem('stellar_public_key');
+                                                
+                                                if (savedPublicKey === user.public_key && savedSecretKey) {
+                                                    // If a secret key is saved and matches the user's public key, use it for full connection
+                                                    console.log('Role selection: Found matching secret key, restoring wallet with full access');
+                                                    await connectWallet(savedSecretKey);
+                                                } else {
+                                                    // Otherwise, connect in view-only mode
+                                                    console.log('Role selection: No matching secret key or view-only, connecting wallet view-only');
+                                                    await connectWalletViewOnly(user.public_key);
+                                                }
+                                                console.log('Wallet auto-connected after role selection');
+                                            } catch (error) {
+                                                console.warn('Failed to auto-connect wallet after role selection:', error);
+                                                // Continue anyway - wallet will be restored by WalletContext
+                                            }
+                                        }
+                                        
                                         navigate(user.role === 'admin' ? '/admin' : '/dashboard');
                                     } catch (err) {
                                         console.error('Role selection error:', err);
