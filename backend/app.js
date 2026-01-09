@@ -250,25 +250,51 @@ const ensureSorobanCLI = async () => {
                             }
                             
                             // Find the asset for x86_64-unknown-linux-gnu
+                            // Asset names may be: soroban-x86_64-unknown-linux-gnu.tar.gz OR stellar-cli-X.X.X-x86_64-unknown-linux-gnu.tar.gz
                             const asset = release.assets?.find(a => 
                                 a.name && 
-                                a.name.includes('soroban') && 
+                                (a.name.includes('soroban') || a.name.includes('stellar-cli')) && 
                                 a.name.includes('x86_64-unknown-linux-gnu') && 
+                                !a.name.includes('aarch64') && // Exclude ARM builds
                                 a.name.endsWith('.tar.gz')
                             );
                             
                             if (!asset) {
                                 console.log(`${logPrefix} ⚠️  Available assets:`, release.assets?.map(a => a.name).join(', ') || 'none');
-                                throw new Error('Could not find soroban-x86_64-unknown-linux-gnu.tar.gz in latest release');
+                                throw new Error('Could not find soroban/stellar-cli x86_64-unknown-linux-gnu.tar.gz in latest release');
                             }
                             
                             downloadUrl = asset.browser_download_url;
                             console.log(`${logPrefix} ✅ Found release: ${release.tag_name}, download URL: ${downloadUrl}`);
                         } catch (apiError) {
-                            // Fallback to a known working version URL
-                            console.log(`${logPrefix} ⚠️  Failed to fetch release info (${apiError.message}), using fallback URL...`);
-                            downloadUrl = 'https://github.com/stellar/soroban-tools/releases/download/v21.4.0/soroban-x86_64-unknown-linux-gnu.tar.gz';
-                            console.log(`${logPrefix} 📥 Using fallback URL: ${downloadUrl}`);
+                            // Fallback: Try to get a specific release that we know exists
+                            console.log(`${logPrefix} ⚠️  Failed to fetch release info (${apiError.message}), trying fallback release...`);
+                            try {
+                                // Try v23.4.1 which we saw in the logs
+                                const { stdout: fallbackRelease } = await execPromise(
+                                    `curl -s -L "https://api.github.com/repos/stellar/soroban-tools/releases/tags/v23.4.1"`,
+                                    { maxBuffer: 1024 * 1024, timeout: 10000 }
+                                );
+                                const fallback = JSON.parse(fallbackRelease);
+                                const fallbackAsset = fallback.assets?.find(a => 
+                                    a.name && 
+                                    (a.name.includes('soroban') || a.name.includes('stellar-cli')) && 
+                                    a.name.includes('x86_64-unknown-linux-gnu') && 
+                                    !a.name.includes('aarch64') &&
+                                    a.name.endsWith('.tar.gz')
+                                );
+                                if (fallbackAsset) {
+                                    downloadUrl = fallbackAsset.browser_download_url;
+                                    console.log(`${logPrefix} 📥 Using fallback release v23.4.1: ${downloadUrl}`);
+                                } else {
+                                    throw new Error('Could not find asset in fallback release');
+                                }
+                            } catch (fallbackError) {
+                                // Last resort: try a direct URL pattern (may not work)
+                                console.log(`${logPrefix} ⚠️  Fallback release also failed, trying direct URL pattern...`);
+                                downloadUrl = 'https://github.com/stellar/soroban-tools/releases/download/v23.4.1/stellar-cli-23.4.1-x86_64-unknown-linux-gnu.tar.gz';
+                                console.log(`${logPrefix} 📥 Using direct URL: ${downloadUrl}`);
+                            }
                         }
                         
                         const tarPath = '/tmp/soroban.tar.gz';
@@ -311,18 +337,23 @@ const ensureSorobanCLI = async () => {
                         if (extractedFiles.includes('soroban')) {
                             extractedPath = sorobanPath;
                         } else {
-                            // Check if there's a subdirectory (e.g., soroban-x86_64-unknown-linux-gnu)
-                            const subdir = extractedFiles.find(f => f.includes('soroban') && !f.includes('.'));
+                            // Check if there's a subdirectory (e.g., soroban-x86_64-unknown-linux-gnu or stellar-cli-23.4.1-x86_64-unknown-linux-gnu)
+                            const subdir = extractedFiles.find(f => 
+                                (f.includes('soroban') || f.includes('stellar-cli')) && 
+                                !f.includes('.') && 
+                                !f.includes('tar')
+                            );
                             if (subdir) {
                                 const subdirPath = `${SOROBAN_DIR}/${subdir}`;
                                 const subdirFiles = await fs.readdir(subdirPath);
                                 console.log(`${logPrefix} 📋 Files in ${subdir}: ${subdirFiles.join(', ')}`);
                                 
-                                if (subdirFiles.includes('soroban')) {
-                                    // Move soroban from subdirectory to SOROBAN_DIR
-                                    const sourcePath = `${subdirPath}/soroban`;
+                                // Look for soroban binary in subdirectory
+                                const sorobanInSubdir = subdirFiles.find(f => f === 'soroban' || f.includes('soroban'));
+                                if (sorobanInSubdir) {
+                                    const sourcePath = `${subdirPath}/${sorobanInSubdir}`;
                                     await fs.rename(sourcePath, sorobanPath);
-                                    console.log(`${logPrefix} 📦 Moved soroban from ${subdir} to ${sorobanPath}`);
+                                    console.log(`${logPrefix} 📦 Moved soroban from ${subdir}/${sorobanInSubdir} to ${sorobanPath}`);
                                     // Clean up subdirectory
                                     await fs.rm(subdirPath, { recursive: true, force: true });
                                     extractedPath = sorobanPath;
