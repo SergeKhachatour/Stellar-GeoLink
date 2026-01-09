@@ -354,54 +354,76 @@ const ensureSorobanCLI = async () => {
                             }
                             
                             if (subdir) {
+                                console.log(`${logPrefix} ✅ Found subdirectory: ${subdir}`);
                                 const subdirPath = `${SOROBAN_DIR}/${subdir}`;
-                                const subdirFiles = await fs.readdir(subdirPath);
-                                console.log(`${logPrefix} 📋 Files in ${subdir}: ${subdirFiles.join(', ')}`);
                                 
-                                // Look for soroban binary in subdirectory
-                                let sorobanInSubdir = null;
-                                for (const file of subdirFiles) {
-                                    try {
-                                        const filePath = `${subdirPath}/${file}`;
-                                        const stats = await fs.stat(filePath);
-                                        // Check if it's a file (not directory) and named soroban or contains soroban
-                                        if (!stats.isDirectory() && (file === 'soroban' || file.includes('soroban'))) {
-                                            sorobanInSubdir = file;
-                                            break;
-                                        }
-                                    } catch (err) {
-                                        // Continue searching
-                                    }
-                                }
-                                
-                                if (sorobanInSubdir) {
-                                    const sourcePath = `${subdirPath}/${sorobanInSubdir}`;
-                                    await fs.rename(sourcePath, sorobanPath);
-                                    console.log(`${logPrefix} 📦 Moved soroban from ${subdir}/${sorobanInSubdir} to ${sorobanPath}`);
-                                    // Clean up subdirectory
-                                    await fs.rm(subdirPath, { recursive: true, force: true });
-                                    extractedPath = sorobanPath;
-                                } else {
-                                    // Maybe the binary has a different name - check all files in the subdirectory
-                                    // The stellar-cli tar might extract with a different structure
-                                    console.log(`${logPrefix} ⚠️  No soroban binary found in ${subdir}, checking all files...`);
-                                    for (const file of subdirFiles) {
-                                        try {
-                                            const filePath = `${subdirPath}/${file}`;
-                                            const stats = await fs.stat(filePath);
-                                            if (!stats.isDirectory()) {
-                                                // This might be the binary - try renaming it to soroban
-                                                await fs.rename(filePath, sorobanPath);
-                                                console.log(`${logPrefix} 📦 Renamed ${subdir}/${file} to soroban`);
-                                                await fs.rm(subdirPath, { recursive: true, force: true });
-                                                extractedPath = sorobanPath;
-                                                break;
+                                try {
+                                    const subdirFiles = await fs.readdir(subdirPath);
+                                    console.log(`${logPrefix} 📋 Files in ${subdir} (${subdirFiles.length} items): ${subdirFiles.join(', ')}`);
+                                    
+                                    if (subdirFiles.length === 0) {
+                                        console.log(`${logPrefix} ⚠️  Subdirectory ${subdir} is empty`);
+                                    } else {
+                                        // Look for soroban binary in subdirectory
+                                        let sorobanInSubdir = null;
+                                        for (const file of subdirFiles) {
+                                            try {
+                                                const filePath = `${subdirPath}/${file}`;
+                                                const stats = await fs.stat(filePath);
+                                                console.log(`${logPrefix} 🔍 Checking ${file}: isDirectory=${stats.isDirectory()}, size=${stats.size}`);
+                                                // Check if it's a file (not directory) and named soroban or contains soroban
+                                                if (!stats.isDirectory() && (file === 'soroban' || file.includes('soroban'))) {
+                                                    sorobanInSubdir = file;
+                                                    console.log(`${logPrefix} ✅ Found soroban binary: ${file}`);
+                                                    break;
+                                                }
+                                            } catch (err) {
+                                                console.log(`${logPrefix} ⚠️  Error checking ${file}: ${err.message}`);
+                                                // Continue searching
                                             }
-                                        } catch (err) {
-                                            // Continue searching
+                                        }
+                                        
+                                        if (sorobanInSubdir) {
+                                            const sourcePath = `${subdirPath}/${sorobanInSubdir}`;
+                                            await fs.rename(sourcePath, sorobanPath);
+                                            console.log(`${logPrefix} 📦 Moved soroban from ${subdir}/${sorobanInSubdir} to ${sorobanPath}`);
+                                            // Clean up subdirectory
+                                            await fs.rm(subdirPath, { recursive: true, force: true });
+                                            extractedPath = sorobanPath;
+                                        } else {
+                                            // Maybe the binary has a different name - check all files in the subdirectory
+                                            // The stellar-cli tar might extract with a different structure
+                                            console.log(`${logPrefix} ⚠️  No soroban binary found by name in ${subdir}, checking all files...`);
+                                            let foundBinary = false;
+                                            for (const file of subdirFiles) {
+                                                try {
+                                                    const filePath = `${subdirPath}/${file}`;
+                                                    const stats = await fs.stat(filePath);
+                                                    if (!stats.isDirectory()) {
+                                                        console.log(`${logPrefix} 🔄 Trying to use ${file} as soroban binary (size: ${stats.size} bytes)`);
+                                                        // This might be the binary - try renaming it to soroban
+                                                        await fs.rename(filePath, sorobanPath);
+                                                        console.log(`${logPrefix} 📦 Renamed ${subdir}/${file} to soroban`);
+                                                        await fs.rm(subdirPath, { recursive: true, force: true });
+                                                        extractedPath = sorobanPath;
+                                                        foundBinary = true;
+                                                        break;
+                                                    }
+                                                } catch (err) {
+                                                    console.log(`${logPrefix} ⚠️  Error processing ${file}: ${err.message}`);
+                                                    // Continue searching
+                                                }
+                                            }
+                                            if (!foundBinary) {
+                                                console.log(`${logPrefix} ❌ No suitable binary file found in ${subdir}`);
+                                            }
                                         }
                                     }
+                                } catch (readErr) {
+                                    console.log(`${logPrefix} ❌ Error reading subdirectory ${subdir}: ${readErr.message}`);
                                 }
+                            } else {
+                                console.log(`${logPrefix} ⚠️  No matching subdirectory found in extracted files`);
                             }
                         }
                         
