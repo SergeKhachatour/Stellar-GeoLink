@@ -1357,8 +1357,16 @@ class ContractIntrospection {
    * Convert value to ScVal based on type
    */
   convertToScVal(value, type) {
+    // Validate value exists
+    if (value === undefined || value === null) {
+      throw new Error(`Cannot convert undefined/null value to ${type}. Please provide a valid value.`);
+    }
+    
     switch (type) {
       case 'Address':
+        if (!value || typeof value !== 'string') {
+          throw new Error(`Invalid Address value: ${value}. Expected a non-empty string.`);
+        }
         return StellarSdk.xdr.ScVal.scvAddress(
           StellarSdk.Address.fromString(value).toScAddress()
         );

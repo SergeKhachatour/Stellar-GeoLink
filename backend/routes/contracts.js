@@ -1565,6 +1565,8 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         `;
 
         const result = await pool.query(query, [actualUserId, parseInt(limit)]);
+        
+        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for user_id ${actualUserId}`);
 
         // Process results to extract skipped rules
         const pendingRules = [];
