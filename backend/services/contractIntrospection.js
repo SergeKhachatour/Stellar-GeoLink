@@ -459,9 +459,10 @@ class ContractIntrospection {
       // Determine Soroban CLI path (check custom install location first, then PATH)
       let sorobanCmd = 'soroban';
       const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+      const customPath = '/home/soroban/soroban';
+      
       if (isAzure) {
-        // On Azure, check custom installation path
-        const customPath = '/home/soroban/soroban';
+        // On Azure, check custom installation path first
         try {
           await fs.access(customPath);
           sorobanCmd = customPath;
@@ -478,7 +479,7 @@ class ContractIntrospection {
       }
       
       // Try to run: soroban contract inspect --wasm <file>
-      // Use full path if custom, otherwise rely on PATH
+      // Always use full path if we found it at custom location, otherwise rely on PATH
       const command = sorobanCmd.includes('/') ? `"${sorobanCmd}"` : `soroban`;
       
       // Ensure PATH includes /home/soroban if on Azure

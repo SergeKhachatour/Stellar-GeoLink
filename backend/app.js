@@ -298,14 +298,47 @@ const ensureSorobanCLI = async () => {
                         console.log(`${logPrefix} 📦 Extracting Soroban CLI...`);
                         await execPromise(`tar -xzf "${tarPath}" -C "${SOROBAN_DIR}"`);
                         
+                        // The tar might extract to a subdirectory or directly to soroban
+                        // Check for both possibilities
+                        let sorobanPath = `${SOROBAN_DIR}/soroban`;
+                        let extractedPath = null;
+                        
+                        // List contents to see what was extracted
+                        const extractedFiles = await fs.readdir(SOROBAN_DIR);
+                        console.log(`${logPrefix} 📋 Extracted files: ${extractedFiles.join(', ')}`);
+                        
+                        // Check if soroban is directly in SOROBAN_DIR
+                        if (extractedFiles.includes('soroban')) {
+                            extractedPath = sorobanPath;
+                        } else {
+                            // Check if there's a subdirectory (e.g., soroban-x86_64-unknown-linux-gnu)
+                            const subdir = extractedFiles.find(f => f.includes('soroban') && !f.includes('.'));
+                            if (subdir) {
+                                const subdirPath = `${SOROBAN_DIR}/${subdir}`;
+                                const subdirFiles = await fs.readdir(subdirPath);
+                                console.log(`${logPrefix} 📋 Files in ${subdir}: ${subdirFiles.join(', ')}`);
+                                
+                                if (subdirFiles.includes('soroban')) {
+                                    // Move soroban from subdirectory to SOROBAN_DIR
+                                    const sourcePath = `${subdirPath}/soroban`;
+                                    await fs.rename(sourcePath, sorobanPath);
+                                    console.log(`${logPrefix} 📦 Moved soroban from ${subdir} to ${sorobanPath}`);
+                                    // Clean up subdirectory
+                                    await fs.rm(subdirPath, { recursive: true, force: true });
+                                    extractedPath = sorobanPath;
+                                }
+                            }
+                        }
+                        
                         // Verify soroban binary exists
-                        const sorobanPath = `${SOROBAN_DIR}/soroban`;
                         try {
                             await fs.access(sorobanPath);
                             await execPromise(`chmod +x "${sorobanPath}"`);
                             
                             // Test that it works
-                            const { stdout: versionOutput } = await execPromise(`"${sorobanPath}" --version`);
+                            const { stdout: versionOutput } = await execPromise(`"${sorobanPath}" --version`, {
+                                env: { ...process.env, PATH: `${SOROBAN_DIR}:${process.env.PATH}` }
+                            });
                             console.log(`${logPrefix} ✅ Soroban CLI version: ${versionOutput.trim()}`);
                             
                             // Add to PATH
