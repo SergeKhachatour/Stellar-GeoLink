@@ -2825,10 +2825,23 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Map parameters using the mapping
         const mappedParams = contractIntrospection.mapFieldsToContract(processedParameters, mapping);
         
-        // Convert to ScVal
-        const scValParams = mappedParams.map(param => 
-            contractIntrospection.convertToScVal(param.value, param.type)
-        );
+        // Convert to ScVal - filter out undefined/null values first
+        const scValParams = mappedParams
+            .filter(param => {
+                if (param.value === undefined || param.value === null) {
+                    console.warn(`[Execute] ⚠️  Skipping parameter ${param.name} (type: ${param.type}) - value is undefined/null`);
+                    return false;
+                }
+                return true;
+            })
+            .map(param => {
+                try {
+                    return contractIntrospection.convertToScVal(param.value, param.type);
+                } catch (error) {
+                    console.error(`[Execute] ❌ Error converting parameter ${param.name} (value: ${param.value}, type: ${param.type}):`, error.message);
+                    throw new Error(`Failed to convert parameter "${param.name}" (${param.type}): ${error.message}`);
+                }
+            });
 
         // Execute contract function
         const StellarSdk = require('@stellar/stellar-sdk');
