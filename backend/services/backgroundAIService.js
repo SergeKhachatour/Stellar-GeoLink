@@ -171,6 +171,44 @@ class BackgroundAIService {
       
       for (const rule of rules) {
         const executionStartTime = Date.now();
+        
+        // Check if WebAuthn is required for this rule
+        // WebAuthn requires browser-based user interaction, so we can't execute it automatically
+        const functionParams = typeof rule.function_parameters === 'string'
+          ? JSON.parse(rule.function_parameters)
+          : rule.function_parameters || {};
+        
+        const webauthnParamNames = [
+          'webauthn_signature',
+          'webauthn_authenticator_data',
+          'webauthn_client_data',
+          'signature_payload'
+        ];
+        
+        const hasWebAuthnParams = webauthnParamNames.some(paramName => 
+          functionParams.hasOwnProperty(paramName) && 
+          functionParams[paramName] !== '' && 
+          functionParams[paramName] !== null
+        );
+        
+        const requiresWebAuthn = rule.requires_webauthn || hasWebAuthnParams;
+        
+        if (requiresWebAuthn) {
+          console.log(`[BackgroundAI] ⚠️  Rule ${rule.id} (${rule.rule_name}) requires WebAuthn authentication - Skipping automatic execution`);
+          console.log(`[BackgroundAI] ℹ️  This rule matched the location but requires manual execution via browser UI`);
+          
+          // Mark as matched but not executed (requires manual execution)
+          executionResults.push({
+            rule_id: rule.id,
+            success: false,
+            skipped: true,
+            reason: 'requires_webauthn',
+            message: 'Rule matched but requires WebAuthn/passkey authentication. Please execute manually via browser UI.'
+          });
+          matchedRuleIds.push(rule.id); // Still count as matched
+          continue; // Skip to next rule
+        }
+        
         try {
           console.log(`[BackgroundAI] ⚡ Executing rule ${rule.id} (${rule.rule_name})...`);
           
@@ -180,9 +218,6 @@ class BackgroundAIService {
             : rule.function_mappings;
           
           const mapping = functionMappings?.[rule.function_name];
-          const functionParams = typeof rule.function_parameters === 'string'
-            ? JSON.parse(rule.function_parameters)
-            : rule.function_parameters || {};
           
           // Map location data to function parameters if mapping exists
           const parameters = { ...functionParams };
@@ -348,7 +383,7 @@ Return JSON with:
       // 4. Location is within rule area (for location/proximity) OR geofence contains location
       
       const result = await pool.query(
-        `SELECT cer.*, cc.contract_address, cc.network, cc.function_mappings
+        `SELECT cer.*, cc.contract_address, cc.network, cc.function_mappings, cc.requires_webauthn
          FROM contract_execution_rules cer
          JOIN custom_contracts cc ON cer.contract_id = cc.id
          WHERE cer.user_id = $1
