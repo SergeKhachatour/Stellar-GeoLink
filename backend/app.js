@@ -229,20 +229,39 @@ const ensureSorobanCLI = async () => {
                         console.log(`${logPrefix} 📥 Fetching latest Soroban CLI release info from GitHub API...`);
                         let downloadUrl;
                         try {
-                            const { stdout: releaseInfo } = await execPromise(
+                            const { stdout: releaseInfo, stderr: apiStderr } = await execPromise(
                                 `curl -s -L "https://api.github.com/repos/stellar/soroban-tools/releases/latest"`,
-                                { maxBuffer: 1024 * 1024, timeout: 10000 }
+                                { maxBuffer: 1024 * 1024, timeout: 15000 }
                             );
+                            
+                            if (apiStderr) {
+                                console.log(`${logPrefix} ⚠️  GitHub API stderr: ${apiStderr}`);
+                            }
+                            
+                            if (!releaseInfo || releaseInfo.trim().length === 0) {
+                                throw new Error('Empty response from GitHub API');
+                            }
+                            
                             const release = JSON.parse(releaseInfo);
+                            
+                            // Check for API errors
+                            if (release.message) {
+                                throw new Error(`GitHub API error: ${release.message}`);
+                            }
+                            
                             // Find the asset for x86_64-unknown-linux-gnu
                             const asset = release.assets?.find(a => 
+                                a.name && 
                                 a.name.includes('soroban') && 
                                 a.name.includes('x86_64-unknown-linux-gnu') && 
                                 a.name.endsWith('.tar.gz')
                             );
+                            
                             if (!asset) {
+                                console.log(`${logPrefix} ⚠️  Available assets:`, release.assets?.map(a => a.name).join(', ') || 'none');
                                 throw new Error('Could not find soroban-x86_64-unknown-linux-gnu.tar.gz in latest release');
                             }
+                            
                             downloadUrl = asset.browser_download_url;
                             console.log(`${logPrefix} ✅ Found release: ${release.tag_name}, download URL: ${downloadUrl}`);
                         } catch (apiError) {
