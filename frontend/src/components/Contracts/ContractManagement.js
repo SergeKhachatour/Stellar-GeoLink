@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -31,9 +31,6 @@ import {
   MenuItem,
   Switch,
   FormControlLabel,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Tooltip,
   Divider,
   Stepper,
@@ -47,18 +44,13 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Code as CodeIcon,
   Upload as UploadIcon,
   PlayArrow as PlayArrowIcon,
   Download as DownloadIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
   Rule as RuleIcon,
-  ExpandMore as ExpandMoreIcon,
   CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  Close as CloseIcon,
-  Settings as SettingsIcon,
   Map as MapIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
@@ -98,7 +90,7 @@ function a11yProps(index) {
 }
 
 const ContractManagement = () => {
-  const { publicKey, secretKey, upgradeToFullAccess, isConnected } = useWallet();
+  const { publicKey, secretKey } = useWallet();
   const [contracts, setContracts] = useState([]);
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -464,6 +456,68 @@ const ContractManagement = () => {
     }
   };
   
+  // Update radius circle on map - MUST be defined before useEffect hooks that use it
+  const updateRadiusCircle = useCallback((mapInstance, lat, lng, radius) => {
+    if (!mapInstance || !radius || radius <= 0) return;
+    
+    // Check if map style is loaded before adding sources/layers
+    if (!mapInstance.isStyleLoaded()) {
+      // Wait for style to load
+      mapInstance.once('style.load', () => {
+        updateRadiusCircle(mapInstance, lat, lng, radius);
+      });
+      return;
+    }
+    
+    try {
+      const circle = turf.circle([lng, lat], radius, { units: 'meters', steps: 64 });
+      
+      if (mapInstance.getLayer('radius-circle-fill')) {
+        mapInstance.removeLayer('radius-circle-fill');
+      }
+      if (mapInstance.getLayer('radius-circle-outline')) {
+        mapInstance.removeLayer('radius-circle-outline');
+      }
+      if (mapInstance.getSource('radius-circle')) {
+        mapInstance.removeSource('radius-circle');
+      }
+      
+      mapInstance.addSource('radius-circle', {
+        type: 'geojson',
+        data: circle
+      });
+      
+      mapInstance.addLayer({
+        id: 'radius-circle-fill',
+        type: 'fill',
+        source: 'radius-circle',
+        paint: {
+          'fill-color': '#3b82f6',
+          'fill-opacity': 0.1
+        }
+      });
+      
+      mapInstance.addLayer({
+        id: 'radius-circle-outline',
+        type: 'line',
+        source: 'radius-circle',
+        paint: {
+          'line-color': '#3b82f6',
+          'line-width': 2,
+          'line-opacity': 0.5
+        }
+      });
+    } catch (error) {
+      console.warn('Error updating radius circle:', error);
+      // If style isn't loaded yet, wait for it
+      if (error.message && error.message.includes('Style is not done loading')) {
+        mapInstance.once('style.load', () => {
+          updateRadiusCircle(mapInstance, lat, lng, radius);
+        });
+      }
+    }
+  }, []);
+  
   // Initialize map for location selection
   useEffect(() => {
     if (!ruleDialogOpen || activeStep !== 1 || !mapContainerRef.current || mapRef.current || !MAPBOX_TOKEN) {
@@ -569,7 +623,7 @@ const ContractManagement = () => {
         mapRef.current = null;
       }
     };
-  }, [ruleDialogOpen, activeStep]);
+  }, [ruleDialogOpen, activeStep, ruleForm.center_latitude, ruleForm.center_longitude, ruleForm.radius_meters, updateRadiusCircle]);
   
   // Update map when location or radius changes (but only if map exists and is loaded)
   useEffect(() => {
@@ -600,69 +654,7 @@ const ContractManagement = () => {
         updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
       }
     }
-  }, [selectedLocation, ruleForm.radius_meters, activeStep]);
-  
-  // Update radius circle on map
-  const updateRadiusCircle = (mapInstance, lat, lng, radius) => {
-    if (!mapInstance || !radius || radius <= 0) return;
-    
-    // Check if map style is loaded before adding sources/layers
-    if (!mapInstance.isStyleLoaded()) {
-      // Wait for style to load
-      mapInstance.once('style.load', () => {
-        updateRadiusCircle(mapInstance, lat, lng, radius);
-      });
-      return;
-    }
-    
-    try {
-      const circle = turf.circle([lng, lat], radius, { units: 'meters', steps: 64 });
-      
-      if (mapInstance.getLayer('radius-circle-fill')) {
-        mapInstance.removeLayer('radius-circle-fill');
-      }
-      if (mapInstance.getLayer('radius-circle-outline')) {
-        mapInstance.removeLayer('radius-circle-outline');
-      }
-      if (mapInstance.getSource('radius-circle')) {
-        mapInstance.removeSource('radius-circle');
-      }
-      
-      mapInstance.addSource('radius-circle', {
-        type: 'geojson',
-        data: circle
-      });
-      
-      mapInstance.addLayer({
-        id: 'radius-circle-fill',
-        type: 'fill',
-        source: 'radius-circle',
-        paint: {
-          'fill-color': '#3b82f6',
-          'fill-opacity': 0.1
-        }
-      });
-      
-      mapInstance.addLayer({
-        id: 'radius-circle-outline',
-        type: 'line',
-        source: 'radius-circle',
-        paint: {
-          'line-color': '#3b82f6',
-          'line-width': 2,
-          'line-opacity': 0.5
-        }
-      });
-    } catch (error) {
-      console.warn('Error updating radius circle:', error);
-      // If style isn't loaded yet, wait for it
-      if (error.message && error.message.includes('Style is not done loading')) {
-        mapInstance.once('style.load', () => {
-          updateRadiusCircle(mapInstance, lat, lng, radius);
-        });
-      }
-    }
-  };
+  }, [selectedLocation, ruleForm.radius_meters, activeStep, updateRadiusCircle]);
   
   // Cleanup map on dialog close
   useEffect(() => {

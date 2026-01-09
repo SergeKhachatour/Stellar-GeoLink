@@ -21,8 +21,6 @@ import {
     TableHead,
     TableRow,
     Paper,
-    Tabs,
-    Tab
 } from '@mui/material';
 import { DataUsage, Key, ContentCopy, Close as CloseIcon } from '@mui/icons-material';
 import api from '../utils/api';

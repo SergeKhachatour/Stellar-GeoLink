@@ -24,18 +24,15 @@ import {
   ExpandMore,
   Code,
   PlayArrow,
-  LocationOn,
   CheckCircle,
   Cancel,
   SmartToy
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
-import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 
 const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
   const { publicKey, isConnected, secretKey } = useWallet();
-  const { user } = useAuth();
   const [contract, setContract] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [isWithinRange, setIsWithinRange] = useState(false);
@@ -109,16 +106,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     setIsWithinRange(dist <= radius);
   };
 
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
 
   const handleExecuteFunction = async () => {
     if (!selectedFunction || !contract || !isWithinRange) {
@@ -142,8 +129,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     try {
       // Get function mapping to determine parameters
       const functionMapping = contract.function_mappings?.[selectedFunction];
-      const discoveredFunction = contract.discovered_functions?.find(f => f.name === selectedFunction);
-
       // Build parameters based on mapping or use provided params
       let finalParams = {};
       if (functionMapping && functionMapping.parameters) {

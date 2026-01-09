@@ -407,18 +407,44 @@ async function getAvailableTools(userContext = {}) {
       }
     },
     // GeoLink Smart Contract Tools
-    {
-      type: 'function',
-      function: {
-        name: 'geolink_getCustomContracts',
-        description: 'Get all custom smart contracts that the user has added to GeoLink. Returns contracts with their contract addresses (contract_address), contract IDs (id), contract names, discovered functions, parameters, and configuration. Each contract includes: id (contract ID number), contract_address (Stellar contract address starting with C), contract_name, network, discovered_functions, and function_mappings. Use this to see what contracts are available, their addresses, and what functions can be called on each contract. ALWAYS use this tool when the user asks about their contracts, contract addresses, or what contracts they have.',
-        parameters: {
-          type: 'object',
-          properties: {},
-          required: []
+      {
+        type: 'function',
+        function: {
+          name: 'geolink_getCustomContracts',
+          description: 'Get all custom smart contracts that the user has added to GeoLink. Returns contracts with their contract addresses (contract_address), contract IDs (id), contract names, discovered functions, parameters, and configuration. Each contract includes: id (contract ID number), contract_address (Stellar contract address starting with C), contract_name, network, discovered_functions, and function_mappings. Use this to see what contracts are available, their addresses, and what functions can be called on each contract. ALWAYS use this tool when the user asks about their contracts, contract addresses, or what contracts they have.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
         }
-      }
-    },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'geolink_getBackgroundAILogs',
+          description: 'Get background AI service logs and contexts for the user. Returns AI sessions, activity logs, location updates processed, and rule matches. This allows users to see what the background AI service has been doing with their location updates and contract execution rules. Use this when users ask about background AI activity, AI sessions, or want to debug their location-based contract rules.',
+          parameters: {
+            type: 'object',
+            properties: {
+              session_id: {
+                type: 'integer',
+                description: 'Optional: Filter by specific AI session ID'
+              },
+              limit: {
+                type: 'integer',
+                description: 'Maximum number of log entries to return (default: 50)'
+              },
+              activity_type: {
+                type: 'string',
+                enum: ['location_received', 'rule_analyzed', 'rule_matched', 'execution_triggered', 'error', 'user_feedback'],
+                description: 'Optional: Filter by activity type'
+              }
+            },
+            required: []
+          }
+        }
+      },
     {
       type: 'function',
       function: {
@@ -1095,6 +1121,13 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!token) throw new Error('Authentication required for this operation');
         return await geolinkOperations.getCustomContracts(token);
 
+      case 'geolink_getBackgroundAILogs':
+        if (!token) throw new Error('Authentication required for this operation');
+        const logOptions = typeof toolCall.function.arguments === 'string' 
+          ? JSON.parse(toolCall.function.arguments || '{}')
+          : (toolCall.function.arguments || {});
+        return await geolinkOperations.getBackgroundAILogs(token, logOptions);
+
       case 'geolink_saveCustomContract':
         if (!token) throw new Error('Authentication required for this operation');
         return await geolinkOperations.saveCustomContract({
@@ -1359,6 +1392,17 @@ Always stay focused on GeoLink and Stellar-related topics. When users ask about 
 - Always use the user's public key and secret key from context when calling contract functions.
 - If the user asks "call execute_payment on my smart wallet contract" or similar, find the appropriate contract function tool and call it immediately.
 - If the user asks "what contracts do I have?" or "show me my contracts", call 'geolink_getCustomContracts' first to see what's available.
+
+**CRITICAL - Background AI Service**:
+- Users have access to background AI service logs and contexts through the 'geolink_getBackgroundAILogs' tool.
+- This tool returns AI sessions, activity logs, location updates processed, and rule matches.
+- Use this tool when users ask about:
+  * Background AI activity
+  * AI sessions related to their location updates
+  * Debugging location-based contract rules
+  * What the background AI has been doing with their data
+- The tool can filter by session_id, activity_type, and limit the number of results.
+- Always use this tool when users want to understand or debug their background AI processing.
 
 **CRITICAL - WebAuthn/Passkey Authentication**:
 - Some contract functions (like 'deposit', 'execute_payment') require WebAuthn/passkey authentication.

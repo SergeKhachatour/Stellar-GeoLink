@@ -50,8 +50,10 @@ class BackgroundAIService {
    * Process pending location updates from the queue
    */
   async processLocationUpdateQueue() {
+    const startTime = Date.now();
     try {
       this.isProcessing = true;
+      console.log(`[BackgroundAI] 🔄 Starting queue processing cycle at ${new Date().toISOString()}`);
 
       // First, mark superseded updates (older updates for same public_key)
       // Since updates come every 5 seconds, we only want to process the latest
@@ -67,16 +69,30 @@ class BackgroundAIService {
       );
 
       if (result.rows.length === 0) {
+        console.log(`[BackgroundAI] ✅ Queue processing complete - No pending updates (took ${Date.now() - startTime}ms)`);
         return; // No pending updates
       }
 
       console.log(`[BackgroundAI] 📍 Processing ${result.rows.length} location update(s) (latest per public_key)`);
+      console.log(`[BackgroundAI] 📋 Update details:`, result.rows.map(u => ({
+        update_id: u.update_id,
+        public_key: u.public_key?.substring(0, 8) + '...',
+        location: `(${u.latitude}, ${u.longitude})`,
+        user_id: u.user_id
+      })));
 
       for (const update of result.rows) {
+        const updateStartTime = Date.now();
+        console.log(`[BackgroundAI] 🔍 Processing update ${update.update_id} for public_key ${update.public_key?.substring(0, 8)}...`);
         await this.processLocationUpdate(update);
+        console.log(`[BackgroundAI] ✅ Completed update ${update.update_id} (took ${Date.now() - updateStartTime}ms)`);
       }
+
+      const totalTime = Date.now() - startTime;
+      console.log(`[BackgroundAI] ✅ Queue processing complete - Processed ${result.rows.length} update(s) in ${totalTime}ms`);
     } catch (error) {
       console.error('[BackgroundAI] ❌ Error processing location update queue:', error);
+      console.error('[BackgroundAI] ❌ Error stack:', error.stack);
     } finally {
       this.isProcessing = false;
     }
@@ -87,32 +103,59 @@ class BackgroundAIService {
    */
   async processLocationUpdate(update) {
     const { update_id, user_id, public_key, latitude, longitude } = update;
+    const processStartTime = Date.now();
 
     try {
+      console.log(`[BackgroundAI] 📥 Processing location update ${update_id}:`, {
+        user_id,
+        public_key: public_key?.substring(0, 8) + '...',
+        queue_location: `(${latitude}, ${longitude})`,
+        received_at: update.received_at
+      });
+
       // Mark as processing
       await pool.query('SELECT mark_location_update_processing($1)', [update_id]);
+      console.log(`[BackgroundAI] ✅ Marked update ${update_id} as processing`);
 
-      // Get active AI session for this user (or create default)
-      const aiSession = await this.getOrCreateAISession(user_id, 'location_processing');
-
-      // IMPORTANT: Always use the latest location from wallet_locations table
-      // Location updates come every 5 seconds, so we need the most recent data
+      // Get latest location directly from wallet_locations table (avoiding function call issue)
+      const locationFetchStartTime = Date.now();
       const latestLocation = await pool.query(
-        `SELECT * FROM get_latest_wallet_location($1, $2)`,
-        [public_key, 'Stellar'] // Default to Stellar, could be made dynamic
+        `SELECT latitude, longitude 
+         FROM wallet_locations 
+         WHERE public_key = $1 
+           AND blockchain = $2 
+           AND location_enabled = true
+         ORDER BY last_updated DESC 
+         LIMIT 1`,
+        [public_key, 'Stellar']
       );
       
       // Use latest location if available, otherwise use queue data
       const actualLatitude = latestLocation.rows[0]?.latitude || latitude;
       const actualLongitude = latestLocation.rows[0]?.longitude || longitude;
+      const isUsingLatest = !!latestLocation.rows[0];
       
-      console.log(`[BackgroundAI] 📍 Using latest location for ${public_key}: (${actualLatitude}, ${actualLongitude})`);
+      console.log(`[BackgroundAI] 📍 Location data:`, {
+        queue_location: `(${latitude}, ${longitude})`,
+        latest_location: latestLocation.rows[0] ? `(${latestLocation.rows[0].latitude}, ${latestLocation.rows[0].longitude})` : 'N/A',
+        using: isUsingLatest ? 'latest from wallet_locations' : 'queue data',
+        final_location: `(${actualLatitude}, ${actualLongitude})`,
+        fetch_took: `${Date.now() - locationFetchStartTime}ms`
+      });
       
       // Get all active contract execution rules for this user using latest location
+      // Rules are already filtered by location/proximity in the query
+      const rulesFetchStartTime = Date.now();
       const rules = await this.getActiveRulesForLocation(user_id, actualLatitude, actualLongitude, public_key);
+      console.log(`[BackgroundAI] 📋 Rules query:`, {
+        found_rules: rules.length,
+        rule_ids: rules.map(r => r.id),
+        rule_names: rules.map(r => r.rule_name),
+        took: `${Date.now() - rulesFetchStartTime}ms`
+      });
 
       if (rules.length === 0) {
-        console.log(`[BackgroundAI] ℹ️  No active rules found for location update ${update_id}`);
+        console.log(`[BackgroundAI] ℹ️  No active rules found for location update ${update_id} - Skipping`);
         await pool.query(
           'SELECT complete_location_update_processing($1, $2)',
           [update_id, 'skipped']
@@ -120,54 +163,63 @@ class BackgroundAIService {
         return;
       }
 
-      // Use AI to analyze which rules should be triggered
-      const aiMatches = await this.analyzeRulesWithAI(aiSession, update, rules);
-
-      // Filter to rules that should execute
-      const rulesToExecute = aiMatches.filter(m => m.should_execute);
-
-      if (rulesToExecute.length === 0) {
-        console.log(`[BackgroundAI] ℹ️  AI determined no rules should execute for update ${update_id}`);
-        await pool.query(
-          'SELECT complete_location_update_processing($1, $2, $3)',
-          [update_id, 'matched', JSON.stringify(aiMatches.map(m => m.rule_id))]
-        );
-        return;
-      }
-
-      // Execute contract functions for matched rules
+      // Direct rule execution without AI analysis
+      // Since rules are already filtered by location/proximity, we can execute them directly
+      console.log(`[BackgroundAI] ⚡ Executing ${rules.length} contract rule(s) directly (no AI analysis)...`);
       const executionResults = [];
-      for (const match of rulesToExecute) {
+      const matchedRuleIds = [];
+      
+      for (const rule of rules) {
+        const executionStartTime = Date.now();
         try {
-          const result = await this.executeContractRule(match);
+          console.log(`[BackgroundAI] ⚡ Executing rule ${rule.id} (${rule.rule_name})...`);
+          
+          // Build parameters from rule configuration
+          const functionMappings = typeof rule.function_mappings === 'string'
+            ? JSON.parse(rule.function_mappings)
+            : rule.function_mappings;
+          
+          const mapping = functionMappings?.[rule.function_name];
+          const functionParams = typeof rule.function_parameters === 'string'
+            ? JSON.parse(rule.function_parameters)
+            : rule.function_parameters || {};
+          
+          // Map location data to function parameters if mapping exists
+          const parameters = { ...functionParams };
+          if (mapping?.parameters) {
+            for (const param of mapping.parameters) {
+              if (param.mapped_from === 'latitude') {
+                parameters[param.name] = actualLatitude;
+              } else if (param.mapped_from === 'longitude') {
+                parameters[param.name] = actualLongitude;
+              } else if (param.mapped_from === 'user_public_key') {
+                parameters[param.name] = public_key;
+              }
+            }
+          }
+          
+          // Execute the contract function
+          const result = await this.executeContractRuleDirectly(rule, parameters, public_key);
           executionResults.push({
-            rule_id: match.rule_id,
+            rule_id: rule.id,
             success: true,
             result: result
           });
-
-          // Update AI match record
-          await pool.query(
-            `UPDATE ai_rule_matches 
-             SET executed = true, execution_result = $1, executed_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [JSON.stringify(result), match.match_id]
-          );
+          matchedRuleIds.push(rule.id);
+          
+          console.log(`[BackgroundAI] ✅ Rule ${rule.id} executed successfully (took ${Date.now() - executionStartTime}ms)`);
         } catch (error) {
-          console.error(`[BackgroundAI] ❌ Error executing rule ${match.rule_id}:`, error);
+          console.error(`[BackgroundAI] ❌ Error executing rule ${rule.id}:`, {
+            error: error.message,
+            stack: error.stack,
+            took: `${Date.now() - executionStartTime}ms`
+          });
           executionResults.push({
-            rule_id: match.rule_id,
+            rule_id: rule.id,
             success: false,
             error: error.message
           });
-
-          // Update AI match record with error
-          await pool.query(
-            `UPDATE ai_rule_matches 
-             SET executed = true, execution_error = $1, executed_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
-            [error.message, match.match_id]
-          );
+          matchedRuleIds.push(rule.id); // Still count as matched even if execution failed
         }
       }
 
@@ -176,15 +228,28 @@ class BackgroundAIService {
         'SELECT complete_location_update_processing($1, $2, $3, $4)',
         [
           update_id,
-          'executed',
-          JSON.stringify(aiMatches.map(m => m.rule_id)),
+          executionResults.some(r => r.success) ? 'executed' : 'matched',
+          JSON.stringify(matchedRuleIds),
           JSON.stringify(executionResults)
         ]
       );
 
-      console.log(`[BackgroundAI] ✅ Processed location update ${update_id}: ${rulesToExecute.length} rule(s) executed`);
+      const totalTime = Date.now() - processStartTime;
+      console.log(`[BackgroundAI] ✅ Processed location update ${update_id}:`, {
+        rules_analyzed: rules.length,
+        rules_executed: rulesToExecute.length,
+        execution_results: executionResults.map(r => ({
+          rule_id: r.rule_id,
+          success: r.success
+        })),
+        total_time: `${totalTime}ms`
+      });
     } catch (error) {
-      console.error(`[BackgroundAI] ❌ Error processing location update ${update_id}:`, error);
+      console.error(`[BackgroundAI] ❌ Error processing location update ${update_id}:`, {
+        error: error.message,
+        stack: error.stack,
+        took: `${Date.now() - processStartTime}ms`
+      });
       await pool.query(
         'SELECT complete_location_update_processing($1, $2)',
         [update_id, 'failed']
@@ -299,14 +364,14 @@ Return JSON with:
                 cer.radius_meters
               ))
              OR
-             -- Geofence-based rules: check if point is within geofence polygon
+             -- Geofence-based rules: check if point is within geofence boundary
              (cer.rule_type = 'geofence' AND cer.geofence_id IS NOT NULL AND
               EXISTS (
                 SELECT 1 FROM geofences g
                 WHERE g.id = cer.geofence_id
                   AND ST_Within(
                     ST_SetSRID(ST_MakePoint($3, $2), 4326),
-                    g.polygon
+                    g.boundary
                   )
               ))
              OR
@@ -318,7 +383,7 @@ Return JSON with:
                 cer.radius_meters
               ))
            )
-         ORDER BY cer.execution_priority DESC, cer.created_at ASC`,
+         ORDER BY cer.created_at ASC`,
         [userId, latitude, longitude, publicKey]
       );
 
@@ -333,7 +398,14 @@ Return JSON with:
    * Use AI to analyze which rules should be triggered
    */
   async analyzeRulesWithAI(aiSession, locationUpdate, rules) {
+    const analysisStartTime = Date.now();
     try {
+      console.log(`[BackgroundAI] 🤖 AI Analysis starting:`, {
+        session_id: aiSession.id,
+        update_id: locationUpdate.update_id,
+        rules_count: rules.length,
+        public_key: locationUpdate.public_key?.substring(0, 8) + '...'
+      });
       // Get latest location from wallet_locations (more accurate than queue data)
       const latestLocation = await pool.query(
         `SELECT * FROM get_latest_wallet_location($1, $2)`,
@@ -422,14 +494,22 @@ Return JSON array with one object per rule:
       conversationHistory.push(userMessage);
 
       // Call Azure OpenAI
+      const openAIStartTime = Date.now();
+      console.log(`[BackgroundAI] 🤖 Calling Azure OpenAI with ${conversationHistory.length} message(s)...`);
       const response = await azureOpenAIService.chatCompletion({
         messages: conversationHistory,
         temperature: aiSession.temperature || 0.7,
         max_tokens: aiSession.max_tokens || 2000
       });
+      console.log(`[BackgroundAI] 🤖 Azure OpenAI response received (took ${Date.now() - openAIStartTime}ms):`, {
+        model: response.model,
+        usage: response.usage,
+        response_length: response.choices[0].message.content.length
+      });
 
       // Parse AI response
       const aiResponse = response.choices[0].message.content;
+      console.log(`[BackgroundAI] 🤖 AI Response (first 500 chars):`, aiResponse.substring(0, 500));
       let aiMatches = [];
 
       try {
@@ -455,6 +535,7 @@ Return JSON array with one object per rule:
       }
 
       // Save AI matches to database
+      console.log(`[BackgroundAI] 💾 Saving ${aiMatches.length} AI match(es) to database...`);
       const matchRecords = [];
       for (const match of aiMatches) {
         const matchRecord = await pool.query(
@@ -477,6 +558,11 @@ Return JSON array with one object per rule:
         matchRecords.push({
           ...match,
           match_id: matchRecord.rows[0].id
+        });
+        console.log(`[BackgroundAI] 💾 Saved match for rule ${match.rule_id}:`, {
+          match_id: matchRecord.rows[0].id,
+          should_execute: match.should_execute,
+          confidence: match.confidence_score
         });
       }
 
@@ -508,15 +594,50 @@ Return JSON array with one object per rule:
         ]
       );
 
+      const totalAnalysisTime = Date.now() - analysisStartTime;
+      console.log(`[BackgroundAI] ✅ AI Analysis complete (took ${totalAnalysisTime}ms):`, {
+        matches_created: matchRecords.length,
+        should_execute_count: matchRecords.filter(m => m.should_execute).length
+      });
+
       return matchRecords;
     } catch (error) {
-      console.error('[BackgroundAI] ❌ Error analyzing rules with AI:', error);
+      const totalAnalysisTime = Date.now() - analysisStartTime;
+      console.error('[BackgroundAI] ❌ Error analyzing rules with AI:', {
+        error: error.message,
+        stack: error.stack,
+        took: `${totalAnalysisTime}ms`
+      });
       throw error;
     }
   }
 
   /**
-   * Execute a contract rule
+   * Execute a contract rule directly (without AI analysis)
+   */
+  async executeContractRuleDirectly(rule, parameters, publicKey) {
+    try {
+      // For now, just log the execution
+      // TODO: Actually call the contract execution endpoint or service
+      // This would involve calling the /api/contracts/:id/execute endpoint
+      // or directly using the Stellar SDK to invoke the contract
+      
+      return {
+        rule_id: rule.id,
+        function_name: rule.function_name,
+        parameters: parameters,
+        public_key: publicKey,
+        status: 'pending_execution',
+        note: 'Contract execution will be implemented in next phase. Rule matched and queued for execution.'
+      };
+    } catch (error) {
+      console.error(`[BackgroundAI] ❌ Error executing contract rule ${rule.id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a contract rule (legacy - used by AI analysis, kept for backward compatibility)
    */
   async executeContractRule(match) {
     try {

@@ -965,7 +965,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         duration: 1000
       });
     }
-  }, [clearMarkers, calculateDistance, createRadiusCircle]);
+  }, [calculateDistance, createRadiusCircle]);
 
   // Create geofence visualization
   const createGeofenceVisualization = useCallback((geofence, mapInstance) => {

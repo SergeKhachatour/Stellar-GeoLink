@@ -37,7 +37,7 @@ const Navbar = () => {
     const [anchorEl, setAnchorEl] = React.useState(null);
     const [mobileOpen, setMobileOpen] = React.useState(false);
     const [availableRoles, setAvailableRoles] = React.useState([]);
-    const [loadingRoles, setLoadingRoles] = React.useState(false);
+    const [, setLoadingRoles] = React.useState(false);
     
     // Force re-render when location changes
     React.useEffect(() => {

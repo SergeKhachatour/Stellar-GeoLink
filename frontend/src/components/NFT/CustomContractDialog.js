@@ -16,7 +16,6 @@ import {
   AccordionSummary,
   AccordionDetails,
   Chip,
-  Grid
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,

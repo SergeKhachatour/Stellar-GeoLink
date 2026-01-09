@@ -17,9 +17,6 @@ import {
     Chip,
     IconButton,
     Tooltip,
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
     Divider,
     Dialog,
     DialogTitle,
@@ -29,7 +26,7 @@ import {
     TablePagination
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { DataUsage, Key, ContentCopy, ExpandMore, Code, Description, AccountBalanceWallet as WalletIcon, Collections as CollectionsIcon, Close as CloseIcon } from '@mui/icons-material';
+import { DataUsage, Key, ContentCopy, AccountBalanceWallet as WalletIcon, Collections as CollectionsIcon, Close as CloseIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import api from '../utils/api';
 import ApiKeyRequestForm from './shared/ApiKeyRequestForm';

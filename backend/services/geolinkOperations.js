@@ -677,6 +677,47 @@ async function executeContractFunction(contractId, functionName, parameters, use
   }
 }
 
+/**
+ * Get background AI service logs and contexts
+ * @param {string} token - User authentication token
+ * @param {object} options - Optional filters (session_id, limit, activity_type)
+ * @returns {Promise<object>} - Background AI logs and contexts
+ */
+async function getBackgroundAILogs(token, options = {}) {
+  try {
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+    
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/ai/background-logs`;
+    const headers = { Authorization: `Bearer ${token}` };
+    
+    // Parse options if it's a JSON string
+    let params = {};
+    if (typeof options === 'string') {
+      try {
+        params = JSON.parse(options);
+      } catch (e) {
+        // If parsing fails, treat as empty object
+        params = {};
+      }
+    } else if (typeof options === 'object') {
+      params = options;
+    }
+    
+    const response = await axios.get(apiUrl, {
+      params,
+      headers
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching background AI logs:', error);
+    throw new Error(`Failed to fetch background AI logs: ${error.response?.data?.error || error.message}`);
+  }
+}
+
 module.exports = {
   findNearbyWallets,
   getGeospatialStatistics,
@@ -696,6 +737,7 @@ module.exports = {
   getCustomContracts,
   saveCustomContract,
   executeContractFunction,
-  getNearbyContractRules
+  getNearbyContractRules,
+  getBackgroundAILogs
 };
 

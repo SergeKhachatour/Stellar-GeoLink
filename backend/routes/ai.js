@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const pool = require('../config/database');
 const { processChatCompletion } = require('../services/azureOpenAIService');
 const { authenticateUser } = require('../middleware/authUser');
 
@@ -193,6 +194,204 @@ router.get('/health', (req, res) => {
     service: 'GeoLink AI Agent',
     timestamp: new Date().toISOString()
   });
+});
+
+/**
+ * @swagger
+ * /api/ai/background-logs:
+ *   get:
+ *     summary: Get background AI service logs and contexts
+ *     description: Retrieve background AI service logs, sessions, and activity for the authenticated user. Filter by public_key for multi-role users.
+ *     tags: [AI Assistant]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: session_id
+ *         schema:
+ *           type: integer
+ *         description: Filter by specific AI session ID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Maximum number of log entries to return
+ *       - in: query
+ *         name: activity_type
+ *         schema:
+ *           type: string
+ *           enum: [location_received, rule_analyzed, rule_matched, execution_triggered, error, user_feedback]
+ *         description: Filter by activity type
+ *     responses:
+ *       200:
+ *         description: Background AI service logs and contexts
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/background-logs', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const publicKey = req.user?.public_key;
+    const { session_id, limit = 50, activity_type } = req.query;
+
+    if (!userId && !publicKey) {
+      return res.status(401).json({ error: 'User ID or public key not found' });
+    }
+
+    // Get user ID from public_key if needed (for multi-role users)
+    let actualUserId = userId;
+    if (!actualUserId && publicKey) {
+      const userResult = await pool.query(
+        'SELECT id FROM users WHERE public_key = $1',
+        [publicKey]
+      );
+      if (userResult.rows.length > 0) {
+        actualUserId = userResult.rows[0].id;
+      }
+    }
+
+    if (!actualUserId) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Get AI sessions for this user
+    let sessionsQuery = `
+      SELECT 
+        bas.id,
+        bas.session_name,
+        bas.session_type,
+        bas.ai_model,
+        bas.is_active,
+        bas.is_paused,
+        bas.last_activity_at,
+        bas.created_at,
+        bas.updated_at,
+        COUNT(DISTINCT luq.id) as location_updates_count,
+        COUNT(DISTINCT arm.id) as rule_matches_count
+      FROM background_ai_sessions bas
+      LEFT JOIN location_update_queue luq ON luq.ai_session_id = bas.id
+      LEFT JOIN ai_rule_matches arm ON arm.ai_session_id = bas.id
+      WHERE bas.user_id = $1
+    `;
+    const sessionsParams = [actualUserId];
+
+    if (session_id) {
+      sessionsQuery += ` AND bas.id = $2`;
+      sessionsParams.push(session_id);
+    }
+
+    sessionsQuery += ` GROUP BY bas.id ORDER BY bas.last_activity_at DESC LIMIT 20`;
+
+    const sessionsResult = await pool.query(sessionsQuery, sessionsParams);
+    const sessions = sessionsResult.rows;
+
+    // Get activity logs
+    let logsQuery = `
+      SELECT 
+        asal.id,
+        asal.session_id,
+        asal.activity_type,
+        asal.activity_data,
+        asal.message,
+        asal.error_message,
+        asal.created_at,
+        bas.session_name,
+        bas.session_type
+      FROM ai_session_activity_logs asal
+      JOIN background_ai_sessions bas ON bas.id = asal.session_id
+      WHERE bas.user_id = $1
+    `;
+    const logsParams = [actualUserId];
+    let paramIndex = 2;
+
+    if (session_id) {
+      logsQuery += ` AND asal.session_id = $${paramIndex}`;
+      logsParams.push(session_id);
+      paramIndex++;
+    }
+
+    if (activity_type) {
+      logsQuery += ` AND asal.activity_type = $${paramIndex}`;
+      logsParams.push(activity_type);
+      paramIndex++;
+    }
+
+    logsQuery += ` ORDER BY asal.created_at DESC LIMIT $${paramIndex}`;
+    logsParams.push(parseInt(limit));
+
+    const logsResult = await pool.query(logsQuery, logsParams);
+    const logs = logsResult.rows;
+
+    // Get recent location updates processed
+    const updatesQuery = `
+      SELECT 
+        luq.id,
+        luq.public_key,
+        luq.latitude,
+        luq.longitude,
+        luq.status,
+        luq.matched_rule_ids,
+        luq.execution_results,
+        luq.received_at,
+        luq.processed_at,
+        bas.session_name
+      FROM location_update_queue luq
+      LEFT JOIN background_ai_sessions bas ON bas.id = luq.ai_session_id
+      WHERE luq.user_id = $1
+      ORDER BY luq.received_at DESC
+      LIMIT 20
+    `;
+    const updatesResult = await pool.query(updatesQuery, [actualUserId]);
+    const updates = updatesResult.rows;
+
+    // Get recent rule matches
+    const matchesQuery = `
+      SELECT 
+        arm.id,
+        arm.rule_id,
+        arm.confidence_score,
+        arm.reasoning,
+        arm.should_execute,
+        arm.executed,
+        arm.execution_result,
+        arm.execution_error,
+        arm.created_at,
+        arm.executed_at,
+        cer.rule_name,
+        bas.session_name
+      FROM ai_rule_matches arm
+      JOIN contract_execution_rules cer ON cer.id = arm.rule_id
+      LEFT JOIN background_ai_sessions bas ON bas.id = arm.ai_session_id
+      WHERE cer.user_id = $1
+      ORDER BY arm.created_at DESC
+      LIMIT 20
+    `;
+    const matchesResult = await pool.query(matchesQuery, [actualUserId]);
+    const matches = matchesResult.rows;
+
+    res.json({
+      success: true,
+      data: {
+        sessions,
+        logs,
+        location_updates: updates,
+        rule_matches: matches,
+        summary: {
+          total_sessions: sessions.length,
+          total_logs: logs.length,
+          total_updates: updates.length,
+          total_matches: matches.length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[AI Background Logs] Error:', error);
+    res.status(500).json({ 
+      error: 'Failed to retrieve background AI logs',
+      message: error.message 
+    });
+  }
 });
 
 module.exports = router;

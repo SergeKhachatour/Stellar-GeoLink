@@ -14,7 +14,6 @@ import {
   Settings as SettingsIcon,
   VpnKey as PasskeyIcon,
   Api as ApiIcon,
-  AccountCircle as ProfileIcon
 } from '@mui/icons-material';
 import PasskeyManager from '../Wallet/PasskeyManager';
 import ApiDocumentation from '../shared/ApiDocumentation';
