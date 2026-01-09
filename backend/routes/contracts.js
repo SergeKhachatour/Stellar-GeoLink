@@ -79,11 +79,20 @@ const getWasmUploadDir = () => {
 const wasmStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
         const uploadDir = getWasmUploadDir();
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+        
         try {
             await fs.mkdir(uploadDir, { recursive: true });
+            console.log(`${logPrefix} ✅ WASM upload directory ready:`, uploadDir);
             cb(null, uploadDir);
         } catch (error) {
-            console.error('Error creating WASM upload directory:', error);
+            console.error(`${logPrefix} ❌ Error creating WASM upload directory:`, {
+                path: uploadDir,
+                error: error.message,
+                code: error.code,
+                stack: error.stack
+            });
             cb(error);
         }
     },
@@ -300,10 +309,21 @@ router.post('/upload-wasm', authenticateContractUser, wasmUpload.single('wasm'),
 router.post('/:id/upload-wasm', authenticateContractUser, wasmUpload.single('wasm'), async (req, res) => {
     try {
         const { id } = req.params;
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
         
         if (!req.file) {
+            console.error(`${logPrefix} ❌ WASM upload failed: No file received`);
             return res.status(400).json({ error: 'WASM file is required' });
         }
+        
+        console.log(`${logPrefix} 📤 WASM file received:`, {
+            filename: req.file.filename,
+            originalname: req.file.originalname,
+            size: req.file.size,
+            path: req.file.path,
+            mimetype: req.file.mimetype
+        });
 
         const userId = req.user?.id || req.userId;
         if (!userId) {

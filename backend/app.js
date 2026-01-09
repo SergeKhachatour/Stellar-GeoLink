@@ -199,44 +199,51 @@ const ensureUploadsDir = async () => {
         // Check if we're on Azure (Linux Web App)
         const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
         const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
-        let uploadDir;
+        let nftUploadDir;
+        let wasmUploadDir;
         
         if (isAzure) {
             // Azure: Use /home directory which is writable and persistent
-            uploadDir = '/home/uploads/nft-files';
-            console.log(`${logPrefix} 🔧 Configuring upload directory for Azure`);
+            nftUploadDir = '/home/uploads/nft-files';
+            wasmUploadDir = '/home/uploads/contract-wasm';
+            console.log(`${logPrefix} 🔧 Configuring upload directories for Azure`);
             console.log(`${logPrefix} Environment variables:`, {
                 WEBSITE_SITE_NAME: process.env.WEBSITE_SITE_NAME,
                 AZURE_WEBSITE_INSTANCE_ID: process.env.AZURE_WEBSITE_INSTANCE_ID
             });
         } else {
             // Local development: Use relative path
-            uploadDir = path.join(__dirname, 'uploads/nft-files');
-            console.log(`${logPrefix} 🔧 Configuring upload directory for local development`);
+            nftUploadDir = path.join(__dirname, 'uploads/nft-files');
+            wasmUploadDir = path.join(__dirname, 'uploads/contract-wasm');
+            console.log(`${logPrefix} 🔧 Configuring upload directories for local development`);
         }
         
-        await fs.mkdir(uploadDir, { recursive: true });
-        console.log(`${logPrefix} ✅ Upload directory ensured:`, uploadDir);
+        // Create both upload directories
+        await fs.mkdir(nftUploadDir, { recursive: true });
+        await fs.mkdir(wasmUploadDir, { recursive: true });
+        console.log(`${logPrefix} ✅ NFT upload directory ensured:`, nftUploadDir);
+        console.log(`${logPrefix} ✅ WASM upload directory ensured:`, wasmUploadDir);
         
-        // Verify directory exists and get stats
-        try {
-            const stats = await fs.stat(uploadDir);
-            console.log(`${logPrefix} 📊 Directory stats:`, {
-                path: uploadDir,
-                isDirectory: stats.isDirectory(),
-                mode: stats.mode.toString(8),
-                size: stats.size
-            });
-        } catch (statError) {
-            console.error(`${logPrefix} ⚠️  Cannot get directory stats:`, statError.message);
+        // Verify directories exist and get stats
+        for (const dir of [nftUploadDir, wasmUploadDir]) {
+            try {
+                const stats = await fs.stat(dir);
+                console.log(`${logPrefix} 📊 Directory stats:`, {
+                    path: dir,
+                    isDirectory: stats.isDirectory(),
+                    mode: stats.mode.toString(8),
+                    size: stats.size
+                });
+            } catch (statError) {
+                console.error(`${logPrefix} ⚠️  Cannot get directory stats for ${dir}:`, statError.message);
+            }
         }
     } catch (error) {
         const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
         const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
-        console.error(`${logPrefix} ❌ Error ensuring upload directory:`, {
+        console.error(`${logPrefix} ❌ Error ensuring upload directories:`, {
             message: error.message,
             code: error.code,
-            path: uploadDir,
             stack: error.stack
         });
         // Don't exit - app can still run, but uploads will fail
