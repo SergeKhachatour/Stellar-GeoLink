@@ -51,7 +51,11 @@ import {
   VisibilityOff as VisibilityOffIcon,
   Rule as RuleIcon,
   CheckCircle as CheckCircleIcon,
-  Map as MapIcon
+  Map as MapIcon,
+  Schedule as ScheduleIcon,
+  Warning as WarningIcon,
+  LocationOn as LocationOnIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
@@ -93,6 +97,8 @@ const ContractManagement = () => {
   const { publicKey, secretKey } = useWallet();
   const [contracts, setContracts] = useState([]);
   const [rules, setRules] = useState([]);
+  const [pendingRules, setPendingRules] = useState([]);
+  const [loadingPendingRules, setLoadingPendingRules] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -157,7 +163,15 @@ const ContractManagement = () => {
   useEffect(() => {
     loadContracts();
     loadRules();
+    loadPendingRules();
   }, []);
+
+  // Reload pending rules when switching to pending tab
+  useEffect(() => {
+    if (tabValue === 2) {
+      loadPendingRules();
+    }
+  }, [tabValue]);
   
   // Initialize map for quick view
   useEffect(() => {
@@ -317,6 +331,21 @@ const ContractManagement = () => {
       }
     } catch (err) {
       console.error('Error loading rules:', err);
+    }
+  };
+
+  const loadPendingRules = async () => {
+    try {
+      setLoadingPendingRules(true);
+      const response = await api.get('/contracts/rules/pending');
+      if (response.data.success) {
+        setPendingRules(response.data.pending_rules || []);
+      }
+    } catch (err) {
+      console.error('Error loading pending rules:', err);
+      setError(err.response?.data?.error || 'Failed to load pending rules');
+    } finally {
+      setLoadingPendingRules(false);
     }
   };
 
@@ -1423,6 +1452,22 @@ const ContractManagement = () => {
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
           <Tab label="Contracts" {...a11yProps(0)} />
           <Tab label="Execution Rules" {...a11yProps(1)} />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                Pending Rules
+                {pendingRules.length > 0 && (
+                  <Chip 
+                    label={pendingRules.length} 
+                    size="small" 
+                    color="warning"
+                    sx={{ minWidth: '24px', height: '20px' }}
+                  />
+                )}
+              </Box>
+            } 
+            {...a11yProps(2)} 
+          />
         </Tabs>
       </Box>
 
@@ -1851,6 +1896,188 @@ const ContractManagement = () => {
               </Dialog>
             )}
           </>
+        )}
+      </TabPanel>
+
+      {/* Pending Rules Tab */}
+      <TabPanel value={tabValue} index={2}>
+        <Box mb={3}>
+          <Alert severity="info" icon={<ScheduleIcon />}>
+            <Typography variant="subtitle2" gutterBottom>
+              Pending Rules Requiring Authentication
+            </Typography>
+            <Typography variant="body2">
+              These rules matched your location but require WebAuthn/passkey authentication to execute. 
+              Follow the steps below to complete each transaction.
+            </Typography>
+          </Alert>
+        </Box>
+
+        {loadingPendingRules ? (
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        ) : pendingRules.length === 0 ? (
+          <Alert severity="success">
+            No pending rules. All matched rules have been executed automatically.
+          </Alert>
+        ) : (
+          <Grid container spacing={3}>
+            {pendingRules.map((pendingRule) => {
+              const contract = contracts.find(c => c.id === pendingRule.contract_id);
+              const rule = rules.find(r => r.id === pendingRule.rule_id);
+              
+              return (
+                <Grid item xs={12} key={pendingRule.rule_id}>
+                  <Card sx={{ border: '2px solid', borderColor: 'warning.main' }}>
+                    <CardContent>
+                      <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
+                        <Box>
+                          <Typography variant="h6" gutterBottom>
+                            {pendingRule.rule_name}
+                          </Typography>
+                          <Chip 
+                            icon={<WarningIcon />} 
+                            label="Requires Authentication" 
+                            color="warning" 
+                            size="small"
+                            sx={{ mb: 1 }}
+                          />
+                        </Box>
+                        <Chip 
+                          label={contract?.contract_name || 'Unknown Contract'} 
+                          variant="outlined"
+                          size="small"
+                        />
+                      </Box>
+
+                      <Divider sx={{ my: 2 }} />
+
+                      {/* Rule Details */}
+                      <Box mb={2}>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Function: <strong>{pendingRule.function_name}</strong>
+                        </Typography>
+                        {pendingRule.location && (
+                          <Box display="flex" alignItems="center" gap={1} mt={1}>
+                            <LocationOnIcon fontSize="small" color="action" />
+                            <Typography variant="body2" color="text.secondary">
+                              Matched at: {pendingRule.location.latitude.toFixed(6)}, {pendingRule.location.longitude.toFixed(6)}
+                            </Typography>
+                          </Box>
+                        )}
+                        {pendingRule.matched_at && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                            Matched: {new Date(pendingRule.matched_at).toLocaleString()}
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {/* Execution Steps */}
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          Steps to Complete Transaction:
+                        </Typography>
+                        <Stepper orientation="vertical" activeStep={-1}>
+                          <Step>
+                            <StepLabel>Review Transaction Details</StepLabel>
+                            <StepContent>
+                              <Typography variant="body2">
+                                Verify the function parameters and ensure you have sufficient balance in your smart wallet vault.
+                              </Typography>
+                            </StepContent>
+                          </Step>
+                          <Step>
+                            <StepLabel>Authenticate with Passkey</StepLabel>
+                            <StepContent>
+                              <Typography variant="body2">
+                                You will be prompted to authenticate using your registered passkey/WebAuthn device.
+                              </Typography>
+                            </StepContent>
+                          </Step>
+                          <Step>
+                            <StepLabel>Confirm Execution</StepLabel>
+                            <StepContent>
+                              <Typography variant="body2">
+                                Review the transaction details and confirm execution. The payment will be processed from your smart wallet vault.
+                              </Typography>
+                            </StepContent>
+                          </Step>
+                        </Stepper>
+                      </Alert>
+
+                      {/* Function Parameters Preview */}
+                      {pendingRule.function_parameters && (
+                        <Box mb={2}>
+                          <Typography variant="subtitle2" gutterBottom>
+                            Function Parameters:
+                          </Typography>
+                          <Paper 
+                            variant="outlined" 
+                            sx={{ 
+                              p: 2, 
+                              bgcolor: 'grey.50',
+                              maxHeight: '200px',
+                              overflow: 'auto'
+                            }}
+                          >
+                            <pre style={{ margin: 0, fontSize: '0.875rem' }}>
+                              {JSON.stringify(
+                                typeof pendingRule.function_parameters === 'string'
+                                  ? JSON.parse(pendingRule.function_parameters)
+                                  : pendingRule.function_parameters,
+                                null,
+                                2
+                              )}
+                            </pre>
+                          </Paper>
+                        </Box>
+                      )}
+
+                      {/* Message */}
+                      {pendingRule.message && (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          {pendingRule.message}
+                        </Alert>
+                      )}
+                    </CardContent>
+                    <CardActions sx={{ justifyContent: 'flex-end', p: 2 }}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<MapIcon />}
+                        onClick={() => {
+                          if (pendingRule.location) {
+                            setSelectedRuleForMap({
+                              ...rule,
+                              center_latitude: pendingRule.location.latitude,
+                              center_longitude: pendingRule.location.longitude
+                            });
+                            setMapViewOpen(true);
+                          }
+                        }}
+                        disabled={!pendingRule.location}
+                      >
+                        View Location
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<CheckCircleIcon />}
+                        onClick={(e) => {
+                          if (rule) {
+                            handleExecuteRule(rule, e);
+                          }
+                        }}
+                        disabled={!rule}
+                      >
+                        Execute Now
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
         )}
       </TabPanel>
 
