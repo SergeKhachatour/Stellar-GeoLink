@@ -225,18 +225,62 @@ const ensureSorobanCLI = async () => {
                         const SOROBAN_DIR = '/home/soroban';
                         await fs.mkdir(SOROBAN_DIR, { recursive: true });
                         
-                        // Download and install
-                        await execPromise(`curl -L https://github.com/stellar/soroban-tools/releases/latest/download/soroban-x86_64-unknown-linux-gnu.tar.gz -o /tmp/soroban.tar.gz`);
-                        await execPromise(`tar -xzf /tmp/soroban.tar.gz -C ${SOROBAN_DIR}`);
-                        await execPromise(`chmod +x ${SOROBAN_DIR}/soroban`);
+                        // Download and install - use specific version URL to avoid redirects
+                        // Try latest release first, but with better error handling
+                        const downloadUrl = 'https://github.com/stellar/soroban-tools/releases/latest/download/soroban-x86_64-unknown-linux-gnu.tar.gz';
+                        const tarPath = '/tmp/soroban.tar.gz';
                         
-                        // Add to PATH
-                        process.env.PATH = `${SOROBAN_DIR}:${process.env.PATH}`;
-                        console.log(`${logPrefix} ✅ Soroban CLI installed successfully at ${SOROBAN_DIR}`);
-                        return true;
+                        console.log(`${logPrefix} 📥 Downloading Soroban CLI from: ${downloadUrl}`);
+                        // Use curl with better error handling
+                        await execPromise(
+                            `curl -L -f -s -S "${downloadUrl}" -o "${tarPath}"`,
+                            { maxBuffer: 10 * 1024 * 1024 }
+                        );
+                        
+                        // Check if file was downloaded and is valid
+                        try {
+                            const stats = await fs.stat(tarPath);
+                            if (stats.size < 1000) {
+                                // File too small, probably HTML error page
+                                const content = await fs.readFile(tarPath, 'utf8', { limit: 100 });
+                                if (content.includes('<html') || content.includes('<!DOCTYPE') || content.includes('Not Found')) {
+                                    throw new Error('Downloaded file appears to be HTML (error page), not a valid tar.gz');
+                                }
+                            }
+                            console.log(`${logPrefix} ✅ Downloaded ${stats.size} bytes`);
+                        } catch (statError) {
+                            throw new Error(`Downloaded file validation failed: ${statError.message}`);
+                        }
+                        
+                        // Extract
+                        console.log(`${logPrefix} 📦 Extracting Soroban CLI...`);
+                        await execPromise(`tar -xzf "${tarPath}" -C "${SOROBAN_DIR}"`);
+                        
+                        // Verify soroban binary exists
+                        const sorobanPath = `${SOROBAN_DIR}/soroban`;
+                        try {
+                            await fs.access(sorobanPath);
+                            await execPromise(`chmod +x "${sorobanPath}"`);
+                            
+                            // Test that it works
+                            const { stdout: versionOutput } = await execPromise(`"${sorobanPath}" --version`);
+                            console.log(`${logPrefix} ✅ Soroban CLI version: ${versionOutput.trim()}`);
+                            
+                            // Add to PATH
+                            process.env.PATH = `${SOROBAN_DIR}:${process.env.PATH}`;
+                            console.log(`${logPrefix} ✅ Soroban CLI installed successfully at ${sorobanPath}`);
+                            return true;
+                        } catch (verifyError) {
+                            throw new Error(`Soroban binary not found or not executable after extraction: ${verifyError.message}`);
+                        }
                     } catch (installError) {
                         console.error(`${logPrefix} ⚠️  Failed to install Soroban CLI:`, installError.message);
+                        console.error(`${logPrefix}    Error details:`, installError.stack);
                         console.log(`${logPrefix} 💡 WASM parsing will use fallback methods`);
+                        // Clean up failed download
+                        try {
+                            await fs.unlink('/tmp/soroban.tar.gz').catch(() => {});
+                        } catch {}
                         return false;
                     }
                 } else {
