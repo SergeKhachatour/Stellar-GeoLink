@@ -54,8 +54,7 @@ import {
   Map as MapIcon,
   Schedule as ScheduleIcon,
   Warning as WarningIcon,
-  LocationOn as LocationOnIcon,
-  AccountBalanceWallet as AccountBalanceWalletIcon
+  LocationOn as LocationOnIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
