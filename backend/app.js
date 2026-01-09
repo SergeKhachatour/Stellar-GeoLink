@@ -337,19 +337,43 @@ const ensureSorobanCLI = async () => {
                         if (extractedFiles.includes('soroban')) {
                             extractedPath = sorobanPath;
                         } else {
-                            // Check if there's a subdirectory (e.g., soroban-x86_64-unknown-linux-gnu or stellar-cli-23.4.1-x86_64-unknown-linux-gnu)
-                            const subdir = extractedFiles.find(f => 
-                                (f.includes('soroban') || f.includes('stellar-cli')) && 
-                                !f.includes('.') && 
-                                !f.includes('tar')
-                            );
+                            // Check if there's a subdirectory (could be named: soroban-x86_64-unknown-linux-gnu, stellar-cli-23.4.1-x86_64-unknown-linux-gnu, or just "stellar")
+                            let subdir = null;
+                            for (const f of extractedFiles) {
+                                try {
+                                    const stats = await fs.stat(`${SOROBAN_DIR}/${f}`);
+                                    if (stats.isDirectory() && 
+                                        (f.includes('soroban') || f.includes('stellar')) && 
+                                        !f.includes('.tar')) {
+                                        subdir = f;
+                                        break;
+                                    }
+                                } catch (err) {
+                                    // Not a directory or doesn't exist, continue
+                                }
+                            }
+                            
                             if (subdir) {
                                 const subdirPath = `${SOROBAN_DIR}/${subdir}`;
                                 const subdirFiles = await fs.readdir(subdirPath);
                                 console.log(`${logPrefix} 📋 Files in ${subdir}: ${subdirFiles.join(', ')}`);
                                 
                                 // Look for soroban binary in subdirectory
-                                const sorobanInSubdir = subdirFiles.find(f => f === 'soroban' || f.includes('soroban'));
+                                let sorobanInSubdir = null;
+                                for (const file of subdirFiles) {
+                                    try {
+                                        const filePath = `${subdirPath}/${file}`;
+                                        const stats = await fs.stat(filePath);
+                                        // Check if it's a file (not directory) and named soroban or contains soroban
+                                        if (!stats.isDirectory() && (file === 'soroban' || file.includes('soroban'))) {
+                                            sorobanInSubdir = file;
+                                            break;
+                                        }
+                                    } catch (err) {
+                                        // Continue searching
+                                    }
+                                }
+                                
                                 if (sorobanInSubdir) {
                                     const sourcePath = `${subdirPath}/${sorobanInSubdir}`;
                                     await fs.rename(sourcePath, sorobanPath);
@@ -357,6 +381,26 @@ const ensureSorobanCLI = async () => {
                                     // Clean up subdirectory
                                     await fs.rm(subdirPath, { recursive: true, force: true });
                                     extractedPath = sorobanPath;
+                                } else {
+                                    // Maybe the binary has a different name - check all files in the subdirectory
+                                    // The stellar-cli tar might extract with a different structure
+                                    console.log(`${logPrefix} ⚠️  No soroban binary found in ${subdir}, checking all files...`);
+                                    for (const file of subdirFiles) {
+                                        try {
+                                            const filePath = `${subdirPath}/${file}`;
+                                            const stats = await fs.stat(filePath);
+                                            if (!stats.isDirectory()) {
+                                                // This might be the binary - try renaming it to soroban
+                                                await fs.rename(filePath, sorobanPath);
+                                                console.log(`${logPrefix} 📦 Renamed ${subdir}/${file} to soroban`);
+                                                await fs.rm(subdirPath, { recursive: true, force: true });
+                                                extractedPath = sorobanPath;
+                                                break;
+                                            }
+                                        } catch (err) {
+                                            // Continue searching
+                                        }
+                                    }
                                 }
                             }
                         }
