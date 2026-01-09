@@ -23,9 +23,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import AccountCircle from '@mui/icons-material/AccountCircle';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
+import SwitchAccountIcon from '@mui/icons-material/SwitchAccount';
+import SettingsIcon from '@mui/icons-material/Settings';
+import api from '../../services/api';
 
 const Navbar = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, setUserFromToken } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const theme = useTheme();
@@ -33,11 +36,36 @@ const Navbar = () => {
     
     const [anchorEl, setAnchorEl] = React.useState(null);
     const [mobileOpen, setMobileOpen] = React.useState(false);
+    const [availableRoles, setAvailableRoles] = React.useState([]);
+    const [loadingRoles, setLoadingRoles] = React.useState(false);
     
     // Force re-render when location changes
     React.useEffect(() => {
         // This ensures the component re-renders when route changes
     }, [location.pathname]);
+
+    // Fetch available roles when user is logged in
+    React.useEffect(() => {
+        const fetchRoles = async () => {
+            if (!user || !user.public_key) return;
+            
+            try {
+                setLoadingRoles(true);
+                const response = await api.get('/auth/roles');
+                if (response.data.success && response.data.roles) {
+                    // Filter out current role
+                    const otherRoles = response.data.roles.filter(r => r.id !== user.id);
+                    setAvailableRoles(otherRoles);
+                }
+            } catch (err) {
+                console.error('Error fetching roles:', err);
+            } finally {
+                setLoadingRoles(false);
+            }
+        };
+
+        fetchRoles();
+    }, [user]);
 
     const handleMenu = (event) => {
         setAnchorEl(event.currentTarget);
@@ -51,6 +79,49 @@ const Navbar = () => {
         handleClose();
         logout();
         navigate('/login');
+    };
+
+    const handleSwitchRole = async (targetRole) => {
+        try {
+            handleClose();
+            
+            // Call the select-role endpoint
+            const response = await api.post('/auth/login/select-role', {
+                public_key: user.public_key,
+                role: targetRole.role,
+                userId: targetRole.id
+            });
+
+            if (response.data.token) {
+                // Update token and user
+                localStorage.setItem('token', response.data.token);
+                api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+                
+                // Update user context
+                if (setUserFromToken) {
+                    setUserFromToken({
+                        id: response.data.userId,
+                        email: response.data.userEmail,
+                        role: targetRole.role,
+                        public_key: user.public_key
+                    });
+                }
+
+                // Navigate to appropriate dashboard
+                const roleRoutes = {
+                    'admin': '/admin',
+                    'nft_manager': '/dashboard',
+                    'wallet_provider': '/dashboard',
+                    'data_consumer': '/dashboard'
+                };
+                
+                navigate(roleRoutes[targetRole.role] || '/dashboard');
+                window.location.reload(); // Force refresh to load new role's dashboard
+            }
+        } catch (err) {
+            console.error('Error switching role:', err);
+            alert('Failed to switch role. Please try again.');
+        }
     };
 
     const handleDrawerToggle = () => {
@@ -137,8 +208,39 @@ const Navbar = () => {
                         )}
                         <Divider />
                         <ListItem>
-                            <ListItemText primary={user.email} secondary="Logged in" />
+                            <ListItemText 
+                                primary={user.email || user.public_key?.substring(0, 8) + '...'} 
+                                secondary={`Current: ${user.role?.replace('_', ' ')}`} 
+                            />
                         </ListItem>
+                        {availableRoles.length > 0 && (
+                            <>
+                                <ListItem disabled>
+                                    <ListItemText 
+                                        primary="Switch Role" 
+                                        primaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
+                                    />
+                                </ListItem>
+                                {availableRoles.map((role) => (
+                                    <ListItemButton 
+                                        key={role.id}
+                                        onClick={() => {
+                                            handleDrawerToggle();
+                                            handleSwitchRole(role);
+                                        }}
+                                    >
+                                        <ListItemText 
+                                            primary={role.role.replace('_', ' ')}
+                                            secondary={role.email || 'No email'}
+                                        />
+                                    </ListItemButton>
+                                ))}
+                                <Divider />
+                            </>
+                        )}
+                        <ListItemButton component={RouterLink} to="/settings" onClick={handleDrawerToggle}>
+                            <ListItemText primary="Settings" />
+                        </ListItemButton>
                         <ListItemButton component={RouterLink} to="/profile" onClick={handleDrawerToggle}>
                             <ListItemText primary="Profile" />
                         </ListItemButton>
@@ -292,8 +394,47 @@ const Navbar = () => {
                                         open={Boolean(anchorEl)}
                                         onClose={handleClose}
                                     >
-                                        <MenuItem>
-                                            {user.email}
+                                        <MenuItem disabled>
+                                            <Box>
+                                                <Typography variant="body2" fontWeight="bold">
+                                                    {user.email || user.public_key?.substring(0, 8) + '...'}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    Current: {user.role?.replace('_', ' ')}
+                                                </Typography>
+                                            </Box>
+                                        </MenuItem>
+                                        <Divider />
+                                        {availableRoles.length > 0 && (
+                                            <>
+                                                <MenuItem disabled>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Switch Role
+                                                    </Typography>
+                                                </MenuItem>
+                                                {availableRoles.map((role) => (
+                                                    <MenuItem 
+                                                        key={role.id}
+                                                        onClick={() => handleSwitchRole(role)}
+                                                    >
+                                                        <Box display="flex" alignItems="center" gap={1}>
+                                                            <SwitchAccountIcon fontSize="small" />
+                                                            <Typography>
+                                                                {role.role.replace('_', ' ')}
+                                                            </Typography>
+                                                        </Box>
+                                                    </MenuItem>
+                                                ))}
+                                                <Divider />
+                                            </>
+                                        )}
+                                        <MenuItem 
+                                            component={RouterLink} 
+                                            to="/settings"
+                                            onClick={handleClose}
+                                        >
+                                            <SettingsIcon sx={{ mr: 1, fontSize: 20 }} />
+                                            Settings
                                         </MenuItem>
                                         <MenuItem 
                                             component={RouterLink} 

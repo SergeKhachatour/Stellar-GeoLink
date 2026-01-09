@@ -25,9 +25,10 @@ import {
     DialogTitle,
     DialogContent,
     CircularProgress,
-    Paper
+    Paper,
+    TablePagination
 } from '@mui/material';
-import { Link } from 'react-router-dom';
+import { Link as RouterLink } from 'react-router-dom';
 import { DataUsage, Key, ContentCopy, ExpandMore, Code, Description, AccountBalanceWallet as WalletIcon, Collections as CollectionsIcon, Close as CloseIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import api from '../utils/api';
@@ -38,6 +39,7 @@ import { useAuth } from '../contexts/AuthContext';
 import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 import SmartWalletBalance from './Home/SmartWalletBalance';
 import AIChat from './AI/AIChat';
+import ContractManagement from './Contracts/ContractManagement';
 
 const WalletProviderDashboard = () => {
     const { user } = useAuth();
@@ -46,6 +48,7 @@ const WalletProviderDashboard = () => {
     const [apiUsage, setApiUsage] = useState([]);
     const [walletLocations, setWalletLocations] = useState([]);
     const [nfts, setNfts] = useState([]);
+    const [contractRules, setContractRules] = useState([]);
     const [, setRequestHistory] = useState([]);
     const [, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -57,6 +60,9 @@ const WalletProviderDashboard = () => {
     const [zoomTarget, setZoomTarget] = useState(null);
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
+  // Pagination for wallets/NFTs table
+  const [walletsPage, setWalletsPage] = useState(0);
+  const [walletsRowsPerPage, setWalletsRowsPerPage] = useState(10);
 
     // Wallet state
     const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
@@ -138,13 +144,14 @@ const WalletProviderDashboard = () => {
 
     const fetchDashboardData = async () => {
         try {
-            const [walletsRes, keyRes, usageRes, historyRes, locationsRes, nftsRes] = await Promise.all([
+            const [walletsRes, keyRes, usageRes, historyRes, locationsRes, nftsRes, rulesRes] = await Promise.all([
                 api.get('/user/wallets'),
                 api.get('/user/api-keys'),
                 api.get('/user/api-usage'),
                 api.get('/user/api-key-requests'),
                 api.get('/location/dashboard/wallet-locations'),
-                api.get('/nft/public')
+                api.get('/nft/public'),
+                api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }))
             ]);
             setWallets(walletsRes.data);
             setApiKey(keyRes.data[0] || null);
@@ -152,6 +159,7 @@ const WalletProviderDashboard = () => {
             setRequestHistory(historyRes.data);
             setWalletLocations(locationsRes.data);
             setNfts(nftsRes.data.nfts || []);
+            setContractRules(rulesRes.data?.rules || []);
             
             // Try to fetch market analysis separately
             try {
@@ -299,7 +307,7 @@ const WalletProviderDashboard = () => {
                             </Button>
                             <Button
                                 variant="outlined"
-                                component={Link}
+                                component={RouterLink}
                                 to="/api-keys/manage"
                                 startIcon={<DataUsage />}
                             >
@@ -310,52 +318,144 @@ const WalletProviderDashboard = () => {
                 </Box>
             </Box>
 
-            {/* Smart Wallet Vault Balance */}
-            <Box sx={{ mb: 3 }}>
-                <SmartWalletBalance />
-            </Box>
+            {/* Combined Smart Wallet Vault & Smart Contract Management Section */}
+            <Box sx={{ mb: 4 }}>
+                <Grid container spacing={3}>
+                    {/* Left Side: Vault & Connected Wallet */}
+                    <Grid item xs={12} md={5}>
+                        <Card sx={{ height: '100%' }}>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom sx={{ mb: 3 }}>
+                                    💰 Smart Wallet Vault
+                                </Typography>
+                                
+                                {/* Vault Balance */}
+                                <Box sx={{ mb: 3 }}>
+                                    <SmartWalletBalance compact={true} />
+                                </Box>
+                                
+                                <Divider sx={{ my: 3 }} />
+                                
+                                {/* Connected Wallet Status */}
+                                <Box>
+                                    <Typography variant="h6" gutterBottom>
+                                        Provider Wallet
+                                    </Typography>
+                                    {isConnected && publicKey ? (
+                                        <>
+                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                                Connected wallet:{' '}
+                                                <span style={{ fontFamily: 'monospace' }}>
+                                                    {publicKey.substring(0, 6)}...{publicKey.substring(publicKey.length - 6)}
+                                                </span>
+                                            </Typography>
+                                            <Button
+                                                variant="outlined"
+                                                color="secondary"
+                                                size="small"
+                                                onClick={disconnectWallet}
+                                            >
+                                                Disconnect Wallet
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                                No Stellar wallet connected. Connect a wallet to submit locations and manage provider assets on-chain.
+                                            </Typography>
+                                            <Button
+                                                variant="contained"
+                                                color="primary"
+                                                size="small"
+                                                onClick={() => setWalletDialogOpen(true)}
+                                            >
+                                                Connect Wallet
+                                            </Button>
+                                        </>
+                                    )}
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
 
-            {/* Wallet Provider Wallet Status */}
-            <Box sx={{ mb: 3 }}>
-                <Card>
-                    <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Box>
-                            <Typography variant="h6" gutterBottom>
-                                Provider Wallet
-                            </Typography>
-                            {isConnected && publicKey ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    Connected wallet:{' '}
-                                    <span style={{ fontFamily: 'monospace' }}>
-                                        {publicKey.substring(0, 6)}...{publicKey.substring(publicKey.length - 6)}
-                                    </span>
+                    {/* Right Side: Smart Contract Banner */}
+                    <Grid item xs={12} md={7}>
+                        <Paper 
+                            elevation={3}
+                            sx={{ 
+                                p: 3,
+                                height: '100%',
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                color: 'white',
+                                borderRadius: 2,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <Box>
+                                <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'white' }}>
+                                    📜 Smart Contract Management
                                 </Typography>
-                            ) : (
-                                <Typography variant="body2" color="text.secondary">
-                                    No Stellar wallet connected. Connect a wallet to submit locations and manage provider assets on-chain.
+                                <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.9)', mb: 2 }}>
+                                    Deploy and manage Soroban smart contracts with advanced WASM introspection, automatic function discovery, and intelligent parameter mapping. Configure location-based execution rules with geofencing, quorum-based multi-signature requirements, and real-time contract invocation triggered by wallet location updates.
                                 </Typography>
-                            )}
-                        </Box>
-                        <Box>
-                            {isConnected && publicKey ? (
-                                <Button
-                                    variant="outlined"
-                                    color="secondary"
-                                    onClick={disconnectWallet}
-                                >
-                                    Disconnect Wallet
-                                </Button>
-                            ) : (
-                                <Button
-                                    variant="contained"
-                                    onClick={() => setWalletDialogOpen(true)}
-                                >
-                                    Connect Wallet
-                                </Button>
-                            )}
-                        </Box>
-                    </CardContent>
-                </Card>
+                                <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                    <Chip 
+                                        label="WASM Parsing" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                                            color: 'white',
+                                            border: '1px solid rgba(255, 255, 255, 0.3)'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Function Introspection" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                                            color: 'white',
+                                            border: '1px solid rgba(255, 255, 255, 0.3)'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Geofencing Rules" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                                            color: 'white',
+                                            border: '1px solid rgba(255, 255, 255, 0.3)'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Quorum Signatures" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                                            color: 'white',
+                                            border: '1px solid rgba(255, 255, 255, 0.3)'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Auto-Execution" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
+                                            color: 'white',
+                                            border: '1px solid rgba(255, 255, 255, 0.3)'
+                                        }} 
+                                    />
+                                </Box>
+                            </Box>
+                        </Paper>
+                    </Grid>
+                </Grid>
+                
+                {/* Contract Management Component Below */}
+                <Box sx={{ mt: 3 }}>
+                    <ContractManagement />
+                </Box>
             </Box>
 
             {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
@@ -635,7 +735,27 @@ const WalletProviderDashboard = () => {
                                             longitude: parseFloat(location.longitude),
                                             public_key: location.public_key,
                                             description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
-                                            type: 'wallet'
+                                            type: 'wallet',
+                                            marker_type: 'wallet'
+                                        })),
+                                    // Contract execution rules
+                                    ...contractRules
+                                        .filter(rule => rule.latitude && rule.longitude && 
+                                            !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
+                                        .map(rule => ({
+                                            latitude: parseFloat(rule.latitude),
+                                            longitude: parseFloat(rule.longitude),
+                                            id: rule.id,
+                                            rule_name: rule.rule_name,
+                                            function_name: rule.function_name,
+                                            contract_name: rule.contract_name,
+                                            contract_address: rule.contract_address,
+                                            trigger_on: rule.trigger_on,
+                                            radius_meters: rule.radius_meters,
+                                            auto_execute: rule.auto_execute,
+                                            description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
+                                            type: 'contract_rule',
+                                            marker_type: 'contract_rule'
                                         })),
                                     // NFTs
                                     ...nfts
@@ -648,6 +768,7 @@ const WalletProviderDashboard = () => {
                                             name: nft.name || 'NFT',
                                             description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
                                             type: 'nft',
+                                            marker_type: 'nft',
                                             image_url: nft.image_url,
                                             ipfs_hash: nft.ipfs_hash,
                                             server_url: nft.server_url,
@@ -688,237 +809,96 @@ const WalletProviderDashboard = () => {
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {/* Wallets */}
-                                        {wallets.map(wallet => (
-                                            <TableRow key={`wallet-${wallet.id}`}>
-                                                <TableCell>{wallet.public_key}</TableCell>
-                                                <TableCell>{wallet.blockchain}</TableCell>
-                                                <TableCell>
-                                                    <Chip 
-                                                        label="Wallet" 
-                                                        color="primary" 
-                                                        size="small"
-                                                        icon={<WalletIcon />}
-                                                    />
-                                                </TableCell>
-                                                <TableCell>{wallet.description}</TableCell>
-                                                <TableCell>{`${wallet.latitude}, ${wallet.longitude}`}</TableCell>
-                                                <TableCell>{wallet.location_enabled ? 'Active' : 'Disabled'}</TableCell>
-                                                <TableCell>
-                                                    <Button size="small" variant="outlined" sx={{ mr: 1 }}>
-                                                        Edit
-                                                    </Button>
-                                                    <Button size="small" variant="outlined">
-                                                        {wallet.location_enabled ? 'Disable' : 'Enable'}
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                        
-                                        {/* NFTs */}
-                                        {nfts.map(nft => (
-                                            <TableRow key={`nft-${nft.id}`}>
-                                                <TableCell>{nft.pinned_by_user}</TableCell>
-                                                <TableCell>Stellar</TableCell>
-                                                <TableCell>
-                                                    <Chip 
-                                                        label="NFT" 
-                                                        color="secondary" 
-                                                        size="small"
-                                                        icon={<CollectionsIcon />}
-                                                    />
-                                                </TableCell>
-                                                <TableCell>{nft.name || 'Unnamed NFT'}</TableCell>
-                                                <TableCell>{`${nft.latitude}, ${nft.longitude}`}</TableCell>
-                                                <TableCell>{nft.is_active ? 'Active' : 'Inactive'}</TableCell>
-                                                <TableCell>
-                                                    <Button size="small" variant="outlined" sx={{ mr: 1 }}>
-                                                        View
-                                                    </Button>
-                                                    <Button size="small" variant="outlined">
-                                                        Details
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
+                                        {/* Combine wallets and NFTs, then paginate */}
+                                        {(() => {
+                                            const allItems = [
+                                                ...wallets.map(w => ({ ...w, type: 'wallet' })),
+                                                ...nfts.map(n => ({ ...n, type: 'nft' }))
+                                            ];
+                                            const paginatedItems = allItems.slice(
+                                                walletsPage * walletsRowsPerPage,
+                                                walletsPage * walletsRowsPerPage + walletsRowsPerPage
+                                            );
+                                            
+                                            return paginatedItems.map((item) => (
+                                                item.type === 'wallet' ? (
+                                                    <TableRow key={`wallet-${item.id}`}>
+                                                        <TableCell>{item.public_key}</TableCell>
+                                                        <TableCell>{item.blockchain}</TableCell>
+                                                        <TableCell>
+                                                            <Chip 
+                                                                label="Wallet" 
+                                                                color="primary" 
+                                                                size="small"
+                                                                icon={<WalletIcon />}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell>{item.description}</TableCell>
+                                                        <TableCell>{`${item.latitude}, ${item.longitude}`}</TableCell>
+                                                        <TableCell>{item.location_enabled ? 'Active' : 'Disabled'}</TableCell>
+                                                        <TableCell>
+                                                            <Button size="small" variant="outlined" sx={{ mr: 1 }}>
+                                                                Edit
+                                                            </Button>
+                                                            <Button size="small" variant="outlined">
+                                                                {item.location_enabled ? 'Disable' : 'Enable'}
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    <TableRow key={`nft-${item.id}`}>
+                                                        <TableCell>{item.pinned_by_user}</TableCell>
+                                                        <TableCell>Stellar</TableCell>
+                                                        <TableCell>
+                                                            <Chip 
+                                                                label="NFT" 
+                                                                color="secondary" 
+                                                                size="small"
+                                                                icon={<CollectionsIcon />}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell>{item.name || 'Unnamed NFT'}</TableCell>
+                                                        <TableCell>{`${item.latitude}, ${item.longitude}`}</TableCell>
+                                                        <TableCell>{item.is_active ? 'Active' : 'Inactive'}</TableCell>
+                                                        <TableCell>
+                                                            <Button size="small" variant="outlined" sx={{ mr: 1 }}>
+                                                                View
+                                                            </Button>
+                                                            <Button size="small" variant="outlined">
+                                                                Details
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )
+                                            ));
+                                        })()}
                                     </TableBody>
                                 </Table>
                             </TableContainer>
+                            <TablePagination
+                                component="div"
+                                count={(() => {
+                                    // Calculate actual combined array length
+                                    const allItems = [
+                                        ...wallets.map(w => ({ ...w, type: 'wallet' })),
+                                        ...nfts.map(n => ({ ...n, type: 'nft' }))
+                                    ];
+                                    return allItems.length;
+                                })()}
+                                page={walletsPage}
+                                onPageChange={(event, newPage) => setWalletsPage(newPage)}
+                                rowsPerPage={walletsRowsPerPage}
+                                onRowsPerPageChange={(event) => {
+                                    setWalletsRowsPerPage(parseInt(event.target.value, 10));
+                                    setWalletsPage(0);
+                                }}
+                                rowsPerPageOptions={[5, 10, 25, 50]}
+                            />
                         </CardContent>
                     </Card>
                 </Grid>
             </Grid>
 
-            {/* API Documentation */}
-            <Grid item xs={12}>
-                <Card>
-                    <CardContent>
-                        <Box display="flex" alignItems="center" mb={2}>
-                            <Description sx={{ mr: 1 }} />
-                            <Typography variant="h6">Wallet Provider API Documentation</Typography>
-                        </Box>
-                        
-                        <Accordion>
-                            <AccordionSummary expandIcon={<ExpandMore />}>
-                                <Typography variant="h6">Submit Wallet Location</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Endpoint:</strong> POST /api/location/update
-                                </Typography>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Headers:</strong> Authorization: Bearer YOUR_API_KEY
-                                </Typography>
-                                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                                    <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace' }}>
-{`{
-  "public_key": "GABC123...",
-  "blockchain": "Stellar",
-  "latitude": 40.7128,
-  "longitude": -74.0060,
-  "wallet_type_id": 1,
-  "description": "User wallet location"
-}`}
-                                    </Typography>
-                                </Box>
-                            </AccordionDetails>
-                        </Accordion>
-
-                        <Accordion>
-                            <AccordionSummary expandIcon={<ExpandMore />}>
-                                <Typography variant="h6">Update User Privacy Settings</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Endpoint:</strong> POST /api/wallet-provider/privacy-settings
-                                </Typography>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Headers:</strong> Authorization: Bearer YOUR_API_KEY
-                                </Typography>
-                                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                                    <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace' }}>
-{`{
-  "public_key": "GABC123...",
-  "privacy_enabled": true,
-  "visibility_enabled": false
-}`}
-                                    </Typography>
-                                </Box>
-                            </AccordionDetails>
-                        </Accordion>
-
-                        <Accordion>
-                            <AccordionSummary expandIcon={<ExpandMore />}>
-                                <Typography variant="h6">Update User Visibility Settings</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Endpoint:</strong> POST /api/wallet-provider/visibility-settings
-                                </Typography>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Headers:</strong> Authorization: Bearer YOUR_API_KEY
-                                </Typography>
-                                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                                    <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace' }}>
-{`{
-  "public_key": "GABC123...",
-  "is_visible": true
-}`}
-                                    </Typography>
-                                </Box>
-                            </AccordionDetails>
-                        </Accordion>
-
-                        <Accordion>
-                            <AccordionSummary expandIcon={<ExpandMore />}>
-                                <Typography variant="h6">Get User Locations</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Endpoint:</strong> GET /api/wallet-provider/user-locations?public_key=GABC123...
-                                </Typography>
-                                <Typography variant="body2" gutterBottom>
-                                    <strong>Headers:</strong> Authorization: Bearer YOUR_API_KEY
-                                </Typography>
-                                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
-                                    <Typography variant="body2" component="pre" sx={{ fontFamily: 'monospace' }}>
-{`{
-  "locations": [
-    {
-      "id": 1,
-      "public_key": "GABC123...",
-      "latitude": 40.7128,
-      "longitude": -74.0060,
-      "timestamp": "2025-10-03T19:00:00Z"
-    }
-  ]
-}`}
-                                    </Typography>
-                                </Box>
-                            </AccordionDetails>
-                        </Accordion>
-
-                        <Divider sx={{ my: 2 }} />
-                        
-                        <Box display="flex" gap={2} flexWrap="wrap">
-                            <Button
-                                variant="outlined"
-                                startIcon={<Code />}
-                                href="/docs"
-                                target="_blank"
-                            >
-                                Full API Documentation
-                            </Button>
-                            <Button
-                                variant="outlined"
-                                startIcon={<Description />}
-                                onClick={() => {
-                                    // Download Postman collection
-                                    const postmanCollection = {
-                                        "info": {
-                                            "name": "GeoLink Wallet Provider API",
-                                            "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-                                        },
-                                        "item": [
-                                            {
-                                                "name": "Submit Wallet Location",
-                                                "request": {
-                                                    "method": "POST",
-                                                    "header": [
-                                                        {
-                                                            "key": "Authorization",
-                                                            "value": "Bearer {{api_key}}"
-                                                        }
-                                                    ],
-                                                    "body": {
-                                                        "mode": "raw",
-                                                        "raw": "{\n  \"public_key\": \"GABC123...\",\n  \"blockchain\": \"Stellar\",\n  \"latitude\": 40.7128,\n  \"longitude\": -74.0060,\n  \"wallet_type_id\": 1,\n  \"description\": \"User wallet location\"\n}"
-                                                    },
-                                                    "url": {
-                                                        "raw": "{{base_url}}/api/location/update",
-                                                        "host": ["{{base_url}}"],
-                                                        "path": ["api", "location", "update"]
-                                                    }
-                                                }
-                                            }
-                                        ]
-                                    };
-                                    
-                                    const blob = new Blob([JSON.stringify(postmanCollection, null, 2)], { type: 'application/json' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = 'GeoLink-Wallet-Provider-API.postman_collection.json';
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                }}
-                            >
-                                Download Postman Collection
-                            </Button>
-                        </Box>
-                    </CardContent>
-                </Card>
-            </Grid>
 
             <ApiKeyRequestForm
                 open={requestFormOpen}
@@ -1222,6 +1202,7 @@ const WalletProviderDashboard = () => {
                     )}
                 </DialogContent>
             </Dialog>
+
 
             {/* Wallet Connection Dialog */}
             <WalletConnectionDialog

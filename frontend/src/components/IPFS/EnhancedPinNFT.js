@@ -316,7 +316,7 @@ const EnhancedPinNFT = ({ onPinComplete, open, onClose }) => {
       
       try {
         // Try to fetch from API if endpoint exists
-        const response = await api.get('/nft/contracts');
+        const response = await api.get('/contracts');
         if (response.data && Array.isArray(response.data.contracts)) {
           contractsList = response.data.contracts;
         } else if (response.data && Array.isArray(response.data)) {

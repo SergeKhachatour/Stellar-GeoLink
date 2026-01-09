@@ -600,6 +600,9 @@ router.post('/deposit', authenticateUser, async (req, res) => {
       ? StellarSdk.Networks.TESTNET
       : StellarSdk.Networks.PUBLIC;
     const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
+    
+    // Initialize Horizon server for account loading
+    const horizonServer = new StellarSdk.Horizon.Server(contracts.HORIZON_URL);
 
     // Decode DER signature to raw 64-byte format
     const derSignatureBytes = Buffer.from(webauthnSignature, 'base64');
@@ -734,8 +737,15 @@ router.post('/deposit', authenticateUser, async (req, res) => {
         console.warn('[Smart Wallet] ⚠️ Could not retrieve registered passkey, proceeding anyway');
       }
     } catch (checkError) {
-      console.warn('[Smart Wallet] ⚠️ Error checking registered passkey:', checkError.message);
-      console.warn('[Smart Wallet] ⚠️ Proceeding with deposit anyway - verification will happen in contract');
+      console.error('[Smart Wallet] ❌ Error checking registered passkey:', checkError.message);
+      console.error('[Smart Wallet] ❌ Stack:', checkError.stack);
+      // Don't proceed if we can't verify - the contract will fail anyway
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to verify registered passkey',
+        details: checkError.message,
+        suggestion: 'Please ensure your passkey is registered on the smart wallet contract and matches the one you are using for signing.'
+      });
     }
 
     // Create ScVals
@@ -882,7 +892,7 @@ router.post('/deposit', authenticateUser, async (req, res) => {
 
     // Build transaction
     console.log(`[Smart Wallet] 🔍 Loading account ${userPublicKey} from Horizon: ${contracts.HORIZON_URL}`);
-    const horizonServer = new StellarSdk.Horizon.Server(contracts.HORIZON_URL);
+    // horizonServer is already initialized earlier in the function
     const account = await horizonServer.loadAccount(userPublicKey);
     console.log(`[Smart Wallet] ✅ Account loaded - Sequence: ${account.sequenceNumber()}`);
     

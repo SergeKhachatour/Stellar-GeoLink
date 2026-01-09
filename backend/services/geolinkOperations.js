@@ -219,6 +219,78 @@ async function verifyNFTLocation(nftId, userLatitude, userLongitude, token) {
 }
 
 /**
+ * Get nearby contract execution rules
+ * @param {number} latitude - Center latitude
+ * @param {number} longitude - Center longitude
+ * @param {number} radius - Search radius in meters (default: 20000000 for global)
+ * @param {string} token - User authentication token (optional)
+ * @returns {Promise<object>} - Nearby contract rules
+ */
+async function getNearbyContractRules(latitude, longitude, radius = 20000000, token = null) {
+  try {
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts/execution-rules/locations`;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    
+    console.log(`[getNearbyContractRules] Calling API: ${apiUrl}`);
+    console.log(`[getNearbyContractRules] Params: lat=${latitude}, lon=${longitude}, radius=${radius}`);
+    
+    const response = await axios.get(apiUrl, {
+      headers
+    });
+    
+    console.log(`[getNearbyContractRules] Response status: ${response.status}`);
+    console.log(`[getNearbyContractRules] Rules count: ${response.data?.rules?.length || 0}`);
+    
+    // Filter rules by radius if not global
+    let rules = response.data?.rules || [];
+    if (radius < 20000000 && latitude != null && longitude != null) {
+      // Calculate distance for each rule and filter
+      rules = rules.filter(rule => {
+        if (!rule.latitude || !rule.longitude) return false;
+        const distance = calculateDistance(
+          latitude,
+          longitude,
+          parseFloat(rule.latitude),
+          parseFloat(rule.longitude)
+        );
+        return distance <= radius;
+      });
+      console.log(`[getNearbyContractRules] Filtered to ${rules.length} rules within ${radius}m`);
+    }
+    
+    return {
+      rules: rules,
+      count: rules.length
+    };
+  } catch (error) {
+    console.error(`[getNearbyContractRules] Error:`, error.response?.data || error.message);
+    // Return empty array on error instead of throwing
+    return { rules: [], count: 0 };
+  }
+}
+
+/**
+ * Calculate distance between two coordinates using Haversine formula
+ * @param {number} lat1 - Latitude 1
+ * @param {number} lon1 - Longitude 1
+ * @param {number} lat2 - Latitude 2
+ * @param {number} lon2 - Longitude 2
+ * @returns {number} - Distance in meters
+ */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
  * Create a new NFT collection
  * @param {string} name - Collection name
  * @param {string} description - Collection description
@@ -500,6 +572,111 @@ async function getUserWalletInfo(userId) {
   }
 }
 
+/**
+ * Discover functions in a smart contract
+ */
+async function discoverContract(contractAddress, network = 'testnet', token = null) {
+  try {
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts/discover`;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    
+    const response = await axios.post(apiUrl, {
+      contract_address: contractAddress,
+      network
+    }, { headers });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error discovering contract:', error);
+    throw new Error(`Failed to discover contract: ${error.response?.data?.error || error.message}`);
+  }
+}
+
+/**
+ * Get user's custom contracts
+ */
+async function getCustomContracts(token) {
+  try {
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+    
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts`;
+    const headers = { Authorization: `Bearer ${token}` };
+    
+    const response = await axios.get(apiUrl, { headers });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching custom contracts:', error);
+    throw new Error(`Failed to fetch custom contracts: ${error.response?.data?.error || error.message}`);
+  }
+}
+
+/**
+ * Save a custom contract
+ */
+async function saveCustomContract(contractData, token) {
+  try {
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+    
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts`;
+    const headers = { Authorization: `Bearer ${token}` };
+    
+    const response = await axios.post(apiUrl, contractData, { headers });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error saving custom contract:', error);
+    throw new Error(`Failed to save custom contract: ${error.response?.data?.error || error.message}`);
+  }
+}
+
+/**
+ * Execute a contract function
+ */
+async function executeContractFunction(contractId, functionName, parameters, userPublicKey, userSecretKey, token, submitToLedger = null) {
+  try {
+    if (!token) {
+      throw new Error('Authentication required');
+    }
+    
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts/${contractId}/execute`;
+    const headers = { Authorization: `Bearer ${token}` };
+    
+    // If submitToLedger is not explicitly set, default to true if secret key is provided
+    // (if you provide a secret key, you probably want to execute on-chain)
+    const shouldSubmitToLedger = submitToLedger !== null 
+      ? submitToLedger 
+      : (userSecretKey !== null && userSecretKey !== undefined);
+    
+    const requestBody = {
+      function_name: functionName,
+      parameters,
+      user_public_key: userPublicKey,
+      user_secret_key: userSecretKey
+    };
+    
+    // Only include submit_to_ledger if it's explicitly true (to force on-chain execution)
+    if (shouldSubmitToLedger) {
+      requestBody.submit_to_ledger = true;
+    }
+    
+    const response = await axios.post(apiUrl, requestBody, { headers });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error executing contract function:', error);
+    throw new Error(`Failed to execute contract function: ${error.response?.data?.error || error.message}`);
+  }
+}
+
 module.exports = {
   findNearbyWallets,
   getGeospatialStatistics,
@@ -514,6 +691,11 @@ module.exports = {
   getBlockchainDistribution,
   getGeofences,
   createGeofence,
-  getUserWalletInfo
+  getUserWalletInfo,
+  discoverContract,
+  getCustomContracts,
+  saveCustomContract,
+  executeContractFunction,
+  getNearbyContractRules
 };
 

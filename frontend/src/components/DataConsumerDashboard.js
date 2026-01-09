@@ -20,7 +20,9 @@ import {
     TableContainer,
     TableHead,
     TableRow,
-    Paper
+    Paper,
+    Tabs,
+    Tab
 } from '@mui/material';
 import { DataUsage, Key, ContentCopy, Close as CloseIcon } from '@mui/icons-material';
 import api from '../utils/api';
@@ -32,6 +34,7 @@ import { useAuth } from '../contexts/AuthContext';
 import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 import SmartWalletBalance from './Home/SmartWalletBalance';
 import AIChat from './AI/AIChat';
+import ContractManagement from './Contracts/ContractManagement';
 
 const DataConsumerDashboard = () => {
     const { user } = useAuth();
@@ -41,6 +44,7 @@ const DataConsumerDashboard = () => {
     const [marketAnalysis, setMarketAnalysis] = useState(null);
     const [walletLocations, setWalletLocations] = useState([]);
     const [nfts, setNfts] = useState([]);
+    const [contractRules, setContractRules] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -126,12 +130,13 @@ const DataConsumerDashboard = () => {
             setError('');
             
             // Fetch basic data first
-            const [keyRes, usageRes, historyRes, locationsRes, nftsRes] = await Promise.all([
+            const [keyRes, usageRes, historyRes, locationsRes, nftsRes, rulesRes] = await Promise.all([
                 api.get('/user/api-keys'),
                 api.get('/user/api-usage'),
                 api.get('/user/api-key-requests'),
                 api.get('/location/dashboard/wallet-locations'),
-                api.get('/nft/public')
+                api.get('/nft/public'),
+                api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }))
             ]);
             
             setApiKey(keyRes.data[0] || null);
@@ -139,6 +144,7 @@ const DataConsumerDashboard = () => {
             setRequestHistory(historyRes.data);
             setWalletLocations(locationsRes.data);
             setNfts(nftsRes.data.nfts || []);
+            setContractRules(rulesRes.data?.rules || []);
             
             // Try to fetch market analysis separately
             try {
@@ -532,7 +538,27 @@ const DataConsumerDashboard = () => {
                                     longitude: parseFloat(location.longitude),
                                     public_key: location.public_key,
                                     description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
-                                    type: 'wallet'
+                                    type: 'wallet',
+                                    marker_type: 'wallet'
+                                })),
+                            // Contract execution rules
+                            ...contractRules
+                                .filter(rule => rule.latitude && rule.longitude && 
+                                    !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
+                                .map(rule => ({
+                                    latitude: parseFloat(rule.latitude),
+                                    longitude: parseFloat(rule.longitude),
+                                    id: rule.id,
+                                    rule_name: rule.rule_name,
+                                    function_name: rule.function_name,
+                                    contract_name: rule.contract_name,
+                                    contract_address: rule.contract_address,
+                                    trigger_on: rule.trigger_on,
+                                    radius_meters: rule.radius_meters,
+                                    auto_execute: rule.auto_execute,
+                                    description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
+                                    type: 'contract_rule',
+                                    marker_type: 'contract_rule'
                                 })),
                             // NFTs
                             ...nfts
@@ -545,6 +571,7 @@ const DataConsumerDashboard = () => {
                                     name: nft.name || 'NFT',
                                     description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
                                     type: 'nft',
+                                    marker_type: 'nft',
                                     image_url: nft.image_url,
                                     ipfs_hash: nft.ipfs_hash,
                                     server_url: nft.server_url,
@@ -835,6 +862,14 @@ const DataConsumerDashboard = () => {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* Smart Contracts Section */}
+            <Box sx={{ mt: 4, mb: 3 }}>
+                <Typography variant="h5" gutterBottom>
+                    📜 Smart Contract Management
+                </Typography>
+                <ContractManagement />
+            </Box>
 
             {/* Wallet Connection Dialog */}
             <WalletConnectionDialog

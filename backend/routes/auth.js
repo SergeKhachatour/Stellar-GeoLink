@@ -349,6 +349,39 @@ router.post('/login/passkey', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/auth/roles
+ * Get all roles for the authenticated user (by public_key)
+ */
+router.get('/roles', authenticateUser, async (req, res) => {
+    try {
+        if (!req.user || !req.user.public_key) {
+            return res.status(400).json({ error: 'User public key not found' });
+        }
+
+        const result = await pool.query(
+            'SELECT id, email, role, first_name, last_name, public_key FROM users WHERE public_key = $1 ORDER BY id',
+            [req.user.public_key]
+        );
+
+        res.json({
+            success: true,
+            roles: result.rows.map(r => ({
+                id: r.id,
+                role: r.role,
+                email: r.email,
+                firstName: r.first_name,
+                lastName: r.last_name
+            })),
+            currentRole: req.user.role,
+            currentUserId: req.user.id
+        });
+    } catch (error) {
+        console.error('Error fetching user roles:', error);
+        res.status(500).json({ error: 'Failed to fetch user roles', message: error.message });
+    }
+});
+
 router.post('/login/select-role', async (req, res) => {
     try {
         const { public_key, role, userId } = req.body;
@@ -374,7 +407,10 @@ router.post('/login/select-role', async (req, res) => {
             user: {
                 id: user.id,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                public_key: user.public_key,
+                firstName: user.first_name,
+                lastName: user.last_name
             }
         };
 
@@ -395,12 +431,20 @@ router.post('/login/select-role', async (req, res) => {
         );
 
         res.json({
+            token,
+            refreshToken,
             userId: user.id,
             userEmail: user.email || null,
             userPublicKey: user.public_key || null,
             userRole: user.role,
-            token,
-            refreshToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                public_key: user.public_key,
+                firstName: user.first_name,
+                lastName: user.last_name
+            },
             user: {
                 id: user.id,
                 email: user.email || null,

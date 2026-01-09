@@ -188,11 +188,14 @@ const SharedMap = ({
         return;
       }
 
+      // Determine location type
+      const locationType = location.type || location.marker_type;
+
       // Create marker element based on type
       const el = document.createElement('div');
       el.className = 'location-marker';
       
-      if (location.type === 'nft') {
+      if (locationType === 'nft') {
         // NFT marker with image - use correct IPFS URL construction
         const imageUrl = location.ipfs_hash && location.server_url 
           ? `${location.server_url}${location.ipfs_hash}`
@@ -217,7 +220,25 @@ const SharedMap = ({
           text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         `;
         el.textContent = '🎨';
-      } else if (location.type === 'wallet') {
+      } else if (locationType === 'contract_rule') {
+        // Smart Contract Execution Rule marker
+        el.style.cssText = `
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border: 3px solid white;
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          color: white;
+          font-weight: bold;
+        `;
+        el.textContent = '📜';
+      } else if (locationType === 'wallet') {
         // Wallet marker
         el.style.cssText = `
           width: 30px;
@@ -260,7 +281,7 @@ const SharedMap = ({
         .addTo(map.current);
 
       // Add click and double-click handlers for NFT markers
-      if (location.type === 'nft' && onNFTDetails) {
+      if (locationType === 'nft' && onNFTDetails) {
         let clickTimeout;
         
         el.addEventListener('click', (e) => {
@@ -302,19 +323,48 @@ const SharedMap = ({
         });
       }
 
+      // Add click handler for contract rule markers
+      if (locationType === 'contract_rule' && onLocationClick) {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onLocationClick(location);
+        });
+      }
+
       // Add popup
-      if (location.public_key || location.description) {
-        const popup = new Mapboxgl.Popup({ offset: 25 })
-          .setHTML(`
+      if (location.public_key || location.description || location.rule_name || location.name) {
+        let popupHTML = '';
+        
+        if (locationType === 'contract_rule') {
+          popupHTML = `
             <div style="padding: 12px; min-width: 200px;">
-              <h4 style="margin: 0 0 8px 0; color: #1976d2;">Location ${index + 1}</h4>
+              <h3 style="margin: 0 0 8px 0; color: #667eea;">📜 ${location.rule_name || 'Contract Rule'}</h3>
+              ${location.contract_name ? `<p style="margin: 4px 0;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
+              ${location.function_name ? `<p style="margin: 4px 0;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
+              ${location.trigger_on ? `<p style="margin: 4px 0;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
+              ${location.radius_meters ? `<p style="margin: 4px 0;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
+              ${location.auto_execute ? `<p style="margin: 4px 0; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
+              <p style="margin: 4px 0; font-size: 11px; color: #999;">
+                Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
+              </p>
+            </div>
+          `;
+        } else {
+          popupHTML = `
+            <div style="padding: 12px; min-width: 200px;">
+              <h4 style="margin: 0 0 8px 0; color: #1976d2;">${location.name || `Location ${index + 1}`}</h4>
               ${location.public_key ? `<p style="margin: 4px 0; font-family: monospace; font-size: 12px; color: #666;">${location.public_key.substring(0, 20)}...</p>` : ''}
               ${location.description ? `<p style="margin: 4px 0; color: #333;">${location.description}</p>` : ''}
               <p style="margin: 4px 0; font-size: 11px; color: #999;">
                 Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
               </p>
             </div>
-          `);
+          `;
+        }
+        
+        const popup = new Mapboxgl.Popup({ offset: 25 })
+          .setHTML(popupHTML);
         marker.setPopup(popup);
       }
 

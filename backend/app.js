@@ -12,6 +12,7 @@ const analyticsRoutes = require('./routes/analytics');
 const alertRoutes = require('./routes/alerts');
 const walletProviderRoutes = require('./routes/walletProvider');
 const nftRoutes = require('./routes/nft');
+const contractsRoutes = require('./routes/contracts');
 const locationVerificationRoutes = require('./routes/locationVerification');
 const nftAnalyticsRoutes = require('./routes/nftAnalytics');
 const geospatialRoutes = require('./routes/geospatial');
@@ -64,6 +65,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/wallet-provider', walletProviderRoutes);
 app.use('/api/nft', nftRoutes);
+app.use('/api/contracts', contractsRoutes);
 app.use('/api/location-verification', locationVerificationRoutes);
 app.use('/api/nft-analytics', nftAnalyticsRoutes);
 app.use('/api/geospatial', geospatialRoutes);
@@ -243,6 +245,31 @@ const ensureUploadsDir = async () => {
 
 // Ensure uploads directory exists before starting server
 ensureUploadsDir();
+
+// Start background AI service for processing location updates
+const backgroundAIService = require('./services/backgroundAIService');
+const BACKGROUND_AI_INTERVAL = parseInt(process.env.BACKGROUND_AI_INTERVAL_MS || '5000', 10); // Default 5 seconds
+
+// Start background AI worker
+if (process.env.ENABLE_BACKGROUND_AI !== 'false') {
+    backgroundAIService.start(BACKGROUND_AI_INTERVAL);
+    console.log(`[BackgroundAI] ✅ Background AI service started (interval: ${BACKGROUND_AI_INTERVAL}ms)`);
+} else {
+    console.log(`[BackgroundAI] ⏸️  Background AI service disabled (ENABLE_BACKGROUND_AI=false)`);
+}
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('[BackgroundAI] ⏹️  Stopping background AI service...');
+    backgroundAIService.stop();
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('[BackgroundAI] ⏹️  Stopping background AI service...');
+    backgroundAIService.stop();
+    process.exit(0);
+});
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

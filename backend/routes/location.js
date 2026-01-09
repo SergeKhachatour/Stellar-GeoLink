@@ -302,6 +302,7 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             wallet_provider_id: req.providerId
         });
 
+        // Update wallet location (trigger will automatically populate history table)
         const result = await pool.query(
             `INSERT INTO wallet_locations 
             (public_key, blockchain, latitude, longitude, wallet_type_id, description, wallet_provider_id, location, location_enabled)
@@ -319,8 +320,51 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             RETURNING *`,
             [public_key, blockchain, parseFloat(latitude), parseFloat(longitude), walletTypeId, description || null, req.providerId]
         );
+        
+        // Note: wallet_location_history is automatically populated by database trigger
+        // No need to manually insert into history table
 
         console.log('✅ Location updated successfully');
+
+        // Queue location update for background AI processing
+        // Get user_id from wallet_providers table using providerId
+        try {
+            let userId = null;
+            if (req.providerId) {
+                const userResult = await pool.query(
+                    'SELECT user_id FROM wallet_providers WHERE id = $1',
+                    [req.providerId]
+                );
+                userId = userResult.rows[0]?.user_id || null;
+            }
+            
+            // If we have a user_id, queue the update for AI processing
+            if (userId) {
+                await pool.query(
+                    `INSERT INTO location_update_queue 
+                     (user_id, public_key, latitude, longitude, accuracy_meters, source, metadata)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [
+                        userId,
+                        public_key,
+                        parseFloat(latitude),
+                        parseFloat(longitude),
+                        null, // accuracy_meters - can be added if provided
+                        'xyz-wallet',
+                        JSON.stringify({
+                            blockchain,
+                            wallet_type_id: walletTypeId,
+                            description,
+                            wallet_provider_id: req.providerId
+                        })
+                    ]
+                );
+                console.log('📍 Location update queued for AI processing');
+            }
+        } catch (queueError) {
+            // Don't fail the location update if queueing fails
+            console.error('⚠️  Error queueing location update for AI processing:', queueError);
+        }
 
         res.json({ 
             success: true, 
@@ -471,6 +515,98 @@ router.get('/wallet-locations', authenticateApiKey, async (req, res) => {
         res.json(result.rows);
     } catch (error) {
         console.error('Error fetching wallet locations:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// GET endpoint for all map markers (wallets, contract rules, NFTs)
+// JWT-authenticated version for dashboard use
+router.get('/all-markers', authenticateUser, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ error: 'Authentication required' });
+        }
+
+        // Get wallets
+        const walletsResult = await pool.query(`
+            SELECT 
+                w.id,
+                w.public_key,
+                w.blockchain,
+                w.latitude,
+                w.longitude,
+                w.tracking_status,
+                w.last_updated,
+                wt.name as wallet_type,
+                wp.name as provider_name,
+                'wallet' as marker_type,
+                'wallet' as type
+            FROM wallet_locations w
+            JOIN wallet_types wt ON w.wallet_type_id = wt.id
+            JOIN wallet_providers wp ON w.wallet_provider_id = wp.id
+            WHERE w.location_enabled = true
+        `);
+
+        // Get contract execution rules with locations
+        const rulesResult = await pool.query(`
+            SELECT 
+                cer.id,
+                cer.rule_name,
+                cer.rule_type,
+                cer.center_latitude as latitude,
+                cer.center_longitude as longitude,
+                cer.radius_meters,
+                cer.function_name,
+                cer.is_active,
+                cer.trigger_on,
+                cer.auto_execute,
+                cc.contract_name,
+                cc.contract_address,
+                cc.network,
+                'contract_rule' as marker_type,
+                'contract_rule' as type
+            FROM contract_execution_rules cer
+            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE cer.user_id = $1 
+                AND cer.rule_type = 'location'
+                AND cer.center_latitude IS NOT NULL 
+                AND cer.center_longitude IS NOT NULL
+                AND cer.is_active = true
+        `, [userId]);
+
+        // Get NFTs (only if location is enabled and active)
+        const nftsResult = await pool.query(`
+            SELECT 
+                n.id,
+                n.name,
+                n.latitude,
+                n.longitude,
+                n.is_active,
+                n.pinned_by_user as public_key,
+                n.ipfs_hash,
+                n.server_url,
+                'nft' as marker_type,
+                'nft' as type
+            FROM nfts n
+            WHERE n.latitude IS NOT NULL 
+                AND n.longitude IS NOT NULL
+                AND n.is_active = true
+        `);
+
+        res.json({
+            success: true,
+            wallets: walletsResult.rows,
+            contract_rules: rulesResult.rows,
+            nfts: nftsResult.rows,
+            all: [
+                ...walletsResult.rows,
+                ...rulesResult.rows,
+                ...nftsResult.rows
+            ]
+        });
+    } catch (error) {
+        console.error('Error fetching all markers:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });

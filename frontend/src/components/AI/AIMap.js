@@ -13,7 +13,10 @@ import {
   Slider,
   Chip,
   Card,
-  CardContent
+  CardContent,
+  FormControlLabel,
+  Switch,
+  Divider
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -22,6 +25,7 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import { useAIMap } from '../../contexts/AIMapContext';
+import ContractDetailsOverlay from '../Map/ContractDetailsOverlay';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {
@@ -135,11 +139,18 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   const [mapInitialized, setMapInitialized] = useState(false);
   const [selectedNFT, setSelectedNFT] = useState(null);
   const [nftDetailsOpen, setNftDetailsOpen] = useState(false);
+  const [contractOverlayOpen, setContractOverlayOpen] = useState(false);
+  const [selectedContractItem, setSelectedContractItem] = useState(null);
   const [proximitySettingsOpen, setProximitySettingsOpen] = useState(false);
   const [proximityRadius, setProximityRadius] = useState(20000000); // Default to global (20,000 km - matches xyz-wallet)
   const [userLocation, setUserLocation] = useState(null);
   const [locationIntelligence, setLocationIntelligence] = useState(null);
   const [overlayVisible, setOverlayVisible] = useState(true); // Overlay visibility state
+  const [filters, setFilters] = useState({
+    showWallets: true,
+    showNFTs: true,
+    showContractRules: true
+  });
   
   // Get updateProximityRadius from context
   const { updateProximityRadius: updateContextProximityRadius } = useAIMap();
@@ -160,6 +171,44 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     }
 
     console.log('[AIMap] Initializing map...');
+    
+    // Set up global error handlers BEFORE creating the map to catch fog errors early
+    const originalError = window.console.error;
+    const originalWindowError = window.onerror;
+    
+    // Override console.error to suppress fog-related errors
+    window.console.error = (...args) => {
+      const errorStr = args.map(arg => 
+        typeof arg === 'string' ? arg : 
+        (arg?.message || arg?.toString() || JSON.stringify(arg))
+      ).join(' ');
+      
+      if (errorStr.includes('fog') || 
+          errorStr.includes('opacity') || 
+          errorStr.includes('getOpacityAtLatLng') || 
+          errorStr.includes('Cannot read properties of undefined') ||
+          errorStr.includes('reading \'get\'')) {
+        return; // Suppress fog-related errors
+      }
+      originalError.apply(console, args);
+    };
+    
+    // Also catch unhandled errors
+    window.onerror = (message, source, lineno, colno, error) => {
+      const errorStr = `${message} ${source} ${error?.stack || ''}`;
+      if (errorStr.includes('fog') || 
+          errorStr.includes('opacity') || 
+          errorStr.includes('getOpacityAtLatLng') || 
+          errorStr.includes('Cannot read properties of undefined') ||
+          errorStr.includes('reading \'get\'')) {
+        return true; // Suppress the error
+      }
+      if (originalWindowError) {
+        return originalWindowError(message, source, lineno, colno, error);
+      }
+      return false;
+    };
+    
     try {
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
@@ -198,15 +247,27 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       map.current.on('error', (error) => {
         // Suppress fog-related errors silently
         if (error && error.error && (
-          (error.error.message && error.error.message.includes('fog')) ||
-          (error.error.message && error.error.message.includes('opacity')) ||
-          (error.error.toString && error.error.toString().includes('fog'))
+          (error.error.message && (
+            error.error.message.includes('fog') ||
+            error.error.message.includes('opacity') ||
+            error.error.message.includes('Cannot read properties of undefined')
+          )) ||
+          (error.error.toString && error.error.toString().includes('fog')) ||
+          (error.error.stack && error.error.stack.includes('getOpacityAtLatLng'))
         )) {
           // Silently ignore fog-related errors - they don't affect functionality
           return;
         }
         // Log other errors normally
         console.error('[AIMap] Map error:', error);
+      });
+      
+      // Restore original handlers after map is ready (they were set up before map creation)
+      map.current.once('load', () => {
+        setTimeout(() => {
+          window.console.error = originalError;
+          window.onerror = originalWindowError;
+        }, 3000);
       });
       
       // Configure fog when style loads (most reliable)
@@ -467,6 +528,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         .setPopup(popup)
         .addTo(mapInstance);
 
+      marker._geolinkType = 'wallet';
       markersRef.current.push(marker);
       bounds.extend([wallet.longitude, wallet.latitude]);
       hasBounds = true;
@@ -587,6 +649,12 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         ? `https://www.google.com/maps/dir/${userLocation.latitude},${userLocation.longitude}/${nft.latitude},${nft.longitude}`
         : `https://www.google.com/maps/search/?api=1&query=${nft.latitude},${nft.longitude}`;
 
+      // Check if NFT has contract
+      const hasContract = nft.contract || nft.custom_contract_id || nft.contract_address;
+      const contractInfo = hasContract 
+        ? `<p style="margin: 4px 0; font-size: 11px; color: #7B68EE;"><strong>📜 Contract:</strong> ${nft.contract?.name || nft.contract_name || 'Custom Contract'}</p>`
+        : '';
+
       // Create popup with click handler to open details dialog
       const popup = new mapboxgl.Popup({ offset: 25 })
         .setHTML(`
@@ -596,13 +664,20 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
             ${nft.collection_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Collection:</strong> ${nft.collection_name}</p>` : ''}
             ${nft.rarity_level ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Rarity:</strong> ${nft.rarity_level}</p>` : ''}
             ${distance ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${distanceText}</p>` : ''}
+            ${contractInfo}
             <button 
               id="nft-details-btn-${nft.id || index}" 
               style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #1976d2; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; border: none; cursor: pointer; width: 100%;"
             >
               View Details
             </button>
-            ${userLocation ? `<a href="${navUrl}" target="_blank" style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #FFD700; color: #000; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; width: 100%; text-align: center;">🗺️ Navigate</a>` : ''}
+            ${hasContract ? `<button 
+              id="nft-contract-btn-${nft.id || index}" 
+              style="display: inline-block; margin-top: 4px; padding: 6px 12px; background-color: #7B68EE; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; border: none; cursor: pointer; width: 100%;"
+            >
+              📜 View Contract
+            </button>` : ''}
+            ${userLocation ? `<a href="${navUrl}" target="_blank" style="display: inline-block; margin-top: 4px; padding: 6px 12px; background-color: #FFD700; color: #000; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; width: 100%; text-align: center;">🗺️ Navigate</a>` : ''}
           </div>
         `);
 
@@ -613,6 +688,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         .setPopup(popup)
         .addTo(mapInstance);
 
+      marker._geolinkType = 'nft';
       // Add click event to marker element to show NFT info (matching home page)
       el.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -647,6 +723,24 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
             setSelectedNFT(nftData);
             setNftDetailsOpen(true);
             popup.remove(); // Close popup when opening dialog
+          };
+        }
+        
+        // Add contract button handler
+        const contractBtn = document.getElementById(`nft-contract-btn-${nft.id || index}`);
+        if (contractBtn) {
+          contractBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const nftData = {
+              ...nft,
+              contract: nft.contract,
+              custom_contract_id: nft.custom_contract_id,
+              contract_address: nft.contract_address
+            };
+            setSelectedContractItem(nftData);
+            setContractOverlayOpen(true);
+            popup.remove();
           };
         }
       });
@@ -684,14 +778,48 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       el.style.cursor = 'pointer';
       el.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
 
+      // Check if wallet has contract
+      const hasContract = account.contract_id || account.contract_address || account.contract;
+      const contractInfo = hasContract 
+        ? `<p style="margin: 4px 0; font-size: 11px; color: #7B68EE;"><strong>📜 Contract:</strong> ${account.contract?.name || account.contract_name || 'Custom Contract'}</p>`
+        : '';
+
       const popup = new mapboxgl.Popup({ offset: 25 })
         .setHTML(`
           <div style="min-width: 200px;">
             <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold;">Stellar Account</h3>
             ${account.public_key ? `<p style="margin: 4px 0; font-size: 12px; word-break: break-all;"><strong>Public Key:</strong> ${account.public_key}</p>` : ''}
             ${account.balance ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Balance:</strong> ${account.balance} XLM</p>` : ''}
+            ${contractInfo}
+            ${hasContract ? `<button 
+              id="wallet-contract-btn-${account.public_key || index}" 
+              style="display: inline-block; margin-top: 8px; padding: 6px 12px; background-color: #7B68EE; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; font-weight: bold; border: none; cursor: pointer; width: 100%;"
+            >
+              📜 View Contract
+            </button>` : ''}
           </div>
         `);
+      
+      // Add contract button handler
+      popup.on('open', () => {
+        const contractBtn = document.getElementById(`wallet-contract-btn-${account.public_key || index}`);
+        if (contractBtn) {
+          contractBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const walletData = {
+              ...account,
+              contract: account.contract,
+              contract_id: account.contract_id,
+              contract_address: account.contract_address,
+              type: 'wallet'
+            };
+            setSelectedContractItem(walletData);
+            setContractOverlayOpen(true);
+            popup.remove();
+          };
+        }
+      });
 
       const marker = new mapboxgl.Marker(el)
         .setLngLat([account.longitude, account.latitude])
@@ -701,6 +829,143 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       markersRef.current.push(marker);
     });
   }, [clearMarkers]);
+
+  // Create contract rule markers
+  const createContractRuleMarkers = useCallback((rules, mapInstance, userLocation = null) => {
+    if (!mapInstance || !rules || rules.length === 0) return;
+
+    const bounds = new mapboxgl.LngLatBounds();
+    let hasBounds = false;
+
+    rules.forEach((rule, index) => {
+      if (!rule.longitude || !rule.latitude) return;
+
+      const lat = parseFloat(rule.latitude);
+      const lng = parseFloat(rule.longitude);
+      
+      if (isNaN(lat) || isNaN(lng)) {
+        return;
+      }
+
+      // Calculate distance if user location is available
+      let distance = rule.distance_meters || rule.distance;
+      if (!distance && userLocation) {
+        distance = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          lat,
+          lng
+        );
+      }
+
+      // Create marker element
+      const el = document.createElement('div');
+      el.className = 'ai-map-marker contract-rule-marker';
+      el.style.width = '36px';
+      el.style.height = '36px';
+      el.style.borderRadius = '8px';
+      el.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+      el.style.border = '3px solid white';
+      el.style.cursor = 'pointer';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      el.style.display = 'flex';
+      el.style.alignItems = 'center';
+      el.style.justifyContent = 'center';
+      el.style.fontSize = '18px';
+      el.style.color = 'white';
+      el.style.fontWeight = 'bold';
+      el.textContent = '📜';
+
+      // Add radius circle if radius is provided
+      if (rule.radius_meters) {
+        const radius = parseFloat(rule.radius_meters);
+        if (!isNaN(radius) && radius > 0) {
+          const circleFeature = createRadiusCircle(
+            lng,
+            lat,
+            radius,
+            mapInstance
+          );
+
+          if (circleFeature && !mapInstance.getSource(`rule-radius-${index}`)) {
+            mapInstance.addSource(`rule-radius-${index}`, {
+              type: 'geojson',
+              data: circleFeature
+            });
+
+            mapInstance.addLayer({
+              id: `rule-radius-${index}-fill`,
+              type: 'fill',
+              source: `rule-radius-${index}`,
+              paint: {
+                'fill-color': '#667eea',
+                'fill-opacity': 0.1
+              }
+            });
+
+            mapInstance.addLayer({
+              id: `rule-radius-${index}-outline`,
+              type: 'line',
+              source: `rule-radius-${index}`,
+              paint: {
+                'line-color': '#667eea',
+                'line-width': 2,
+                'line-opacity': 0.5
+              }
+            });
+          }
+        }
+      }
+
+      const distanceText = distance 
+        ? distance < 1000 
+          ? `${Math.round(distance)}m` 
+          : `${(distance / 1000).toFixed(2)}km`
+        : 'Unknown';
+
+      // Create popup
+      const popup = new mapboxgl.Popup({ offset: 25 })
+        .setHTML(`
+          <div style="min-width: 200px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: bold; color: #667eea;">📜 ${rule.rule_name || 'Contract Rule'}</h3>
+            ${rule.contract_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Contract:</strong> ${rule.contract_name}</p>` : ''}
+            ${rule.function_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Function:</strong> ${rule.function_name}</p>` : ''}
+            ${rule.trigger_on ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Trigger:</strong> ${rule.trigger_on}</p>` : ''}
+            ${rule.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${rule.radius_meters}m</p>` : ''}
+            ${rule.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
+            ${distance ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${distanceText}</p>` : ''}
+          </div>
+        `);
+
+      const marker = new mapboxgl.Marker(el)
+        .setLngLat([lng, lat])
+        .setPopup(popup)
+        .addTo(mapInstance);
+
+      marker._geolinkType = 'contract_rule';
+      markersRef.current.push(marker);
+
+      if (!hasBounds) {
+        bounds.extend([lng, lat]);
+        hasBounds = true;
+      } else {
+        bounds.extend([lng, lat]);
+      }
+    });
+
+    // Fit bounds to show all contract rule markers
+    if (hasBounds && userLocation) {
+      bounds.extend([userLocation.longitude, userLocation.latitude]);
+    }
+    
+    if (hasBounds) {
+      mapInstance.fitBounds(bounds, {
+        padding: { top: 50, bottom: 50, left: 50, right: 50 },
+        maxZoom: 15,
+        duration: 1000
+      });
+    }
+  }, [clearMarkers, calculateDistance, createRadiusCircle]);
 
   // Create geofence visualization
   const createGeofenceVisualization = useCallback((geofence, mapInstance) => {
@@ -955,32 +1220,44 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
     switch (type) {
       case 'combined':
-        console.log('[AIMap] Creating combined markers (wallets + NFTs)');
+        console.log('[AIMap] Creating combined markers (wallets + NFTs + contract rules)');
         clearMarkers();
         
-        // Separate wallets and NFTs
+        // Separate wallets, NFTs, and contract rules
         const wallets = data.filter(item => item.type === 'wallet');
         const nfts = data.filter(item => item.type === 'nft');
+        const contractRules = data.filter(item => item.type === 'contract_rule');
         
         // Create user location marker first if available
         if (userLocation) {
           createUserLocationMarker(userLocation, map.current, radius);
         }
         
-        // Create wallet markers
-        if (wallets.length > 0) {
+        // Create wallet markers (if filter enabled)
+        if (wallets.length > 0 && filters.showWallets) {
           createWalletMarkers(wallets, map.current, userLocation);
         }
         
-        // Create NFT markers
-        if (nfts.length > 0) {
+        // Create NFT markers (if filter enabled)
+        if (nfts.length > 0 && filters.showNFTs) {
           createNFTMarkers(nfts, map.current, userLocation);
         }
         
-        // Fit bounds to show all markers
-        if (wallets.length > 0 || nfts.length > 0) {
+        // Create contract rule markers (if filter enabled)
+        if (contractRules.length > 0 && filters.showContractRules) {
+          createContractRuleMarkers(contractRules, map.current, userLocation);
+        }
+        
+        // Fit bounds to show all visible markers (respecting filters)
+        const visibleItems = [
+          ...(filters.showWallets ? wallets : []),
+          ...(filters.showNFTs ? nfts : []),
+          ...(filters.showContractRules ? contractRules : [])
+        ];
+        
+        if (visibleItems.length > 0 || userLocation) {
           const bounds = new mapboxgl.LngLatBounds();
-          [...wallets, ...nfts].forEach(item => {
+          visibleItems.forEach(item => {
             if (item.longitude && item.latitude) {
               bounds.extend([item.longitude, item.latitude]);
             }
@@ -1009,14 +1286,28 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         if (userLocation) {
           createUserLocationMarker(userLocation, map.current, radius);
         }
-        createWalletMarkers(data, map.current, userLocation);
+        if (filters.showWallets) {
+          createWalletMarkers(data, map.current, userLocation);
+        }
         break;
       case 'nfts':
         clearMarkers();
         if (userLocation) {
           createUserLocationMarker(userLocation, map.current, radius);
         }
-        createNFTMarkers(data, map.current, userLocation);
+        if (filters.showNFTs) {
+          createNFTMarkers(data, map.current, userLocation);
+        }
+        break;
+      case 'contract_rules':
+        console.log('[AIMap] Creating contract rule markers');
+        clearMarkers();
+        if (userLocation) {
+          createUserLocationMarker(userLocation, map.current, radius);
+        }
+        if (filters.showContractRules) {
+          createContractRuleMarkers(data, map.current, userLocation);
+        }
         break;
       case 'stellar_accounts':
         createStellarMarkers(data, map.current);
@@ -1063,7 +1354,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           });
         }
     }
-  }, [mapData, mapInitialized, createWalletMarkers, createNFTMarkers, createStellarMarkers, createGeofenceVisualization, createUserLocationMarker, clearMarkers]);
+  }, [mapData, mapInitialized, filters, createWalletMarkers, createNFTMarkers, createContractRuleMarkers, createStellarMarkers, createGeofenceVisualization, createUserLocationMarker, clearMarkers]);
 
   useEffect(() => {
     console.log('[AIMap] Visibility changed:', visible);
@@ -1104,13 +1395,15 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
             : `${(proximityRadius / 1000).toFixed(1)}km`,
         itemsFound: 0,
         nftsFound: 0,
-        walletsFound: 0
+        walletsFound: 0,
+        contractRulesFound: 0
       };
 
       if (mapData && mapData.data && Array.isArray(mapData.data)) {
         intelligence.itemsFound = mapData.data.length;
         intelligence.nftsFound = mapData.data.filter(item => item.type === 'nft').length;
         intelligence.walletsFound = mapData.data.filter(item => item.type === 'wallet').length;
+        intelligence.contractRulesFound = mapData.data.filter(item => item.type === 'contract_rule').length;
       }
 
       setLocationIntelligence(intelligence);
@@ -1471,6 +1764,58 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
                 </Typography>
               </Box>
               
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Typography variant="caption" color="text.secondary">Contract Rules:</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#667eea' }}>
+                  {locationIntelligence.contractRulesFound}
+                </Typography>
+              </Box>
+              
+              <Divider sx={{ my: 1 }} />
+              
+              {/* Filter Options */}
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block', fontWeight: 'bold' }}>
+                Filters:
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showWallets}
+                    onChange={(e) => {
+                      setFilters(prev => ({ ...prev, showWallets: e.target.checked }));
+                    }}
+                  />
+                }
+                label={<Typography variant="caption">Wallets ({locationIntelligence.walletsFound})</Typography>}
+                sx={{ mb: 0.5 }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showNFTs}
+                    onChange={(e) => {
+                      setFilters(prev => ({ ...prev, showNFTs: e.target.checked }));
+                    }}
+                  />
+                }
+                label={<Typography variant="caption">NFTs ({locationIntelligence.nftsFound})</Typography>}
+                sx={{ mb: 0.5 }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showContractRules}
+                    onChange={(e) => {
+                      setFilters(prev => ({ ...prev, showContractRules: e.target.checked }));
+                    }}
+                  />
+                }
+                label={<Typography variant="caption" sx={{ color: '#667eea' }}>Contract Rules ({locationIntelligence.contractRulesFound})</Typography>}
+              />
+              
               {locationIntelligence.userLocation && (
                 <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
@@ -1516,6 +1861,17 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           <SettingsIcon />
         </IconButton>
       )}
+
+      {/* Contract Details Overlay */}
+      <ContractDetailsOverlay
+        open={contractOverlayOpen}
+        onClose={() => {
+          setContractOverlayOpen(false);
+          setSelectedContractItem(null);
+        }}
+        item={selectedContractItem}
+        itemType={selectedContractItem?.type || 'nft'}
+      />
     </>
   );
 };

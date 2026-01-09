@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { verifyLocation } = require('../utils/locationUtils');
 const { authenticateUser } = require('../middleware/authUser');
+const contractIntrospection = require('../services/contractIntrospection');
 
 // API key authentication middleware for data consumers
 const authenticateApiKey = async (req, res, next) => {
@@ -462,6 +463,7 @@ router.put('/pinned/:id', authenticateUser, async (req, res) => {
             radius_meters,
             ipfs_hash,
             smart_contract_address,
+            custom_contract_id, // NEW: Allow updating custom contract
             rarity_requirements,
             is_active
         } = req.body;
@@ -484,6 +486,20 @@ router.put('/pinned/:id', authenticateUser, async (req, res) => {
             return res.status(403).json({ error: 'Not authorized to update this NFT. Only the creator or admin/manager can update it.' });
         }
 
+        // If custom_contract_id is provided, verify it belongs to the user
+        if (custom_contract_id !== undefined && custom_contract_id !== null) {
+            const contractCheck = await pool.query(
+                `SELECT id FROM custom_contracts 
+                 WHERE id = $1 AND user_id = $2 AND is_active = true`,
+                [custom_contract_id, req.user.id]
+            );
+            if (contractCheck.rows.length === 0) {
+                return res.status(400).json({ 
+                    error: 'Custom contract not found or not authorized. Contract must belong to you and be active.' 
+                });
+            }
+        }
+
         const result = await pool.query(`
             UPDATE pinned_nfts 
             SET collection_id = COALESCE($1, collection_id),
@@ -492,14 +508,15 @@ router.put('/pinned/:id', authenticateUser, async (req, res) => {
                 radius_meters = COALESCE($4, radius_meters),
                 ipfs_hash = COALESCE($5, ipfs_hash),
                 smart_contract_address = COALESCE($6, smart_contract_address),
-                rarity_requirements = COALESCE($7, rarity_requirements),
-                is_active = COALESCE($8, is_active),
+                custom_contract_id = COALESCE($7, custom_contract_id),
+                rarity_requirements = COALESCE($8, rarity_requirements),
+                is_active = COALESCE($9, is_active),
                 updated_at = NOW()
-            WHERE id = $9
+            WHERE id = $10
             RETURNING *
         `, [
             collection_id, latitude, longitude, radius_meters,
-            ipfs_hash, smart_contract_address, 
+            ipfs_hash, smart_contract_address, custom_contract_id,
             rarity_requirements ? JSON.stringify(rarity_requirements) : null,
             is_active, id
         ]);
@@ -659,6 +676,7 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
         // Also join with uploads and pins to get association data for Workflow 2 NFTs
         // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
         // The upload hash points directly to the file, so we don't need to append the filename
+        // Also join with custom_contracts to get contract information
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -667,6 +685,14 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
                    nu.upload_status as upload_status,
                    ips.server_name as ipfs_server_name,
                    ip.pin_status as pin_status,
+                   cc.id as custom_contract_id,
+                   cc.contract_address as contract_address,
+                   cc.contract_name as contract_name,
+                   cc.network as contract_network,
+                   cc.discovered_functions as contract_functions,
+                   cc.function_mappings as contract_function_mappings,
+                   cc.use_smart_wallet as contract_use_smart_wallet,
+                   cc.requires_webauthn as contract_requires_webauthn,
                    ST_Distance(
                        ST_Point($2, $1)::geography,
                        ST_Point(pn.longitude, pn.latitude)::geography
@@ -676,6 +702,7 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
             LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
             LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
             LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
+            LEFT JOIN custom_contracts cc ON pn.custom_contract_id = cc.id AND cc.is_active = true
             WHERE pn.is_active = true
             AND ST_DWithin(
                 ST_Point($2, $1)::geography,
@@ -702,7 +729,18 @@ router.get('/dashboard/nearby', authenticateUser, async (req, res) => {
                 upload_status: nft.upload_status,
                 ipfs_server_name: nft.ipfs_server_name,
                 pin_status: nft.pin_status
-            }
+            },
+            // Include contract information
+            contract: nft.custom_contract_id ? {
+                id: nft.custom_contract_id,
+                address: nft.contract_address,
+                name: nft.contract_name,
+                network: nft.contract_network,
+                functions: typeof nft.contract_functions === 'string' ? JSON.parse(nft.contract_functions) : nft.contract_functions,
+                function_mappings: typeof nft.contract_function_mappings === 'string' ? JSON.parse(nft.contract_function_mappings) : nft.contract_function_mappings,
+                use_smart_wallet: nft.contract_use_smart_wallet,
+                requires_webauthn: nft.contract_requires_webauthn
+            } : null
         }));
 
         res.json({
@@ -731,6 +769,7 @@ router.get('/nearby', async (req, res) => {
         // Also join with uploads and pins to get association data for Workflow 2 NFTs
         // For Workflow 2 NFTs, prefer the upload hash (actual IPFS hash) over the NFT hash
         // The upload hash points directly to the file, so we don't need to append the filename
+        // Also join with custom_contracts to get contract information
         const result = await pool.query(`
             SELECT pn.*, nc.name as collection_name, nc.description, nc.image_url, nc.rarity_level,
                    COALESCE(ips.server_url, pn.server_url) as server_url,
@@ -739,6 +778,14 @@ router.get('/nearby', async (req, res) => {
                    nu.upload_status as upload_status,
                    ips.server_name as ipfs_server_name,
                    ip.pin_status as pin_status,
+                   cc.id as custom_contract_id,
+                   cc.contract_address as contract_address,
+                   cc.contract_name as contract_name,
+                   cc.network as contract_network,
+                   cc.discovered_functions as contract_functions,
+                   cc.function_mappings as contract_function_mappings,
+                   cc.use_smart_wallet as contract_use_smart_wallet,
+                   cc.requires_webauthn as contract_requires_webauthn,
                    ST_Distance(
                        ST_Point($2, $1)::geography,
                        ST_Point(pn.longitude, pn.latitude)::geography
@@ -748,6 +795,7 @@ router.get('/nearby', async (req, res) => {
             LEFT JOIN ipfs_servers ips ON pn.ipfs_server_id = ips.id AND ips.is_active = true
             LEFT JOIN nft_uploads nu ON pn.nft_upload_id = nu.id
             LEFT JOIN ipfs_pins ip ON pn.pin_id = ip.id
+            LEFT JOIN custom_contracts cc ON pn.custom_contract_id = cc.id AND cc.is_active = true
             WHERE pn.is_active = true
             AND ST_DWithin(
                 ST_Point($2, $1)::geography,
@@ -774,7 +822,18 @@ router.get('/nearby', async (req, res) => {
                 upload_status: nft.upload_status,
                 ipfs_server_name: nft.ipfs_server_name,
                 pin_status: nft.pin_status
-            }
+            },
+            // Include contract information
+            contract: nft.custom_contract_id ? {
+                id: nft.custom_contract_id,
+                address: nft.contract_address,
+                name: nft.contract_name,
+                network: nft.contract_network,
+                functions: typeof nft.contract_functions === 'string' ? JSON.parse(nft.contract_functions) : nft.contract_functions,
+                function_mappings: typeof nft.contract_function_mappings === 'string' ? JSON.parse(nft.contract_function_mappings) : nft.contract_function_mappings,
+                use_smart_wallet: nft.contract_use_smart_wallet,
+                requires_webauthn: nft.contract_requires_webauthn
+            } : null
         }));
 
         res.json({

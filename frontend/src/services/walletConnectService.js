@@ -19,11 +19,18 @@ const checkKitAvailability = async () => {
   if (kitModuleLoaded) return kitAvailable;
   
   try {
-    const kitModule = await import('@creit.tech/stellar-wallets-kit');
-    StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
-    WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
-    if (StellarWalletsKit && WalletNetwork) {
-      kitAvailable = true;
+    // Use dynamic import with error handling
+    const kitModule = await import('@creit.tech/stellar-wallets-kit').catch(err => {
+      console.warn('Stellar Wallets Kit import failed:', err.message);
+      return null;
+    });
+    
+    if (kitModule) {
+      StellarWalletsKit = kitModule.StellarWalletsKit || kitModule.default?.StellarWalletsKit;
+      WalletNetwork = kitModule.WalletNetwork || kitModule.default?.WalletNetwork;
+      if (StellarWalletsKit && WalletNetwork) {
+        kitAvailable = true;
+      }
     }
   } catch (error) {
     console.warn('Stellar Wallets Kit not available:', error.message);
@@ -47,8 +54,15 @@ const initializeModules = async () => {
   }
   
   try {
-    // Try ES6 import first
-    const kitPackage = await import('@creit.tech/stellar-wallets-kit');
+    // Try ES6 import first with error handling
+    const kitPackage = await import('@creit.tech/stellar-wallets-kit').catch(err => {
+      console.warn('Failed to import Stellar Wallets Kit modules:', err.message);
+      return null;
+    });
+    
+    if (!kitPackage) {
+      return; // Exit if import failed
+    }
     
     // Check if modules are exported directly
     if (kitPackage.FreighterModule) FreighterModule = kitPackage.FreighterModule;

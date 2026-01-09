@@ -33,6 +33,7 @@ import { useWallet } from '../../contexts/WalletContext';
 import { useAuth } from '../../contexts/AuthContext';
 import WalletConnectionDialog from '../Wallet/WalletConnectionDialog';
 import SmartWalletBalance from '../Home/SmartWalletBalance';
+import ContractManagement from '../Contracts/ContractManagement';
 
 const AdminDashboard = () => {
     const { user } = useAuth();
@@ -46,6 +47,7 @@ const AdminDashboard = () => {
     const [geospatialStats, setGeospatialStats] = useState(null);
     const [walletLocations, setWalletLocations] = useState([]);
     const [nfts, setNfts] = useState([]);
+    const [contractRules, setContractRules] = useState([]);
     const [marketAnalysis, setMarketAnalysis] = useState(null);
     const [, setLoading] = useState(true);
     const [, setError] = useState('');
@@ -140,6 +142,15 @@ const AdminDashboard = () => {
             // Fetch NFTs for map
             const nftsRes = await api.get('/nft/public');
             setNfts(nftsRes.data.nfts || []);
+            
+            // Fetch contract execution rules
+            try {
+                const rulesRes = await api.get('/contracts/execution-rules/locations');
+                setContractRules(rulesRes.data?.rules || []);
+            } catch (rulesErr) {
+                console.warn('Contract rules not available:', rulesErr);
+                setContractRules([]);
+            }
             
             // Try to fetch market analysis separately
             try {
@@ -402,7 +413,27 @@ const AdminDashboard = () => {
                                 longitude: parseFloat(location.longitude),
                                 public_key: location.public_key,
                                 description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
-                                type: 'wallet'
+                                type: 'wallet',
+                                marker_type: 'wallet'
+                            })),
+                        // Contract execution rules
+                        ...contractRules
+                            .filter(rule => rule.latitude && rule.longitude && 
+                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
+                            .map(rule => ({
+                                latitude: parseFloat(rule.latitude),
+                                longitude: parseFloat(rule.longitude),
+                                id: rule.id,
+                                rule_name: rule.rule_name,
+                                function_name: rule.function_name,
+                                contract_name: rule.contract_name,
+                                contract_address: rule.contract_address,
+                                trigger_on: rule.trigger_on,
+                                radius_meters: rule.radius_meters,
+                                auto_execute: rule.auto_execute,
+                                description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
+                                type: 'contract_rule',
+                                marker_type: 'contract_rule'
                             })),
                         // NFTs
                         ...nfts
@@ -415,6 +446,7 @@ const AdminDashboard = () => {
                                 name: nft.name || 'NFT',
                                 description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
                                 type: 'nft',
+                                marker_type: 'nft',
                                 image_url: nft.image_url,
                                 ipfs_hash: nft.ipfs_hash,
                                 server_url: nft.server_url,
@@ -552,6 +584,7 @@ const AdminDashboard = () => {
                         <Tab label="API Keys" />
                         <Tab label="Wallet Locations" />
                         <Tab label="🗺️ Geospatial Analytics" />
+                        <Tab label="📜 Smart Contracts" />
                     </Tabs>
                 </Box>
 
@@ -560,6 +593,7 @@ const AdminDashboard = () => {
                     {tabValue === 1 && <ApiKeyManager />}
                     {tabValue === 2 && <WalletLocationsManager />}
                     {tabValue === 3 && renderGeospatialAnalytics()}
+                    {tabValue === 4 && <ContractManagement />}
                 </Box>
             </Paper>
 

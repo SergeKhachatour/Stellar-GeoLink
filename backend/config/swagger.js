@@ -124,6 +124,122 @@ const options = {
                         }
                     },
                     required: ['latitude', 'longitude']
+                },
+                CustomContract: {
+                    type: 'object',
+                    properties: {
+                        id: {
+                            type: 'integer',
+                            description: 'Contract ID'
+                        },
+                        contract_address: {
+                            type: 'string',
+                            pattern: '^[A-Z0-9]{56}$',
+                            description: 'Stellar contract address'
+                        },
+                        contract_name: {
+                            type: 'string',
+                            description: 'Friendly name for the contract'
+                        },
+                        network: {
+                            type: 'string',
+                            enum: ['testnet', 'mainnet'],
+                            default: 'testnet'
+                        },
+                        discovered_functions: {
+                            type: 'object',
+                            description: 'Discovered contract functions'
+                        },
+                        function_mappings: {
+                            type: 'object',
+                            description: 'Function parameter mappings'
+                        },
+                        use_smart_wallet: {
+                            type: 'boolean',
+                            default: false
+                        },
+                        requires_webauthn: {
+                            type: 'boolean',
+                            default: false
+                        },
+                        wasm_file_name: {
+                            type: 'string',
+                            description: 'Uploaded WASM filename'
+                        },
+                        wasm_file_size: {
+                            type: 'integer',
+                            description: 'WASM file size in bytes'
+                        },
+                        wasm_source: {
+                            type: 'string',
+                            enum: ['stellarexpert', 'local', 'manual']
+                        },
+                        created_at: {
+                            type: 'string',
+                            format: 'date-time'
+                        },
+                        updated_at: {
+                            type: 'string',
+                            format: 'date-time'
+                        }
+                    }
+                },
+                ContractExecutionRule: {
+                    type: 'object',
+                    properties: {
+                        id: {
+                            type: 'integer'
+                        },
+                        contract_id: {
+                            type: 'integer'
+                        },
+                        rule_name: {
+                            type: 'string'
+                        },
+                        rule_type: {
+                            type: 'string',
+                            enum: ['location', 'geofence', 'proximity']
+                        },
+                        center_latitude: {
+                            type: 'number'
+                        },
+                        center_longitude: {
+                            type: 'number'
+                        },
+                        radius_meters: {
+                            type: 'integer'
+                        },
+                        geofence_id: {
+                            type: 'integer'
+                        },
+                        function_name: {
+                            type: 'string'
+                        },
+                        function_parameters: {
+                            type: 'object'
+                        },
+                        trigger_on: {
+                            type: 'string',
+                            enum: ['enter', 'exit', 'within', 'proximity']
+                        },
+                        target_wallet_public_key: {
+                            type: 'string',
+                            nullable: true,
+                            description: 'NULL = any wallet, or specific wallet address'
+                        },
+                        auto_execute: {
+                            type: 'boolean',
+                            default: false
+                        },
+                        requires_confirmation: {
+                            type: 'boolean',
+                            default: true
+                        },
+                        is_active: {
+                            type: 'boolean',
+                            default: true
+                        }
+                    }
                 }
             }
         },
@@ -151,6 +267,10 @@ const options = {
             {
                 name: 'NFT',
                 description: 'NFT management and discovery endpoints'
+            },
+            {
+                name: 'Contracts',
+                description: 'Smart contract management, discovery, and execution endpoints. Available to all roles via JWT or API key authentication.'
             }
         ]
     },

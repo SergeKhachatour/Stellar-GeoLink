@@ -60,6 +60,7 @@ import FileUploadManager from '../IPFS/FileUploadManager';
 import EnhancedPinNFT from '../IPFS/EnhancedPinNFT';
 import SmartWalletBalance from '../Home/SmartWalletBalance';
 import AIChat from '../AI/AIChat';
+import ContractManagement from '../Contracts/ContractManagement';
 
 // IPFS Management Tabs Component
 const IPFSManagementTabs = ({ user }) => {
@@ -3654,6 +3655,7 @@ const NFTDashboard = () => {
           <Tab label="NFT Map" {...a11yProps(2)} />
           <Tab label="Stellar Wallet" {...a11yProps(3)} />
           <Tab label="IPFS Management" {...a11yProps(4)} />
+          <Tab label="Smart Contracts" {...a11yProps(5)} />
         </Tabs>
       </Box>
 
@@ -4028,6 +4030,11 @@ const NFTDashboard = () => {
       {/* IPFS Management Tab */}
       <TabPanel value={tabValue} index={4}>
         <IPFSManagementTabs user={user} />
+      </TabPanel>
+
+      {/* Smart Contracts Tab */}
+      <TabPanel value={tabValue} index={5}>
+        <ContractManagement />
       </TabPanel>
 
       {/* NFT Details Dialog */}

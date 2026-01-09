@@ -22,6 +22,7 @@ import EnhancedNFTDashboard from './components/NFT/EnhancedNFTDashboard';
 import Profile from './components/Profile';
 import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytics';
 import WalletConnectionGuard from './components/Wallet/WalletConnectionGuard';
+import SettingsPage from './components/Settings/SettingsPage';
 
 // Inner component that has access to router context
 function AppContent() {
@@ -41,7 +42,7 @@ function AppContent() {
                     path="/dashboard/consumer" 
                     element={
                         <ProtectedRoute roles={['data_consumer']}>
-                            <WalletConnectionGuard>
+                            <WalletConnectionGuard showPasskeyManager={false}>
                                 <DataConsumerDashboard />
                             </WalletConnectionGuard>
                         </ProtectedRoute>
@@ -51,7 +52,7 @@ function AppContent() {
                     path="/dashboard/provider" 
                     element={
                         <ProtectedRoute roles={['wallet_provider']}>
-                            <WalletConnectionGuard>
+                            <WalletConnectionGuard showPasskeyManager={false}>
                                 <WalletProviderDashboard />
                             </WalletConnectionGuard>
                         </ProtectedRoute>
@@ -61,7 +62,7 @@ function AppContent() {
                     path="/dashboard/nft" 
                     element={
                         <ProtectedRoute roles={['nft_manager']}>
-                            <WalletConnectionGuard>
+                            <WalletConnectionGuard showPasskeyManager={false}>
                                 <NFTDashboard />
                             </WalletConnectionGuard>
                         </ProtectedRoute>
@@ -71,7 +72,7 @@ function AppContent() {
                     path="/enhanced-nft-dashboard" 
                     element={
                         <ProtectedRoute roles={['nft_manager', 'admin']}>
-                            <WalletConnectionGuard>
+                            <WalletConnectionGuard showPasskeyManager={false}>
                                 <EnhancedNFTDashboard />
                             </WalletConnectionGuard>
                         </ProtectedRoute>
@@ -81,7 +82,7 @@ function AppContent() {
                     path="/admin" 
                     element={
                         <ProtectedRoute roles={['admin']}>
-                            <WalletConnectionGuard>
+                            <WalletConnectionGuard showPasskeyManager={false}>
                                 <AdminDashboard />
                             </WalletConnectionGuard>
                         </ProtectedRoute>
@@ -100,6 +101,14 @@ function AppContent() {
                     element={
                         <ProtectedRoute>
                             <Profile />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/settings" 
+                    element={
+                        <ProtectedRoute>
+                            <SettingsPage />
                         </ProtectedRoute>
                     } 
                 />

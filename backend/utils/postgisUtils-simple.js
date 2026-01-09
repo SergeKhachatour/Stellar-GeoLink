@@ -70,6 +70,40 @@ async function findNearbyLocations(latitude, longitude, radius, tableName = 'wal
             visibilityFilter = `AND (uvs.public_key IS NULL OR (uvs.show_location = true AND uvs.visibility_level = 'public'))`;
         }
         
+        // Check if custom_contracts table exists
+        const contractsTableCheck = await pool.query(`
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_name = 'custom_contracts'
+        `);
+        const hasContracts = contractsTableCheck.rows.length > 0;
+
+        // Build contract join if contracts table exists
+        let contractJoin = '';
+        let contractSelect = '';
+        if (hasContracts) {
+            // For wallets, we need to check if there are execution rules targeting this wallet
+            // We'll join with contract_execution_rules to find contracts associated with this wallet
+            contractJoin = `
+                LEFT JOIN contract_execution_rules cer ON (
+                    cer.target_wallet_public_key = wl.public_key 
+                    OR cer.target_wallet_public_key IS NULL
+                ) AND cer.is_active = true
+                LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id AND cc.is_active = true
+            `;
+            contractSelect = `
+                ,cc.id as contract_id,
+                 cc.contract_address as contract_address,
+                 cc.contract_name as contract_name,
+                 cc.network as contract_network,
+                 cer.id as execution_rule_id,
+                 cer.function_name as contract_function_name,
+                 cer.function_parameters as contract_function_parameters,
+                 cer.auto_execute as contract_auto_execute,
+                 cer.requires_confirmation as contract_requires_confirmation
+            `;
+        }
+
         const query = `
             SELECT wl.*,
                    ST_Distance(
@@ -80,8 +114,10 @@ async function findNearbyLocations(latitude, longitude, radius, tableName = 'wal
                    ups.location_sharing as location_sharing,
                    uvs.visibility_level as visibility_level,
                    uvs.show_location as show_location
+                   ${contractSelect}
             FROM ${tableName} wl
             ${joinClause}
+            ${contractJoin}
             WHERE ST_DWithin(
                 wl.location,
                 ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,

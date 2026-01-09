@@ -55,7 +55,94 @@ Data consumers use API key authentication with the `X-API-Key` header.
 - **Authentication**: None (public endpoint)
 - **Response**: Array of all public NFTs
 
-### 3. Data Consumer Specific Services (`/api/data-consumer/`)
+### 3. Smart Contract Services (`/api/contracts/`)
+
+**NEW**: All contract endpoints now support API key authentication for Data Consumers!
+
+#### POST `/api/contracts/discover`
+- **Purpose**: Discover functions in a custom smart contract
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Parameters**:
+  - `contract_address` (required): Stellar contract address (56 characters)
+  - `network` (optional): 'testnet' or 'mainnet' (default: 'testnet')
+- **Response**: Discovered contract functions with signatures
+
+#### POST `/api/contracts`
+- **Purpose**: Save/create a custom contract configuration
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Body**: Contract configuration (address, name, network, functions, mappings, etc.)
+- **Response**: Created/updated contract details
+
+#### GET `/api/contracts`
+- **Purpose**: Get all custom contracts for the authenticated user
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: Array of user's contracts
+
+#### GET `/api/contracts/:id`
+- **Purpose**: Get specific contract details
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: Contract details
+
+#### PUT `/api/contracts/:id/mappings`
+- **Purpose**: Update function mappings for a contract
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Body**: Function mappings object
+- **Response**: Updated contract
+
+#### DELETE `/api/contracts/:id`
+- **Purpose**: Deactivate a custom contract
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: Success message
+
+#### POST `/api/contracts/:id/execute`
+- **Purpose**: Execute a contract function
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Body**: Function name, parameters, user keys
+- **Response**: Execution result
+
+#### POST `/api/contracts/upload-wasm`
+- **Purpose**: Upload WASM file for a contract
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Content-Type**: multipart/form-data
+- **Body**: WASM file, contract_address (optional), wasm_source
+- **Response**: Uploaded WASM file details
+
+#### GET `/api/contracts/:id/wasm`
+- **Purpose**: Download WASM file for a contract
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: WASM file download
+
+### 4. Contract Execution Rules (`/api/contracts/rules/`)
+
+#### POST `/api/contracts/rules`
+- **Purpose**: Create a contract execution rule (location/geofence-based)
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Body**: Rule configuration (contract_id, rule_type, location, function_name, etc.)
+- **Response**: Created rule details
+
+#### GET `/api/contracts/rules`
+- **Purpose**: Get all contract execution rules
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Query Parameters**: `contract_id` (optional), `is_active` (optional)
+- **Response**: Array of execution rules
+
+#### GET `/api/contracts/rules/:id`
+- **Purpose**: Get specific execution rule
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: Rule details
+
+#### PUT `/api/contracts/rules/:id`
+- **Purpose**: Update an execution rule
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Body**: Updated rule fields
+- **Response**: Updated rule
+
+#### DELETE `/api/contracts/rules/:id`
+- **Purpose**: Deactivate an execution rule
+- **Authentication**: API Key (`X-API-Key`) or JWT
+- **Response**: Success message
+
+### 5. Data Consumer Specific Services (`/api/data-consumer/`)
 
 #### GET `/api/data-consumer/location-insights`
 - **Purpose**: Get location-based market insights

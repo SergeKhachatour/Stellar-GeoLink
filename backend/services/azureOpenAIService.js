@@ -22,8 +22,9 @@ function getAzureOpenAIClient() {
 }
 
 // Define available tools/functions for the AI
-function getAvailableTools() {
-  return [
+// Can optionally accept userContext to add dynamic contract function tools
+async function getAvailableTools(userContext = {}) {
+  const baseTools = [
     {
       type: 'function',
       function: {
@@ -405,6 +406,41 @@ function getAvailableTools() {
         }
       }
     },
+    // GeoLink Smart Contract Tools
+    {
+      type: 'function',
+      function: {
+        name: 'geolink_getCustomContracts',
+        description: 'Get all custom smart contracts that the user has added to GeoLink. Returns contracts with their contract addresses (contract_address), contract IDs (id), contract names, discovered functions, parameters, and configuration. Each contract includes: id (contract ID number), contract_address (Stellar contract address starting with C), contract_name, network, discovered_functions, and function_mappings. Use this to see what contracts are available, their addresses, and what functions can be called on each contract. ALWAYS use this tool when the user asks about their contracts, contract addresses, or what contracts they have.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'geolink_discoverContract',
+        description: 'Discover functions in a Soroban smart contract by analyzing its contract spec. Returns discovered functions with their parameters and types.',
+        parameters: {
+          type: 'object',
+          properties: {
+            contractAddress: {
+              type: 'string',
+              description: 'The Stellar contract address (starts with C)'
+            },
+            network: {
+              type: 'string',
+              enum: ['testnet', 'mainnet'],
+              description: 'Network (default: testnet)'
+            }
+          },
+          required: ['contractAddress']
+        }
+      }
+    },
     // GeoLink WebAuthn/Passkey Tools
     {
       type: 'function',
@@ -509,6 +545,92 @@ function getAvailableTools() {
       }
     }
   ];
+
+  // Add dynamic contract function tools if user is authenticated
+  const baseToolsCount = baseTools.length;
+  if (userContext.token && userContext.userId) {
+    try {
+      const contracts = await geolinkOperations.getCustomContracts(userContext.token);
+      if (contracts && contracts.contracts && Array.isArray(contracts.contracts)) {
+        contracts.contracts.forEach(contract => {
+          const discoveredFunctions = typeof contract.discovered_functions === 'string'
+            ? JSON.parse(contract.discovered_functions)
+            : contract.discovered_functions;
+
+          if (discoveredFunctions && typeof discoveredFunctions === 'object') {
+            Object.keys(discoveredFunctions).forEach(funcName => {
+              const func = discoveredFunctions[funcName];
+              const params = func.parameters || [];
+              
+              // Build parameter schema for this function
+              const properties = {};
+              const required = [];
+              
+              params.forEach(param => {
+                properties[param.name] = {
+                  type: param.type === 'Address' ? 'string' : 
+                        param.type === 'I128' || param.type === 'I256' || param.type === 'U128' || param.type === 'U256' ? 'number' :
+                        param.type === 'Bool' ? 'boolean' :
+                        param.type === 'String' ? 'string' :
+                        param.type === 'Bytes' ? 'string' :
+                        'string', // Default to string for unknown types
+                  description: `${param.name} (${param.type})`
+                };
+                if (param.required !== false) {
+                  required.push(param.name);
+                }
+              });
+
+              // Add contract_id and function_name as required
+              properties.contract_id = {
+                type: 'number',
+                description: `Contract ID: ${contract.id} - ${contract.contract_name || contract.contract_address}`
+              };
+              required.push('contract_id');
+
+              // Check if function requires WebAuthn
+              const requiresWebAuthn = contract.requires_webauthn || 
+                params.some(p => 
+                  p.name === 'webauthn_signature' || 
+                  p.name === 'webauthn_authenticator_data' || 
+                  p.name === 'webauthn_client_data'
+                );
+              
+              // Create tool for this function
+              const functionDescription = `Execute "${funcName}" function on contract "${contract.contract_name || contract.contract_address}" (ID: ${contract.id}). ${func.doc || ''}${requiresWebAuthn ? ' ⚠️ WARNING: This function requires WebAuthn/passkey authentication and must be called through the browser interface, not by the AI agent.' : ''}`;
+              
+              baseTools.push({
+                type: 'function',
+                function: {
+                  name: `contract_${contract.id}_${funcName}`,
+                  description: functionDescription,
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      ...properties,
+                      parameters: {
+                        type: 'object',
+                        description: 'Function parameters as key-value pairs. You can provide individual parameters or use this object.',
+                        additionalProperties: true
+                      }
+                    },
+                    required: ['contract_id']
+                  }
+                }
+              });
+            });
+          }
+        });
+        const dynamicToolsCount = baseTools.length - baseToolsCount;
+        console.log(`[getAvailableTools] Added ${dynamicToolsCount} dynamic contract function tools (total: ${baseTools.length})`);
+      }
+    } catch (error) {
+      console.warn('[getAvailableTools] Failed to fetch user contracts for dynamic tools:', error.message);
+      // Continue with base tools only
+    }
+  }
+
+  return baseTools;
 }
 
 // Execute a tool/function call
@@ -648,12 +770,16 @@ async function executeToolCall(toolCall, userContext = {}) {
         
         console.log(`[AI Tool] geolink_findNearbyWallets - Using wallet radius: ${walletRadius}m, NFT radius: ${nftRadius}m (${(nftRadius / 1000).toFixed(0)}km)`);
         
-        // Fetch both wallets and NFTs with their respective radii
-        const [walletResult, nftResult] = await Promise.all([
+        // Fetch wallets, NFTs, and contract rules with their respective radii
+        const [walletResult, nftResult, contractRulesResult] = await Promise.all([
           geolinkOperations.findNearbyWallets(lat, lon, walletRadius, token),
           geolinkOperations.getNearbyNFTs(lat, lon, nftRadius).catch(err => {
             console.warn('[AI Tool] Failed to fetch nearby NFTs:', err.message);
             return { nfts: [] };
+          }),
+          geolinkOperations.getNearbyContractRules(lat, lon, nftRadius, token).catch(err => {
+            console.warn('[AI Tool] Failed to fetch nearby contract rules:', err.message);
+            return { rules: [] };
           })
         ]);
         
@@ -707,7 +833,32 @@ async function executeToolCall(toolCall, userContext = {}) {
           });
         }
         
-        // Add explicit map data with combined wallets and NFTs
+        // Add contract rules to map data
+        if (contractRulesResult && contractRulesResult.rules && Array.isArray(contractRulesResult.rules)) {
+          const validRules = contractRulesResult.rules.filter(rule => 
+            rule.latitude != null && rule.longitude != null && 
+            rule.latitude !== 0 && rule.longitude !== 0
+          );
+          
+          validRules.forEach(rule => {
+            mapDataItems.push({
+              type: 'contract_rule',
+              latitude: parseFloat(rule.latitude),
+              longitude: parseFloat(rule.longitude),
+              id: rule.id,
+              rule_name: rule.rule_name || `Rule #${rule.id}`,
+              contract_name: rule.contract_name || 'Unknown Contract',
+              contract_address: rule.contract_address,
+              function_name: rule.function_name,
+              radius_meters: rule.radius_meters,
+              trigger_on: rule.trigger_on,
+              auto_execute: rule.auto_execute,
+              is_active: rule.is_active
+            });
+          });
+        }
+        
+        // Add explicit map data with combined wallets, NFTs, and contract rules
         if (mapDataItems.length > 0) {
           walletResult._mapData = {
             type: 'combined',
@@ -724,7 +875,7 @@ async function executeToolCall(toolCall, userContext = {}) {
             },
             zoom: 13
           };
-          console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
+          console.log(`[AI Tool] geolink_findNearbyWallets - Added _mapData with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs, ${mapDataItems.filter(i => i.type === 'contract_rule').length} contract rules)`);
           console.log(`[AI Tool] geolink_findNearbyWallets - Wallet radius: ${walletRadius}m, NFT radius: ${nftRadius}m (${(nftRadius / 1000).toFixed(0)}km)`);
         } else {
           console.warn(`[AI Tool] geolink_findNearbyWallets - No map data items found!`);
@@ -931,6 +1082,40 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!token) throw new Error('API key required for this operation');
         return await geolinkOperations.getBlockchainDistribution(token);
 
+      // GeoLink Smart Contract Operations
+      case 'geolink_discoverContract':
+        if (!token) throw new Error('Authentication required for this operation');
+        return await geolinkOperations.discoverContract(
+          functionArgs.contractAddress,
+          functionArgs.network || 'testnet',
+          token
+        );
+
+      case 'geolink_getCustomContracts':
+        if (!token) throw new Error('Authentication required for this operation');
+        return await geolinkOperations.getCustomContracts(token);
+
+      case 'geolink_saveCustomContract':
+        if (!token) throw new Error('Authentication required for this operation');
+        return await geolinkOperations.saveCustomContract({
+          contract_address: functionArgs.contractAddress,
+          contract_name: functionArgs.contractName || null,
+          network: functionArgs.network || 'testnet',
+          use_smart_wallet: functionArgs.useSmartWallet || false,
+          smart_wallet_contract_id: functionArgs.smartWalletContractId || null
+        }, token);
+
+      case 'geolink_executeContractFunction':
+        if (!token) throw new Error('Authentication required for this operation');
+        return await geolinkOperations.executeContractFunction(
+          functionArgs.contractId,
+          functionArgs.functionName,
+          functionArgs.parameters || {},
+          functionArgs.userPublicKey,
+          functionArgs.userSecretKey,
+          token
+        );
+
       // GeoLink Geofence Operations
       case 'geolink_getGeofences':
         if (!token) throw new Error('API key required for this operation');
@@ -1006,7 +1191,109 @@ async function executeToolCall(toolCall, userContext = {}) {
         };
       }
 
+      // Handle dynamic contract function calls (format: contract_{contractId}_{functionName})
       default:
+        if (functionName.startsWith('contract_')) {
+          const match = functionName.match(/^contract_(\d+)_(.+)$/);
+          if (match) {
+            const contractId = parseInt(match[1]);
+            const actualFunctionName = match[2];
+            
+            if (!token) throw new Error('Authentication required for this operation');
+            
+            // Check if function requires WebAuthn
+            try {
+              const contracts = await geolinkOperations.getCustomContracts(token);
+              const contract = contracts?.contracts?.find(c => c.id === contractId);
+              
+              if (contract) {
+                const discoveredFunctions = typeof contract.discovered_functions === 'string'
+                  ? JSON.parse(contract.discovered_functions)
+                  : contract.discovered_functions;
+                
+                const func = discoveredFunctions?.[actualFunctionName];
+                const requiresWebAuthn = contract.requires_webauthn || 
+                  (func?.parameters?.some(p => 
+                    p.name === 'webauthn_signature' || 
+                    p.name === 'webauthn_authenticator_data' || 
+                    p.name === 'webauthn_client_data'
+                  ));
+                
+                if (requiresWebAuthn) {
+                  // WebAuthn authentication must happen in the browser
+                  // The AI cannot trigger WebAuthn prompts server-side
+                  return {
+                    error: true,
+                    requires_webauthn: true,
+                    message: `The function "${actualFunctionName}" requires WebAuthn/passkey authentication. This must be done through the browser interface.`,
+                    instructions: [
+                      'WebAuthn authentication cannot be performed by the AI agent directly.',
+                      'To call this function, please use the frontend interface where you can authenticate with your passkey.',
+                      'Alternatively, you can call the function from the Contract Management section in your dashboard.',
+                      'The function requires WebAuthn signature data that can only be generated through browser WebAuthn API.'
+                    ],
+                    function_name: actualFunctionName,
+                    contract_id: contractId,
+                    contract_name: contract.contract_name || contract.contract_address
+                  };
+                }
+              }
+            } catch (error) {
+              console.warn('[AI Tool] Could not check WebAuthn requirements:', error.message);
+              // Continue with execution attempt
+            }
+            
+            // Extract parameters - either from individual fields or from parameters object
+            let parameters = functionArgs.parameters || {};
+            
+            // If individual parameters were provided, merge them
+            Object.keys(functionArgs).forEach(key => {
+              if (key !== 'contract_id' && key !== 'parameters' && !key.startsWith('user')) {
+                parameters[key] = functionArgs[key];
+              }
+            });
+
+            // Use user's public key and secret key from context if available
+            const userPublicKey = functionArgs.userPublicKey || userContext.publicKey;
+            const userSecretKey = functionArgs.userSecretKey || userContext.secretKey;
+
+            // Check if function is read-only (doesn't require signing)
+            // Read-only functions typically start with: get_, is_, has_, check_, query_, view_
+            const readOnlyPatterns = ['get_', 'is_', 'has_', 'check_', 'query_', 'view_', 'read_', 'fetch_'];
+            const isReadOnly = readOnlyPatterns.some(pattern => actualFunctionName.toLowerCase().startsWith(pattern));
+            
+            // For read-only functions, we only need public key (for simulation)
+            // For write functions, we need both public and secret key (for signing)
+            if (isReadOnly) {
+              if (!userPublicKey) {
+                throw new Error('User public key is required for read-only function calls. Please connect your wallet first.');
+              }
+              // Call with null secret key for read-only functions
+              return await geolinkOperations.executeContractFunction(
+                contractId,
+                actualFunctionName,
+                parameters,
+                userPublicKey,
+                null, // No secret key needed for read-only
+                token
+              );
+            } else {
+              // Write function - requires secret key for signing
+              if (!userPublicKey || !userSecretKey) {
+                throw new Error('User public key and secret key are required for write operations. Please connect your wallet first.');
+              }
+              return await geolinkOperations.executeContractFunction(
+                contractId,
+                actualFunctionName,
+                parameters,
+                userPublicKey,
+                userSecretKey,
+                token
+              );
+            }
+          }
+        }
+        
         throw new Error(`Unknown function: ${functionName}`);
     }
   } catch (error) {
@@ -1032,7 +1319,7 @@ async function processChatCompletion(messages, userId = null, userContext = {}) 
   });
   
   const client = getAzureOpenAIClient();
-  const tools = getAvailableTools();
+  const tools = await getAvailableTools(userContext);
   
   // Build dynamic system message with user context
   let systemMessage = process.env.AZURE_OPENAI_SYSTEM_MESSAGE || 
@@ -1048,6 +1335,40 @@ Your primary focus areas are:
 7. **Analytics**: Provide insights on wallet distribution, blockchain statistics, and system activity
 
 Always stay focused on GeoLink and Stellar-related topics. When users ask about operations that require authentication, guide them to authenticate first. For operations requiring API keys, explain that they need a data consumer or wallet provider API key.
+
+**CRITICAL - Custom Smart Contracts**:
+- You have access to ALL discovered functions from contracts the user has added to GeoLink.
+- You can LIST the user's contracts and their discovered functions by calling the 'geolink_getCustomContracts' tool. This will show you:
+  * All contracts the user has added
+  * Each contract's ID (id), contract address (contract_address - Stellar address starting with C), and contract name (contract_name)
+  * Each contract's discovered functions with their parameters
+  * Function parameter types and requirements
+  * Which functions require WebAuthn authentication
+  * Network (testnet/mainnet) for each contract
+- When a user asks about their contracts, contract addresses, or what functions are available, ALWAYS call 'geolink_getCustomContracts' first to see the full list.
+- Contract addresses are ALWAYS available in the contract data - each contract has a 'contract_address' field that contains the Stellar contract address (56 characters, starts with C).
+- When a user asks "what is the contract address for [contract name]" or "what is the address for contract ID X", you MUST call 'geolink_getCustomContracts' to get the contract_address field.
+- You have access to ALL contract information including addresses, IDs, names, functions, and parameters - use 'geolink_getCustomContracts' whenever discussing contracts, NFTs, or wallets.
+- When a user asks to call a function on their contract, use the dynamic contract function tools (format: contract_{contractId}_{functionName}).
+- Each contract function tool includes:
+  * Full parameter schema with types (Address, I128, Bytes, etc.)
+  * Parameter descriptions
+  * Required vs optional parameters
+  * WebAuthn requirements (if applicable)
+- You can see all available contract functions in your available tools list - they appear as 'contract_{contractId}_{functionName}'.
+- Always use the user's public key and secret key from context when calling contract functions.
+- If the user asks "call execute_payment on my smart wallet contract" or similar, find the appropriate contract function tool and call it immediately.
+- If the user asks "what contracts do I have?" or "show me my contracts", call 'geolink_getCustomContracts' first to see what's available.
+
+**CRITICAL - WebAuthn/Passkey Authentication**:
+- Some contract functions (like 'deposit', 'execute_payment') require WebAuthn/passkey authentication.
+- WebAuthn authentication MUST happen in the browser - it cannot be performed server-side by the AI.
+- If a function requires WebAuthn, you will receive an error indicating this.
+- When you detect a WebAuthn requirement, inform the user that:
+  1. The function requires passkey authentication which must be done through the browser
+  2. They should use the frontend Contract Management interface to call the function
+  3. They will be prompted to authenticate with their passkey when calling the function from the UI
+- DO NOT attempt to call functions requiring WebAuthn directly - always inform the user they need to use the browser interface.
 
 **CRITICAL - Location Usage**: 
 - You have DIRECT ACCESS to the user's current location in the userContext.
@@ -1512,7 +1833,7 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
         
         console.log(`[AI Fallback] Calling geolink_findNearbyWallets with location: ${lat}, ${lon}, walletRadius: ${walletRadius}, nftRadius: ${nftRadius}`);
         
-        const [walletResult, nftResult] = await Promise.all([
+        const [walletResult, nftResult, contractRulesResult] = await Promise.all([
           geolinkOperations.findNearbyWallets(lat, lon, walletRadius, null).catch(err => {
             console.error('[AI Fallback] Error fetching wallets:', err);
             console.error('[AI Fallback] Error stack:', err.stack);
@@ -1522,6 +1843,11 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             console.error('[AI Fallback] Error fetching NFTs:', err);
             console.error('[AI Fallback] Error stack:', err.stack);
             return { nfts: [] };
+          }),
+          geolinkOperations.getNearbyContractRules(lat, lon, nftRadius, null).catch(err => {
+            console.error('[AI Fallback] Error fetching contract rules:', err);
+            console.error('[AI Fallback] Error stack:', err.stack);
+            return { rules: [] };
           })
         ]);
         
@@ -1589,6 +1915,33 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
           console.log(`[AI Fallback] NFT result does not have valid nfts array`);
         }
         
+        // Add contract rules
+        if (contractRulesResult && contractRulesResult.rules && Array.isArray(contractRulesResult.rules)) {
+          console.log(`[AI Fallback] Processing ${contractRulesResult.rules.length} contract rules`);
+          contractRulesResult.rules.forEach((rule, idx) => {
+            if (rule.latitude != null && rule.longitude != null) {
+              mapDataItems.push({
+                type: 'contract_rule',
+                latitude: parseFloat(rule.latitude),
+                longitude: parseFloat(rule.longitude),
+                id: rule.id,
+                rule_name: rule.rule_name || `Rule #${rule.id}`,
+                contract_name: rule.contract_name || 'Unknown Contract',
+                contract_address: rule.contract_address,
+                function_name: rule.function_name,
+                radius_meters: rule.radius_meters,
+                trigger_on: rule.trigger_on,
+                auto_execute: rule.auto_execute,
+                is_active: rule.is_active
+              });
+            } else {
+              console.log(`[AI Fallback] Contract rule ${idx} skipped - missing coordinates:`, rule);
+            }
+          });
+        } else {
+          console.log(`[AI Fallback] Contract rules result does not have valid rules array`);
+        }
+        
         console.log(`[AI Fallback] Total map data items created: ${mapDataItems.length}`);
         
         if (mapDataItems.length > 0) {
@@ -1607,11 +1960,12 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
             },
             zoom: 13
           };
-          console.log(`[AI Fallback] Created map data with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs)`);
+          console.log(`[AI Fallback] Created map data with ${mapDataItems.length} items (${mapDataItems.filter(i => i.type === 'wallet').length} wallets, ${mapDataItems.filter(i => i.type === 'nft').length} NFTs, ${mapDataItems.filter(i => i.type === 'contract_rule').length} contract rules)`);
         } else {
           console.log(`[AI Fallback] No map data items found after calling function`);
           console.log(`[AI Fallback] walletResult:`, JSON.stringify(walletResult, null, 2));
           console.log(`[AI Fallback] nftResult:`, JSON.stringify(nftResult, null, 2));
+          console.log(`[AI Fallback] contractRulesResult:`, JSON.stringify(contractRulesResult, null, 2));
         }
       } catch (error) {
         console.error(`[AI Fallback] Error calling geolink_findNearbyWallets:`, error);

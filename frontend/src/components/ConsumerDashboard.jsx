@@ -18,6 +18,7 @@ import {
     Grid
 } from '@mui/material';
 import { DataUsage, Key, Speed } from '@mui/icons-material';
+import { Link as RouterLink } from 'react-router-dom';
 
 const ConsumerDashboard = () => {
     const [apiKey, setApiKey] = useState(null);
@@ -147,29 +148,25 @@ const ConsumerDashboard = () => {
                     </Card>
                 </Grid>
 
-                {/* API Documentation */}
+                {/* API Documentation - Moved to Settings */}
                 <Grid item xs={12}>
                     <Paper sx={{ p: 3, mt: 3 }}>
-                        <Typography variant="h6" gutterBottom>
-                            Quick Start Guide
-                        </Typography>
-                        <Typography variant="body1" gutterBottom>
-                            To use the API, include your API key in the request headers:
-                        </Typography>
-                        <Paper sx={{ p: 2, bgcolor: 'grey.100' }}>
-                            <code>
-                                X-API-Key: your_api_key
-                            </code>
-                        </Paper>
-                        <Button
-                            variant="outlined"
-                            color="primary"
-                            sx={{ mt: 2 }}
-                            href="/docs"
-                            target="_blank"
-                        >
-                            View Full Documentation
-                        </Button>
+                        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                            <Typography variant="h6">
+                                API Documentation
+                            </Typography>
+                            <Button
+                                variant="contained"
+                                color="primary"
+                                component={RouterLink}
+                                to="/settings"
+                            >
+                                View Full Documentation in Settings
+                            </Button>
+                        </Box>
+                        <Alert severity="info">
+                            Complete API documentation, including all endpoints, request/response examples, and authentication details, is now available in <strong>Settings → API Documentation</strong>.
+                        </Alert>
                     </Paper>
                 </Grid>
 
