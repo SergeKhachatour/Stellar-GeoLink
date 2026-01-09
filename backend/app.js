@@ -225,13 +225,36 @@ const ensureSorobanCLI = async () => {
                         const SOROBAN_DIR = '/home/soroban';
                         await fs.mkdir(SOROBAN_DIR, { recursive: true });
                         
-                        // Download and install - use specific version URL to avoid redirects
-                        // Try latest release first, but with better error handling
-                        const downloadUrl = 'https://github.com/stellar/soroban-tools/releases/latest/download/soroban-x86_64-unknown-linux-gnu.tar.gz';
-                        const tarPath = '/tmp/soroban.tar.gz';
+                        // Download and install - get latest release URL first via GitHub API
+                        console.log(`${logPrefix} 📥 Fetching latest Soroban CLI release info from GitHub API...`);
+                        let downloadUrl;
+                        try {
+                            const { stdout: releaseInfo } = await execPromise(
+                                `curl -s -L "https://api.github.com/repos/stellar/soroban-tools/releases/latest"`,
+                                { maxBuffer: 1024 * 1024, timeout: 10000 }
+                            );
+                            const release = JSON.parse(releaseInfo);
+                            // Find the asset for x86_64-unknown-linux-gnu
+                            const asset = release.assets?.find(a => 
+                                a.name.includes('soroban') && 
+                                a.name.includes('x86_64-unknown-linux-gnu') && 
+                                a.name.endsWith('.tar.gz')
+                            );
+                            if (!asset) {
+                                throw new Error('Could not find soroban-x86_64-unknown-linux-gnu.tar.gz in latest release');
+                            }
+                            downloadUrl = asset.browser_download_url;
+                            console.log(`${logPrefix} ✅ Found release: ${release.tag_name}, download URL: ${downloadUrl}`);
+                        } catch (apiError) {
+                            // Fallback to a known working version URL
+                            console.log(`${logPrefix} ⚠️  Failed to fetch release info (${apiError.message}), using fallback URL...`);
+                            downloadUrl = 'https://github.com/stellar/soroban-tools/releases/download/v21.4.0/soroban-x86_64-unknown-linux-gnu.tar.gz';
+                            console.log(`${logPrefix} 📥 Using fallback URL: ${downloadUrl}`);
+                        }
                         
+                        const tarPath = '/tmp/soroban.tar.gz';
                         console.log(`${logPrefix} 📥 Downloading Soroban CLI from: ${downloadUrl}`);
-                        // Use curl with better error handling
+                        // Use curl with better error handling (-f fails on HTTP errors)
                         await execPromise(
                             `curl -L -f -s -S "${downloadUrl}" -o "${tarPath}"`,
                             { maxBuffer: 10 * 1024 * 1024 }
