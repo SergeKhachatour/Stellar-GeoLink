@@ -341,14 +341,29 @@ const ensureSorobanCLI = async () => {
                             let subdir = null;
                             for (const f of extractedFiles) {
                                 try {
-                                    const stats = await fs.stat(`${SOROBAN_DIR}/${f}`);
-                                    if (stats.isDirectory() && 
-                                        (f.includes('soroban') || f.includes('stellar')) && 
-                                        !f.includes('.tar')) {
-                                        subdir = f;
-                                        break;
+                                    const filePath = `${SOROBAN_DIR}/${f}`;
+                                    const stats = await fs.stat(filePath);
+                                    console.log(`${logPrefix} 🔍 Checking ${f}: isDirectory=${stats.isDirectory()}, isFile=${stats.isFile()}`);
+                                    if ((f.includes('soroban') || f.includes('stellar')) && !f.includes('.tar')) {
+                                        if (stats.isDirectory()) {
+                                            subdir = f;
+                                            console.log(`${logPrefix} ✅ Found matching directory: ${f}`);
+                                            break;
+                                        } else if (stats.isFile()) {
+                                            // Maybe "stellar" is the binary itself? Check if it's executable
+                                            console.log(`${logPrefix} ℹ️  ${f} is a file, not a directory. Size: ${stats.size} bytes`);
+                                            // If it's a large file (> 1MB), it might be the binary
+                                            if (stats.size > 1000000) {
+                                                console.log(`${logPrefix} 🔄 Treating ${f} as potential binary (large file)`);
+                                                await fs.rename(filePath, sorobanPath);
+                                                console.log(`${logPrefix} 📦 Renamed ${f} to soroban`);
+                                                extractedPath = sorobanPath;
+                                                break;
+                                            }
+                                        }
                                     }
                                 } catch (err) {
+                                    console.log(`${logPrefix} ⚠️  Error checking ${f}: ${err.message}`);
                                     // Not a directory or doesn't exist, continue
                                 }
                             }
