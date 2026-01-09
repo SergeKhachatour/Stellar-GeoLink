@@ -467,15 +467,23 @@ class ContractIntrospection {
           sorobanCmd = customPath;
           console.log(`[ContractIntrospection] ✅ Found Soroban CLI at custom path: ${sorobanCmd}`);
         } catch {
-          // Not found at custom path, will try PATH
+          // Not found at custom path, try PATH (which might have been set by app.js)
           console.log(`[ContractIntrospection] ℹ️  Soroban CLI not found at ${customPath}, trying PATH...`);
+          // Ensure PATH includes custom location
+          if (!process.env.PATH.includes('/home/soroban')) {
+            process.env.PATH = `/home/soroban:${process.env.PATH}`;
+            console.log(`[ContractIntrospection] 🔧 Added /home/soroban to PATH`);
+          }
         }
       }
       
       // Try to run: soroban contract inspect --wasm <file>
-      const { stdout, stderr } = await execPromise(`${sorobanCmd} contract inspect --wasm "${wasmPath}"`, {
+      // Use full path if custom, otherwise rely on PATH
+      const command = sorobanCmd.includes('/') ? sorobanCmd : `soroban`;
+      const { stdout, stderr } = await execPromise(`${command} contract inspect --wasm "${wasmPath}"`, {
         timeout: 30000,
-        maxBuffer: 10 * 1024 * 1024 // 10MB buffer
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        env: { ...process.env, PATH: process.env.PATH } // Ensure PATH is passed
       });
       
       // Parse the output (usually JSON or structured text)

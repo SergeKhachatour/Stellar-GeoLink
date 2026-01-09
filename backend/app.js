@@ -193,6 +193,65 @@ app.use((err, req, res, next) => {
 
 // Ensure uploads directory exists on startup
 const fs = require('fs').promises;
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execPromise = promisify(exec);
+
+// Ensure Soroban CLI is available
+const ensureSorobanCLI = async () => {
+    try {
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+        
+        // Check if soroban is already in PATH
+        try {
+            await execPromise('which soroban');
+            console.log(`${logPrefix} ✅ Soroban CLI found in PATH`);
+            return true;
+        } catch {
+            // Not in PATH, check custom location
+            const customPath = '/home/soroban/soroban';
+            try {
+                await fs.access(customPath);
+                // Add to PATH for this process
+                process.env.PATH = `/home/soroban:${process.env.PATH}`;
+                console.log(`${logPrefix} ✅ Soroban CLI found at ${customPath}, added to PATH`);
+                return true;
+            } catch {
+                // Not found, try to install on Azure
+                if (isAzure) {
+                    console.log(`${logPrefix} 🔧 Soroban CLI not found, attempting installation...`);
+                    try {
+                        const SOROBAN_DIR = '/home/soroban';
+                        await fs.mkdir(SOROBAN_DIR, { recursive: true });
+                        
+                        // Download and install
+                        await execPromise(`curl -L https://github.com/stellar/soroban-tools/releases/latest/download/soroban-x86_64-unknown-linux-gnu.tar.gz -o /tmp/soroban.tar.gz`);
+                        await execPromise(`tar -xzf /tmp/soroban.tar.gz -C ${SOROBAN_DIR}`);
+                        await execPromise(`chmod +x ${SOROBAN_DIR}/soroban`);
+                        
+                        // Add to PATH
+                        process.env.PATH = `${SOROBAN_DIR}:${process.env.PATH}`;
+                        console.log(`${logPrefix} ✅ Soroban CLI installed successfully at ${SOROBAN_DIR}`);
+                        return true;
+                    } catch (installError) {
+                        console.error(`${logPrefix} ⚠️  Failed to install Soroban CLI:`, installError.message);
+                        console.log(`${logPrefix} 💡 WASM parsing will use fallback methods`);
+                        return false;
+                    }
+                } else {
+                    console.log(`${logPrefix} ⚠️  Soroban CLI not found. Install from: https://soroban.stellar.org/docs/getting-started/soroban-cli`);
+                    return false;
+                }
+            }
+        }
+    } catch (error) {
+        const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+        const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
+        console.error(`${logPrefix} ❌ Error checking Soroban CLI:`, error.message);
+        return false;
+    }
+};
 
 const ensureUploadsDir = async () => {
     try {
@@ -250,8 +309,17 @@ const ensureUploadsDir = async () => {
     }
 };
 
-// Ensure uploads directory exists before starting server
-ensureUploadsDir();
+// Ensure Soroban CLI and uploads directory exist before starting server
+(async () => {
+    try {
+        await ensureSorobanCLI();
+        await ensureUploadsDir();
+        console.log('✅ Startup checks complete');
+    } catch (error) {
+        console.error('❌ Error during startup checks:', error);
+        // Don't exit - app can still run with limited functionality
+    }
+})();
 
 // Start background AI service for processing location updates
 const backgroundAIService = require('./services/backgroundAIService');
