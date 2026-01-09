@@ -456,8 +456,24 @@ class ContractIntrospection {
     try {
       console.log(`[ContractIntrospection] 🔧 Attempting to parse contract spec via Soroban CLI...`);
       
+      // Determine Soroban CLI path (check custom install location first, then PATH)
+      let sorobanCmd = 'soroban';
+      const isAzure = process.env.WEBSITE_SITE_NAME || process.env.AZURE_WEBSITE_INSTANCE_ID;
+      if (isAzure) {
+        // On Azure, check custom installation path
+        const customPath = '/home/soroban/soroban';
+        try {
+          await fs.access(customPath);
+          sorobanCmd = customPath;
+          console.log(`[ContractIntrospection] ✅ Found Soroban CLI at custom path: ${sorobanCmd}`);
+        } catch {
+          // Not found at custom path, will try PATH
+          console.log(`[ContractIntrospection] ℹ️  Soroban CLI not found at ${customPath}, trying PATH...`);
+        }
+      }
+      
       // Try to run: soroban contract inspect --wasm <file>
-      const { stdout, stderr } = await execPromise(`soroban contract inspect --wasm "${wasmPath}"`, {
+      const { stdout, stderr } = await execPromise(`${sorobanCmd} contract inspect --wasm "${wasmPath}"`, {
         timeout: 30000,
         maxBuffer: 10 * 1024 * 1024 // 10MB buffer
       });
