@@ -1497,6 +1497,125 @@ router.get('/rules', authenticateContractUser, async (req, res) => {
  *       401:
  *         description: Authentication required
  */
+
+// Get pending rules that require WebAuthn authentication
+// These are rules that matched location but were skipped due to WebAuthn requirement
+// IMPORTANT: This route must come BEFORE /rules/:id to avoid route conflicts
+router.get('/rules/pending', authenticateContractUser, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        const { limit = 50 } = req.query;
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        // Get user ID from public_key if needed
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
+            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User not found' });
+        }
+
+        // Query location_update_queue for updates with skipped rules (requires_webauthn)
+        // Join with contract_execution_rules to get rule details
+        const query = `
+            SELECT DISTINCT ON (cer.id)
+                cer.id as rule_id,
+                cer.rule_name,
+                cer.function_name,
+                cer.function_parameters,
+                cer.contract_id,
+                cc.contract_name,
+                cc.contract_address,
+                cc.requires_webauthn,
+                luq.id as update_id,
+                luq.public_key,
+                luq.latitude,
+                luq.longitude,
+                luq.received_at,
+                luq.processed_at,
+                luq.execution_results
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE luq.user_id = $1
+                AND luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND luq.execution_results::text LIKE '%"skipped":true%'
+                AND luq.execution_results::text LIKE '%"reason":"requires_webauthn"%'
+            ORDER BY cer.id, luq.received_at DESC
+            LIMIT $2
+        `;
+
+        const result = await pool.query(query, [actualUserId, parseInt(limit)]);
+
+        // Process results to extract skipped rules
+        const pendingRules = [];
+        const processedRuleIds = new Set();
+
+        for (const row of result.rows) {
+            if (processedRuleIds.has(row.rule_id)) continue;
+            processedRuleIds.add(row.rule_id);
+
+            // Parse execution_results to find the skipped rule
+            let executionResults = [];
+            try {
+                executionResults = typeof row.execution_results === 'string'
+                    ? JSON.parse(row.execution_results)
+                    : row.execution_results || [];
+            } catch (e) {
+                console.error('Error parsing execution_results:', e);
+                continue;
+            }
+
+            const skippedResult = executionResults.find(r => 
+                r.rule_id === row.rule_id && 
+                r.skipped === true && 
+                r.reason === 'requires_webauthn'
+            );
+
+            if (skippedResult) {
+                pendingRules.push({
+                    rule_id: row.rule_id,
+                    rule_name: row.rule_name,
+                    function_name: row.function_name,
+                    function_parameters: row.function_parameters,
+                    contract_id: row.contract_id,
+                    contract_name: row.contract_name,
+                    contract_address: row.contract_address,
+                    requires_webauthn: row.requires_webauthn,
+                    matched_at: row.received_at,
+                    location: {
+                        latitude: parseFloat(row.latitude),
+                        longitude: parseFloat(row.longitude)
+                    },
+                    message: skippedResult.message || 'Rule matched but requires WebAuthn/passkey authentication. Please execute manually via browser UI.'
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            pending_rules: pendingRules,
+            count: pendingRules.length
+        });
+    } catch (error) {
+        console.error('Error fetching pending rules:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
 router.get('/rules/:id', authenticateContractUser, async (req, res) => {
     try {
         const { id } = req.params;
