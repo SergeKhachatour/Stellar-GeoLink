@@ -224,12 +224,14 @@ class BackgroundAIService {
       }
 
       // Complete processing
+      // Pass matchedRuleIds as a PostgreSQL array (not JSON string)
+      // pg library will automatically convert JavaScript array to PostgreSQL array format
       await pool.query(
         'SELECT complete_location_update_processing($1, $2, $3, $4)',
         [
           update_id,
           executionResults.some(r => r.success) ? 'executed' : 'matched',
-          JSON.stringify(matchedRuleIds),
+          matchedRuleIds.length > 0 ? matchedRuleIds : null, // Pass array directly, or null if empty
           JSON.stringify(executionResults)
         ]
       );
