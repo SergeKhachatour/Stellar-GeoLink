@@ -239,7 +239,8 @@ class BackgroundAIService {
       const totalTime = Date.now() - processStartTime;
       console.log(`[BackgroundAI] ✅ Processed location update ${update_id}:`, {
         rules_analyzed: rules.length,
-        rules_executed: rulesToExecute.length,
+        rules_executed: executionResults.length,
+        rules_successful: executionResults.filter(r => r.success).length,
         execution_results: executionResults.map(r => ({
           rule_id: r.rule_id,
           success: r.success
