@@ -479,11 +479,22 @@ class ContractIntrospection {
       
       // Try to run: soroban contract inspect --wasm <file>
       // Use full path if custom, otherwise rely on PATH
-      const command = sorobanCmd.includes('/') ? sorobanCmd : `soroban`;
+      const command = sorobanCmd.includes('/') ? `"${sorobanCmd}"` : `soroban`;
+      
+      // Ensure PATH includes /home/soroban if on Azure
+      let envPath = process.env.PATH || '';
+      if (isAzure && !envPath.includes('/home/soroban')) {
+        envPath = `/home/soroban:${envPath}`;
+        console.log(`[ContractIntrospection] 🔧 Updated PATH to include /home/soroban`);
+      }
+      
+      console.log(`[ContractIntrospection] 🔧 Executing: ${command} contract inspect --wasm "${wasmPath}"`);
+      console.log(`[ContractIntrospection] 🔧 PATH: ${envPath.substring(0, 100)}...`);
+      
       const { stdout, stderr } = await execPromise(`${command} contract inspect --wasm "${wasmPath}"`, {
         timeout: 30000,
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer
-        env: { ...process.env, PATH: process.env.PATH } // Ensure PATH is passed
+        env: { ...process.env, PATH: envPath } // Ensure PATH includes custom location
       });
       
       // Parse the output (usually JSON or structured text)
