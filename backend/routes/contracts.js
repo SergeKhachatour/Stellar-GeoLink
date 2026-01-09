@@ -1529,6 +1529,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
 
         // Query location_update_queue for updates with skipped rules (requires_webauthn)
         // Join with contract_execution_rules to get rule details
+        // Use JSONB operators to check for skipped rules with requires_webauthn reason
         const query = `
             SELECT DISTINCT ON (cer.id)
                 cer.id as rule_id,
@@ -1552,8 +1553,13 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             WHERE luq.user_id = $1
                 AND luq.status IN ('matched', 'executed')
                 AND luq.execution_results IS NOT NULL
-                AND luq.execution_results::text LIKE '%"skipped":true%'
-                AND luq.execution_results::text LIKE '%"reason":"requires_webauthn"%'
+                AND EXISTS (
+                    SELECT 1 
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE result->>'skipped' = 'true'
+                    AND result->>'reason' = 'requires_webauthn'
+                    AND (result->>'rule_id')::integer = cer.id
+                )
             ORDER BY cer.id, luq.received_at DESC
             LIMIT $2
         `;
