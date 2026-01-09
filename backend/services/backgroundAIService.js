@@ -185,10 +185,10 @@ class BackgroundAIService {
           'signature_payload'
         ];
         
+        // Check if WebAuthn parameters exist (even if empty - their presence indicates WebAuthn is required)
+        // OR if the contract has requires_webauthn flag set
         const hasWebAuthnParams = webauthnParamNames.some(paramName => 
-          functionParams.hasOwnProperty(paramName) && 
-          functionParams[paramName] !== '' && 
-          functionParams[paramName] !== null
+          functionParams.hasOwnProperty(paramName)
         );
         
         const requiresWebAuthn = rule.requires_webauthn || hasWebAuthnParams;
