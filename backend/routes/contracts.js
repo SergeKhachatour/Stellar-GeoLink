@@ -2942,13 +2942,24 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Map parameters using the mapping
         const mappedParams = contractIntrospection.mapFieldsToContract(processedParameters, mapping);
         
-        // Convert to ScVal - filter out undefined/null values first
+        // Convert to ScVal - filter out undefined/null/empty string values for required parameters
+        // But keep empty strings for optional WebAuthn parameters if they're being populated
         const scValParams = mappedParams
             .filter(param => {
+                // For WebAuthn parameters, empty strings might be acceptable if they're being populated
+                const isWebAuthnParam = param.name.includes('webauthn') || param.name === 'signature_payload';
+                
                 if (param.value === undefined || param.value === null) {
                     console.warn(`[Execute] ⚠️  Skipping parameter ${param.name} (type: ${param.type}) - value is undefined/null`);
                     return false;
                 }
+                
+                // For non-WebAuthn parameters, empty strings are not valid
+                if (!isWebAuthnParam && param.value === '') {
+                    console.warn(`[Execute] ⚠️  Skipping parameter ${param.name} (type: ${param.type}) - value is empty string`);
+                    return false;
+                }
+                
                 return true;
             })
             .map(param => {
