@@ -613,7 +613,10 @@ router.get('/passkeys/:credentialId', authenticateUser, async (req, res) => {
 router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
   try {
     const { credentialId } = req.params;
+    const decodedCredentialId = decodeURIComponent(credentialId);
     const { name } = req.body;
+    
+    console.log(`[WebAuthn] 🔄 Renaming passkey - credentialId: ${decodedCredentialId.substring(0, 20)}..., name: ${name}`);
     
     if (!name || !name.trim()) {
       return res.status(400).json({ 
@@ -640,7 +643,7 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
        SET name = $1 
        WHERE user_id = $2 AND credential_id = $3
        RETURNING *`,
-      [name.trim(), req.user.id, credentialId]
+      [name.trim(), req.user.id, decodedCredentialId]
     );
 
     if (result.rows.length === 0) {
@@ -676,6 +679,7 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
 router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
   try {
     const { credentialId } = req.params;
+    const decodedCredentialId = decodeURIComponent(credentialId);
     
     // Check if this passkey is registered on the contract
     const userPublicKey = req.user?.public_key;
@@ -687,7 +691,7 @@ router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
         const passkeyResult = await pool.query(
           `SELECT public_key_spki FROM user_passkeys 
            WHERE user_id = $1 AND credential_id = $2`,
-          [req.user.id, credentialId]
+          [req.user.id, decodedCredentialId]
         );
         
         if (passkeyResult.rows.length > 0) {
@@ -760,7 +764,7 @@ router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
     await pool.query(
       `DELETE FROM user_passkeys 
        WHERE user_id = $1 AND credential_id = $2`,
-      [req.user.id, credentialId]
+      [req.user.id, decodedCredentialId]
     );
 
     res.json({ 

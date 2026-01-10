@@ -153,7 +153,9 @@ const PasskeyManager = () => {
     try {
       setLoading(true);
       setError('');
-      await api.put(`/webauthn/passkeys/${credentialId}`, {
+      // URL encode the credentialId to handle special characters
+      const encodedCredentialId = encodeURIComponent(credentialId);
+      await api.put(`/webauthn/passkeys/${encodedCredentialId}`, {
         name: editingNameValue.trim()
       });
       setSuccess('Passkey name updated successfully');
