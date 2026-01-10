@@ -2850,37 +2850,63 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // This ensures all required parameters are present when executing from pending rules
         if (rule_id && mapping && mapping.parameters) {
             console.log(`[Execute] 🔄 Auto-populating parameters for pending rule execution`);
+            console.log(`[Execute] 📋 Current parameters:`, Object.keys(processedParameters).join(', '));
             
             // Get function parameter definitions
             const functionParams = mapping.parameters;
             
-            // Auto-populate signer_address if missing (should be user's public key)
-            const signerAddressParam = functionParams.find(p => 
-                p.name === 'signer_address' && 
-                (p.type === 'Address' || p.type === 'address')
-            );
-            if (signerAddressParam && (!processedParameters.signer_address || processedParameters.signer_address === '')) {
-                processedParameters.signer_address = user_public_key;
-                console.log(`[Execute] ✅ Auto-populated signer_address: ${user_public_key}`);
-            }
+            // Process each parameter to ensure it's populated
+            functionParams.forEach(param => {
+                const paramName = param.name;
+                const mappedFrom = param.mapped_from;
+                
+                // Get current value (check both param name and mapped_from key)
+                let currentValue = processedParameters[paramName] || processedParameters[mappedFrom];
+                
+                // Auto-populate based on parameter name and type
+                if (!currentValue || currentValue === '') {
+                    if (paramName === 'signer_address' && (param.type === 'Address' || param.type === 'address')) {
+                        currentValue = user_public_key;
+                        console.log(`[Execute] ✅ Auto-populated ${paramName} from user_public_key: ${currentValue}`);
+                    } else if (paramName === 'destination' && (param.type === 'Address' || param.type === 'address')) {
+                        // Destination should come from pending rule (matched wallet's public key)
+                        // It should already be in processedParameters, but if not, we can't auto-populate it
+                        if (!currentValue) {
+                            console.warn(`[Execute] ⚠️  Destination address not found in parameters`);
+                        }
+                    } else if (paramName === 'asset' && (param.type === 'Address' || param.type === 'address')) {
+                        // Convert XLM/native to contract address
+                        const assetValue = processedParameters.asset || processedParameters.asset_code;
+                        if (assetValue === 'XLM' || assetValue === 'native' || !assetValue) {
+                            currentValue = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                            console.log(`[Execute] ✅ Auto-populated ${paramName} to native XLM contract address`);
+                        } else {
+                            currentValue = assetValue;
+                        }
+                    } else if (paramName === 'amount' && (param.type === 'I128' || param.type === 'i128')) {
+                        // Amount should already be in parameters, but ensure it's in stroops
+                        const amountValue = processedParameters.amount;
+                        if (amountValue) {
+                            if (typeof amountValue === 'number' && amountValue < 1000000) {
+                                currentValue = Math.floor(amountValue * 10000000).toString();
+                                console.log(`[Execute] ✅ Converted ${paramName} to stroops: ${currentValue}`);
+                            } else {
+                                currentValue = amountValue.toString();
+                            }
+                        }
+                    }
+                }
+                
+                // Set value using both param name and mapped_from key so mapFieldsToContract can find it
+                if (currentValue !== undefined && currentValue !== null && currentValue !== '') {
+                    processedParameters[paramName] = currentValue;
+                    if (mappedFrom && mappedFrom !== paramName) {
+                        processedParameters[mappedFrom] = currentValue;
+                    }
+                }
+            });
             
-            // Convert asset string to address if needed
-            if (processedParameters.asset === 'XLM' || processedParameters.asset === 'native' || !processedParameters.asset) {
-                // Use Stellar Asset Contract (SAC) for native XLM
-                processedParameters.asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
-                console.log(`[Execute] ✅ Converted asset to native XLM contract address`);
-            }
-            
-            // Convert amount to stroops if it's a small number (likely in XLM, not stroops)
-            if (processedParameters.amount && typeof processedParameters.amount === 'number' && processedParameters.amount < 1000000) {
-                processedParameters.amount = Math.floor(processedParameters.amount * 10000000).toString();
-                console.log(`[Execute] ✅ Converted amount to stroops: ${processedParameters.amount}`);
-            }
-            
-            // Ensure amount is a string for BigInt conversion
-            if (processedParameters.amount && typeof processedParameters.amount !== 'string') {
-                processedParameters.amount = processedParameters.amount.toString();
-            }
+            console.log(`[Execute] 📋 Final parameters after auto-population:`, Object.keys(processedParameters).join(', '));
         }
         
         if (webauthnSignature && webauthnAuthenticatorData && webauthnClientData) {
