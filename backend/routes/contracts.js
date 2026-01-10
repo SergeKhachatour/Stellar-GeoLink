@@ -2974,9 +2974,33 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         );
         
         // If mapping didn't find all parameters, try direct lookup as fallback
+        // Also convert values that need conversion (XLM -> contract address, etc.)
         if (mapping && mapping.parameters) {
             mapping.parameters.forEach(param => {
                 const existingMapped = mappedParams.find(p => p.name === param.name);
+                
+                // First, check if existing mapped value needs conversion
+                if (existingMapped && existingMapped.value !== undefined && existingMapped.value !== null && existingMapped.value !== '') {
+                    // Convert asset "XLM"/"native" to contract address
+                    if (param.name === 'asset' && (param.type === 'Address' || param.type === 'address')) {
+                        if (existingMapped.value === 'XLM' || existingMapped.value === 'native') {
+                            existingMapped.value = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                            console.log(`[Execute] ✅ Converted ${param.name} from "${existingMapped.value}" to contract address in mapped params`);
+                        }
+                    }
+                    
+                    // Convert amount to stroops if needed
+                    if (param.name === 'amount' && (param.type === 'I128' || param.type === 'i128')) {
+                        if (typeof existingMapped.value === 'number' && existingMapped.value < 1000000) {
+                            existingMapped.value = Math.floor(existingMapped.value * 10000000).toString();
+                            console.log(`[Execute] ✅ Converted ${param.name} to stroops in mapped params: ${existingMapped.value}`);
+                        } else if (typeof existingMapped.value !== 'string') {
+                            existingMapped.value = existingMapped.value.toString();
+                        }
+                    }
+                }
+                
+                // If parameter is missing or empty, try direct lookup
                 if (!existingMapped || existingMapped.value === undefined || existingMapped.value === null || existingMapped.value === '') {
                     // Try to find value directly in processedParameters using param name
                     let directValue = processedParameters[param.name];
@@ -3012,14 +3036,6 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 value: directValue
                             });
                             console.log(`[Execute] ✅ Added ${param.name} via direct lookup: ${typeof directValue === 'string' && directValue.length > 50 ? directValue.substring(0, 50) + '...' : directValue}`);
-                        }
-                    }
-                } else {
-                    // Parameter was found by mapping, but check if it needs conversion
-                    if (param.name === 'asset' && (param.type === 'Address' || param.type === 'address')) {
-                        if (existingMapped.value === 'XLM' || existingMapped.value === 'native') {
-                            existingMapped.value = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
-                            console.log(`[Execute] ✅ Converted ${param.name} from "${processedParameters[param.name]}" to contract address in mapped params`);
                         }
                     }
                 }
