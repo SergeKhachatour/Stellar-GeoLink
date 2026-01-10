@@ -197,13 +197,15 @@ class BackgroundAIService {
           console.log(`[BackgroundAI] ⚠️  Rule ${rule.id} (${rule.rule_name}) requires WebAuthn authentication - Skipping automatic execution`);
           console.log(`[BackgroundAI] ℹ️  This rule matched the location but requires manual execution via browser UI`);
           
+          // Store the matched public key so it can be used as destination in pending rules
           // Mark as matched but not executed (requires manual execution)
           executionResults.push({
             rule_id: rule.id,
             success: false,
             skipped: true,
             reason: 'requires_webauthn',
-            message: 'Rule matched but requires WebAuthn/passkey authentication. Please execute manually via browser UI.'
+            message: 'Rule matched but requires WebAuthn/passkey authentication. Please execute manually via browser UI.',
+            matched_public_key: public_key // Store the public key that matched the rule
           });
           matchedRuleIds.push(rule.id); // Still count as matched
           continue; // Skip to next rule

@@ -1375,6 +1375,7 @@ class ContractIntrospection {
       case 'u32':
         return StellarSdk.xdr.ScVal.scvU32(parseInt(value));
       case 'i128':
+      case 'I128': // Support both lowercase and uppercase
         const bigIntValue = BigInt(value);
         return StellarSdk.xdr.ScVal.scvI128(
           StellarSdk.xdr.Int128Parts({

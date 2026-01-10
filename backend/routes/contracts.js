@@ -1594,16 +1594,80 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             );
 
             if (skippedResult) {
+                // Parse function_parameters from rule
+                let functionParams = {};
+                try {
+                    functionParams = typeof row.function_parameters === 'string'
+                        ? JSON.parse(row.function_parameters)
+                        : row.function_parameters || {};
+                } catch (e) {
+                    console.error('[PendingRules] Error parsing function_parameters:', e);
+                    functionParams = {};
+                }
+
+                // Get function mappings to populate parameters with matched data
+                let functionMappings = {};
+                try {
+                    // Use function_mappings from the query result (already joined)
+                    if (row.function_mappings) {
+                        functionMappings = typeof row.function_mappings === 'string'
+                            ? JSON.parse(row.function_mappings)
+                            : row.function_mappings || {};
+                    }
+                } catch (e) {
+                    console.error('[PendingRules] Error parsing function_mappings:', e);
+                }
+
+                // Populate parameters with matched data
+                const mapping = functionMappings?.[row.function_name];
+                const populatedParams = { ...functionParams };
+                
+                if (mapping?.parameters) {
+                    for (const param of mapping.parameters) {
+                        if (param.mapped_from === 'latitude') {
+                            populatedParams[param.name] = parseFloat(row.latitude);
+                        } else if (param.mapped_from === 'longitude') {
+                            populatedParams[param.name] = parseFloat(row.longitude);
+                        } else if (param.mapped_from === 'user_public_key') {
+                            // Use the matched wallet's public key (from location_update_queue)
+                            populatedParams[param.name] = row.public_key || skippedResult.matched_public_key || '';
+                        }
+                    }
+                } else {
+                    // Fallback: try to infer common parameter names
+                    // If destination/recipient/to exists but is empty, populate with matched public key
+                    const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+                    const matchedPublicKey = row.public_key || skippedResult.matched_public_key;
+                    
+                    if (matchedPublicKey) {
+                        for (const key of destinationKeys) {
+                            if (populatedParams.hasOwnProperty(key) && (!populatedParams[key] || populatedParams[key] === '')) {
+                                populatedParams[key] = matchedPublicKey;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Populate latitude/longitude if parameters exist
+                    if (populatedParams.hasOwnProperty('latitude') && (!populatedParams.latitude || populatedParams.latitude === 0)) {
+                        populatedParams.latitude = parseFloat(row.latitude);
+                    }
+                    if (populatedParams.hasOwnProperty('longitude') && (!populatedParams.longitude || populatedParams.longitude === 0)) {
+                        populatedParams.longitude = parseFloat(row.longitude);
+                    }
+                }
+
                 pendingRules.push({
                     rule_id: row.rule_id,
                     rule_name: row.rule_name,
                     function_name: row.function_name,
-                    function_parameters: row.function_parameters,
+                    function_parameters: populatedParams, // Use populated parameters
                     contract_id: row.contract_id,
                     contract_name: row.contract_name,
                     contract_address: row.contract_address,
                     requires_webauthn: row.requires_webauthn,
                     matched_at: row.received_at,
+                    matched_public_key: row.public_key || skippedResult.matched_public_key, // Include matched public key
                     location: {
                         latitude: parseFloat(row.latitude),
                         longitude: parseFloat(row.longitude)
