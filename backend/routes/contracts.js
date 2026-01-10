@@ -2845,6 +2845,44 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
 
         // Process WebAuthn signature if provided
         let processedParameters = { ...parameters };
+        
+        // Auto-populate missing parameters for pending rule execution
+        // This ensures all required parameters are present when executing from pending rules
+        if (rule_id && mapping && mapping.parameters) {
+            console.log(`[Execute] 🔄 Auto-populating parameters for pending rule execution`);
+            
+            // Get function parameter definitions
+            const functionParams = mapping.parameters;
+            
+            // Auto-populate signer_address if missing (should be user's public key)
+            const signerAddressParam = functionParams.find(p => 
+                p.name === 'signer_address' && 
+                (p.type === 'Address' || p.type === 'address')
+            );
+            if (signerAddressParam && (!processedParameters.signer_address || processedParameters.signer_address === '')) {
+                processedParameters.signer_address = user_public_key;
+                console.log(`[Execute] ✅ Auto-populated signer_address: ${user_public_key}`);
+            }
+            
+            // Convert asset string to address if needed
+            if (processedParameters.asset === 'XLM' || processedParameters.asset === 'native' || !processedParameters.asset) {
+                // Use Stellar Asset Contract (SAC) for native XLM
+                processedParameters.asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                console.log(`[Execute] ✅ Converted asset to native XLM contract address`);
+            }
+            
+            // Convert amount to stroops if it's a small number (likely in XLM, not stroops)
+            if (processedParameters.amount && typeof processedParameters.amount === 'number' && processedParameters.amount < 1000000) {
+                processedParameters.amount = Math.floor(processedParameters.amount * 10000000).toString();
+                console.log(`[Execute] ✅ Converted amount to stroops: ${processedParameters.amount}`);
+            }
+            
+            // Ensure amount is a string for BigInt conversion
+            if (processedParameters.amount && typeof processedParameters.amount !== 'string') {
+                processedParameters.amount = processedParameters.amount.toString();
+            }
+        }
+        
         if (webauthnSignature && webauthnAuthenticatorData && webauthnClientData) {
             console.log(`[Execute] 🔐 Processing WebAuthn signature for function: ${function_name}`);
             
@@ -2868,10 +2906,24 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     throw new Error(`Invalid signature length after decoding: ${rawSignature64.length} bytes`);
                 }
                 
+                // Create signature payload if not provided
+                if (!signaturePayload && !processedParameters.signature_payload) {
+                    // Build signature payload from transaction data
+                    const txData = {
+                        source: user_public_key,
+                        destination: processedParameters.destination || '',
+                        amount: processedParameters.amount || '0',
+                        asset: processedParameters.asset || 'native',
+                        timestamp: Date.now()
+                    };
+                    signaturePayload = JSON.stringify(txData);
+                    console.log(`[Execute] ✅ Generated signature payload from transaction data`);
+                }
+                
                 // Update parameters with processed WebAuthn data
                 processedParameters = {
                     ...processedParameters,
-                    signature_payload: signaturePayload || processedParameters.signature_payload || JSON.stringify(parameters),
+                    signature_payload: signaturePayload || processedParameters.signature_payload || JSON.stringify(processedParameters),
                     webauthn_signature: rawSignature64.toString('base64'), // Convert back to base64 for ScVal conversion
                     webauthn_authenticator_data: webauthnAuthenticatorData,
                     webauthn_client_data: webauthnClientData
