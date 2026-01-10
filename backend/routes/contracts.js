@@ -2979,8 +2979,28 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 const existingMapped = mappedParams.find(p => p.name === param.name);
                 if (!existingMapped || existingMapped.value === undefined || existingMapped.value === null || existingMapped.value === '') {
                     // Try to find value directly in processedParameters using param name
-                    const directValue = processedParameters[param.name];
+                    let directValue = processedParameters[param.name];
+                    
+                    // Apply conversions based on parameter type and name
                     if (directValue !== undefined && directValue !== null && directValue !== '') {
+                        // Convert asset "XLM"/"native" to contract address
+                        if (param.name === 'asset' && (param.type === 'Address' || param.type === 'address')) {
+                            if (directValue === 'XLM' || directValue === 'native') {
+                                directValue = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                                console.log(`[Execute] ✅ Converted ${param.name} from "${processedParameters[param.name]}" to contract address via direct lookup`);
+                            }
+                        }
+                        
+                        // Convert amount to stroops if needed
+                        if (param.name === 'amount' && (param.type === 'I128' || param.type === 'i128')) {
+                            if (typeof directValue === 'number' && directValue < 1000000) {
+                                directValue = Math.floor(directValue * 10000000).toString();
+                                console.log(`[Execute] ✅ Converted ${param.name} to stroops via direct lookup: ${directValue}`);
+                            } else if (typeof directValue !== 'string') {
+                                directValue = directValue.toString();
+                            }
+                        }
+                        
                         const existingIndex = mappedParams.findIndex(p => p.name === param.name);
                         if (existingIndex >= 0) {
                             mappedParams[existingIndex].value = directValue;
@@ -2992,6 +3012,14 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 value: directValue
                             });
                             console.log(`[Execute] ✅ Added ${param.name} via direct lookup: ${typeof directValue === 'string' && directValue.length > 50 ? directValue.substring(0, 50) + '...' : directValue}`);
+                        }
+                    }
+                } else {
+                    // Parameter was found by mapping, but check if it needs conversion
+                    if (param.name === 'asset' && (param.type === 'Address' || param.type === 'address')) {
+                        if (existingMapped.value === 'XLM' || existingMapped.value === 'native') {
+                            existingMapped.value = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                            console.log(`[Execute] ✅ Converted ${param.name} from "${processedParameters[param.name]}" to contract address in mapped params`);
                         }
                     }
                 }
