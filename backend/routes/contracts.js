@@ -1536,6 +1536,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 cer.rule_name,
                 cer.function_name,
                 cer.function_parameters,
+                cer.function_mappings,
                 cer.contract_id,
                 cc.contract_name,
                 cc.contract_address,
