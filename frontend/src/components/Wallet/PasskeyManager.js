@@ -27,7 +27,10 @@ import {
   Security as SecurityIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
-  Fingerprint as FingerprintIcon
+  Fingerprint as FingerprintIcon,
+  Edit as EditIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import webauthnService from '../../services/webauthnService';
@@ -42,6 +45,9 @@ const PasskeyManager = () => {
   const [registering, setRegistering] = useState(false);
   const [showSecretKeyDialog, setShowSecretKeyDialog] = useState(false);
   const [secretKeyInput, setSecretKeyInput] = useState('');
+  const [editingName, setEditingName] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  const [deletingPasskey, setDeletingPasskey] = useState(null);
 
   useEffect(() => {
     if (isConnected && publicKey) {
@@ -108,23 +114,63 @@ const PasskeyManager = () => {
     }
   };
 
-  const handleDeletePasskey = async (credentialId) => {
-    if (!window.confirm('Are you sure you want to remove this passkey?')) {
-      return;
-    }
+  const handleDeletePasskey = async (passkey) => {
+    setDeletingPasskey(passkey);
+  };
+
+  const confirmDeletePasskey = async () => {
+    if (!deletingPasskey) return;
 
     try {
       setLoading(true);
       setError('');
-      await api.delete(`/webauthn/passkeys/${credentialId}`);
-      setSuccess('Passkey removed successfully');
+      const response = await api.delete(`/webauthn/passkeys/${deletingPasskey.credentialId}`);
+      setSuccess(response.data.message || 'Passkey removed successfully');
+      if (response.data.wasOnContract) {
+        setError('Note: This passkey is still registered on the smart wallet contract. Register a new passkey to overwrite it.');
+      }
       await fetchPasskeys();
+      setDeletingPasskey(null);
     } catch (err) {
       console.error('Error removing passkey:', err);
       setError(err.response?.data?.details || 'Failed to remove passkey');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRenamePasskey = (passkey) => {
+    setEditingName(passkey.credentialId);
+    setEditingNameValue(passkey.name || `Passkey ${passkeys.indexOf(passkey) + 1}`);
+  };
+
+  const saveRename = async (credentialId) => {
+    if (!editingNameValue.trim()) {
+      setError('Passkey name cannot be empty');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      await api.put(`/webauthn/passkeys/${credentialId}`, {
+        name: editingNameValue.trim()
+      });
+      setSuccess('Passkey name updated successfully');
+      await fetchPasskeys();
+      setEditingName(null);
+      setEditingNameValue('');
+    } catch (err) {
+      console.error('Error renaming passkey:', err);
+      setError(err.response?.data?.details || 'Failed to rename passkey');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelRename = () => {
+    setEditingName(null);
+    setEditingNameValue('');
   };
 
   const handleSecretKeySubmit = () => {
@@ -201,17 +247,101 @@ const PasskeyManager = () => {
               <ListItem key={passkey.credentialId}>
                 <FingerprintIcon sx={{ mr: 2, color: 'primary.main' }} />
                 <ListItemText
-                  primary={`Passkey ${index + 1}`}
-                  secondary={`Registered: ${new Date(passkey.registeredAt).toLocaleString()}`}
+                  primary={
+                    editingName === passkey.credentialId ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <TextField
+                          size="small"
+                          value={editingNameValue}
+                          onChange={(e) => setEditingNameValue(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              saveRename(passkey.credentialId);
+                            } else if (e.key === 'Escape') {
+                              cancelRename();
+                            }
+                          }}
+                          autoFocus
+                          sx={{ flex: 1 }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={() => saveRename(passkey.credentialId)}
+                          disabled={loading}
+                          color="primary"
+                        >
+                          <CheckCircleIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={cancelRename}
+                          disabled={loading}
+                        >
+                          <CancelIcon />
+                        </IconButton>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1">
+                          {passkey.name || `Passkey ${index + 1}`}
+                        </Typography>
+                        {passkey.isOnContract && (
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              px: 1,
+                              py: 0.25,
+                              bgcolor: 'success.light',
+                              color: 'success.contrastText',
+                              borderRadius: 1,
+                              fontSize: '0.75rem',
+                              fontWeight: 500
+                            }}
+                          >
+                            <CheckCircleIcon sx={{ fontSize: '0.875rem' }} />
+                            Active on Contract
+                          </Box>
+                        )}
+                      </Box>
+                    )
+                  }
+                  secondary={
+                    <Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Registered: {new Date(passkey.registeredAt).toLocaleString()}
+                      </Typography>
+                      {passkey.role && (
+                        <Typography variant="caption" color="text.secondary">
+                          Role: {passkey.role}
+                        </Typography>
+                      )}
+                    </Box>
+                  }
                 />
                 <ListItemSecondaryAction>
-                  <IconButton
-                    edge="end"
-                    onClick={() => handleDeletePasskey(passkey.credentialId)}
-                    disabled={loading}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
+                  {editingName !== passkey.credentialId && (
+                    <>
+                      <IconButton
+                        edge="end"
+                        onClick={() => handleRenamePasskey(passkey)}
+                        disabled={loading}
+                        sx={{ mr: 1 }}
+                        size="small"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton
+                        edge="end"
+                        onClick={() => handleDeletePasskey(passkey)}
+                        disabled={loading}
+                        size="small"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </>
+                  )}
                 </ListItemSecondaryAction>
               </ListItem>
             ))}
@@ -272,6 +402,50 @@ const PasskeyManager = () => {
             disabled={!secretKeyInput.trim() || registering}
           >
             {registering ? <CircularProgress size={20} /> : 'Register'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!deletingPasskey}
+        onClose={() => setDeletingPasskey(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Delete Passkey</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Are you sure you want to delete "{deletingPasskey?.name || 'this passkey'}"?
+          </Typography>
+          {deletingPasskey?.isOnContract && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              <Typography variant="body2">
+                <strong>⚠️ This passkey is currently registered on the smart wallet contract.</strong>
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Deleting it from the database will not remove it from the contract. The contract stores only one passkey per public key.
+                To change the passkey on the contract, you'll need to register a new passkey, which will overwrite this one.
+              </Typography>
+            </Alert>
+          )}
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              This action will remove the passkey from your account. You can always register a new passkey later.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeletingPasskey(null)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDeletePasskey}
+            variant="contained"
+            color="error"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={20} /> : 'Delete'}
           </Button>
         </DialogActions>
       </Dialog>

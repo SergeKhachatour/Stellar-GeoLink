@@ -292,13 +292,42 @@ router.post('/register', (req, res, next) => {
     // Store passkey in database if we found a user ID
     if (userIdToStore) {
       try {
-        await pool.query(
-          `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, registered_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (user_id, credential_id) 
-           DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
-          [userIdToStore, credentialId, passkeyPublicKeySPKI]
+        // Get existing passkey count for default name (only if inserting new, not updating)
+        const existingResult = await pool.query(
+          `SELECT credential_id FROM user_passkeys WHERE user_id = $1 AND credential_id = $2`,
+          [userIdToStore, credentialId]
         );
+        
+        let defaultName = null;
+        if (existingResult.rows.length === 0) {
+          // New passkey - generate default name
+          const countResult = await pool.query(
+            `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1`,
+            [userIdToStore]
+          );
+          const passkeyCount = parseInt(countResult.rows[0]?.count || '0');
+          defaultName = `Passkey ${passkeyCount + 1}`;
+        }
+        
+        if (defaultName) {
+          // Insert with name
+          await pool.query(
+            `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, name, registered_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (user_id, credential_id) 
+             DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
+            [userIdToStore, credentialId, passkeyPublicKeySPKI, defaultName]
+          );
+        } else {
+          // Update existing - keep existing name
+          await pool.query(
+            `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, registered_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (user_id, credential_id) 
+             DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
+            [userIdToStore, credentialId, passkeyPublicKeySPKI]
+          );
+        }
         console.log('[WebAuthn] ✅ Passkey stored in database for user ID:', userIdToStore);
       } catch (dbError) {
         // If database insert fails, that's okay - passkey is still registered on contract
@@ -349,7 +378,7 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
     if (userPublicKey) {
       // Get passkeys for all users with this public_key (in case of multiple roles)
       result = await pool.query(
-        `SELECT up.credential_id, up.public_key_spki, up.registered_at, u.id as user_id, u.role
+        `SELECT up.credential_id, up.public_key_spki, up.name, up.registered_at, u.id as user_id, u.role
          FROM user_passkeys up
          JOIN users u ON up.user_id = u.id
          WHERE u.public_key = $1 
@@ -360,7 +389,7 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
     } else {
       // Fallback: get passkeys for current user_id only
       result = await pool.query(
-        `SELECT credential_id, public_key_spki, registered_at 
+        `SELECT credential_id, public_key_spki, name, registered_at 
          FROM user_passkeys 
          WHERE user_id = $1 
          ORDER BY registered_at DESC`,
@@ -369,16 +398,98 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
       console.log(`[WebAuthn] ⚠️ No public_key for user, using user_id only. Found ${result.rows.length} passkey(s)`);
     }
 
+    // Check which passkey is registered on the contract
+    let contractPasskeyHex = null;
+    if (userPublicKey) {
+      try {
+        const StellarSdk = require('@stellar/stellar-sdk');
+        const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+        const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+          ? StellarSdk.Networks.TESTNET
+          : StellarSdk.Networks.PUBLIC;
+        const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
+        
+        const userAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey);
+        const userScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+          StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(userAddressBytes)
+        );
+        const userScVal = StellarSdk.xdr.ScVal.scvAddress(userScAddress);
+        
+        const getPasskeyOp = contract.call('get_passkey_pubkey', userScVal);
+        const horizonUrl = contracts.STELLAR_NETWORK === 'testnet'
+          ? 'https://horizon-testnet.stellar.org'
+          : 'https://horizon.stellar.org';
+        const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
+        
+        try {
+          const account = await horizonServer.loadAccount(userPublicKey);
+          const checkTx = new StellarSdk.TransactionBuilder(
+            new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
+            {
+              fee: StellarSdk.BASE_FEE,
+              networkPassphrase: networkPassphrase
+            }
+          )
+            .addOperation(getPasskeyOp)
+            .setTimeout(30)
+            .build();
+          
+          const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+          const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+          
+          if (checkResult && checkResult.result && checkResult.result.retval) {
+            const retval = checkResult.result.retval;
+            let registeredPubkeyScVal;
+            
+            if (retval && typeof retval === 'object' && typeof retval.switch === 'function') {
+              registeredPubkeyScVal = retval;
+            } else if (typeof retval === 'string') {
+              registeredPubkeyScVal = StellarSdk.xdr.ScVal.fromXDR(retval, 'base64');
+            }
+            
+            if (registeredPubkeyScVal && registeredPubkeyScVal.switch && registeredPubkeyScVal.switch().name === 'scvBytes') {
+              const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
+              contractPasskeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
+              console.log(`[WebAuthn] ✅ Found passkey on contract: ${contractPasskeyHex.substring(0, 32)}...`);
+            }
+          }
+        } catch (checkError) {
+          console.warn('[WebAuthn] ⚠️ Could not check contract passkey:', checkError.message);
+        }
+      } catch (error) {
+        console.warn('[WebAuthn] ⚠️ Error checking contract passkey:', error.message);
+      }
+    }
+
     res.json({ 
-      passkeys: result.rows.map(row => ({
-        credentialId: row.credential_id,
-        credential_id: row.credential_id, // Include both formats for compatibility
-        publicKey: row.public_key_spki, // Include public key for payment operations
-        public_key_spki: row.public_key_spki, // Include both formats for compatibility
-        registeredAt: row.registered_at,
-        userId: row.user_id || req.user.id, // Include user_id for reference
-        role: row.role || req.user.role // Include role for reference
-      })),
+      passkeys: result.rows.map(row => {
+        // Check if this passkey matches the one on contract
+        let isOnContract = false;
+        if (contractPasskeyHex && row.public_key_spki) {
+          try {
+            const { extractPublicKeyFromSPKI } = require('../utils/webauthnUtils');
+            const spkiBytes = Buffer.from(row.public_key_spki, 'base64');
+            const passkeyPubkey65 = extractPublicKeyFromSPKI(spkiBytes);
+            const passkeyHex = passkeyPubkey65.toString('hex');
+            isOnContract = (passkeyHex === contractPasskeyHex);
+          } catch (e) {
+            console.warn('[WebAuthn] ⚠️ Error comparing passkey:', e.message);
+          }
+        }
+        
+        return {
+          credentialId: row.credential_id,
+          credential_id: row.credential_id, // Include both formats for compatibility
+          publicKey: row.public_key_spki, // Include public key for payment operations
+          public_key_spki: row.public_key_spki, // Include both formats for compatibility
+          registeredAt: row.registered_at,
+          name: row.name || `Passkey ${result.rows.indexOf(row) + 1}`, // Use name or default
+          userId: row.user_id || req.user.id, // Include user_id for reference
+          role: row.role || req.user.role, // Include role for reference
+          isOnContract: isOnContract // Indicate if this passkey is registered on contract
+        };
+      }),
+      contractPasskeyHex: contractPasskeyHex ? contractPasskeyHex.substring(0, 32) + '...' : null, // For debugging
       note: userPublicKey 
         ? 'Passkeys are fetched by public_key. If you have multiple roles with the same public_key, all passkeys are shown. Only the last registered passkey exists on the contract.'
         : 'Passkeys are fetched by user_id. If you have multiple roles with the same public_key, you may need to use the passkey from a different role.'
@@ -441,12 +552,141 @@ router.get('/passkeys/:credentialId', authenticateUser, async (req, res) => {
 });
 
 /**
+ * PUT /api/webauthn/passkeys/:credentialId
+ * Update a passkey's name
+ */
+router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
+  try {
+    const { credentialId } = req.params;
+    const { name } = req.body;
+    
+    if (!name || !name.trim()) {
+      return res.status(400).json({ 
+        error: 'Name is required' 
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE user_passkeys 
+       SET name = $1 
+       WHERE user_id = $2 AND credential_id = $3
+       RETURNING *`,
+      [name.trim(), req.user.id, credentialId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Passkey not found' 
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Passkey name updated successfully',
+      passkey: {
+        credentialId: result.rows[0].credential_id,
+        name: result.rows[0].name
+      }
+    });
+  } catch (error) {
+    console.error('Error updating passkey name:', error);
+    res.status(500).json({ 
+      error: 'Failed to update passkey name', 
+      details: error.message 
+    });
+  }
+});
+
+/**
  * DELETE /api/webauthn/passkeys/:credentialId
  * Remove a registered passkey
+ * Note: This only removes from database. The contract stores only one passkey per public_key,
+ * so deleting from database doesn't affect the contract. To change the contract passkey,
+ * register a new one which will overwrite the existing one.
  */
 router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
   try {
     const { credentialId } = req.params;
+    
+    // Check if this passkey is registered on the contract
+    const userPublicKey = req.user?.public_key;
+    let isOnContract = false;
+    
+    if (userPublicKey) {
+      try {
+        // Get the passkey from database first
+        const passkeyResult = await pool.query(
+          `SELECT public_key_spki FROM user_passkeys 
+           WHERE user_id = $1 AND credential_id = $2`,
+          [req.user.id, credentialId]
+        );
+        
+        if (passkeyResult.rows.length > 0) {
+          const StellarSdk = require('@stellar/stellar-sdk');
+          const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+          const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+            ? StellarSdk.Networks.TESTNET
+            : StellarSdk.Networks.PUBLIC;
+          const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
+          
+          const userAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey);
+          const userScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+            StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(userAddressBytes)
+          );
+          const userScVal = StellarSdk.xdr.ScVal.scvAddress(userScAddress);
+          
+          const getPasskeyOp = contract.call('get_passkey_pubkey', userScVal);
+          const horizonUrl = contracts.STELLAR_NETWORK === 'testnet'
+            ? 'https://horizon-testnet.stellar.org'
+            : 'https://horizon.stellar.org';
+          const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
+          
+          try {
+            const account = await horizonServer.loadAccount(userPublicKey);
+            const checkTx = new StellarSdk.TransactionBuilder(
+              new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
+              {
+                fee: StellarSdk.BASE_FEE,
+                networkPassphrase: networkPassphrase
+              }
+            )
+              .addOperation(getPasskeyOp)
+              .setTimeout(30)
+              .build();
+            
+            const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+            const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+            
+            if (checkResult && checkResult.result && checkResult.result.retval) {
+              const retval = checkResult.result.retval;
+              let registeredPubkeyScVal;
+              
+              if (retval && typeof retval === 'object' && typeof retval.switch === 'function') {
+                registeredPubkeyScVal = retval;
+              } else if (typeof retval === 'string') {
+                registeredPubkeyScVal = StellarSdk.xdr.ScVal.fromXDR(retval, 'base64');
+              }
+              
+              if (registeredPubkeyScVal && registeredPubkeyScVal.switch && registeredPubkeyScVal.switch().name === 'scvBytes') {
+                const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
+                const contractPasskeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
+                
+                // Compare with this passkey
+                const { extractPublicKeyFromSPKI } = require('../utils/webauthnUtils');
+                const spkiBytes = Buffer.from(passkeyResult.rows[0].public_key_spki, 'base64');
+                const passkeyPubkey65 = extractPublicKeyFromSPKI(spkiBytes);
+                const passkeyHex = passkeyPubkey65.toString('hex');
+                isOnContract = (passkeyHex === contractPasskeyHex);
+              }
+            }
+          } catch (checkError) {
+            console.warn('[WebAuthn] ⚠️ Could not check contract passkey:', checkError.message);
+          }
+        }
+      } catch (error) {
+        console.warn('[WebAuthn] ⚠️ Error checking contract passkey:', error.message);
+      }
+    }
     
     await pool.query(
       `DELETE FROM user_passkeys 
@@ -456,7 +696,10 @@ router.delete('/passkeys/:credentialId', authenticateUser, async (req, res) => {
 
     res.json({ 
       success: true, 
-      message: 'Passkey removed successfully' 
+      message: isOnContract 
+        ? 'Passkey removed from database. Note: This passkey is still registered on the smart wallet contract. To change the contract passkey, register a new one which will overwrite it.'
+        : 'Passkey removed successfully',
+      wasOnContract: isOnContract
     });
   } catch (error) {
     console.error('Error removing passkey:', error);
