@@ -298,28 +298,47 @@ router.post('/register', (req, res, next) => {
           [userIdToStore, credentialId]
         );
         
-        let defaultName = null;
-        if (existingResult.rows.length === 0) {
-          // New passkey - generate default name
-          const countResult = await pool.query(
-            `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1`,
-            [userIdToStore]
-          );
-          const passkeyCount = parseInt(countResult.rows[0]?.count || '0');
-          defaultName = `Passkey ${passkeyCount + 1}`;
-        }
+        // Check if name column exists
+        const columnCheck = await pool.query(`
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'user_passkeys' AND column_name = 'name'
+        `);
+        const hasNameColumn = columnCheck.rows.length > 0;
         
-        if (defaultName) {
-          // Insert with name
-          await pool.query(
-            `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, name, registered_at)
-             VALUES ($1, $2, $3, $4, NOW())
-             ON CONFLICT (user_id, credential_id) 
-             DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
-            [userIdToStore, credentialId, passkeyPublicKeySPKI, defaultName]
-          );
+        if (hasNameColumn) {
+          let defaultName = null;
+          if (existingResult.rows.length === 0) {
+            // New passkey - generate default name
+            const countResult = await pool.query(
+              `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1`,
+              [userIdToStore]
+            );
+            const passkeyCount = parseInt(countResult.rows[0]?.count || '0');
+            defaultName = `Passkey ${passkeyCount + 1}`;
+          }
+          
+          if (defaultName) {
+            // Insert with name
+            await pool.query(
+              `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, name, registered_at)
+               VALUES ($1, $2, $3, $4, NOW())
+               ON CONFLICT (user_id, credential_id) 
+               DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
+              [userIdToStore, credentialId, passkeyPublicKeySPKI, defaultName]
+            );
+          } else {
+            // Update existing - keep existing name
+            await pool.query(
+              `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, registered_at)
+               VALUES ($1, $2, $3, NOW())
+               ON CONFLICT (user_id, credential_id) 
+               DO UPDATE SET public_key_spki = $3, registered_at = NOW()`,
+              [userIdToStore, credentialId, passkeyPublicKeySPKI]
+            );
+          }
         } else {
-          // Update existing - keep existing name
+          // Name column doesn't exist - use old query without name
           await pool.query(
             `INSERT INTO user_passkeys (user_id, credential_id, public_key_spki, registered_at)
              VALUES ($1, $2, $3, NOW())
@@ -374,27 +393,63 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
     // Then check which one is actually registered on the contract
     const userPublicKey = req.user?.public_key;
     
+    // Check if name column exists
+    let hasNameColumn = false;
+    try {
+      const columnCheck = await pool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'user_passkeys' AND column_name = 'name'
+      `);
+      hasNameColumn = columnCheck.rows.length > 0;
+    } catch (checkError) {
+      console.warn('[WebAuthn] ⚠️ Could not check for name column:', checkError.message);
+    }
+    
     let result;
     if (userPublicKey) {
       // Get passkeys for all users with this public_key (in case of multiple roles)
-      result = await pool.query(
-        `SELECT up.credential_id, up.public_key_spki, up.name, up.registered_at, u.id as user_id, u.role
-         FROM user_passkeys up
-         JOIN users u ON up.user_id = u.id
-         WHERE u.public_key = $1 
-         ORDER BY up.registered_at DESC`,
-        [userPublicKey]
-      );
+      if (hasNameColumn) {
+        result = await pool.query(
+          `SELECT up.credential_id, up.public_key_spki, up.name, 
+                  up.registered_at, u.id as user_id, u.role
+           FROM user_passkeys up
+           JOIN users u ON up.user_id = u.id
+           WHERE u.public_key = $1 
+           ORDER BY up.registered_at DESC`,
+          [userPublicKey]
+        );
+      } else {
+        result = await pool.query(
+          `SELECT up.credential_id, up.public_key_spki, 
+                  up.registered_at, u.id as user_id, u.role
+           FROM user_passkeys up
+           JOIN users u ON up.user_id = u.id
+           WHERE u.public_key = $1 
+           ORDER BY up.registered_at DESC`,
+          [userPublicKey]
+        );
+      }
       console.log(`[WebAuthn] 📋 Found ${result.rows.length} passkey(s) for public_key ${userPublicKey.substring(0, 8)}...`);
     } else {
       // Fallback: get passkeys for current user_id only
-      result = await pool.query(
-        `SELECT credential_id, public_key_spki, name, registered_at 
-         FROM user_passkeys 
-         WHERE user_id = $1 
-         ORDER BY registered_at DESC`,
-        [req.user.id]
-      );
+      if (hasNameColumn) {
+        result = await pool.query(
+          `SELECT credential_id, public_key_spki, name, registered_at 
+           FROM user_passkeys 
+           WHERE user_id = $1 
+           ORDER BY registered_at DESC`,
+          [req.user.id]
+        );
+      } else {
+        result = await pool.query(
+          `SELECT credential_id, public_key_spki, registered_at 
+           FROM user_passkeys 
+           WHERE user_id = $1 
+           ORDER BY registered_at DESC`,
+          [req.user.id]
+        );
+      }
       console.log(`[WebAuthn] ⚠️ No public_key for user, using user_id only. Found ${result.rows.length} passkey(s)`);
     }
 
@@ -483,7 +538,7 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
           publicKey: row.public_key_spki, // Include public key for payment operations
           public_key_spki: row.public_key_spki, // Include both formats for compatibility
           registeredAt: row.registered_at,
-          name: row.name || `Passkey ${result.rows.indexOf(row) + 1}`, // Use name or default
+          name: (hasNameColumn && row.name) ? row.name : `Passkey ${result.rows.indexOf(row) + 1}`, // Use name or default
           userId: row.user_id || req.user.id, // Include user_id for reference
           role: row.role || req.user.role, // Include role for reference
           isOnContract: isOnContract // Indicate if this passkey is registered on contract
@@ -563,6 +618,20 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
     if (!name || !name.trim()) {
       return res.status(400).json({ 
         error: 'Name is required' 
+      });
+    }
+
+    // Check if name column exists
+    const columnCheck = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'user_passkeys' AND column_name = 'name'
+    `);
+    
+    if (columnCheck.rows.length === 0) {
+      return res.status(400).json({ 
+        error: 'Name column does not exist. Please run the migration first.',
+        details: 'Run migration 007_add_passkey_name_column.sql to enable passkey naming.'
       });
     }
 
