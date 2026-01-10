@@ -2968,6 +2968,36 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Map parameters using the mapping
         const mappedParams = contractIntrospection.mapFieldsToContract(processedParameters, mapping);
         
+        // Log mapped parameters for debugging
+        console.log(`[Execute] 📋 Mapped parameters (${mappedParams.length} total):`, 
+            mappedParams.map(p => `${p.name}(${p.type})=${p.value !== undefined && p.value !== null ? (typeof p.value === 'string' && p.value.length > 50 ? p.value.substring(0, 50) + '...' : p.value) : 'undefined/null'}`).join(', ')
+        );
+        
+        // If mapping didn't find all parameters, try direct lookup as fallback
+        if (mapping && mapping.parameters) {
+            mapping.parameters.forEach(param => {
+                const existingMapped = mappedParams.find(p => p.name === param.name);
+                if (!existingMapped || existingMapped.value === undefined || existingMapped.value === null || existingMapped.value === '') {
+                    // Try to find value directly in processedParameters using param name
+                    const directValue = processedParameters[param.name];
+                    if (directValue !== undefined && directValue !== null && directValue !== '') {
+                        const existingIndex = mappedParams.findIndex(p => p.name === param.name);
+                        if (existingIndex >= 0) {
+                            mappedParams[existingIndex].value = directValue;
+                            console.log(`[Execute] ✅ Found ${param.name} via direct lookup: ${typeof directValue === 'string' && directValue.length > 50 ? directValue.substring(0, 50) + '...' : directValue}`);
+                        } else {
+                            mappedParams.push({
+                                name: param.name,
+                                type: param.type,
+                                value: directValue
+                            });
+                            console.log(`[Execute] ✅ Added ${param.name} via direct lookup: ${typeof directValue === 'string' && directValue.length > 50 ? directValue.substring(0, 50) + '...' : directValue}`);
+                        }
+                    }
+                }
+            });
+        }
+        
         // Convert to ScVal - filter out undefined/null/empty string values for required parameters
         // But keep empty strings for optional WebAuthn parameters if they're being populated
         const scValParams = mappedParams
