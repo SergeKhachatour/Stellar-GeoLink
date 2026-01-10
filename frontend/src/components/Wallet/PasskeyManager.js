@@ -124,7 +124,9 @@ const PasskeyManager = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await api.delete(`/webauthn/passkeys/${deletingPasskey.credentialId}`);
+      // URL encode the credentialId to handle special characters
+      const encodedCredentialId = encodeURIComponent(deletingPasskey.credentialId);
+      const response = await api.delete(`/webauthn/passkeys/${encodedCredentialId}`);
       setSuccess(response.data.message || 'Passkey removed successfully');
       if (response.data.wasOnContract) {
         setError('Note: This passkey is still registered on the smart wallet contract. Register a new passkey to overwrite it.');
