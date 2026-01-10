@@ -2853,11 +2853,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             console.log(`[Execute] 📋 Current parameters:`, Object.keys(processedParameters).join(', '));
             
             // Fetch matched_public_key from location_update_queue if not provided in request
-            let matchedPublicKey = processedParameters.matched_public_key || processedParameters.destination;
-            if (!matchedPublicKey) {
+            // Only use it if destination is not already set or is the user's own address
+            let matchedPublicKey = processedParameters.matched_public_key;
+            const currentDestination = processedParameters.destination;
+            const isDestinationSelf = currentDestination === user_public_key;
+            
+            // If destination is missing or is the user's own address, fetch the matched wallet's address
+            if ((!currentDestination || isDestinationSelf) && !matchedPublicKey) {
                 try {
                     const matchedKeyQuery = `
-                        SELECT DISTINCT luq.public_key
+                        SELECT luq.public_key, luq.received_at
                         FROM location_update_queue luq
                         WHERE luq.user_id = $1
                             AND luq.status IN ('matched', 'executed')
@@ -2876,10 +2881,20 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     if (matchedKeyResult.rows.length > 0) {
                         matchedPublicKey = matchedKeyResult.rows[0].public_key;
                         console.log(`[Execute] ✅ Fetched matched_public_key from location_update_queue: ${matchedPublicKey?.substring(0, 8)}...`);
+                        
+                        // If destination is self or missing, replace it with matched_public_key
+                        if (isDestinationSelf || !currentDestination) {
+                            processedParameters.destination = matchedPublicKey;
+                            console.log(`[Execute] ✅ Replaced destination with matched_public_key: ${matchedPublicKey?.substring(0, 8)}...`);
+                        }
                     }
                 } catch (error) {
                     console.warn(`[Execute] ⚠️  Could not fetch matched_public_key:`, error.message);
                 }
+            } else if (matchedPublicKey && isDestinationSelf) {
+                // If matched_public_key is provided in request but destination is self, use matched_public_key
+                processedParameters.destination = matchedPublicKey;
+                console.log(`[Execute] ✅ Replaced self destination with matched_public_key from request: ${matchedPublicKey?.substring(0, 8)}...`);
             }
             
             // Get function parameter definitions
