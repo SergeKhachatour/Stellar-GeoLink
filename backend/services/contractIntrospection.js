@@ -1377,12 +1377,15 @@ class ContractIntrospection {
       case 'i128':
       case 'I128': // Support both lowercase and uppercase
         const bigIntValue = BigInt(value);
-        return StellarSdk.xdr.ScVal.scvI128(
-          StellarSdk.xdr.Int128Parts({
-            lo: bigIntValue & 0xFFFFFFFFFFFFFFFFn,
-            hi: bigIntValue >> 64n
-          })
-        );
+        const maxUint64 = BigInt('0xFFFFFFFFFFFFFFFF'); // 2^64 - 1
+        const lo = bigIntValue & maxUint64;
+        const hi = bigIntValue >> 64n;
+        
+        const amountI128 = new StellarSdk.xdr.Int128Parts({
+          hi: StellarSdk.xdr.Int64.fromString(hi.toString()),
+          lo: StellarSdk.xdr.Uint64.fromString(lo.toString())
+        });
+        return StellarSdk.xdr.ScVal.scvI128(amountI128);
       case 'Bytes':
         const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
         return StellarSdk.xdr.ScVal.scvBytes(buffer);

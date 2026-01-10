@@ -3311,9 +3311,25 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
                     if (param.type === 'Address') {
                         return StellarSdk.xdr.ScVal.scvAddress(StellarSdk.Address.fromString(value).toScAddress());
                     } else if (param.type === 'I128' || param.type === 'I64' || param.type === 'I32') {
-                        return StellarSdk.xdr.ScVal.scvI128(StellarSdk.xdr.Int128Parts({ lo: BigInt(value || 0), hi: 0n }));
+                        const amountBigInt = BigInt(value || 0);
+                        const maxUint64 = BigInt('0xFFFFFFFFFFFFFFFF');
+                        const lo = amountBigInt & maxUint64;
+                        const hi = amountBigInt >> 64n;
+                        const amountI128 = new StellarSdk.xdr.Int128Parts({
+                            hi: StellarSdk.xdr.Int64.fromString(hi.toString()),
+                            lo: StellarSdk.xdr.Uint64.fromString(lo.toString())
+                        });
+                        return StellarSdk.xdr.ScVal.scvI128(amountI128);
                     } else if (param.type === 'U128' || param.type === 'U64' || param.type === 'U32') {
-                        return StellarSdk.xdr.ScVal.scvU128(StellarSdk.xdr.UInt128Parts({ lo: BigInt(value || 0), hi: 0n }));
+                        const amountBigInt = BigInt(value || 0);
+                        const maxUint64 = BigInt('0xFFFFFFFFFFFFFFFF');
+                        const lo = amountBigInt & maxUint64;
+                        const hi = amountBigInt >> 64n;
+                        const amountU128 = new StellarSdk.xdr.UInt128Parts({
+                            hi: StellarSdk.xdr.Uint64.fromString(hi.toString()),
+                            lo: StellarSdk.xdr.Uint64.fromString(lo.toString())
+                        });
+                        return StellarSdk.xdr.ScVal.scvU128(amountU128);
                     } else if (param.type === 'Bool') {
                         return StellarSdk.xdr.ScVal.scvBool(value === true || value === 'true');
                     } else if (param.type === 'String') {
