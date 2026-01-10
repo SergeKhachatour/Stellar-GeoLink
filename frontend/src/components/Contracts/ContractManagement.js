@@ -1229,6 +1229,9 @@ const ContractManagement = () => {
         }
         setSuccess(resultMessage);
         setTimeout(() => setSuccess(''), 8000);
+        
+        // Reload pending rules to remove the executed rule from the list
+        loadPendingRules();
       } else {
         setError(response.data.error || 'Execution failed');
       }
@@ -2745,7 +2748,7 @@ const ContractManagement = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Execute Confirmation Dialog */}
+      {/* Execute Confirmation Dialog - Mobile Friendly */}
       <Dialog
         open={executeConfirmDialog.open}
         onClose={() => {
@@ -2755,11 +2758,27 @@ const ContractManagement = () => {
         }}
         maxWidth="sm"
         fullWidth
+        fullScreen={window.innerWidth < 768}
+        PaperProps={{
+          sx: {
+            m: window.innerWidth < 768 ? 0 : 2,
+            maxHeight: window.innerWidth < 768 ? '100vh' : '90vh'
+          }
+        }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ 
+          pb: 1,
+          fontSize: window.innerWidth < 768 ? '1.1rem' : '1.25rem',
+          fontWeight: 600
+        }}>
           Confirm Function Execution
         </DialogTitle>
-        <DialogContent>
+        <DialogContent dividers sx={{ 
+          maxHeight: window.innerWidth < 768 ? 'calc(100vh - 200px)' : '60vh',
+          overflowY: 'auto',
+          px: window.innerWidth < 768 ? 2 : 3,
+          py: 2
+        }}>
           {executeConfirmDialog.rule && (() => {
             const rule = executeConfirmDialog.rule;
             const isReadOnly = isReadOnlyFunction(rule.function_name);
@@ -2794,7 +2813,14 @@ const ContractManagement = () => {
             
             return (
               <>
-                <Typography variant="body1" gutterBottom>
+                <Typography 
+                  variant="body1" 
+                  gutterBottom
+                  sx={{ 
+                    fontSize: window.innerWidth < 768 ? '0.95rem' : '1rem',
+                    mb: 2
+                  }}
+                >
                   Are you sure you want to execute the function <strong>"{rule.function_name}"</strong>?
                 </Typography>
                 
@@ -2814,59 +2840,61 @@ const ContractManagement = () => {
                   </Alert>
                 )}
                 {isReadOnly ? (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <Typography variant="body2" gutterBottom>
+                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" gutterBottom sx={{ fontSize: 'inherit' }}>
                       This is a read-only function.
                     </Typography>
                     {needsSecretKey ? (
-                      <Typography variant="body2">
+                      <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
                         <strong>To submit it to the blockchain and see it on StellarExpert, please provide your secret key below.</strong>
-                        Without a secret key, the function will only be simulated (not submitted to the ledger).
+                        {' '}Without a secret key, the function will only be simulated (not submitted to the ledger).
                       </Typography>
                     ) : (
-                      <Typography variant="body2">
+                      <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
                         ✅ Secret key found. This function will be submitted to the blockchain and appear on StellarExpert.
                       </Typography>
                     )}
                   </Alert>
                 ) : (
-                  <Alert severity="warning" sx={{ mt: 2 }}>
-                    This will submit a transaction to the blockchain and may incur fees.
+                  <Alert severity="warning" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                      This will submit a transaction to the blockchain and may incur fees.
+                    </Typography>
                   </Alert>
                 )}
                 
                 {needsWebAuthn ? (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <Typography variant="body2" gutterBottom>
+                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" gutterBottom sx={{ fontSize: 'inherit' }}>
                       <strong>🔐 This function requires passkey authentication.</strong>
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
                       You will be prompted to authenticate with your passkey when you click Execute.
                       {needsSecretKey && ' A secret key is also required to sign the base transaction.'}
                     </Typography>
                   </Alert>
                 ) : contract?.requires_webauthn ? (
-                  <Alert severity="warning" sx={{ mt: 2 }}>
-                    <Typography variant="body2" gutterBottom>
+                  <Alert severity="warning" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" gutterBottom sx={{ fontSize: 'inherit' }}>
                       <strong>⚠️ Contract requires WebAuthn but function check returned false</strong>
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: 'inherit' }}>
                       Debug: contract.requires_webauthn = {String(contract.requires_webauthn)}, 
                       needsWebAuthn = {String(needsWebAuthn)}
                     </Typography>
                   </Alert>
                 ) : null}
                 
-                {contract?.use_smart_wallet && isPaymentFunction(rule.function_name, functionParams) && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <Typography variant="body2" gutterBottom>
+                {contract?.use_smart_wallet && isPaymentFunction(rule.function_name, functionParams) && !willRouteThroughSmartWallet && (
+                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" gutterBottom sx={{ fontSize: 'inherit' }}>
                       <strong>💳 Payment will be routed through Smart Wallet</strong>
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ fontSize: 'inherit', wordBreak: 'break-word' }}>
                       This payment function will be executed through the smart wallet contract: {contract.smart_wallet_contract_id?.substring(0, 10)}...
                     </Typography>
                     {contract.requires_webauthn && (
-                      <Typography variant="body2" sx={{ mt: 1 }}>
+                      <Typography variant="body2" sx={{ mt: 1, fontSize: 'inherit' }}>
                         Passkey authentication will be required for the smart wallet payment.
                       </Typography>
                     )}
@@ -2884,7 +2912,12 @@ const ContractManagement = () => {
                     helperText={needsWebAuthn 
                       ? "Required to sign the base transaction (passkey will be used for contract authentication)"
                       : "Required to sign and submit the transaction to the blockchain"}
-                    sx={{ mt: 2 }}
+                    sx={{ 
+                      mt: 2,
+                      '& .MuiInputBase-input': {
+                        fontSize: window.innerWidth < 768 ? '16px' : '14px' // Prevent zoom on iOS
+                      }
+                    }}
                     autoFocus={!needsWebAuthn}
                     InputProps={{
                       endAdornment: (
@@ -2892,6 +2925,7 @@ const ContractManagement = () => {
                           <IconButton
                             onClick={() => setShowSecretKey(!showSecretKey)}
                             edge="end"
+                            size={window.innerWidth < 768 ? 'medium' : 'small'}
                           >
                             {showSecretKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
                           </IconButton>
@@ -2902,32 +2936,51 @@ const ContractManagement = () => {
                 )}
                 
                 {!needsSecretKey && needsWebAuthn && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    Secret key found. You will be prompted for passkey authentication when you click Execute.
+                  <Alert severity="success" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                      Secret key found. You will be prompted for passkey authentication when you click Execute.
+                    </Typography>
                   </Alert>
                 )}
                 
                 {!needsSecretKey && !needsWebAuthn && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    Secret key found. Transaction will be signed and submitted to the blockchain.
+                  <Alert severity="success" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                      Secret key found. Transaction will be signed and submitted to the blockchain.
+                    </Typography>
                   </Alert>
                 )}
                 
                 {executionStatus && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    {executionStatus}
+                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                      {executionStatus}
+                    </Typography>
                   </Alert>
                 )}
               </>
             );
           })()}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setExecuteConfirmDialog({ open: false, rule: null });
-            setSecretKeyInput('');
-            setShowSecretKey(false);
-          }}>
+        <DialogActions sx={{ 
+          px: window.innerWidth < 768 ? 2 : 3,
+          py: 2,
+          gap: 1,
+          flexDirection: window.innerWidth < 768 ? 'column-reverse' : 'row',
+          '& > button': {
+            width: window.innerWidth < 768 ? '100%' : 'auto',
+            minHeight: '44px' // Better touch target for mobile
+          }
+        }}>
+          <Button 
+            onClick={() => {
+              setExecuteConfirmDialog({ open: false, rule: null });
+              setSecretKeyInput('');
+              setShowSecretKey(false);
+            }}
+            variant={window.innerWidth < 768 ? 'outlined' : 'text'}
+            fullWidth={window.innerWidth < 768}
+          >
             Cancel
           </Button>
           <Button 
@@ -2935,8 +2988,10 @@ const ContractManagement = () => {
             variant="contained" 
             color="primary"
             disabled={executingRule}
+            fullWidth={window.innerWidth < 768}
+            startIcon={executingRule ? <CircularProgress size={20} color="inherit" /> : null}
           >
-            {executingRule ? <CircularProgress size={20} /> : 'Execute'}
+            {executingRule ? 'Executing...' : 'Execute'}
           </Button>
         </DialogActions>
       </Dialog>
