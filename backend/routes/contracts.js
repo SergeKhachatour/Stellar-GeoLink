@@ -2846,6 +2846,21 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Process WebAuthn signature if provided
         let processedParameters = { ...parameters };
         
+        // IMPORTANT: WebAuthn parameters should ALWAYS come from the request body, never from stored function_parameters
+        // Extract WebAuthn data from request body first (these take precedence)
+        if (webauthnSignature) {
+            processedParameters.webauthn_signature = webauthnSignature;
+        }
+        if (webauthnAuthenticatorData) {
+            processedParameters.webauthn_authenticator_data = webauthnAuthenticatorData;
+        }
+        if (webauthnClientData) {
+            processedParameters.webauthn_client_data = webauthnClientData;
+        }
+        if (signaturePayload) {
+            processedParameters.signature_payload = signaturePayload;
+        }
+        
         // Auto-populate missing parameters for pending rule execution
         // This ensures all required parameters are present when executing from pending rules
         if (rule_id && mapping && mapping.parameters) {
@@ -2904,6 +2919,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             functionParams.forEach(param => {
                 const paramName = param.name;
                 const mappedFrom = param.mapped_from;
+                
+                // Skip WebAuthn parameters - they should already be set from request body above
+                const isWebAuthnParam = paramName.includes('webauthn') || paramName === 'signature_payload';
+                if (isWebAuthnParam) {
+                    // WebAuthn parameters are already set from request body, skip auto-population
+                    return;
+                }
                 
                 // Get current value (check both param name and mapped_from key)
                 let currentValue = processedParameters[paramName] || processedParameters[mappedFrom];
