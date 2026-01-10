@@ -2885,22 +2885,6 @@ const ContractManagement = () => {
                   </Alert>
                 ) : null}
                 
-                {contract?.use_smart_wallet && isPaymentFunction(rule.function_name, functionParams) && !willRouteThroughSmartWallet && (
-                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
-                    <Typography variant="body2" gutterBottom sx={{ fontSize: 'inherit' }}>
-                      <strong>💳 Payment will be routed through Smart Wallet</strong>
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontSize: 'inherit', wordBreak: 'break-word' }}>
-                      This payment function will be executed through the smart wallet contract: {contract.smart_wallet_contract_id?.substring(0, 10)}...
-                    </Typography>
-                    {contract.requires_webauthn && (
-                      <Typography variant="body2" sx={{ mt: 1, fontSize: 'inherit' }}>
-                        Passkey authentication will be required for the smart wallet payment.
-                      </Typography>
-                    )}
-                  </Alert>
-                )}
-                
                 {needsSecretKey && (
                   <TextField
                     fullWidth
