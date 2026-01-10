@@ -2852,6 +2852,36 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             console.log(`[Execute] 🔄 Auto-populating parameters for pending rule execution`);
             console.log(`[Execute] 📋 Current parameters:`, Object.keys(processedParameters).join(', '));
             
+            // Fetch matched_public_key from location_update_queue if not provided in request
+            let matchedPublicKey = processedParameters.matched_public_key || processedParameters.destination;
+            if (!matchedPublicKey) {
+                try {
+                    const matchedKeyQuery = `
+                        SELECT DISTINCT luq.public_key
+                        FROM location_update_queue luq
+                        WHERE luq.user_id = $1
+                            AND luq.status IN ('matched', 'executed')
+                            AND luq.execution_results IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 
+                                FROM jsonb_array_elements(luq.execution_results) AS result
+                                WHERE result->>'skipped' = 'true'
+                                AND result->>'reason' = 'requires_webauthn'
+                                AND (result->>'rule_id')::integer = $2
+                            )
+                        ORDER BY luq.received_at DESC
+                        LIMIT 1
+                    `;
+                    const matchedKeyResult = await pool.query(matchedKeyQuery, [req.user?.id || req.userId, rule_id]);
+                    if (matchedKeyResult.rows.length > 0) {
+                        matchedPublicKey = matchedKeyResult.rows[0].public_key;
+                        console.log(`[Execute] ✅ Fetched matched_public_key from location_update_queue: ${matchedPublicKey?.substring(0, 8)}...`);
+                    }
+                } catch (error) {
+                    console.warn(`[Execute] ⚠️  Could not fetch matched_public_key:`, error.message);
+                }
+            }
+            
             // Get function parameter definitions
             const functionParams = mapping.parameters;
             
@@ -2870,9 +2900,11 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         console.log(`[Execute] ✅ Auto-populated ${paramName} from user_public_key: ${currentValue}`);
                     } else if (paramName === 'destination' && (param.type === 'Address' || param.type === 'address')) {
                         // Destination should come from pending rule (matched wallet's public key)
-                        // It should already be in processedParameters, but if not, we can't auto-populate it
-                        if (!currentValue) {
-                            console.warn(`[Execute] ⚠️  Destination address not found in parameters`);
+                        if (matchedPublicKey) {
+                            currentValue = matchedPublicKey;
+                            console.log(`[Execute] ✅ Auto-populated ${paramName} from matched_public_key: ${currentValue}`);
+                        } else {
+                            console.warn(`[Execute] ⚠️  Destination address not found in parameters and matched_public_key not available`);
                         }
                     } else if (paramName === 'asset' && (param.type === 'Address' || param.type === 'address')) {
                         // Convert XLM/native to contract address
