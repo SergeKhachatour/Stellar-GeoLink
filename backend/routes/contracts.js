@@ -2807,8 +2807,53 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 await new Promise(r => setTimeout(r, 2000));
                 txResult = await sorobanServer.getTransaction(sendResult.hash);
                 if (txResult.status === 'SUCCESS') {
+                    // Check the contract's return value
+                    let contractReturnedFalse = false;
+                    try {
+                        if (txResult.resultMetaXdr) {
+                            const transactionMeta = txResult.resultMetaXdr.v3().sorobanMeta();
+                            const returnValue = transactionMeta.returnValue();
+                            
+                            console.log(`[Execute] 📊 Smart wallet contract return value:`, returnValue);
+                            
+                            // Check if return value is false (for boolean return types)
+                            if (returnValue && returnValue.hasOwnProperty('b')) {
+                                const boolValue = returnValue.b();
+                                if (boolValue === false) {
+                                    console.log(`[Execute] ⚠️  Smart wallet contract returned false - Payment was rejected`);
+                                    contractReturnedFalse = true;
+                                }
+                            }
+                        }
+                    } catch (returnValueError) {
+                        console.warn(`[Execute] ⚠️  Could not extract smart wallet return value:`, returnValueError.message);
+                    }
+                    
                     const network = contract.network || 'testnet';
                     const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${sendResult.hash}`;
+                    
+                    if (contractReturnedFalse) {
+                        return res.status(400).json({
+                            success: false,
+                            error: 'Payment rejected by smart wallet contract',
+                            message: `The smart wallet contract's execute_payment function returned false, indicating the payment was rejected. This could be due to: insufficient balance, invalid WebAuthn signature, incorrect parameters, or other contract validation failures.`,
+                            transaction_hash: sendResult.hash,
+                            transaction_status: txResult.status,
+                            ledger: txResult.ledger,
+                            contract_return_value: false,
+                            stellar_expert_url: stellarExpertUrl,
+                            routed_through_smart_wallet: true,
+                            smart_wallet_contract_id: smartWalletContractId,
+                            original_function: function_name,
+                            original_contract_id: id,
+                            suggestions: [
+                                'Check that you have sufficient balance in the smart wallet',
+                                'Verify that the WebAuthn signature is valid and matches the registered passkey',
+                                'Ensure all parameters (destination, amount, asset) are correct',
+                                'Check the contract logs on StellarExpert for more details'
+                            ]
+                        });
+                    }
                     
                     return res.json({
                         success: true,
@@ -3245,6 +3290,36 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         
                         if (txResult.status === 'SUCCESS') {
                             console.log(`[Execute] ✅ Transaction successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+                            
+                            // Check the contract's return value
+                            try {
+                                if (txResult.resultMetaXdr) {
+                                    const transactionMeta = txResult.resultMetaXdr.v3().sorobanMeta();
+                                    const returnValue = transactionMeta.returnValue();
+                                    
+                                    console.log(`[Execute] 📊 Contract return value:`, returnValue);
+                                    
+                                    // Check if return value is false (for boolean return types)
+                                    if (returnValue && returnValue.hasOwnProperty('b')) {
+                                        const boolValue = returnValue.b();
+                                        if (boolValue === false) {
+                                            console.log(`[Execute] ⚠️  Contract function returned false - Payment was rejected`);
+                                            // Store this info to return in response
+                                            txResult.contractReturnedFalse = true;
+                                            txResult.returnValue = false;
+                                        } else {
+                                            txResult.returnValue = boolValue;
+                                        }
+                                    } else if (returnValue) {
+                                        // Store return value for other types
+                                        txResult.returnValue = returnValue;
+                                    }
+                                }
+                            } catch (returnValueError) {
+                                console.warn(`[Execute] ⚠️  Could not extract return value:`, returnValueError.message);
+                                // Continue anyway - transaction was successful
+                            }
+                            
                             break;
                         } else if (txResult.status === 'FAILED') {
                             console.log(`[Execute] ❌ Transaction failed - Hash: ${sendResult.hash}`);
@@ -3293,6 +3368,29 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 const network = contract.network === 'mainnet' ? 'mainnet' : 'testnet';
                 const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${sendResult.hash}`;
                 
+                // Check if contract returned false (payment rejected)
+                if (txResult.contractReturnedFalse) {
+                    console.log(`[Execute] ❌ Contract function returned false - Payment was rejected by contract`);
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Payment rejected by contract',
+                        message: `The contract function "${function_name}" returned false, indicating the payment was rejected. This could be due to: insufficient balance, invalid WebAuthn signature, incorrect parameters, or other contract validation failures.`,
+                        function_name,
+                        is_read_only: isReadOnly,
+                        transaction_hash: sendResult.hash,
+                        transaction_status: txResult.status,
+                        ledger: txResult.ledger,
+                        contract_return_value: false,
+                        stellar_expert_url: stellarExpertUrl,
+                        suggestions: [
+                            'Check that you have sufficient balance in the smart wallet',
+                            'Verify that the WebAuthn signature is valid and matches the registered passkey',
+                            'Ensure all parameters (destination, amount, asset) are correct',
+                            'Check the contract logs on StellarExpert for more details'
+                        ]
+                    });
+                }
+                
                 return res.json({
                     success: true,
                     message: isReadOnly 
@@ -3303,6 +3401,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     transaction_hash: sendResult.hash,
                     transaction_status: txResult.status,
                     ledger: txResult.ledger,
+                    contract_return_value: txResult.returnValue !== undefined ? txResult.returnValue : null,
                     transaction_result: txResult,
                     stellar_expert_url: stellarExpertUrl,
                     note: isReadOnly 
