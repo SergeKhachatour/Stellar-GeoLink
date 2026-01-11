@@ -37,6 +37,7 @@ import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 import SmartWalletBalance from './Home/SmartWalletBalance';
 import AIChat from './AI/AIChat';
 import ContractManagement from './Contracts/ContractManagement';
+import SendPayment from './Wallet/SendPayment';
 
 const WalletProviderDashboard = () => {
     const { user } = useAuth();
@@ -57,6 +58,7 @@ const WalletProviderDashboard = () => {
     const [zoomTarget, setZoomTarget] = useState(null);
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
+    const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
   // Pagination for wallets/NFTs table
   const [walletsPage, setWalletsPage] = useState(0);
   const [walletsRowsPerPage, setWalletsRowsPerPage] = useState(10);
@@ -346,14 +348,25 @@ const WalletProviderDashboard = () => {
                                                     {publicKey.substring(0, 6)}...{publicKey.substring(publicKey.length - 6)}
                                                 </span>
                                             </Typography>
-                                            <Button
-                                                variant="outlined"
-                                                color="secondary"
-                                                size="small"
-                                                onClick={disconnectWallet}
-                                            >
-                                                Disconnect Wallet
-                                            </Button>
+                                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                                <Button
+                                                    variant="contained"
+                                                    color="primary"
+                                                    size="small"
+                                                    startIcon={<SendIcon />}
+                                                    onClick={() => setSendPaymentOpen(true)}
+                                                >
+                                                    Send Payment
+                                                </Button>
+                                                <Button
+                                                    variant="outlined"
+                                                    color="secondary"
+                                                    size="small"
+                                                    onClick={disconnectWallet}
+                                                >
+                                                    Disconnect Wallet
+                                                </Button>
+                                            </Box>
                                         </>
                                     ) : (
                                         <>
@@ -1209,6 +1222,12 @@ const WalletProviderDashboard = () => {
             
             {/* GeoLink Agent */}
             <AIChat isPublic={false} initialOpen={false} />
+            
+            {/* Send Payment Dialog */}
+            <SendPayment
+                open={sendPaymentOpen}
+                onClose={() => setSendPaymentOpen(false)}
+            />
         </Container>
     );
 };
