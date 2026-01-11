@@ -52,7 +52,8 @@
     "react-scripts": "^5.0.1",
     "remark-gfm": "^4.0.1",
     "web-vitals": "^4.2.4",
-    "qr-scanner": "^1.4.2"
+    "qr-scanner": "^1.4.2",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@craco/craco": "^7.1.0",

@@ -24,8 +24,6 @@ import {
   Close,
   Send,
   QrCodeScanner,
-  AccountBalanceWallet,
-  Vault,
   CameraAlt
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
@@ -36,7 +34,7 @@ import webauthnService from '../../services/webauthnService';
 const SendPayment = ({ open, onClose }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
-  const { isConnected, publicKey, secretKey, balance: walletBalance, sendTransaction, loadAccountInfo } = useWallet();
+  const { publicKey, secretKey, balance: walletBalance, sendTransaction, loadAccountInfo } = useWallet();
   const { user } = useAuth();
   
   const [recipient, setRecipient] = useState('');
@@ -49,9 +47,6 @@ const SendPayment = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState('');
-  const [smartWalletBalance, setSmartWalletBalance] = useState(null);
-  const [smartWalletBalanceInXLM, setSmartWalletBalanceInXLM] = useState(null);
-  const [vaultBalance, setVaultBalance] = useState(null);
   const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
   const [userStake, setUserStake] = useState(null);
   
@@ -75,6 +70,7 @@ const SendPayment = ({ open, onClose }) => {
     } else {
       stopQRScanner();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const fetchSmartWalletBalance = async () => {
@@ -84,24 +80,18 @@ const SendPayment = ({ open, onClose }) => {
       const response = await api.get('/smart-wallet/balance', {
         params: { userPublicKey: effectivePublicKey }
       });
-      setSmartWalletBalance(response.data.balance);
-      setSmartWalletBalanceInXLM(response.data.balanceInXLM);
       setUserStake(response.data.balanceInXLM);
     } catch (err) {
       console.error('Failed to fetch smart wallet balance:', err);
-      setSmartWalletBalance(null);
-      setSmartWalletBalanceInXLM(null);
     }
   };
 
   const fetchVaultBalance = async () => {
     try {
       const response = await api.get('/smart-wallet/vault-balance');
-      setVaultBalance(response.data.balance);
       setVaultBalanceInXLM(response.data.balanceInXLM);
     } catch (err) {
       console.error('Failed to fetch vault balance:', err);
-      setVaultBalance(null);
       setVaultBalanceInXLM(null);
     }
   };
@@ -353,7 +343,7 @@ const SendPayment = ({ open, onClose }) => {
           fontSize: fullScreen ? '1rem' : '0.875rem'
         }}>
           <Box sx={{ mb: 2 }}>
-            <Paper elevation={1} sx={{ p: 2, bgcolor: 'success.light', bgcolor: 'rgba(16, 185, 129, 0.1)' }}>
+            <Paper elevation={1} sx={{ p: 2, bgcolor: 'rgba(16, 185, 129, 0.1)' }}>
               <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
                 Wallet Balance:
               </Typography>
