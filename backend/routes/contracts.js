@@ -3395,14 +3395,6 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 
                 // Check if contract returned false (payment rejected) - this is now handled in the try-catch above
                 // The check happens immediately after extracting the return value
-                        suggestions: [
-                            'Check that you have sufficient balance in the smart wallet',
-                            'Verify that the WebAuthn signature is valid and matches the registered passkey',
-                            'Ensure all parameters (destination, amount, asset) are correct',
-                            'Check the contract logs on StellarExpert for more details'
-                        ]
-                    });
-                }
                 
                 return res.json({
                     success: true,
