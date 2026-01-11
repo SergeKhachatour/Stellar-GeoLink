@@ -51,7 +51,8 @@
     "react-router-dom": "^7.4.0",
     "react-scripts": "^5.0.1",
     "remark-gfm": "^4.0.1",
-    "web-vitals": "^4.2.4"
+    "web-vitals": "^4.2.4",
+    "qr-scanner": "^1.4.2"
   },
   "devDependencies": {
     "@craco/craco": "^7.1.0",
