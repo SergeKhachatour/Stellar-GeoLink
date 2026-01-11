@@ -2757,6 +2757,75 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 Buffer.from(webauthnClientData, 'base64')
             );
 
+            // Check user's balance in smart wallet BEFORE executing payment (like XYZ-Wallet does)
+            console.log(`[Execute] 💰 Checking smart wallet balance for user: ${user_public_key}`);
+            try {
+                const balanceCheckOp = smartWalletContract.call(
+                    'get_balance',
+                    signerAddressScVal,
+                    assetScVal
+                );
+                
+                // Use dummy account for simulation (read-only call)
+                const dummyAccount = new StellarSdk.Account(user_public_key, '0');
+                const balanceCheckTx = new StellarSdk.TransactionBuilder(
+                    dummyAccount,
+                    {
+                        fee: StellarSdk.BASE_FEE,
+                        networkPassphrase: networkPassphrase
+                    }
+                )
+                    .addOperation(balanceCheckOp)
+                    .setTimeout(30)
+                    .build();
+                
+                const balanceCheckPrepared = await sorobanServer.prepareTransaction(balanceCheckTx);
+                const balanceSimulation = await sorobanServer.simulateTransaction(balanceCheckPrepared);
+                
+                if (balanceSimulation.errorResult) {
+                    console.warn(`[Execute] ⚠️  Could not check balance: ${balanceSimulation.errorResult.value()}`);
+                } else if (balanceSimulation.result && balanceSimulation.result.retval) {
+                    const balanceResult = balanceSimulation.result.retval;
+                    let balance = '0';
+                    
+                    if (balanceResult.i128) {
+                        const parts = balanceResult.i128();
+                        const lo = parts.lo().toString();
+                        const hi = parts.hi().toString();
+                        balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
+                    } else {
+                        balance = balanceResult.toString() || '0';
+                    }
+                    
+                    const balanceInXLM = (BigInt(balance) / 10000000n).toString();
+                    const requiredAmount = BigInt(amountInStroops);
+                    const availableBalance = BigInt(balance);
+                    
+                    console.log(`[Execute] 💰 Smart wallet balance check:`, {
+                        available: balanceInXLM + ' XLM (' + balance + ' stroops)',
+                        required: (requiredAmount / 10000000n).toString() + ' XLM (' + amountInStroops + ' stroops)',
+                        sufficient: availableBalance >= requiredAmount
+                    });
+                    
+                    if (availableBalance < requiredAmount) {
+                        return res.status(400).json({
+                            success: false,
+                            error: 'Insufficient smart wallet balance',
+                            message: `You have ${balanceInXLM} XLM in your smart wallet, but need ${(requiredAmount / 10000000n).toString()} XLM for this payment.`,
+                            details: 'Please deposit funds to your smart wallet before executing this payment.',
+                            available_balance: balanceInXLM + ' XLM',
+                            required_amount: (requiredAmount / 10000000n).toString() + ' XLM',
+                            function_name,
+                            contract_id: contract.id,
+                            smart_wallet_contract_id: contract.smart_wallet_contract_id
+                        });
+                    }
+                }
+            } catch (balanceCheckError) {
+                console.warn(`[Execute] ⚠️  Could not check smart wallet balance:`, balanceCheckError.message);
+                // Continue anyway - the contract will reject if balance is insufficient
+            }
+            
             // Call smart wallet's execute_payment
             const smartWalletOp = smartWalletContract.call(
                 'execute_payment',
