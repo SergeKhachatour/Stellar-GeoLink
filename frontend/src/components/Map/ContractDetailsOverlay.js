@@ -127,6 +127,56 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     }
   }, [publicKey]);
 
+  const checkProximity = useCallback((userLoc, targetItem) => {
+    if (!targetItem || !targetItem.latitude || !targetItem.longitude || !userLoc || !userLoc.latitude || !userLoc.longitude) {
+      console.warn('Missing coordinates for distance calculation', { userLoc, targetItem });
+      return;
+    }
+
+    // Parse coordinates as floats to ensure they're numbers
+    const lat1 = parseFloat(userLoc.latitude);
+    const lon1 = parseFloat(userLoc.longitude);
+    const lat2 = parseFloat(targetItem.latitude);
+    const lon2 = parseFloat(targetItem.longitude);
+
+    // Validate coordinates are valid numbers
+    if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
+      console.error('Invalid coordinates for distance calculation', { lat1, lon1, lat2, lon2 });
+      return;
+    }
+
+    // Validate coordinate ranges (latitude: -90 to 90, longitude: -180 to 180)
+    if (Math.abs(lat1) > 90 || Math.abs(lat2) > 90 || Math.abs(lon1) > 180 || Math.abs(lon2) > 180) {
+      console.error('Coordinates out of valid range', { lat1, lon1, lat2, lon2 });
+      return;
+    }
+
+    const R = 6371000; // Earth's radius in meters
+    const lat1Rad = lat1 * Math.PI / 180;
+    const lat2Rad = lat2 * Math.PI / 180;
+    const deltaLat = (lat2 - lat1) * Math.PI / 180;
+    const deltaLon = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+              Math.cos(lat1Rad) * Math.cos(lat2Rad) *
+              Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const dist = R * c;
+
+    console.log('Distance calculation:', {
+      userLocation: { lat: lat1, lon: lon1 },
+      contractLocation: { lat: lat2, lon: lon2 },
+      distanceMeters: dist,
+      distanceKm: (dist / 1000).toFixed(2)
+    });
+
+    setDistance(dist);
+
+    // Check if within range (use radius_meters for contract rules, or default 100m)
+    const radius = targetItem.radius_meters || targetItem.radius || 100;
+    setIsWithinRange(dist <= radius);
+  }, []);
+
   useEffect(() => {
     if (open && item) {
       // For contract rules, fetch full rule details
@@ -183,6 +233,13 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       }
     }
   }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius]);
+  
+  // Recalculate distance whenever item or userLocation changes
+  useEffect(() => {
+    if (userLocation && item && item.latitude && item.longitude) {
+      checkProximity(userLocation, item);
+    }
+  }, [item, userLocation, checkProximity]); // Recalculate when item changes (different marker clicked)
   
   // Calculate distanceText early to avoid initialization errors
   const distanceText = distance 
@@ -461,56 +518,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       }
     }
   }, [isWithinRange, userLocation, item]);
-
-  const checkProximity = (userLoc, targetItem) => {
-    if (!targetItem.latitude || !targetItem.longitude || !userLoc.latitude || !userLoc.longitude) {
-      console.warn('Missing coordinates for distance calculation', { userLoc, targetItem });
-      return;
-    }
-
-    // Parse coordinates as floats to ensure they're numbers
-    const lat1 = parseFloat(userLoc.latitude);
-    const lon1 = parseFloat(userLoc.longitude);
-    const lat2 = parseFloat(targetItem.latitude);
-    const lon2 = parseFloat(targetItem.longitude);
-
-    // Validate coordinates are valid numbers
-    if (isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
-      console.error('Invalid coordinates for distance calculation', { lat1, lon1, lat2, lon2 });
-      return;
-    }
-
-    // Validate coordinate ranges (latitude: -90 to 90, longitude: -180 to 180)
-    if (Math.abs(lat1) > 90 || Math.abs(lat2) > 90 || Math.abs(lon1) > 180 || Math.abs(lon2) > 180) {
-      console.error('Coordinates out of valid range', { lat1, lon1, lat2, lon2 });
-      return;
-    }
-
-    const R = 6371000; // Earth's radius in meters
-    const lat1Rad = lat1 * Math.PI / 180;
-    const lat2Rad = lat2 * Math.PI / 180;
-    const deltaLat = (lat2 - lat1) * Math.PI / 180;
-    const deltaLon = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-              Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-              Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const dist = R * c;
-
-    console.log('Distance calculation:', {
-      userLocation: { lat: lat1, lon: lon1 },
-      contractLocation: { lat: lat2, lon: lon2 },
-      distanceMeters: dist,
-      distanceKm: (dist / 1000).toFixed(2)
-    });
-
-    setDistance(dist);
-
-    // Check if within range (use radius_meters for contract rules, or default 100m)
-    const radius = targetItem.radius_meters || targetItem.radius || 100;
-    setIsWithinRange(dist <= radius);
-  };
 
 
   const handleExecuteFunction = async () => {

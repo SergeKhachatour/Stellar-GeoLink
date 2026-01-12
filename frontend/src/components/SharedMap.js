@@ -210,19 +210,26 @@ const SharedMap = ({
     });
     markers.current = {};
 
-    if (!locations || locations.length === 0) return;
+    if (!locations || locations.length === 0) {
+      return;
+    }
 
     locations.forEach((location, index) => {
       const lat = parseFloat(location.latitude);
       const lng = parseFloat(location.longitude);
       
       if (isNaN(lat) || isNaN(lng)) {
-        console.warn(`Invalid coordinates for location ${index}:`, location);
+        console.warn(`[SharedMap] Invalid coordinates for location ${index}:`, location);
         return;
       }
 
-      // Determine location type
+      // Determine location type - check both type and marker_type
       const locationType = location.type || location.marker_type;
+      
+      // Debug: Log if type is not recognized
+      if (!locationType || (locationType !== 'nft' && locationType !== 'contract_rule' && locationType !== 'wallet')) {
+        console.warn(`[SharedMap] Unknown location type for location ${index}:`, { type: location.type, marker_type: location.marker_type, resolved: locationType });
+      }
 
       // Create marker element based on type
       const el = document.createElement('div');

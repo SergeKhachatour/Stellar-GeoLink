@@ -38,7 +38,13 @@ import {
   StepLabel,
   StepContent,
   TablePagination,
-  InputAdornment
+  InputAdornment,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  ListItemSecondaryAction,
+  Collapse
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -55,7 +61,11 @@ import {
   PowerSettingsNew as PowerSettingsNewIcon,
   Schedule as ScheduleIcon,
   Warning as WarningIcon,
-  LocationOn as LocationOnIcon
+  LocationOn as LocationOnIcon,
+  Close as CloseIcon,
+  Search as SearchIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
@@ -100,9 +110,11 @@ const ContractManagement = () => {
   const [pendingRules, setPendingRules] = useState([]);
   const [loadingPendingRules, setLoadingPendingRules] = useState(false);
   const [rejectingRuleId, setRejectingRuleId] = useState(null);
+  const [expandedPendingRule, setExpandedPendingRule] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [ruleToReject, setRuleToReject] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [stepperOrientation, setStepperOrientation] = useState(window.innerWidth < 768 ? "vertical" : "horizontal");
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [tabValue, setTabValue] = useState(0);
@@ -124,7 +136,7 @@ const ContractManagement = () => {
     rule_type: 'location',
     center_latitude: '',
     center_longitude: '',
-    radius_meters: '',
+    radius_meters: '100',
     function_name: '',
     function_parameters: '{}',
     trigger_on: 'enter',
@@ -140,6 +152,10 @@ const ContractManagement = () => {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const [locationSearchQuery, setLocationSearchQuery] = useState('');
+  const [locationSearchResults, setLocationSearchResults] = useState([]);
+  const [showLocationSearchResults, setShowLocationSearchResults] = useState(false);
+  const [locationSearchLoading, setLocationSearchLoading] = useState(false);
   
   // WASM Upload States
   const [wasmUploadOpen, setWasmUploadOpen] = useState(false);
@@ -175,6 +191,15 @@ const ContractManagement = () => {
       loadPendingRules();
     }
   }, [tabValue]);
+  
+  // Update stepper orientation on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setStepperOrientation(window.innerWidth < 768 ? "vertical" : "horizontal");
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // Initialize map for quick view
   useEffect(() => {
@@ -527,7 +552,7 @@ const ContractManagement = () => {
         source: 'radius-circle',
         paint: {
           'fill-color': '#3b82f6',
-          'fill-opacity': 0.1
+          'fill-opacity': 0.2  // Increased opacity for better visibility
         }
       });
       
@@ -537,8 +562,8 @@ const ContractManagement = () => {
         source: 'radius-circle',
         paint: {
           'line-color': '#3b82f6',
-          'line-width': 2,
-          'line-opacity': 0.5
+          'line-width': 3,  // Increased width for better visibility
+          'line-opacity': 0.8  // Increased opacity for better visibility
         }
       });
     } catch (error) {
@@ -574,11 +599,17 @@ const ContractManagement = () => {
       // Add click handler for location selection
       newMap.on('click', (e) => {
         const { lng, lat } = e.lngLat;
+        
+        // Get current radius before state update, ensure it defaults to 100
+        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
+        const radiusToUse = currentRadius > 0 ? currentRadius : 100;
+        
         setSelectedLocation({ lat, lng });
         setRuleForm(prev => ({
           ...prev,
           center_latitude: lat.toString(),
-          center_longitude: lng.toString()
+          center_longitude: lng.toString(),
+          radius_meters: prev.radius_meters || '100' // Ensure default radius is set
         }));
         
         // Update marker
@@ -610,29 +641,36 @@ const ContractManagement = () => {
           }
         });
         
-        // Zoom to the selected location
-        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
         // Calculate appropriate zoom level based on radius
-        let zoomLevel = 14;
-        if (currentRadius > 5000) {
-          zoomLevel = 10;
-        } else if (currentRadius > 1000) {
+        let zoomLevel = 16; // Default to closer zoom
+        if (radiusToUse > 5000) {
+          zoomLevel = 11;
+        } else if (radiusToUse > 2000) {
           zoomLevel = 12;
-        } else if (currentRadius > 500) {
+        } else if (radiusToUse > 1000) {
           zoomLevel = 13;
-        } else {
+        } else if (radiusToUse > 500) {
           zoomLevel = 14;
+        } else if (radiusToUse > 200) {
+          zoomLevel = 15;
+        } else {
+          zoomLevel = 16; // For small radii, zoom in close
         }
         
-        newMap.flyTo({
-          center: [lng, lat],
-          zoom: zoomLevel,
-          duration: 1000
-        });
+        // Update radius circle immediately with the radius we're using
+        updateRadiusCircle(newMap, lat, lng, radiusToUse);
         
-        // Update radius circle - always show with default if not set
-        const radius = currentRadius;
-        updateRadiusCircle(newMap, lat, lng, radius);
+        // Also update after a short delay to ensure it's visible after zoom
+        setTimeout(() => {
+          if (newMap.isStyleLoaded()) {
+            updateRadiusCircle(newMap, lat, lng, radiusToUse);
+          }
+          newMap.flyTo({
+            center: [lng, lat],
+            zoom: zoomLevel,
+            duration: 1000
+          });
+        }, 200);
       });
       
       // If location already set, show it
@@ -640,7 +678,25 @@ const ContractManagement = () => {
         const lat = parseFloat(ruleForm.center_latitude);
         const lng = parseFloat(ruleForm.center_longitude);
         setSelectedLocation({ lat, lng });
-        newMap.flyTo({ center: [lng, lat], zoom: 12 });
+        
+        // Calculate appropriate zoom level based on radius
+        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
+        let zoomLevel = 16;
+        if (currentRadius > 5000) {
+          zoomLevel = 11;
+        } else if (currentRadius > 2000) {
+          zoomLevel = 12;
+        } else if (currentRadius > 1000) {
+          zoomLevel = 13;
+        } else if (currentRadius > 500) {
+          zoomLevel = 14;
+        } else if (currentRadius > 200) {
+          zoomLevel = 15;
+        } else {
+          zoomLevel = 16;
+        }
+        
+        newMap.flyTo({ center: [lng, lat], zoom: zoomLevel });
         
         newMap.addSource('location-marker', {
           type: 'geojson',
@@ -665,8 +721,11 @@ const ContractManagement = () => {
           }
         });
         
-        const radius = parseFloat(ruleForm.radius_meters) || 100;
-        updateRadiusCircle(newMap, lat, lng, radius);
+        // Update radius circle after a short delay to ensure map is ready
+        setTimeout(() => {
+          const radius = parseFloat(ruleForm.radius_meters) || 100;
+          updateRadiusCircle(newMap, lat, lng, radius);
+        }, 300);
       }
     });
     
@@ -681,17 +740,17 @@ const ContractManagement = () => {
   
   // Update map when location or radius changes (but only if map exists and is loaded)
   useEffect(() => {
-    if (!mapRef.current || activeStep !== 1) return;
+    if (!mapRef.current || activeStep !== 1 || !selectedLocation) return;
+    
+    // Always use a radius (default to 100 if not set)
+    const radius = parseFloat(ruleForm.radius_meters) || 100;
     
     // Only update if map style is loaded
     if (!mapRef.current.isStyleLoaded()) {
       // Wait for style to load
       const handleStyleLoad = () => {
-        if (selectedLocation && ruleForm.radius_meters) {
-          const radius = parseFloat(ruleForm.radius_meters);
-          if (radius > 0) {
-            updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
-          }
+        if (selectedLocation && radius > 0) {
+          updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
         }
       };
       mapRef.current.once('style.load', handleStyleLoad);
@@ -702,11 +761,9 @@ const ContractManagement = () => {
       };
     }
     
-    if (selectedLocation && ruleForm.radius_meters) {
-      const radius = parseFloat(ruleForm.radius_meters);
-      if (radius > 0) {
-        updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
-      }
+    // Update radius circle whenever location or radius changes
+    if (selectedLocation && radius > 0) {
+      updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
     }
   }, [selectedLocation, ruleForm.radius_meters, activeStep, updateRadiusCircle]);
   
@@ -718,8 +775,212 @@ const ContractManagement = () => {
         mapRef.current = null;
       }
       setSelectedLocation(null);
+      setLocationSearchQuery('');
+      setLocationSearchResults([]);
+      setShowLocationSearchResults(false);
     }
   }, [ruleDialogOpen]);
+
+  // Location search handler with debouncing
+  const handleLocationSearch = useCallback(async (query) => {
+    if (!query || !query.trim() || !MAPBOX_TOKEN) {
+      setLocationSearchResults([]);
+      setShowLocationSearchResults(false);
+      return;
+    }
+
+    setLocationSearchLoading(true);
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&limit=5`
+      );
+      const data = await response.json();
+      
+      if (data.features && data.features.length > 0) {
+        setLocationSearchResults(data.features);
+        setShowLocationSearchResults(true);
+      } else {
+        setLocationSearchResults([]);
+        setShowLocationSearchResults(false);
+      }
+    } catch (error) {
+      console.error('Location search error:', error);
+      setLocationSearchResults([]);
+      setShowLocationSearchResults(false);
+    } finally {
+      setLocationSearchLoading(false);
+    }
+  }, []);
+
+  // Debounced search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (locationSearchQuery.trim()) {
+        handleLocationSearch(locationSearchQuery);
+      } else {
+        setLocationSearchResults([]);
+        setShowLocationSearchResults(false);
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [locationSearchQuery, handleLocationSearch]);
+
+  // Zoom to user's current location
+  const handleZoomToMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setLocationSearchLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        // Get current radius, ensure it defaults to 100
+        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
+        const radiusToUse = currentRadius > 0 ? currentRadius : 100;
+        
+        setSelectedLocation({ lat: latitude, lng: longitude });
+        setRuleForm(prev => ({
+          ...prev,
+          center_latitude: latitude.toString(),
+          center_longitude: longitude.toString(),
+          radius_meters: prev.radius_meters || '100' // Ensure default radius is set
+        }));
+
+        if (mapRef.current) {
+          const updateMap = () => {
+            if (!mapRef.current || !mapRef.current.isStyleLoaded()) {
+              if (mapRef.current) {
+                mapRef.current.once('style.load', updateMap);
+              }
+              return;
+            }
+
+            mapRef.current.flyTo({
+              center: [longitude, latitude],
+              zoom: 15,
+              duration: 2000
+            });
+
+            // Update marker
+            if (mapRef.current.getLayer('location-marker')) {
+              mapRef.current.removeLayer('location-marker');
+              mapRef.current.removeSource('location-marker');
+            }
+
+            mapRef.current.addSource('location-marker', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: {
+                  type: 'Point',
+                  coordinates: [longitude, latitude]
+                }
+              }
+            });
+
+            mapRef.current.addLayer({
+              id: 'location-marker',
+              type: 'circle',
+              source: 'location-marker',
+              paint: {
+                'circle-radius': 8,
+                'circle-color': '#FF0000',
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#FFFFFF'
+              }
+            });
+
+            // Update radius circle immediately with the radius we're using
+            updateRadiusCircle(mapRef.current, latitude, longitude, radiusToUse);
+            
+            // Also update after a short delay to ensure it's visible
+            setTimeout(() => {
+              if (mapRef.current && mapRef.current.isStyleLoaded()) {
+                updateRadiusCircle(mapRef.current, latitude, longitude, radiusToUse);
+              }
+            }, 500);
+          };
+          
+          updateMap();
+        }
+        setLocationSearchLoading(false);
+      },
+      (error) => {
+        console.error('Geolocation error:', error);
+        setError('Unable to get your location. Please ensure location permissions are enabled.');
+        setLocationSearchLoading(false);
+      }
+    );
+  };
+
+  // Handle location search result click
+  const handleLocationSearchResultClick = (result) => {
+    const [lng, lat] = result.center;
+    setLocationSearchQuery(result.place_name);
+    setShowLocationSearchResults(false);
+    setSelectedLocation({ lat, lng });
+    setRuleForm(prev => ({
+      ...prev,
+      center_latitude: lat.toString(),
+      center_longitude: lng.toString(),
+      radius_meters: prev.radius_meters || '100' // Ensure default radius is set
+    }));
+    
+    if (mapRef.current) {
+      const updateMap = () => {
+        if (!mapRef.current || !mapRef.current.isStyleLoaded()) {
+          if (mapRef.current) {
+            mapRef.current.once('style.load', updateMap);
+          }
+          return;
+        }
+
+        mapRef.current.flyTo({
+          center: [lng, lat],
+          zoom: 15,
+          duration: 2000
+        });
+        
+        // Update marker
+        if (mapRef.current.getLayer('location-marker')) {
+          mapRef.current.removeLayer('location-marker');
+          mapRef.current.removeSource('location-marker');
+        }
+        
+        mapRef.current.addSource('location-marker', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [lng, lat]
+            }
+          }
+        });
+        
+        mapRef.current.addLayer({
+          id: 'location-marker',
+          type: 'circle',
+          source: 'location-marker',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#FF0000',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#FFFFFF'
+          }
+        });
+        
+        // Update radius circle - ensure it shows
+        const radius = parseFloat(ruleForm.radius_meters) || 100;
+        updateRadiusCircle(mapRef.current, lat, lng, radius);
+      };
+      
+      updateMap();
+    }
+  };
 
   const handleEditRule = (rule) => {
     setEditingRule(rule);
@@ -2036,173 +2297,184 @@ const ContractManagement = () => {
             No pending rules. All matched rules have been executed automatically.
           </Alert>
         ) : (
-          <Grid container spacing={3}>
+          <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {pendingRules.map((pendingRule) => {
               const contract = contracts.find(c => c.id === pendingRule.contract_id);
               const rule = rules.find(r => r.id === pendingRule.rule_id);
+              const isExpanded = expandedPendingRule === pendingRule.rule_id;
               
               return (
-                <Grid item xs={12} key={pendingRule.rule_id}>
-                  <Card sx={{ border: '2px solid', borderColor: 'warning.main' }}>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                        <Box>
-                          <Typography variant="h6" gutterBottom>
+                <React.Fragment key={pendingRule.rule_id}>
+                  <Paper 
+                    sx={{ 
+                      mb: 1.5, 
+                      border: '2px solid', 
+                      borderColor: 'warning.main',
+                      borderRadius: 2,
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <ListItemButton
+                      onClick={() => setExpandedPendingRule(isExpanded ? null : pendingRule.rule_id)}
+                      sx={{
+                        py: 1.5,
+                        px: 2,
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
+                    >
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>
                             {pendingRule.rule_name}
                           </Typography>
                           <Chip 
                             icon={<WarningIcon />} 
-                            label="Requires Authentication" 
+                            label="Auth Required" 
                             color="warning" 
                             size="small"
-                            sx={{ mb: 1 }}
+                            sx={{ fontSize: '0.7rem', height: '20px' }}
                           />
                         </Box>
-                        <Chip 
-                          label={contract?.contract_name || 'Unknown Contract'} 
-                          variant="outlined"
-                          size="small"
-                        />
-                      </Box>
-
-                      <Divider sx={{ my: 2 }} />
-
-                      {/* Rule Details */}
-                      <Box mb={2}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                          Function: <strong>{pendingRule.function_name}</strong>
-                        </Typography>
-                        {pendingRule.location && (
-                          <Box display="flex" alignItems="center" gap={1} mt={1}>
-                            <LocationOnIcon fontSize="small" color="action" />
-                            <Typography variant="body2" color="text.secondary">
-                              Matched at: {pendingRule.location.latitude.toFixed(6)}, {pendingRule.location.longitude.toFixed(6)}
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                            <strong>Function:</strong> {pendingRule.function_name}
+                          </Typography>
+                          {contract && (
+                            <Chip 
+                              label={contract.contract_name || 'Unknown'} 
+                              variant="outlined"
+                              size="small"
+                              sx={{ fontSize: '0.7rem', height: '20px' }}
+                            />
+                          )}
+                          {pendingRule.matched_at && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                              {new Date(pendingRule.matched_at).toLocaleString()}
                             </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedPendingRule(isExpanded ? null : pendingRule.rule_id);
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </IconButton>
+                    </ListItemButton>
+                    
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <Box sx={{ px: 2, pb: 2 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        
+                        {/* Rule Details */}
+                        <Box mb={2}>
+                          {pendingRule.location && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <LocationOnIcon fontSize="small" color="action" />
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                Matched at: {pendingRule.location.latitude.toFixed(6)}, {pendingRule.location.longitude.toFixed(6)}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {/* Function Parameters Preview */}
+                        {pendingRule.function_parameters && (
+                          <Box mb={2}>
+                            <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                              Function Parameters:
+                            </Typography>
+                            <Paper 
+                              variant="outlined" 
+                              sx={{ 
+                                p: 1.5, 
+                                bgcolor: 'grey.50',
+                                maxHeight: '150px',
+                                overflow: 'auto'
+                              }}
+                            >
+                              <pre style={{ margin: 0, fontSize: '0.75rem' }}>
+                                {JSON.stringify(
+                                  typeof pendingRule.function_parameters === 'string'
+                                    ? JSON.parse(pendingRule.function_parameters)
+                                    : pendingRule.function_parameters,
+                                  null,
+                                  2
+                                )}
+                              </pre>
+                            </Paper>
                           </Box>
                         )}
-                        {pendingRule.matched_at && (
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            Matched: {new Date(pendingRule.matched_at).toLocaleString()}
-                          </Typography>
+
+                        {/* Message */}
+                        {pendingRule.message && (
+                          <Alert severity="info" sx={{ mb: 2, fontSize: '0.85rem' }}>
+                            {pendingRule.message}
+                          </Alert>
                         )}
-                      </Box>
 
-                      {/* Execution Steps */}
-                      <Alert severity="warning" sx={{ mb: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          Steps to Complete Transaction:
-                        </Typography>
-                        <Stepper orientation="vertical" activeStep={-1}>
-                          <Step>
-                            <StepLabel>Review Transaction Details</StepLabel>
-                            <StepContent>
-                              <Typography variant="body2">
-                                Verify the function parameters and ensure you have sufficient balance in your smart wallet vault.
-                              </Typography>
-                            </StepContent>
-                          </Step>
-                          <Step>
-                            <StepLabel>Authenticate with Passkey</StepLabel>
-                            <StepContent>
-                              <Typography variant="body2">
-                                You will be prompted to authenticate using your registered passkey/WebAuthn device.
-                              </Typography>
-                            </StepContent>
-                          </Step>
-                          <Step>
-                            <StepLabel>Confirm Execution</StepLabel>
-                            <StepContent>
-                              <Typography variant="body2">
-                                Review the transaction details and confirm execution. The payment will be processed from your smart wallet vault.
-                              </Typography>
-                            </StepContent>
-                          </Step>
-                        </Stepper>
-                      </Alert>
-
-                      {/* Function Parameters Preview */}
-                      {pendingRule.function_parameters && (
-                        <Box mb={2}>
-                          <Typography variant="subtitle2" gutterBottom>
-                            Function Parameters:
-                          </Typography>
-                          <Paper 
-                            variant="outlined" 
-                            sx={{ 
-                              p: 2, 
-                              bgcolor: 'grey.50',
-                              maxHeight: '200px',
-                              overflow: 'auto'
+                        {/* Action Buttons */}
+                        <Box display="flex" gap={1} flexWrap="wrap" sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<MapIcon />}
+                            onClick={() => {
+                              if (pendingRule.location) {
+                                setSelectedRuleForMap({
+                                  ...rule,
+                                  center_latitude: pendingRule.location.latitude,
+                                  center_longitude: pendingRule.location.longitude
+                                });
+                                setMapViewOpen(true);
+                              }
                             }}
+                            disabled={!pendingRule.location}
+                            sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
                           >
-                            <pre style={{ margin: 0, fontSize: '0.875rem' }}>
-                              {JSON.stringify(
-                                typeof pendingRule.function_parameters === 'string'
-                                  ? JSON.parse(pendingRule.function_parameters)
-                                  : pendingRule.function_parameters,
-                                null,
-                                2
-                              )}
-                            </pre>
-                          </Paper>
+                            View Location
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            startIcon={<DeleteIcon />}
+                            onClick={() => {
+                              setRuleToReject(pendingRule);
+                              setRejectDialogOpen(true);
+                            }}
+                            sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            size="small"
+                            startIcon={<CheckCircleIcon />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (rule) {
+                                handleExecuteRule(rule, e);
+                              }
+                            }}
+                            disabled={!rule}
+                            sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
+                          >
+                            Execute Now
+                          </Button>
                         </Box>
-                      )}
-
-                      {/* Message */}
-                      {pendingRule.message && (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          {pendingRule.message}
-                        </Alert>
-                      )}
-                    </CardContent>
-                    <CardActions sx={{ justifyContent: 'flex-end', p: 2, gap: 1 }}>
-                      <Button
-                        variant="outlined"
-                        startIcon={<MapIcon />}
-                        onClick={() => {
-                          if (pendingRule.location) {
-                            setSelectedRuleForMap({
-                              ...rule,
-                              center_latitude: pendingRule.location.latitude,
-                              center_longitude: pendingRule.location.longitude
-                            });
-                            setMapViewOpen(true);
-                          }
-                        }}
-                        disabled={!pendingRule.location}
-                      >
-                        View Location
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        startIcon={<DeleteIcon />}
-                        onClick={() => {
-                          setRuleToReject(pendingRule);
-                          setRejectDialogOpen(true);
-                        }}
-                      >
-                        Reject
-                      </Button>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        startIcon={<CheckCircleIcon />}
-                        onClick={(e) => {
-                          if (rule) {
-                            handleExecuteRule(rule, e);
-                          }
-                        }}
-                        disabled={!rule}
-                      >
-                        Execute Now
-                      </Button>
-                    </CardActions>
-                  </Card>
-                </Grid>
+                      </Box>
+                    </Collapse>
+                  </Paper>
+                </React.Fragment>
               );
             })}
-          </Grid>
+          </List>
         )}
       </TabPanel>
 
@@ -2232,16 +2504,29 @@ const ContractManagement = () => {
         fullWidth
         fullScreen={window.innerWidth < 768}
       >
-        <DialogTitle>
-          {editingRule ? 'Edit Execution Rule' : 'Create Execution Rule'}
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">
+            {editingRule ? 'Edit Execution Rule' : 'Create Execution Rule'}
+          </Typography>
+          <IconButton
+            onClick={() => {
+              setRuleDialogOpen(false);
+              setActiveStep(0);
+            }}
+            sx={{ ml: 2 }}
+          >
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
-            <Stepper activeStep={activeStep} orientation={window.innerWidth < 768 ? "vertical" : "horizontal"}>
+            <Stepper activeStep={activeStep} orientation={stepperOrientation}>
               <Step>
                 <StepLabel>Contract & Rule Details</StepLabel>
-                <StepContent>
-                  <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {stepperOrientation === "vertical" ? (
+                  <StepContent>
+                    {activeStep === 0 && (
+                    <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <FormControl fullWidth>
               <InputLabel>Contract</InputLabel>
               <Select
@@ -2288,19 +2573,155 @@ const ContractManagement = () => {
                       </Button>
                     </Box>
                   </Box>
-                </StepContent>
+                    )}
+                  </StepContent>
+                ) : (
+                  activeStep === 0 && (
+                    <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                      <FormControl fullWidth>
+                        <InputLabel>Contract</InputLabel>
+                        <Select
+                          value={ruleForm.contract_id}
+                          label="Contract"
+                          onChange={(e) => setRuleForm({ ...ruleForm, contract_id: e.target.value })}
+                          disabled={!!selectedContractForRule}
+                        >
+                          {contracts.map((contract) => (
+                            <MenuItem key={contract.id} value={contract.id}>
+                              {contract.contract_name || contract.contract_address.substring(0, 10) + '...'}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+
+                      <TextField
+                        label="Rule Name"
+                        value={ruleForm.rule_name}
+                        onChange={(e) => setRuleForm({ ...ruleForm, rule_name: e.target.value })}
+                        fullWidth
+                        required
+                      />
+
+                      <FormControl fullWidth>
+                        <InputLabel>Rule Type</InputLabel>
+                        <Select
+                          value={ruleForm.rule_type}
+                          label="Rule Type"
+                          onChange={(e) => setRuleForm({ ...ruleForm, rule_type: e.target.value })}
+                        >
+                          <MenuItem value="location">Location (Circular)</MenuItem>
+                          <MenuItem value="geofence">Geofence</MenuItem>
+                          <MenuItem value="proximity">Proximity</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                        <Button onClick={handleRuleBack} disabled={activeStep === 0}>
+                          Back
+                        </Button>
+                        <Button onClick={handleRuleNext} variant="contained" disabled={!ruleForm.contract_id || !ruleForm.rule_name}>
+                          Next
+                        </Button>
+                      </Box>
+                    </Box>
+                  )
+                )}
               </Step>
               
               <Step>
                 <StepLabel>Location Selection</StepLabel>
-                <StepContent>
-                  <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {stepperOrientation === "vertical" ? (
+                  <StepContent>
+                    {activeStep === 1 && (
+                      <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                     {(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') ? (
                       <>
                         <Alert severity="info">
-                          Click on the map to select the center location, then adjust the radius below.
+                          Click on the map to select the center location, then adjust the radius below. Or use the search box to find a location.
                         </Alert>
-                        <Box sx={{ height: '400px', width: '100%', mb: 2, border: '1px solid #ccc', borderRadius: 1 }}>
+                        <Box sx={{ position: 'relative', height: '400px', width: '100%', mb: 2, border: '1px solid #ccc', borderRadius: 1 }}>
+                          {/* Location Search Box and Zoom Button */}
+                          <Box sx={{ position: 'absolute', top: 10, left: 10, right: 10, zIndex: 1000, display: 'flex', gap: 1 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Search for a location..."
+                              value={locationSearchQuery}
+                              onChange={(e) => setLocationSearchQuery(e.target.value)}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    {locationSearchLoading ? <CircularProgress size={20} /> : <SearchIcon />}
+                                  </InputAdornment>
+                                ),
+                                endAdornment: locationSearchQuery && (
+                                  <InputAdornment position="end">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setLocationSearchQuery('');
+                                        setShowLocationSearchResults(false);
+                                      }}
+                                    >
+                                      <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                  </InputAdornment>
+                                )
+                              }}
+                              sx={{ bgcolor: 'white', borderRadius: 1 }}
+                            />
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<LocationOnIcon />}
+                              onClick={handleZoomToMyLocation}
+                              disabled={locationSearchLoading}
+                              sx={{ 
+                                bgcolor: 'primary.main',
+                                minWidth: 'auto',
+                                px: 1.5,
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              My Location
+                            </Button>
+                          </Box>
+                          {/* Search Results Dropdown */}
+                          {showLocationSearchResults && locationSearchResults.length > 0 && (
+                            <Box sx={{
+                              position: 'absolute',
+                              top: 50,
+                              left: 10,
+                              right: 10,
+                              zIndex: 1001,
+                              bgcolor: 'white',
+                              borderRadius: 1,
+                              boxShadow: 3,
+                              maxHeight: '200px',
+                              overflow: 'auto',
+                              border: '1px solid #ccc'
+                            }}>
+                              {locationSearchResults.map((result, index) => (
+                                <Box
+                                  key={index}
+                                  sx={{
+                                    p: 1.5,
+                                    cursor: 'pointer',
+                                    borderBottom: index < locationSearchResults.length - 1 ? '1px solid #eee' : 'none',
+                                    '&:hover': { bgcolor: '#f5f5f5' }
+                                  }}
+                                  onClick={() => handleLocationSearchResultClick(result)}
+                                >
+                                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                    {result.text}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {result.place_name}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          )}
                           <div 
                             ref={mapContainerRef}
                             style={{ width: '100%', height: '100%' }}
@@ -2381,15 +2802,192 @@ const ContractManagement = () => {
                         Next
                       </Button>
                     </Box>
-                  </Box>
-                </StepContent>
+                      </Box>
+                    )}
+                  </StepContent>
+                ) : (
+                  activeStep === 1 && (
+                    <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                      {(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') ? (
+                      <>
+                        <Alert severity="info">
+                          Click on the map to select the center location, then adjust the radius below. Or use the search box to find a location.
+                        </Alert>
+                        <Box sx={{ position: 'relative', height: '400px', width: '100%', mb: 2, border: '1px solid #ccc', borderRadius: 1 }}>
+                          {/* Location Search Box and Zoom Button */}
+                          <Box sx={{ position: 'absolute', top: 10, left: 10, right: 10, zIndex: 1000, display: 'flex', gap: 1 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              placeholder="Search for a location..."
+                              value={locationSearchQuery}
+                              onChange={(e) => setLocationSearchQuery(e.target.value)}
+                              InputProps={{
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    {locationSearchLoading ? <CircularProgress size={20} /> : <SearchIcon />}
+                                  </InputAdornment>
+                                ),
+                                endAdornment: locationSearchQuery && (
+                                  <InputAdornment position="end">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setLocationSearchQuery('');
+                                        setShowLocationSearchResults(false);
+                                      }}
+                                    >
+                                      <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                  </InputAdornment>
+                                )
+                              }}
+                              sx={{ bgcolor: 'white', borderRadius: 1 }}
+                            />
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<LocationOnIcon />}
+                              onClick={handleZoomToMyLocation}
+                              disabled={locationSearchLoading}
+                              sx={{ 
+                                bgcolor: 'primary.main',
+                                minWidth: 'auto',
+                                px: 1.5,
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              My Location
+                            </Button>
+                          </Box>
+                          {/* Search Results Dropdown */}
+                          {showLocationSearchResults && locationSearchResults.length > 0 && (
+                            <Box sx={{
+                              position: 'absolute',
+                              top: 50,
+                              left: 10,
+                              right: 10,
+                              zIndex: 1001,
+                              bgcolor: 'white',
+                              borderRadius: 1,
+                              boxShadow: 3,
+                              maxHeight: '200px',
+                              overflow: 'auto',
+                              border: '1px solid #ccc'
+                            }}>
+                              {locationSearchResults.map((result, index) => (
+                                <Box
+                                  key={index}
+                                  sx={{
+                                    p: 1.5,
+                                    cursor: 'pointer',
+                                    borderBottom: index < locationSearchResults.length - 1 ? '1px solid #eee' : 'none',
+                                    '&:hover': { bgcolor: '#f5f5f5' }
+                                  }}
+                                  onClick={() => handleLocationSearchResultClick(result)}
+                                >
+                                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                                    {result.text}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {result.place_name}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          )}
+                          <div 
+                            ref={mapContainerRef}
+                            style={{ width: '100%', height: '100%' }}
+                          />
+                        </Box>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              label="Latitude"
+                              type="number"
+                              value={ruleForm.center_latitude}
+                              onChange={(e) => {
+                                const lat = parseFloat(e.target.value);
+                                setRuleForm({ ...ruleForm, center_latitude: e.target.value });
+                                if (mapRef.current && !isNaN(lat) && mapRef.current.isStyleLoaded()) {
+                                  const lng = parseFloat(ruleForm.center_longitude) || 0;
+                                  setSelectedLocation({ lat, lng });
+                                  mapRef.current.flyTo({ center: [lng, lat], zoom: 12 });
+                                  updateRadiusCircle(mapRef.current, lat, lng, parseFloat(ruleForm.radius_meters) || 100);
+                                }
+                              }}
+                              fullWidth
+                              required
+                              inputProps={{ step: "any" }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              label="Longitude"
+                              type="number"
+                              value={ruleForm.center_longitude}
+                              onChange={(e) => {
+                                const lng = parseFloat(e.target.value);
+                                setRuleForm({ ...ruleForm, center_longitude: e.target.value });
+                                if (mapRef.current && !isNaN(lng) && mapRef.current.isStyleLoaded()) {
+                                  const lat = parseFloat(ruleForm.center_latitude) || 0;
+                                  setSelectedLocation({ lat, lng });
+                                  mapRef.current.flyTo({ center: [lng, lat], zoom: 12 });
+                                  updateRadiusCircle(mapRef.current, lat, lng, parseFloat(ruleForm.radius_meters) || 100);
+                                }
+                              }}
+                              fullWidth
+                              required
+                              inputProps={{ step: "any" }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={4}>
+                            <TextField
+                              label="Radius (meters)"
+                              type="number"
+                              value={ruleForm.radius_meters}
+                              onChange={(e) => {
+                                setRuleForm({ ...ruleForm, radius_meters: e.target.value });
+                                if (mapRef.current && selectedLocation && mapRef.current.isStyleLoaded()) {
+                                  const radius = parseFloat(e.target.value) || 100;
+                                  updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                }
+                              }}
+                              fullWidth
+                              required
+                              inputProps={{ min: 1 }}
+                            />
+                          </Grid>
+                        </Grid>
+                      </>
+                    ) : (
+                      <Alert severity="info">
+                        Location selection is not required for this rule type.
+                      </Alert>
+                    )}
+                    <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                      <Button onClick={handleRuleBack}>Back</Button>
+                      <Button 
+                        onClick={handleRuleNext} 
+                        variant="contained"
+                        disabled={(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') && (!ruleForm.center_latitude || !ruleForm.center_longitude || !ruleForm.radius_meters)}
+                      >
+                        Next
+                      </Button>
+                    </Box>
+                    </Box>
+                  )
+                )}
               </Step>
               
               <Step>
                 <StepLabel>Function & Parameters</StepLabel>
-                <StepContent>
-                  <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <FormControl fullWidth required>
+                {stepperOrientation === "vertical" ? (
+                  <StepContent>
+                    {activeStep === 2 && (
+                      <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <FormControl fullWidth required>
                       <InputLabel>Function Name</InputLabel>
                       <Select
                         value={ruleForm.function_name}
@@ -2571,26 +3169,214 @@ const ContractManagement = () => {
                       </Button>
                     </Box>
                   </Box>
+                  )}
                 </StepContent>
+              ) : (
+                activeStep === 2 && (
+                  <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                    {/* Function & Parameters content for horizontal stepper */}
+                    <FormControl fullWidth required>
+                    <InputLabel>Function Name</InputLabel>
+                    <Select
+                      value={ruleForm.function_name}
+                      label="Function Name"
+                      onChange={(e) => handleFunctionSelect(e.target.value)}
+                      disabled={!ruleForm.contract_id}
+                    >
+                      {ruleForm.contract_id ? (
+                          (() => {
+                            const contract = contracts.find(c => c.id === ruleForm.contract_id);
+                            const functions = contract ? discoveredFunctions(contract) : [];
+                            return functions.length > 0 ? (
+                              functions.map((func) => (
+                                <MenuItem key={func.name} value={func.name}>
+                                  {func.name} {func.parameters && func.parameters.length > 0 && `(${func.parameters.length} params)`}
+                                </MenuItem>
+                              ))
+                            ) : (
+                              <MenuItem disabled>No functions discovered for this contract</MenuItem>
+                            );
+                          })()
+                        ) : (
+                          <MenuItem disabled>Select a contract first</MenuItem>
+                        )}
+                      </Select>
+                    </FormControl>
+                    
+                    {ruleForm.function_name && (
+                      <Alert severity="success">
+                        Parameters JSON has been auto-generated based on the selected function. You can edit it below if needed.
+                      </Alert>
+                    )}
+                    
+                    <TextField
+                      label="Function Parameters (JSON)"
+                      value={ruleForm.function_parameters}
+                      onChange={(e) => {
+                        setRuleForm({ ...ruleForm, function_parameters: e.target.value });
+                        setTestResult(null);
+                      }}
+                      fullWidth
+                      multiline
+                      rows={6}
+                      helperText='JSON object with function parameters. Auto-generated when function is selected.'
+                    />
+                    
+                    {ruleForm.function_name && ruleForm.contract_id && (
+                      <Box sx={{ mt: 2 }}>
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          startIcon={testingFunction ? <CircularProgress size={16} /> : <PlayArrowIcon />}
+                          onClick={async () => {
+                            try {
+                              setTestingFunction(true);
+                              setTestResult(null);
+                              setError('');
+                              
+                              let functionParams = {};
+                              try {
+                                if (ruleForm.function_parameters && ruleForm.function_parameters.trim()) {
+                                  functionParams = JSON.parse(ruleForm.function_parameters);
+                                }
+                              } catch (parseError) {
+                                setTestResult({
+                                  success: false,
+                                  error: 'Invalid JSON in function parameters',
+                                  details: parseError.message
+                                });
+                                setTestingFunction(false);
+                                return;
+                              }
+                              
+                              const response = await api.post(`/contracts/${ruleForm.contract_id}/test-function`, {
+                                function_name: ruleForm.function_name,
+                                parameters: functionParams
+                              });
+                              
+                              if (response.data.success) {
+                                setTestResult({
+                                  success: true,
+                                  message: response.data.message,
+                                  result: response.data.test_result
+                                });
+                                setSuccess('Function test successful!');
+                                setTimeout(() => setSuccess(''), 3000);
+                              } else {
+                                setTestResult({
+                                  success: false,
+                                  error: response.data.error || 'Test failed',
+                                  details: response.data.validation_errors || response.data.message
+                                });
+                              }
+                            } catch (err) {
+                              console.error('Error testing function:', err);
+                              setTestResult({
+                                success: false,
+                                error: err.response?.data?.error || 'Test failed',
+                                details: err.response?.data?.validation_errors || err.response?.data?.message || err.message,
+                                expected_parameters: err.response?.data?.expected_parameters
+                              });
+                            } finally {
+                              setTestingFunction(false);
+                            }
+                          }}
+                          disabled={testingFunction || !ruleForm.function_parameters}
+                          fullWidth
+                        >
+                          {testingFunction ? 'Testing Function...' : 'Test Function'}
+                        </Button>
+                        
+                        {testResult && (
+                          <Alert 
+                            severity={testResult.success ? 'success' : 'error'} 
+                            sx={{ mt: 2 }}
+                            onClose={() => setTestResult(null)}
+                          >
+                            <Typography variant="subtitle2" gutterBottom>
+                              {testResult.success ? '✅ Test Successful' : '❌ Test Failed'}
+                            </Typography>
+                            {testResult.message && (
+                              <Typography variant="body2">{testResult.message}</Typography>
+                            )}
+                            {testResult.error && (
+                              <Typography variant="body2" sx={{ fontWeight: 'bold', mt: 1 }}>
+                                Error: {testResult.error}
+                              </Typography>
+                            )}
+                            {testResult.details && (
+                              <Box sx={{ mt: 1 }}>
+                                {Array.isArray(testResult.details) ? (
+                                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                    {testResult.details.map((detail, idx) => (
+                                      <li key={idx}>{detail}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                                    {testResult.details}
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
+                            {testResult.expected_parameters && (
+                              <Box sx={{ mt: 1 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 'bold' }}>Expected Parameters:</Typography>
+                                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                  {testResult.expected_parameters.map((param, idx) => (
+                                    <li key={idx}>
+                                      <strong>{param.name}</strong> ({param.type}) {param.required ? '(required)' : '(optional)'}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </Box>
+                            )}
+                            {testResult.result && testResult.result.validation && (
+                              <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(0,0,0,0.05)', borderRadius: 1 }}>
+                                <Typography variant="caption" sx={{ display: 'block' }}>
+                                  <strong>Validation:</strong> Function exists: ✓, Mapping exists: ✓, Parameters valid: ✓
+                                </Typography>
+                              </Box>
+                            )}
+                          </Alert>
+                        )}
+                      </Box>
+                    )}
+                    
+                    <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                      <Button onClick={handleRuleBack}>Back</Button>
+                      <Button 
+                        onClick={handleRuleNext} 
+                        variant="contained"
+                        disabled={!ruleForm.function_name}
+                      >
+                        Next
+                      </Button>
+                    </Box>
+                  </Box>
+                  )
+                )}
               </Step>
               
               <Step>
                 <StepLabel>Advanced Settings</StepLabel>
-                <StepContent>
-                  <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Trigger On</InputLabel>
-                      <Select
-                        value={ruleForm.trigger_on}
-                        label="Trigger On"
-                        onChange={(e) => setRuleForm({ ...ruleForm, trigger_on: e.target.value })}
-                      >
-                        <MenuItem value="enter">Enter Area</MenuItem>
-                        <MenuItem value="exit">Exit Area</MenuItem>
-                        <MenuItem value="within">Within Area</MenuItem>
-                        <MenuItem value="proximity">Proximity</MenuItem>
-                      </Select>
-                    </FormControl>
+                {stepperOrientation === "vertical" ? (
+                  <StepContent>
+                    {activeStep === 3 && (
+                      <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <FormControl fullWidth>
+                          <InputLabel>Trigger On</InputLabel>
+                          <Select
+                            value={ruleForm.trigger_on}
+                            label="Trigger On"
+                            onChange={(e) => setRuleForm({ ...ruleForm, trigger_on: e.target.value })}
+                          >
+                            <MenuItem value="enter">Enter Area</MenuItem>
+                            <MenuItem value="exit">Exit Area</MenuItem>
+                            <MenuItem value="within">Within Area</MenuItem>
+                            <MenuItem value="proximity">Proximity</MenuItem>
+                          </Select>
+                        </FormControl>
 
                     <FormControlLabel
                       control={
@@ -2667,42 +3453,173 @@ const ContractManagement = () => {
                         Next
                       </Button>
                     </Box>
-                  </Box>
-                </StepContent>
+                      </Box>
+                    )}
+                  </StepContent>
+                ) : (
+                  activeStep === 3 && (
+                    <Box sx={{ mb: 2, display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+                      <FormControl fullWidth>
+                        <InputLabel>Trigger On</InputLabel>
+                        <Select
+                          value={ruleForm.trigger_on}
+                          label="Trigger On"
+                          onChange={(e) => setRuleForm({ ...ruleForm, trigger_on: e.target.value })}
+                        >
+                          <MenuItem value="enter">Enter Area</MenuItem>
+                          <MenuItem value="exit">Exit Area</MenuItem>
+                          <MenuItem value="within">Within Area</MenuItem>
+                          <MenuItem value="proximity">Proximity</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={ruleForm.auto_execute}
+                            onChange={(e) => setRuleForm({ ...ruleForm, auto_execute: e.target.checked })}
+                          />
+                        }
+                        label="Auto Execute"
+                      />
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={ruleForm.requires_confirmation}
+                            onChange={(e) => setRuleForm({ ...ruleForm, requires_confirmation: e.target.checked })}
+                          />
+                        }
+                        label="Requires Confirmation"
+                      />
+
+                      <TextField
+                        label="Target Wallet Public Key (Optional)"
+                        value={ruleForm.target_wallet_public_key}
+                        onChange={(e) => setRuleForm({ ...ruleForm, target_wallet_public_key: e.target.value })}
+                        fullWidth
+                        helperText="Leave empty to apply to any wallet"
+                      />
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6">Multi-Wallet Quorum (Optional)</Typography>
+
+                      <TextField
+                        label="Required Wallet Public Keys (comma-separated)"
+                        value={Array.isArray(ruleForm.required_wallet_public_keys) 
+                          ? ruleForm.required_wallet_public_keys.join(', ')
+                          : ruleForm.required_wallet_public_keys || ''}
+                        onChange={(e) => {
+                          const wallets = e.target.value.split(',').map(w => w.trim()).filter(w => w);
+                          setRuleForm({ ...ruleForm, required_wallet_public_keys: wallets });
+                        }}
+                        fullWidth
+                        multiline
+                        rows={2}
+                        helperText="Enter wallet public keys separated by commas"
+                      />
+
+                      <TextField
+                        label="Minimum Wallet Count"
+                        type="number"
+                        value={ruleForm.minimum_wallet_count || ''}
+                        onChange={(e) => setRuleForm({ ...ruleForm, minimum_wallet_count: e.target.value ? parseInt(e.target.value) : null })}
+                        fullWidth
+                        helperText="Minimum number of required wallets that must be in range"
+                      />
+
+                      <FormControl fullWidth>
+                        <InputLabel>Quorum Type</InputLabel>
+                        <Select
+                          value={ruleForm.quorum_type}
+                          label="Quorum Type"
+                          onChange={(e) => setRuleForm({ ...ruleForm, quorum_type: e.target.value })}
+                        >
+                          <MenuItem value="any">Any (at least minimum)</MenuItem>
+                          <MenuItem value="all">All (all required wallets)</MenuItem>
+                          <MenuItem value="exact">Exact (exactly minimum count)</MenuItem>
+                        </Select>
+                      </FormControl>
+                      
+                      <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                        <Button onClick={handleRuleBack}>Back</Button>
+                        <Button onClick={handleRuleNext} variant="contained">
+                          Next
+                        </Button>
+                      </Box>
+                    </Box>
+                  )
+                )}
               </Step>
               
               <Step>
                 <StepLabel>Confirmation</StepLabel>
-                <StepContent>
-                  <Box sx={{ mb: 2 }}>
-                    <Alert severity="warning" sx={{ mb: 2 }}>
-                      Please review all details before creating the rule. This action will create a new execution rule.
-                    </Alert>
-                    
-                    <Paper sx={{ p: 2, mb: 2 }}>
-                      <Typography variant="h6" gutterBottom>Rule Summary</Typography>
-                      <Typography><strong>Rule Name:</strong> {ruleForm.rule_name}</Typography>
-                      <Typography><strong>Contract:</strong> {contracts.find(c => c.id === ruleForm.contract_id)?.contract_name || 'N/A'}</Typography>
-                      <Typography><strong>Rule Type:</strong> {ruleForm.rule_type}</Typography>
-                      {(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') && (
-                        <>
-                          <Typography><strong>Location:</strong> {ruleForm.center_latitude}, {ruleForm.center_longitude}</Typography>
-                          <Typography><strong>Radius:</strong> {ruleForm.radius_meters} meters</Typography>
-                        </>
-                      )}
-                      <Typography><strong>Function:</strong> {ruleForm.function_name || 'N/A'}</Typography>
-                      <Typography><strong>Trigger:</strong> {ruleForm.trigger_on}</Typography>
-                      <Typography><strong>Auto Execute:</strong> {ruleForm.auto_execute ? 'Yes' : 'No'}</Typography>
-                    </Paper>
-                    
-                    <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-                      <Button onClick={handleRuleBack}>Back</Button>
-                      <Button onClick={handleSaveRule} variant="contained" color="success">
-                        {editingRule ? 'Update' : 'Create'} Rule
-                      </Button>
+                {stepperOrientation === "vertical" ? (
+                  <StepContent>
+                    {activeStep === 4 && (
+                      <Box sx={{ mb: 2 }}>
+                        <Alert severity="warning" sx={{ mb: 2 }}>
+                          Please review all details before creating the rule. This action will create a new execution rule.
+                        </Alert>
+                        
+                        <Paper sx={{ p: 2, mb: 2 }}>
+                          <Typography variant="h6" gutterBottom>Rule Summary</Typography>
+                          <Typography><strong>Rule Name:</strong> {ruleForm.rule_name}</Typography>
+                          <Typography><strong>Contract:</strong> {contracts.find(c => c.id === ruleForm.contract_id)?.contract_name || 'N/A'}</Typography>
+                          <Typography><strong>Rule Type:</strong> {ruleForm.rule_type}</Typography>
+                          {(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') && (
+                            <>
+                              <Typography><strong>Location:</strong> {ruleForm.center_latitude}, {ruleForm.center_longitude}</Typography>
+                              <Typography><strong>Radius:</strong> {ruleForm.radius_meters} meters</Typography>
+                            </>
+                          )}
+                          <Typography><strong>Function:</strong> {ruleForm.function_name || 'N/A'}</Typography>
+                          <Typography><strong>Trigger:</strong> {ruleForm.trigger_on}</Typography>
+                          <Typography><strong>Auto Execute:</strong> {ruleForm.auto_execute ? 'Yes' : 'No'}</Typography>
+                        </Paper>
+                        
+                        <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                          <Button onClick={handleRuleBack}>Back</Button>
+                          <Button onClick={handleSaveRule} variant="contained" color="success">
+                            {editingRule ? 'Update' : 'Create'} Rule
+                          </Button>
+                        </Box>
+                      </Box>
+                    )}
+                  </StepContent>
+                ) : (
+                  activeStep === 4 && (
+                    <Box sx={{ mb: 2, mt: 2 }}>
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        Please review all details before creating the rule. This action will create a new execution rule.
+                      </Alert>
+                      
+                      <Paper sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="h6" gutterBottom>Rule Summary</Typography>
+                        <Typography><strong>Rule Name:</strong> {ruleForm.rule_name}</Typography>
+                        <Typography><strong>Contract:</strong> {contracts.find(c => c.id === ruleForm.contract_id)?.contract_name || 'N/A'}</Typography>
+                        <Typography><strong>Rule Type:</strong> {ruleForm.rule_type}</Typography>
+                        {(ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') && (
+                          <>
+                            <Typography><strong>Location:</strong> {ruleForm.center_latitude}, {ruleForm.center_longitude}</Typography>
+                            <Typography><strong>Radius:</strong> {ruleForm.radius_meters} meters</Typography>
+                          </>
+                        )}
+                        <Typography><strong>Function:</strong> {ruleForm.function_name || 'N/A'}</Typography>
+                        <Typography><strong>Trigger:</strong> {ruleForm.trigger_on}</Typography>
+                        <Typography><strong>Auto Execute:</strong> {ruleForm.auto_execute ? 'Yes' : 'No'}</Typography>
+                      </Paper>
+                      
+                      <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                        <Button onClick={handleRuleBack}>Back</Button>
+                        <Button onClick={handleSaveRule} variant="contained" color="success">
+                          {editingRule ? 'Update' : 'Create'} Rule
+                        </Button>
+                      </Box>
                     </Box>
-                  </Box>
-                </StepContent>
+                  )
+                )}
               </Step>
             </Stepper>
           </Box>
