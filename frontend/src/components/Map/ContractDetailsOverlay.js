@@ -232,7 +232,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         mapRef.current = null;
       }
     }
-  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius]);
+  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius, checkProximity]);
   
   // Recalculate distance whenever item or userLocation changes
   useEffect(() => {
