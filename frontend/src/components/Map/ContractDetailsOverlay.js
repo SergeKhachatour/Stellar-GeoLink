@@ -58,62 +58,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
   const [nearbyWallets, setNearbyWallets] = useState([]);
   const markersRef = useRef([]);
 
-  useEffect(() => {
-    if (open && item) {
-      // For contract rules, fetch full rule details
-      if (itemType === 'contract_rule' && item.id) {
-        fetchRuleDetails(item.id);
-      }
-      
-      // Get contract info from item
-      if (item.contract) {
-        setContract(item.contract);
-      } else if (item.contract_id || item.contract_address) {
-        // Fetch contract details
-        fetchContractDetails(item.contract_id || item.contract_address);
-      } else if (itemType === 'contract_rule' && item.contract_address) {
-        // For contract rules, fetch by contract address
-        fetchContractDetails(item.contract_address);
-      }
-
-      // Get user location
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const loc = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude
-            };
-            setUserLocation(loc);
-            checkProximity(loc, item);
-            
-            // Fetch nearby wallets if this is a contract rule
-            if (itemType === 'contract_rule' && item.latitude && item.longitude) {
-              fetchNearbyWallets(item.latitude, item.longitude, itemRadius || 100);
-            }
-          },
-          (error) => {
-            console.warn('Error getting user location:', error);
-            // Fetch nearby wallets even without user location
-            if (itemType === 'contract_rule' && item.latitude && item.longitude) {
-              fetchNearbyWallets(item.latitude, item.longitude, itemRadius || 100);
-            }
-          }
-        );
-      } else if (itemType === 'contract_rule' && item.latitude && item.longitude) {
-        // Fetch nearby wallets even without user location
-        fetchNearbyWallets(item.latitude, item.longitude, itemRadius || 100);
-      }
-    } else {
-      // Reset state when dialog closes
-      setRuleDetails(null);
-      setMapContainer(null);
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    }
-  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets]);
+  // Calculate itemRadius early to avoid initialization errors
+  const itemRadius = item ? (item.radius_meters || item.radius || 100) : 100;
 
   const fetchContractDetails = async (contractIdOrAddress) => {
     if (!contractIdOrAddress) {
@@ -181,8 +127,62 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     }
   }, [publicKey]);
 
-  // Calculate itemRadius early to avoid initialization errors
-  const itemRadius = item ? (item.radius_meters || item.radius || 100) : 100;
+  useEffect(() => {
+    if (open && item) {
+      // For contract rules, fetch full rule details
+      if (itemType === 'contract_rule' && item.id) {
+        fetchRuleDetails(item.id);
+      }
+      
+      // Get contract info from item
+      if (item.contract) {
+        setContract(item.contract);
+      } else if (item.contract_id || item.contract_address) {
+        // Fetch contract details
+        fetchContractDetails(item.contract_id || item.contract_address);
+      } else if (itemType === 'contract_rule' && item.contract_address) {
+        // For contract rules, fetch by contract address
+        fetchContractDetails(item.contract_address);
+      }
+
+      // Get user location
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const loc = {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            };
+            setUserLocation(loc);
+            checkProximity(loc, item);
+            
+            // Fetch nearby wallets if this is a contract rule
+            if (itemType === 'contract_rule' && item.latitude && item.longitude) {
+              fetchNearbyWallets(item.latitude, item.longitude, itemRadius);
+            }
+          },
+          (error) => {
+            console.warn('Error getting user location:', error);
+            // Fetch nearby wallets even without user location
+            if (itemType === 'contract_rule' && item.latitude && item.longitude) {
+              fetchNearbyWallets(item.latitude, item.longitude, itemRadius);
+            }
+          }
+        );
+      } else if (itemType === 'contract_rule' && item.latitude && item.longitude) {
+        // Fetch nearby wallets even without user location
+        fetchNearbyWallets(item.latitude, item.longitude, itemRadius);
+      }
+    } else {
+      // Reset state when dialog closes
+      setRuleDetails(null);
+      setMapContainer(null);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    }
+  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius]);
   
   // Calculate distanceText early to avoid initialization errors
   const distanceText = distance 
