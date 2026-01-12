@@ -490,19 +490,21 @@ const ContractManagement = () => {
   
   // Update radius circle on map - MUST be defined before useEffect hooks that use it
   const updateRadiusCircle = useCallback((mapInstance, lat, lng, radius) => {
-    if (!mapInstance || !radius || radius <= 0) return;
+    if (!mapInstance) return;
+    // Use default radius of 100 if not provided or invalid
+    const validRadius = radius && radius > 0 ? radius : 100;
     
     // Check if map style is loaded before adding sources/layers
     if (!mapInstance.isStyleLoaded()) {
       // Wait for style to load
       mapInstance.once('style.load', () => {
-        updateRadiusCircle(mapInstance, lat, lng, radius);
+        updateRadiusCircle(mapInstance, lat, lng, validRadius);
       });
       return;
     }
     
     try {
-      const circle = turf.circle([lng, lat], radius, { units: 'meters', steps: 64 });
+      const circle = turf.circle([lng, lat], validRadius, { units: 'meters', steps: 64 });
       
       if (mapInstance.getLayer('radius-circle-fill')) {
         mapInstance.removeLayer('radius-circle-fill');
@@ -544,7 +546,7 @@ const ContractManagement = () => {
       // If style isn't loaded yet, wait for it
       if (error.message && error.message.includes('Style is not done loading')) {
         mapInstance.once('style.load', () => {
-          updateRadiusCircle(mapInstance, lat, lng, radius);
+          updateRadiusCircle(mapInstance, lat, lng, validRadius);
         });
       }
     }
@@ -608,8 +610,28 @@ const ContractManagement = () => {
           }
         });
         
-        // Update radius circle if radius is set
-        const radius = parseFloat(ruleForm.radius_meters) || 100;
+        // Zoom to the selected location
+        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
+        // Calculate appropriate zoom level based on radius
+        let zoomLevel = 14;
+        if (currentRadius > 5000) {
+          zoomLevel = 10;
+        } else if (currentRadius > 1000) {
+          zoomLevel = 12;
+        } else if (currentRadius > 500) {
+          zoomLevel = 13;
+        } else {
+          zoomLevel = 14;
+        }
+        
+        newMap.flyTo({
+          center: [lng, lat],
+          zoom: zoomLevel,
+          duration: 1000
+        });
+        
+        // Update radius circle - always show with default if not set
+        const radius = currentRadius;
         updateRadiusCircle(newMap, lat, lng, radius);
       });
       
@@ -1870,15 +1892,6 @@ const ContractManagement = () => {
                             </IconButton>
                           </Tooltip>
                         )}
-                        <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleToggleRuleActive(rule)}
-                            color={rule.is_active ? 'success' : 'default'}
-                          >
-                            <PowerSettingsNewIcon />
-                          </IconButton>
-                        </Tooltip>
                         <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
                           <IconButton
                             size="small"
