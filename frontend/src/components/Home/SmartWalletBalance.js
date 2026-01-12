@@ -187,13 +187,11 @@ const SmartWalletBalance = ({ compact = false }) => {
           <CardContent sx={{ py: { xs: 1.5, md: 2 }, px: { xs: 1.5, md: 2 } }}>
             <Box sx={{ 
               display: 'flex', 
-              flexDirection: { xs: 'column', sm: 'row' },
-              alignItems: { xs: 'flex-start', sm: 'center' },
-              justifyContent: 'space-between',
-              gap: { xs: 1.5, sm: 2 }
+              flexDirection: 'column',
+              gap: 2
             }}>
               {/* Vault Balance */}
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box>
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
                   Vault Balance
                 </Typography>
@@ -207,7 +205,7 @@ const SmartWalletBalance = ({ compact = false }) => {
 
               {/* User Balance (if available) */}
               {balance !== null && (
-                <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
                       Your Balance

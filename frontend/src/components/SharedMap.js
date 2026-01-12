@@ -35,13 +35,16 @@ const SharedMap = ({
   onMapReady = null,
   userLocation = null,
   onNFTDetails = null,
-  zoomTarget = null
+  zoomTarget = null,
+  initialMapStyle = "satellite",
+  onFullscreenMapReady = null // Callback to expose fullscreen map instance
 }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const markers = useRef({});
+  const fullscreenMarkers = useRef({});
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [mapView, setMapView] = useState('3d');
+  const [mapView, setMapView] = useState(initialMapStyle || 'globe');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -71,15 +74,47 @@ const SharedMap = ({
     const initialPitch = 0;
     const initialBearing = 0;
 
+    // Determine map style based on initialMapStyle prop
+    let mapStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+    let projection = 'globe';
+    let globeConfig = {
+      enableAtmosphere: true,
+      atmosphereColor: '#FFD700',
+      atmosphereIntensity: 0.3,
+      enableStars: true,
+      starIntensity: 0.5
+    };
+    
+    if (initialMapStyle === 'light') {
+      mapStyle = 'mapbox://styles/mapbox/light-v11';
+      projection = 'mercator';
+      globeConfig = null;
+    } else if (initialMapStyle === 'light-globe') {
+      // Light style with globe projection
+      mapStyle = 'mapbox://styles/mapbox/light-v11';
+      projection = 'globe';
+      globeConfig = {
+        enableAtmosphere: true,
+        atmosphereColor: '#FFD700',
+        atmosphereIntensity: 0.3,
+        enableStars: true,
+        starIntensity: 0.5
+      };
+    } else if (initialMapStyle === 'globe' || !initialMapStyle) {
+      // Default to globe view
+      mapStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+      projection = 'globe';
+    }
+
     try {
-      map.current = new Mapboxgl.Map({
+      const mapConfig = {
         container: container,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: mapStyle,
         center: initialCenter,
         zoom: initialZoom,
         pitch: initialPitch,
         bearing: initialBearing,
-        projection: 'globe',
+        projection: projection,
         antialias: true,
         optimizeForTerrain: true,
         maxPitch: 85,
@@ -87,15 +122,14 @@ const SharedMap = ({
         minZoom: 0,
         maxBounds: [[-180, -85], [180, 85]],
         renderWorldCopies: false,
-        interactive: true,
-        globe: {
-          enableAtmosphere: true,
-          atmosphereColor: '#FFD700',
-          atmosphereIntensity: 0.3,
-          enableStars: true,
-          starIntensity: 0.5
-        }
-      });
+        interactive: true
+      };
+      
+      if (globeConfig) {
+        mapConfig.globe = globeConfig;
+      }
+      
+      map.current = new Mapboxgl.Map(mapConfig);
 
       map.current.on('load', () => {
         console.log('Shared map loaded');
@@ -392,80 +426,53 @@ const SharedMap = ({
     }
   }, [mapLoaded, locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const createCustom3DControl = useCallback(() => {
-    const control = {
-      onAdd: function(map) {
-        this._map = map;
-        this._container = document.createElement('div');
-        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
-        this._container.style.background = 'rgba(255, 255, 255, 0.9)';
-        this._container.style.borderRadius = '4px';
-        this._container.style.padding = '8px';
-        this._container.style.display = 'flex';
-        this._container.style.flexDirection = 'column';
-        this._container.style.gap = '4px';
-
-        // 3D View Button
-        const button3D = document.createElement('button');
-        button3D.className = 'mapboxgl-ctrl-icon';
-        button3D.innerHTML = '🌍';
-        button3D.title = '3D Globe View';
-        button3D.style.fontSize = '16px';
-        button3D.onclick = () => changeMapView('3d');
-        this._container.appendChild(button3D);
-
-        // 2D View Button
-        const button2D = document.createElement('button');
-        button2D.className = 'mapboxgl-ctrl-icon';
-        button2D.innerHTML = '🗺️';
-        button2D.title = '2D Map View';
-        button3D.style.fontSize = '16px';
-        button2D.onclick = () => changeMapView('2d');
-        this._container.appendChild(button2D);
-
-        // Satellite View Button
-        const buttonSat = document.createElement('button');
-        buttonSat.className = 'mapboxgl-ctrl-icon';
-        buttonSat.innerHTML = '🛰️';
-        buttonSat.title = 'Satellite View';
-        buttonSat.style.fontSize = '16px';
-        buttonSat.onclick = () => changeMapView('satellite');
-        this._container.appendChild(buttonSat);
-
-        return this._container;
-      },
-      onRemove: function() {
-        this._container.parentNode.removeChild(this._container);
-        this._map = undefined;
-      }
-    };
-    
-    return control;
-  }, []);
-
-  const changeMapView = (view) => {
+  const changeMapView = useCallback((view) => {
     setMapView(view);
     
     if (map.current) {
       switch (view) {
+        case 'globe':
+          map.current.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
+          map.current.setProjection('globe');
+          map.current.easeTo({ pitch: 60, bearing: 0, duration: 1000 });
+          break;
+        case 'light-globe':
+          map.current.setStyle('mapbox://styles/mapbox/light-v11');
+          map.current.setProjection('globe');
+          map.current.easeTo({ pitch: 60, bearing: 0, duration: 1000 });
+          break;
+        case 'streets':
         case '2d':
           map.current.setStyle('mapbox://styles/mapbox/streets-v12');
+          map.current.setProjection('mercator');
           map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
-          break;
-        case '3d':
-          map.current.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
-          map.current.easeTo({ pitch: 60, bearing: 0, duration: 1000 });
           break;
         case 'satellite':
           map.current.setStyle('mapbox://styles/mapbox/satellite-v9');
+          map.current.setProjection('mercator');
+          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+          break;
+        case 'light':
+          map.current.setStyle('mapbox://styles/mapbox/light-v11');
+          map.current.setProjection('mercator');
+          map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+          break;
+        case 'dark':
+          map.current.setStyle('mapbox://styles/mapbox/dark-v11');
+          map.current.setProjection('mercator');
           map.current.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
           break;
         default:
           break;
       }
 
-      // Re-add 3D buildings for 3D view
-      if (view === '3d') {
+      // Sync style change to fullscreen map if it exists
+      if (fullscreenMap && fullscreenMap._syncStyle) {
+        fullscreenMap._syncStyle(view);
+      }
+
+      // Re-add 3D buildings and globe config for globe views
+      if (view === 'globe' || view === 'light-globe') {
         setTimeout(() => {
           if (map.current && !map.current.getLayer('3d-buildings')) {
             try {
@@ -509,7 +516,82 @@ const SharedMap = ({
         }, 1000);
       }
     }
-  };
+  }, [map, fullscreenMap]);
+
+  const createCustom3DControl = useCallback((isFullscreen = false) => {
+    const control = {
+      onAdd: function(mapInstance) {
+        this._map = mapInstance;
+        this._container = document.createElement('div');
+        this._container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group';
+        this._container.style.background = 'rgba(255, 255, 255, 0.9)';
+        this._container.style.borderRadius = '4px';
+        this._container.style.padding = '8px';
+        this._container.style.display = 'flex';
+        this._container.style.flexDirection = 'column';
+        this._container.style.gap = '4px';
+
+        // Helper function to change view on both maps
+        const handleViewChange = (view) => {
+          // Always update the main map view state
+          changeMapView(view);
+        };
+
+        // Globe/3D View Button
+        const buttonGlobe = document.createElement('button');
+        buttonGlobe.className = 'mapboxgl-ctrl-icon';
+        buttonGlobe.innerHTML = '🌍';
+        buttonGlobe.title = 'Globe View';
+        buttonGlobe.style.fontSize = '16px';
+        buttonGlobe.onclick = () => handleViewChange('globe');
+        this._container.appendChild(buttonGlobe);
+
+        // 2D Streets View Button
+        const button2D = document.createElement('button');
+        button2D.className = 'mapboxgl-ctrl-icon';
+        button2D.innerHTML = '🗺️';
+        button2D.title = 'Streets View';
+        button2D.style.fontSize = '16px';
+        button2D.onclick = () => handleViewChange('streets');
+        this._container.appendChild(button2D);
+
+        // Satellite View Button
+        const buttonSat = document.createElement('button');
+        buttonSat.className = 'mapboxgl-ctrl-icon';
+        buttonSat.innerHTML = '🛰️';
+        buttonSat.title = 'Satellite View';
+        buttonSat.style.fontSize = '16px';
+        buttonSat.onclick = () => handleViewChange('satellite');
+        this._container.appendChild(buttonSat);
+
+        // Light View Button
+        const buttonLight = document.createElement('button');
+        buttonLight.className = 'mapboxgl-ctrl-icon';
+        buttonLight.innerHTML = '☀️';
+        buttonLight.title = 'Light View';
+        buttonLight.style.fontSize = '16px';
+        buttonLight.onclick = () => handleViewChange('light');
+        this._container.appendChild(buttonLight);
+
+        // Dark View Button
+        const buttonDark = document.createElement('button');
+        buttonDark.className = 'mapboxgl-ctrl-icon';
+        buttonDark.innerHTML = '🌙';
+        buttonDark.title = 'Dark View';
+        buttonDark.style.fontSize = '16px';
+        buttonDark.onclick = () => handleViewChange('dark');
+        this._container.appendChild(buttonDark);
+
+        return this._container;
+      },
+      onRemove: function() {
+        this._container.parentNode.removeChild(this._container);
+        this._map = undefined;
+      }
+    };
+    
+    return control;
+  }, [changeMapView]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -544,7 +626,7 @@ const SharedMap = ({
       map.current.flyTo({
         center: [lng, lat],
         zoom: 15,
-        pitch: mapView === '3d' ? 60 : 0,
+        pitch: mapView === 'globe' || mapView === '3d' || mapView === 'light-globe' ? 60 : 0,
         duration: 2000
       });
     }
@@ -564,21 +646,68 @@ const SharedMap = ({
       return;
     }
 
-    // Start with globe view
-    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : [0, 0];
-    const initialZoom = 1;
-    const initialPitch = 0;
-    const initialBearing = 0;
+    // Use the same style as the main map
+    const initialCenter = userLocation ? [userLocation.longitude, userLocation.latitude] : (map.current ? map.current.getCenter().toArray() : [0, 0]);
+    const initialZoom = map.current ? map.current.getZoom() : 1;
+    const initialPitch = 0; // Always start with 0 pitch for fullscreen
+    const initialBearing = 0; // Always start with 0 bearing for fullscreen
+
+    // Determine map style based on current mapView state
+    let fullscreenMapStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+    let fullscreenProjection = 'globe';
+    let fullscreenGlobeConfig = {
+      enableAtmosphere: true,
+      atmosphereColor: '#FFD700',
+      atmosphereIntensity: 0.3,
+      enableStars: true,
+      starIntensity: 0.5
+    };
+
+    switch (mapView) {
+      case 'globe':
+      case '3d':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/satellite-streets-v12';
+        fullscreenProjection = 'globe';
+        break;
+      case 'light-globe':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/light-v11';
+        fullscreenProjection = 'globe';
+        break;
+      case 'streets':
+      case '2d':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/streets-v12';
+        fullscreenProjection = 'mercator';
+        fullscreenGlobeConfig = null;
+        break;
+      case 'satellite':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/satellite-v9';
+        fullscreenProjection = 'mercator';
+        fullscreenGlobeConfig = null;
+        break;
+      case 'light':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/light-v11';
+        fullscreenProjection = 'mercator';
+        fullscreenGlobeConfig = null;
+        break;
+      case 'dark':
+        fullscreenMapStyle = 'mapbox://styles/mapbox/dark-v11';
+        fullscreenProjection = 'mercator';
+        fullscreenGlobeConfig = null;
+        break;
+      default:
+        // Default to globe
+        break;
+    }
 
     try {
-      const fullscreenMapInstance = new Mapboxgl.Map({
+      const fullscreenMapConfig = {
         container: container,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: fullscreenMapStyle,
         center: initialCenter,
         zoom: initialZoom,
         pitch: initialPitch,
         bearing: initialBearing,
-        projection: 'globe',
+        projection: fullscreenProjection,
         antialias: true,
         optimizeForTerrain: true,
         maxPitch: 85,
@@ -586,15 +715,14 @@ const SharedMap = ({
         minZoom: 0,
         maxBounds: [[-180, -85], [180, 85]],
         renderWorldCopies: false,
-        interactive: true,
-        globe: {
-          enableAtmosphere: true,
-          atmosphereColor: '#FFD700',
-          atmosphereIntensity: 0.3,
-          enableStars: true,
-          starIntensity: 0.5
-        }
-      });
+        interactive: true
+      };
+
+      if (fullscreenGlobeConfig) {
+        fullscreenMapConfig.globe = fullscreenGlobeConfig;
+      }
+
+      const fullscreenMapInstance = new Mapboxgl.Map(fullscreenMapConfig);
 
       fullscreenMapInstance.on('load', () => {
         console.log('Fullscreen map loaded');
@@ -628,7 +756,7 @@ const SharedMap = ({
         fullscreenMapInstance.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
 
         // Add custom 3D control
-        const custom3DControl = createCustom3DControl();
+        const custom3DControl = createCustom3DControl(true); // Pass true to indicate this is for fullscreen
         fullscreenMapInstance.addControl(custom3DControl, 'top-left');
 
         // Move all top controls down to avoid title overlay
@@ -646,8 +774,57 @@ const SharedMap = ({
           });
         }, 100);
 
-        // Add markers for locations
-        addMarkersToFullscreenMap(fullscreenMapInstance);
+        // Add markers for locations after map is fully loaded
+        // Use a longer delay to ensure map is completely ready
+        setTimeout(() => {
+          console.log('[FullscreenMap] Map loaded, checking locations:', locations?.length || 0);
+          if (locations && locations.length > 0) {
+            console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
+            addMarkersToFullscreenMap(fullscreenMapInstance);
+          } else {
+            console.warn('[FullscreenMap] No locations available to add to fullscreen map. Locations:', locations);
+          }
+        }, 1000); // Increased delay to ensure map is fully ready
+
+        // Add sync function to fullscreen map instance
+        fullscreenMapInstance._syncStyle = (view) => {
+          if (!fullscreenMapInstance) return;
+          
+          switch (view) {
+            case 'globe':
+            case '3d':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
+              fullscreenMapInstance.setProjection('globe');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+            case 'light-globe':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/light-v11');
+              fullscreenMapInstance.setProjection('globe');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+            case 'streets':
+            case '2d':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/streets-v12');
+              fullscreenMapInstance.setProjection('mercator');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+            case 'satellite':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/satellite-v9');
+              fullscreenMapInstance.setProjection('mercator');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+            case 'light':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/light-v11');
+              fullscreenMapInstance.setProjection('mercator');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+            case 'dark':
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/dark-v11');
+              fullscreenMapInstance.setProjection('mercator');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
+          }
+        };
       });
 
       fullscreenMapInstance.on('click', (e) => {
@@ -657,23 +834,37 @@ const SharedMap = ({
       });
 
       setFullscreenMap(fullscreenMapInstance);
+      
+      // Notify parent component that fullscreen map is ready
+      if (onFullscreenMapReady) {
+        onFullscreenMapReady(fullscreenMapInstance);
+      }
 
     } catch (error) {
       console.error('Error initializing fullscreen map:', error);
       setError('Failed to initialize fullscreen map');
     }
-  }, [userLocation, onLocationClick, fullscreenMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userLocation, onLocationClick, fullscreenMap, mapView, map, locations, onFullscreenMapReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMarkersToFullscreenMap = useCallback((mapInstance) => {
-    if (!mapInstance || !locations || locations.length === 0) return;
+    if (!mapInstance) {
+      console.warn('[addMarkersToFullscreenMap] No map instance provided');
+      return;
+    }
+    if (!locations || locations.length === 0) {
+      console.warn('[addMarkersToFullscreenMap] No locations to add, locations:', locations);
+      return;
+    }
+    
+    console.log('[addMarkersToFullscreenMap] Adding', locations.length, 'markers to fullscreen map');
 
-    // Clear existing markers
-    Object.values(markers.current).forEach(marker => {
+    // Clear existing fullscreen markers only
+    Object.values(fullscreenMarkers.current).forEach(marker => {
       if (marker && marker.remove) {
         marker.remove();
       }
     });
-    markers.current = {};
+    fullscreenMarkers.current = {};
 
     locations.forEach((location, index) => {
       const lat = parseFloat(location.latitude);
@@ -684,11 +875,14 @@ const SharedMap = ({
         return;
       }
 
+      // Determine location type
+      const locationType = location.type || location.marker_type;
+
       // Create marker element based on type
       const el = document.createElement('div');
       el.className = 'location-marker';
       
-      if (location.type === 'nft') {
+      if (locationType === 'nft') {
         // NFT marker with image - use correct IPFS URL construction
         const imageUrl = location.ipfs_hash && location.server_url 
           ? `${location.server_url}${location.ipfs_hash}`
@@ -713,7 +907,25 @@ const SharedMap = ({
           text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         `;
         el.textContent = '🎨';
-      } else if (location.type === 'wallet') {
+      } else if (locationType === 'contract_rule') {
+        // Smart Contract Execution Rule marker
+        el.style.cssText = `
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border: 3px solid white;
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          color: white;
+          font-weight: bold;
+        `;
+        el.textContent = '📜';
+      } else if (locationType === 'wallet') {
         // Wallet marker
         el.style.cssText = `
           width: 30px;
@@ -756,7 +968,7 @@ const SharedMap = ({
         .addTo(mapInstance);
 
       // Add click and double-click handlers for NFT markers
-      if (location.type === 'nft' && onNFTDetails) {
+      if (locationType === 'nft' && onNFTDetails) {
         let clickTimeout;
         
         el.addEventListener('click', (e) => {
@@ -798,10 +1010,72 @@ const SharedMap = ({
         });
       }
 
+      // Add click and double-click handlers for contract_rule markers in fullscreen
+      if (locationType === 'contract_rule') {
+        let clickTimeout;
+        
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Clear any existing timeout
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+          }
+          
+          // Set a timeout to allow double-click to be detected
+          clickTimeout = setTimeout(() => {
+            console.log('Contract rule marker clicked in fullscreen:', location);
+            // Call onLocationClick if available, or trigger a custom event
+            if (onLocationClick) {
+              onLocationClick(location);
+            }
+          }, 200); // 200ms delay to allow double-click detection
+        });
+
+        // Add double-click zoom functionality
+        el.addEventListener('dblclick', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // Clear the click timeout to prevent single-click from firing
+          if (clickTimeout) {
+            clearTimeout(clickTimeout);
+            clickTimeout = null;
+          }
+          
+          console.log('Contract rule marker double-clicked in fullscreen, zooming in:', location);
+          
+          if (mapInstance) {
+            mapInstance.flyTo({
+              center: [lng, lat],
+              zoom: 18,
+              duration: 1000
+            });
+          }
+        });
+      }
+
       // Add popup
-      if (location.public_key || location.description) {
-        const popup = new Mapboxgl.Popup({ offset: 25 })
-          .setHTML(`
+      if (location.public_key || location.description || location.rule_name) {
+        let popupHTML = '';
+        
+        if (locationType === 'contract_rule') {
+          popupHTML = `
+            <div style="padding: 12px; min-width: 200px;">
+              <h3 style="margin: 0 0 8px 0; color: #667eea;">📜 ${location.rule_name || 'Contract Rule'}</h3>
+              ${location.contract_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
+              ${location.function_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
+              ${location.trigger_on ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
+              ${location.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
+              ${location.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
+              <p style="margin: 4px 0; font-size: 11px; color: #999;">
+                Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
+              </p>
+            </div>
+          `;
+        } else {
+          popupHTML = `
             <div style="padding: 12px; min-width: 200px;">
               <h4 style="margin: 0 0 8px 0; color: #1976d2;">Location ${index + 1}</h4>
               ${location.public_key ? `<p style="margin: 4px 0; font-family: monospace; font-size: 12px; color: #666;">${location.public_key.substring(0, 20)}...</p>` : ''}
@@ -810,11 +1084,15 @@ const SharedMap = ({
                 Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
               </p>
             </div>
-          `);
+          `;
+        }
+        
+        const popup = new Mapboxgl.Popup({ offset: 25 })
+          .setHTML(popupHTML);
         marker.setPopup(popup);
       }
 
-      markers.current[`marker_${index}`] = marker;
+      fullscreenMarkers.current[`marker_${index}`] = marker;
     });
 
     // Fit map to show all locations
@@ -839,15 +1117,54 @@ const SharedMap = ({
   }, [locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
+    const newFullscreenState = !isFullscreen;
+    setIsFullscreen(newFullscreenState);
     
-    if (!isFullscreen) {
+    if (newFullscreenState) {
       // Opening fullscreen - initialize map after dialog opens
       setTimeout(() => {
         if (fullscreenMapContainer.current && !fullscreenMap) {
           initializeFullscreenMap(fullscreenMapContainer.current);
         }
       }, 100);
+    } else {
+      // Closing fullscreen - ensure main map is still visible
+      // The main map should remain intact, but we can trigger a resize to ensure it renders
+      if (map.current) {
+        setTimeout(() => {
+          console.log('[toggleFullscreen] Restoring main map');
+          // Ensure map container is visible first
+          if (mapContainer.current) {
+            mapContainer.current.style.display = 'block';
+            mapContainer.current.style.visibility = 'visible';
+            // Force the container to have its full dimensions
+            const container = mapContainer.current;
+            if (container.parentElement) {
+              const parentHeight = container.parentElement.offsetHeight;
+              const parentWidth = container.parentElement.offsetWidth;
+              container.style.height = '100%';
+              container.style.width = '100%';
+            }
+          }
+          // Force map to resize and re-render - call resize multiple times to ensure it works
+          if (map.current) {
+            map.current.resize();
+            // Call resize again after a short delay to ensure it takes effect
+            setTimeout(() => {
+              if (map.current) {
+                map.current.resize();
+              }
+            }, 100);
+          }
+          // Re-add markers to main map to ensure they're visible
+          if (mapLoaded && locations && locations.length > 0) {
+            console.log('[toggleFullscreen] Re-adding', locations.length, 'markers to main map');
+            addMarkersToMap();
+          }
+          // Force a repaint by triggering a resize event
+          window.dispatchEvent(new Event('resize'));
+        }, 200);
+      }
     }
   };
 
@@ -895,6 +1212,40 @@ const SharedMap = ({
     }
   }, [zoomTarget, mapLoaded]);
 
+  // Update fullscreen map markers when locations change
+  useEffect(() => {
+    if (fullscreenMap && locations && locations.length > 0) {
+      console.log('[SharedMap] Locations changed, updating fullscreen map markers:', locations.length);
+      addMarkersToFullscreenMap(fullscreenMap);
+    }
+  }, [locations, fullscreenMap, addMarkersToFullscreenMap]);
+
+  // Ensure main map is visible when exiting fullscreen
+  useEffect(() => {
+    if (!isFullscreen && map.current && mapContainer.current) {
+      console.log('[SharedMap] Exited fullscreen, ensuring main map is visible');
+      // Ensure container is visible
+      mapContainer.current.style.display = 'block';
+      mapContainer.current.style.visibility = 'visible';
+      mapContainer.current.style.height = '100%';
+      mapContainer.current.style.width = '100%';
+      
+      // Force map resize after a short delay to ensure container is rendered
+      setTimeout(() => {
+        if (map.current) {
+          console.log('[SharedMap] Resizing main map after fullscreen exit');
+          map.current.resize();
+          // Call resize again to ensure it takes effect
+          setTimeout(() => {
+            if (map.current) {
+              map.current.resize();
+            }
+          }, 100);
+        }
+      }, 100);
+    }
+  }, [isFullscreen]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -912,14 +1263,19 @@ const SharedMap = ({
 
   return (
     <>
-      <Paper 
+      <Box 
         sx={{ 
           height: height,
           position: 'relative',
-          width: '100%'
+          width: '100%',
+          m: 0,
+          p: 0,
+          overflow: 'hidden',
+          display: isFullscreen ? 'none' : 'block', // Hide main map when fullscreen is open
+          visibility: isFullscreen ? 'hidden' : 'visible' // Also use visibility for better control
         }}
       >
-      <Box sx={{ position: 'relative', height: '100%' }}>
+      <Box sx={{ position: 'relative', height: '100%', width: '100%', m: 0, p: 0 }}>
         {/* Map Header */}
         <Box sx={{ 
           position: 'absolute', 
@@ -929,17 +1285,20 @@ const SharedMap = ({
           zIndex: 1000,
           background: 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(10px)',
-          p: 2,
+          p: 1.5,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: 1,
-          minHeight: '80px'
+          minHeight: '64px',
+          borderBottom: '1px solid rgba(0, 0, 0, 0.1)'
         }}>
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            {title}
-          </Typography>
+          {title && (
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {title}
+            </Typography>
+          )}
           
           {showControls && (
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -1014,7 +1373,13 @@ const SharedMap = ({
           sx={{ 
             height: '100%', 
             width: '100%',
-            mt: showControls ? '100px' : 0
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'block',
+            visibility: 'visible'
           }} 
         />
 
@@ -1070,7 +1435,7 @@ const SharedMap = ({
           </Typography>
         </Box>
       </Box>
-      </Paper>
+      </Box>
 
       {/* Fullscreen Map Dialog */}
       <Dialog 
@@ -1101,9 +1466,11 @@ const SharedMap = ({
           borderBottom: '1px solid rgba(0,0,0,0.1)'
         }}>
           <Box display="flex" alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
-            <Typography variant="h6" sx={{ fontWeight: 'bold', mr: 2 }}>
-              🗺️ {title} - Fullscreen View
-            </Typography>
+            {title && (
+              <Typography variant="h6" sx={{ fontWeight: 'bold', mr: 2 }}>
+                🗺️ {title} - Fullscreen View
+              </Typography>
+            )}
             
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               {/* Search Box */}

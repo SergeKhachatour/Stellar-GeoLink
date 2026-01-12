@@ -22,7 +22,7 @@ import {
     TableRow,
     Paper,
 } from '@mui/material';
-import { DataUsage, Key, ContentCopy, Close as CloseIcon } from '@mui/icons-material';
+import { DataUsage, Key, ContentCopy, Close as CloseIcon, Send as SendIcon, QrCode as QrCodeIcon } from '@mui/icons-material';
 import api from '../utils/api';
 import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
 import SharedMap from './SharedMap';
@@ -33,6 +33,8 @@ import WalletConnectionDialog from './Wallet/WalletConnectionDialog';
 import SmartWalletBalance from './Home/SmartWalletBalance';
 import AIChat from './AI/AIChat';
 import ContractManagement from './Contracts/ContractManagement';
+import SendPayment from './Wallet/SendPayment';
+import ReceivePayment from './Wallet/ReceivePayment';
 
 const DataConsumerDashboard = () => {
     const { user } = useAuth();
@@ -56,6 +58,8 @@ const DataConsumerDashboard = () => {
     // Wallet state
     const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
     const [walletDialogOpen, setWalletDialogOpen] = useState(false);
+    const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
+    const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
 
     // Notify WalletContext of current user
     useEffect(() => {
@@ -283,15 +287,35 @@ const DataConsumerDashboard = () => {
                                 </Typography>
                             )}
                         </Box>
-                        <Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
                             {isConnected && publicKey ? (
-                                <Button
-                                    variant="outlined"
-                                    color="secondary"
-                                    onClick={disconnectWallet}
-                                >
-                                    Disconnect Wallet
-                                </Button>
+                                <>
+                                    <Button
+                                        variant="contained"
+                                        color="secondary"
+                                        startIcon={<SendIcon />}
+                                        onClick={() => setSendPaymentOpen(true)}
+                                        sx={{ mr: 1 }}
+                                    >
+                                        Send Payment
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        color="secondary"
+                                        startIcon={<QrCodeIcon />}
+                                        onClick={() => setReceivePaymentOpen(true)}
+                                        sx={{ mr: 1 }}
+                                    >
+                                        Receive
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        color="secondary"
+                                        onClick={disconnectWallet}
+                                    >
+                                        Disconnect Wallet
+                                    </Button>
+                                </>
                             ) : (
                                 <Button
                                     variant="contained"
@@ -873,6 +897,18 @@ const DataConsumerDashboard = () => {
             <WalletConnectionDialog
                 open={walletDialogOpen}
                 onClose={() => setWalletDialogOpen(false)}
+            />
+            
+            {/* Send Payment Dialog */}
+            <SendPayment
+                open={sendPaymentOpen}
+                onClose={() => setSendPaymentOpen(false)}
+            />
+            
+            {/* Receive Payment Dialog */}
+            <ReceivePayment
+                open={receivePaymentOpen}
+                onClose={() => setReceivePaymentOpen(false)}
             />
             
             {/* GeoLink Agent */}

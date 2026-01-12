@@ -99,6 +99,29 @@ api.interceptors.response.use(
                 return Promise.reject(error);
             }
             
+            // Skip logout for non-critical endpoints (nearby wallets, contract rule details, etc.)
+            // These endpoints are informational and shouldn't cause logout on auth errors
+            const nonCriticalEndpoints = [
+                '/location/nearby',
+                '/contracts/rules/',  // Contract rule details
+                '/contracts/'  // Contract details (read-only operations)
+            ];
+            const isNonCritical = nonCriticalEndpoints.some(endpoint => {
+                const url = error.config.url || '';
+                // Match the endpoint pattern but exclude write operations
+                if (endpoint === '/contracts/') {
+                    // Only skip for GET requests to /contracts/ (read operations)
+                    return url.includes('/contracts/') && error.config.method?.toLowerCase() === 'get';
+                }
+                return url.includes(endpoint);
+            });
+            
+            if (isNonCritical) {
+                // For non-critical endpoints, just reject without logging out
+                console.warn('Non-critical endpoint returned 401, skipping logout:', error.config.url);
+                return Promise.reject(error);
+            }
+            
             // Try to refresh the token
             const refreshToken = localStorage.getItem('refreshToken');
             if (refreshToken) {

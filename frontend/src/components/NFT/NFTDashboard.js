@@ -43,7 +43,9 @@ import {
   Collections as CollectionsIcon,
   GetApp as CollectIcon,
   ZoomIn as ZoomInIcon,
-  Info as InfoIcon
+  Info as InfoIcon,
+  Send as SendIcon,
+  QrCode as QrCodeIcon
 } from '@mui/icons-material';
 import Mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -61,6 +63,8 @@ import EnhancedPinNFT from '../IPFS/EnhancedPinNFT';
 import SmartWalletBalance from '../Home/SmartWalletBalance';
 import AIChat from '../AI/AIChat';
 import ContractManagement from '../Contracts/ContractManagement';
+import SendPayment from '../Wallet/SendPayment';
+import ReceivePayment from '../Wallet/ReceivePayment';
 
 // IPFS Management Tabs Component
 const IPFSManagementTabs = ({ user }) => {
@@ -259,6 +263,8 @@ const NFTDashboard = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [openMapDialog, setOpenMapDialog] = useState(false);
   const [openWalletDialog, setOpenWalletDialog] = useState(false);
+  const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
+  const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   const [openLocationSettings, setOpenLocationSettings] = useState(false);
   const [openPinDialog, setOpenPinDialog] = useState(false);
   const [openRealPinDialog, setOpenRealPinDialog] = useState(false);
@@ -3494,6 +3500,42 @@ const NFTDashboard = () => {
                     </Typography>
                   )}
                   <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<SendIcon />}
+                    onClick={() => setSendPaymentOpen(true)}
+                    sx={{ 
+                      mt: 1,
+                      mb: 1,
+                      mr: 1,
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)'
+                      }
+                    }}
+                  >
+                    Send Payment
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<QrCodeIcon />}
+                    onClick={() => setReceivePaymentOpen(true)}
+                    sx={{ 
+                      mt: 1,
+                      mb: 1,
+                      mr: 1,
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)'
+                      }
+                    }}
+                  >
+                    Receive
+                  </Button>
+                  <Button
                     variant="outlined"
                     onClick={handleDisconnect}
                     size="small"
@@ -4552,6 +4594,18 @@ const NFTDashboard = () => {
       <WalletConnectionDialog
         open={openWalletDialog}
         onClose={() => setOpenWalletDialog(false)}
+      />
+
+      {/* Send Payment Dialog */}
+      <SendPayment
+        open={sendPaymentOpen}
+        onClose={() => setSendPaymentOpen(false)}
+      />
+
+      {/* Receive Payment Dialog */}
+      <ReceivePayment
+        open={receivePaymentOpen}
+        onClose={() => setReceivePaymentOpen(false)}
       />
 
       {/* Location Settings Dialog */}

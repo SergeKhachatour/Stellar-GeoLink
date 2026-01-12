@@ -599,7 +599,7 @@ export const WalletProvider = ({ children }) => {
   };
 
   // Send XLM transaction
-  const sendTransaction = async (destination, amount, memo = null) => {
+  const sendTransaction = async (destination, amount, memo = null, skipAccountRefresh = false, skipLoadingState = false) => {
     try {
       if (!isConnected) {
         throw new Error('Wallet not connected');
@@ -609,30 +609,37 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Failed to initialize Stellar SDK');
       }
 
-      setLoading(true);
+      // Only set global loading state if not skipped (to prevent WalletConnectionGuard from showing loading screen)
+      if (!skipLoadingState) {
+        setLoading(true);
+      }
       setError(null);
 
       const StellarSdk = await import('@stellar/stellar-sdk');
       const TransactionBuilder = StellarSdk.TransactionBuilder;
       const Operation = StellarSdk.Operation;
+      const Asset = StellarSdk.Asset;
       
       const sourceAccount = await serverRef.current.loadAccount(publicKey);
 
-      const transaction = new TransactionBuilder(sourceAccount, {
+      const transactionBuilder = new TransactionBuilder(sourceAccount, {
         fee: '100',
         networkPassphrase: networkPassphraseRef.current
       })
         .addOperation(Operation.payment({
           destination,
-          asset: 'XLM',
+          asset: Asset.native(),
           amount: amount.toString()
         }))
-        .setTimeout(30)
-        .build();
+        .setTimeout(30);
 
-      if (memo) {
-        transaction.addMemo(memo);
+      // Add memo before building the transaction
+      if (memo && memo.trim() !== '') {
+        const Memo = StellarSdk.Memo;
+        transactionBuilder.addMemo(Memo.text(memo.trim()));
       }
+
+      const transaction = transactionBuilder.build();
 
       // Check if wallet is connected via WalletConnect
       const walletConnectId = localStorage.getItem('stellar_wallet_connect_id');
@@ -641,7 +648,10 @@ export const WalletProvider = ({ children }) => {
         const walletConnectService = await import('../services/walletConnectService');
         const signedTransaction = await walletConnectService.signTransaction(transaction, walletConnectId);
         const result = await serverRef.current.submitTransaction(signedTransaction);
-        await loadAccountInfo(publicKey);
+        // Only refresh account info if not skipped (to prevent page refresh during payment flow)
+        if (!skipAccountRefresh) {
+          await loadAccountInfo(publicKey);
+        }
         return result;
       } else if (secretKey) {
         // Use secret key to sign (traditional method)
@@ -649,7 +659,10 @@ export const WalletProvider = ({ children }) => {
         const keypair = Keypair.fromSecret(secretKey);
         transaction.sign(keypair);
         const result = await serverRef.current.submitTransaction(transaction);
-        await loadAccountInfo(publicKey);
+        // Only refresh account info if not skipped (to prevent page refresh during payment flow)
+        if (!skipAccountRefresh) {
+          await loadAccountInfo(publicKey);
+        }
         return result;
       } else {
         throw new Error('No signing method available. Please connect a wallet with signing capability.');
@@ -659,7 +672,10 @@ export const WalletProvider = ({ children }) => {
       setError(err.message || 'Failed to send transaction');
       throw err;
     } finally {
-      setLoading(false);
+      // Only reset global loading state if it was set
+      if (!skipLoadingState) {
+        setLoading(false);
+      }
     }
   };
 

@@ -204,8 +204,10 @@ const ensureSorobanCLI = async () => {
         const logPrefix = isAzure ? '🌐 [AZURE]' : '💻 [LOCAL]';
         
         // Check if soroban is already in PATH
+        // Use 'where' on Windows, 'which' on Unix
+        const checkCommand = process.platform === 'win32' ? 'where soroban' : 'which soroban';
         try {
-            await execPromise('which soroban');
+            await execPromise(checkCommand);
             console.log(`${logPrefix} ✅ Soroban CLI found in PATH`);
             return true;
         } catch {
@@ -471,7 +473,14 @@ const ensureSorobanCLI = async () => {
                         return false;
                     }
                 } else {
-                    console.log(`${logPrefix} ⚠️  Soroban CLI not found. Install from: https://soroban.stellar.org/docs/getting-started/soroban-cli`);
+                    console.log(`${logPrefix} ⚠️  Soroban CLI not found (REQUIRED for WASM contract function discovery)`);
+                    console.log(`${logPrefix}    Install from: https://soroban.stellar.org/docs/getting-started/soroban-cli`);
+                    if (process.platform === 'win32') {
+                        console.log(`${logPrefix}    Windows: Download from GitHub releases or use WSL`);
+                        console.log(`${logPrefix}    GitHub: https://github.com/stellar/soroban-tools/releases`);
+                    }
+                    console.log(`${logPrefix}    Note: Function discovery from WASM files requires Soroban CLI`);
+                    console.log(`${logPrefix}    On Azure, Soroban CLI is automatically installed if missing`);
                     return false;
                 }
             }

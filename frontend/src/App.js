@@ -23,6 +23,7 @@ import Profile from './components/Profile';
 import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytics';
 import WalletConnectionGuard from './components/Wallet/WalletConnectionGuard';
 import SettingsPage from './components/Settings/SettingsPage';
+import ContractManagement from './components/Contracts/ContractManagement';
 
 // Inner component that has access to router context
 function AppContent() {
@@ -117,6 +118,16 @@ function AppContent() {
                     element={
                         <ProtectedRoute roles={['nft_manager', 'admin']}>
                             <NFTCollectionAnalytics />
+                        </ProtectedRoute>
+                    } 
+                />
+                <Route 
+                    path="/contracts" 
+                    element={
+                        <ProtectedRoute>
+                            <WalletConnectionGuard showPasskeyManager={false}>
+                                <ContractManagement />
+                            </WalletConnectionGuard>
                         </ProtectedRoute>
                     } 
                 />

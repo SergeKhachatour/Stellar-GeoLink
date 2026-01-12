@@ -1560,6 +1560,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     WHERE result->>'skipped' = 'true'
                     AND result->>'reason' = 'requires_webauthn'
                     AND (result->>'rule_id')::integer = cer.id
+                    AND (result->>'rejected')::boolean IS DISTINCT FROM true
                 )
             ORDER BY cer.id, luq.received_at DESC
             LIMIT $2
@@ -1686,6 +1687,92 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
     } catch (error) {
         console.error('Error fetching pending rules:', error);
         res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/{ruleId}/reject:
+ *   post:
+ *     summary: Reject/dismiss a pending rule
+ *     description: Mark a pending rule as rejected so it no longer appears in the pending list. Supports both JWT and API key authentication.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: ruleId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Rule ID to reject
+ *     responses:
+ *       200:
+ *         description: Rule rejected successfully
+ *       404:
+ *         description: Rule not found
+ *       401:
+ *         description: Authentication required
+ */
+router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (req, res) => {
+    try {
+        const { ruleId } = req.params;
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        // Update the execution_results in location_update_queue to mark this rule as rejected
+        // We need to find all location_update_queue entries that have this rule_id in their execution_results
+        // and update the skipped result to include rejected: true
+        const updateQuery = `
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE 
+                        WHEN result->>'rule_id' = $1::text AND result->>'skipped' = 'true'
+                        THEN result || '{"rejected": true, "rejected_at": $3}'::jsonb
+                        ELSE result
+                    END
+                )
+                FROM jsonb_array_elements(luq.execution_results) AS result
+            )
+            WHERE luq.user_id = $2
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE (result->>'rule_id')::integer = $1::integer
+                    AND result->>'skipped' = 'true'
+                    AND (result->>'rejected')::boolean IS DISTINCT FROM true
+                )
+            RETURNING luq.id
+        `;
+
+        const result = await pool.query(updateQuery, [ruleId, userId, new Date().toISOString()]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                error: 'Pending rule not found or already rejected',
+                message: 'The rule may have already been rejected or executed'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Pending rule rejected successfully',
+            rejected_rule_id: ruleId
+        });
+    } catch (error) {
+        console.error('Error rejecting pending rule:', error);
+        res.status(500).json({ 
+            error: 'Failed to reject pending rule',
+            message: error.message 
+        });
     }
 });
 
@@ -3373,35 +3460,69 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     }
                                     
                                     // Try to get Soroban meta - check if v3 exists
-                                    if (transactionMeta && transactionMeta.switch && transactionMeta.switch().name === 'v3') {
-                                        const sorobanMeta = transactionMeta.v3().sorobanMeta();
-                                        if (sorobanMeta && sorobanMeta.returnValue()) {
-                                            const returnValueScVal = sorobanMeta.returnValue();
-                                            // Convert ScVal to native JavaScript value
-                                            contractReturnValue = StellarSdk.scValToNative(returnValueScVal);
-                                            console.log(`[Execute] 📋 Contract function returned:`, contractReturnValue);
-                                            
-                                            // Check if return value is false (for boolean return types)
-                                            if (contractReturnValue === false) {
-                                                console.error(`[Execute] ❌ Contract function "${function_name}" returned FALSE, indicating a business logic failure.`);
-                                                return res.status(400).json({
-                                                    success: false,
-                                                    error: `Contract function "${function_name}" returned FALSE.`,
-                                                    message: 'The transaction was included in the ledger, but the contract\'s business logic rejected the operation.',
-                                                    details: 'This often indicates a problem with the provided parameters, insufficient balance, or failed WebAuthn signature verification.',
-                                                    suggestion: 'Please verify the input parameters, ensure the smart wallet has sufficient balance, and confirm that the correct passkey is registered and used for signing.',
-                                                    function_name,
-                                                    is_read_only: isReadOnly,
-                                                    transaction_hash: sendResult.hash,
-                                                    transaction_status: txResult.status,
-                                                    contract_return_value: contractReturnValue,
-                                                    network: network,
-                                                    stellar_expert_url: stellarExpertUrl
-                                                });
+                                    let sorobanMeta = null;
+                                    let returnValueScVal = null;
+                                    
+                                    // Try v3 format first
+                                    if (transactionMeta && typeof transactionMeta.v3 === 'function') {
+                                        try {
+                                            const v3Meta = transactionMeta.v3();
+                                            if (v3Meta && typeof v3Meta.sorobanMeta === 'function') {
+                                                sorobanMeta = v3Meta.sorobanMeta();
                                             }
+                                        } catch (v3Error) {
+                                            console.log(`[Execute] ℹ️  Transaction meta v3() method failed:`, v3Error.message);
+                                        }
+                                    }
+                                    
+                                    // If v3 didn't work, try accessing directly
+                                    if (!sorobanMeta && transactionMeta) {
+                                        try {
+                                            // Check if it's already a SorobanMeta object
+                                            if (transactionMeta.sorobanMeta && typeof transactionMeta.sorobanMeta === 'function') {
+                                                sorobanMeta = transactionMeta.sorobanMeta();
+                                            }
+                                        } catch (directError) {
+                                            console.log(`[Execute] ℹ️  Direct sorobanMeta access failed:`, directError.message);
+                                        }
+                                    }
+                                    
+                                    // Extract return value if we have sorobanMeta
+                                    if (sorobanMeta && typeof sorobanMeta.returnValue === 'function') {
+                                        try {
+                                            returnValueScVal = sorobanMeta.returnValue();
+                                            if (returnValueScVal) {
+                                                // Convert ScVal to native JavaScript value
+                                                contractReturnValue = StellarSdk.scValToNative(returnValueScVal);
+                                                console.log(`[Execute] 📋 Contract function returned:`, contractReturnValue);
+                                                
+                                                // Check if return value is false (for boolean return types)
+                                                if (contractReturnValue === false) {
+                                                    console.error(`[Execute] ❌ Contract function "${function_name}" returned FALSE, indicating a business logic failure.`);
+                                                    return res.status(400).json({
+                                                        success: false,
+                                                        error: `Contract function "${function_name}" returned FALSE.`,
+                                                        message: 'The transaction was included in the ledger, but the contract\'s business logic rejected the operation.',
+                                                        details: 'This often indicates a problem with the provided parameters, insufficient balance, or failed WebAuthn signature verification.',
+                                                        suggestion: 'Please verify the input parameters, ensure the smart wallet has sufficient balance, and confirm that the correct passkey is registered and used for signing.',
+                                                        function_name,
+                                                        is_read_only: isReadOnly,
+                                                        transaction_hash: sendResult.hash,
+                                                        transaction_status: txResult.status,
+                                                        contract_return_value: contractReturnValue,
+                                                        network: network,
+                                                        stellar_expert_url: stellarExpertUrl
+                                                    });
+                                                }
+                                            }
+                                        } catch (returnValueError) {
+                                            console.warn(`[Execute] ⚠️  Could not extract return value from sorobanMeta:`, returnValueError.message);
                                         }
                                     } else {
-                                        console.log(`[Execute] ℹ️  Transaction meta is not v3 format, skipping return value extraction`);
+                                        console.log(`[Execute] ℹ️  Transaction meta is not v3 format or sorobanMeta not available, skipping return value extraction`);
+                                        console.log(`[Execute] 📋 TransactionMeta type:`, transactionMeta ? transactionMeta.constructor?.name : 'null');
+                                        console.log(`[Execute] 📋 TransactionMeta has v3:`, transactionMeta && typeof transactionMeta.v3 === 'function');
+                                        console.log(`[Execute] 📋 TransactionMeta has sorobanMeta:`, transactionMeta && typeof transactionMeta.sorobanMeta === 'function');
                                     }
                                 }
                             } catch (returnValueError) {

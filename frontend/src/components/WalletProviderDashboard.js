@@ -26,7 +26,7 @@ import {
     TablePagination
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
-import { DataUsage, Key, ContentCopy, AccountBalanceWallet as WalletIcon, Collections as CollectionsIcon, Close as CloseIcon, Send as SendIcon } from '@mui/icons-material';
+import { DataUsage, Key, ContentCopy, AccountBalanceWallet as WalletIcon, Collections as CollectionsIcon, Close as CloseIcon, Send as SendIcon, QrCode as QrCodeIcon } from '@mui/icons-material';
 import { format } from 'date-fns';
 import api from '../utils/api';
 import ApiKeyRequestForm from './shared/ApiKeyRequestForm';
@@ -38,6 +38,8 @@ import SmartWalletBalance from './Home/SmartWalletBalance';
 import AIChat from './AI/AIChat';
 import ContractManagement from './Contracts/ContractManagement';
 import SendPayment from './Wallet/SendPayment';
+import ReceivePayment from './Wallet/ReceivePayment';
+import ContractDetailsOverlay from './Map/ContractDetailsOverlay';
 
 const WalletProviderDashboard = () => {
     const { user } = useAuth();
@@ -55,10 +57,15 @@ const WalletProviderDashboard = () => {
     const [marketAnalysis, setMarketAnalysis] = useState(null);
     const [selectedNFT, setSelectedNFT] = useState(null);
     const [openNFTDialog, setOpenNFTDialog] = useState(false);
+    const [selectedContractRule, setSelectedContractRule] = useState(null);
+    const [openContractRuleDialog, setOpenContractRuleDialog] = useState(false);
     const [zoomTarget, setZoomTarget] = useState(null);
+    const [fullscreenMapInstance, setFullscreenMapInstance] = useState(null);
+    const [isFullscreenMapOpen, setIsFullscreenMapOpen] = useState(false);
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
     const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
+    const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
   // Pagination for wallets/NFTs table
   const [walletsPage, setWalletsPage] = useState(0);
   const [walletsRowsPerPage, setWalletsRowsPerPage] = useState(10);
@@ -178,6 +185,46 @@ const WalletProviderDashboard = () => {
     const handleNFTDetails = (nft) => {
         setSelectedNFT(nft);
         setOpenNFTDialog(true);
+    };
+
+    // Handler for fullscreen map ready
+    const handleFullscreenMapReady = (mapInstance) => {
+        console.log('[WalletProviderDashboard] Fullscreen map ready:', mapInstance);
+        setFullscreenMapInstance(mapInstance);
+        setIsFullscreenMapOpen(true);
+    };
+
+    // Contract rule details handler
+    const handleContractRuleClick = (rule) => {
+        console.log('Contract rule clicked:', rule);
+        
+        // Validate that the rule has required fields
+        if (!rule) {
+            console.error('No rule object provided');
+            return;
+        }
+        
+        // Ensure the rule has an id - if not, try to get it from the contract_rules array
+        if (!rule.id && contractRules && contractRules.length > 0) {
+            const fullRule = contractRules.find(r => 
+                r.rule_name === rule.rule_name && 
+                r.latitude === rule.latitude && 
+                r.longitude === rule.longitude
+            );
+            if (fullRule && fullRule.id) {
+                rule.id = fullRule.id;
+            }
+        }
+        
+        setSelectedContractRule(rule);
+        setOpenContractRuleDialog(true);
+        // Zoom to the rule location
+        if (rule.latitude && rule.longitude) {
+            setZoomTarget({
+                latitude: parseFloat(rule.latitude),
+                longitude: parseFloat(rule.longitude)
+            });
+        }
     };
 
     // Analytics details handler
@@ -360,6 +407,15 @@ const WalletProviderDashboard = () => {
                                                 </Button>
                                                 <Button
                                                     variant="outlined"
+                                                    color="primary"
+                                                    size="small"
+                                                    startIcon={<QrCodeIcon />}
+                                                    onClick={() => setReceivePaymentOpen(true)}
+                                                >
+                                                    Receive
+                                                </Button>
+                                                <Button
+                                                    variant="outlined"
                                                     color="secondary"
                                                     size="small"
                                                     onClick={disconnectWallet}
@@ -388,77 +444,86 @@ const WalletProviderDashboard = () => {
                         </Card>
                     </Grid>
 
-                    {/* Right Side: Smart Contract Banner */}
+                    {/* Interactive Map */}
                     <Grid item xs={12} md={7}>
-                        <Paper 
-                            elevation={3}
-                            sx={{ 
-                                p: 3,
-                                height: '100%',
-                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                color: 'white',
-                                borderRadius: 2,
-                                display: 'flex',
+                        <Card sx={{ 
+                            height: '100%', 
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            overflow: 'hidden'
+                        }}>
+                            <CardContent sx={{ 
+                                p: 0, 
+                                flex: 1, 
+                                display: 'flex', 
                                 flexDirection: 'column',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            <Box>
-                                <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: 'white' }}>
-                                    📜 Smart Contract Management
-                                </Typography>
-                                <Typography variant="body1" sx={{ color: 'rgba(255, 255, 255, 0.9)', mb: 2 }}>
-                                    Deploy and manage Soroban smart contracts with advanced WASM introspection, automatic function discovery, and intelligent parameter mapping. Configure location-based execution rules with geofencing, quorum-based multi-signature requirements, and real-time contract invocation triggered by wallet location updates.
-                                </Typography>
-                                <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                    <Chip 
-                                        label="WASM Parsing" 
-                                        size="small" 
-                                        sx={{ 
-                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                                            color: 'white',
-                                            border: '1px solid rgba(255, 255, 255, 0.3)'
-                                        }} 
-                                    />
-                                    <Chip 
-                                        label="Function Introspection" 
-                                        size="small" 
-                                        sx={{ 
-                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                                            color: 'white',
-                                            border: '1px solid rgba(255, 255, 255, 0.3)'
-                                        }} 
-                                    />
-                                    <Chip 
-                                        label="Geofencing Rules" 
-                                        size="small" 
-                                        sx={{ 
-                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                                            color: 'white',
-                                            border: '1px solid rgba(255, 255, 255, 0.3)'
-                                        }} 
-                                    />
-                                    <Chip 
-                                        label="Quorum Signatures" 
-                                        size="small" 
-                                        sx={{ 
-                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                                            color: 'white',
-                                            border: '1px solid rgba(255, 255, 255, 0.3)'
-                                        }} 
-                                    />
-                                    <Chip 
-                                        label="Auto-Execution" 
-                                        size="small" 
-                                        sx={{ 
-                                            bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                                            color: 'white',
-                                            border: '1px solid rgba(255, 255, 255, 0.3)'
-                                        }} 
-                                    />
-                                </Box>
-                            </Box>
-                        </Paper>
+                                '&:last-child': { pb: 0 },
+                                height: '100%',
+                                overflow: 'hidden'
+                            }}>
+                                <SharedMap 
+                                    locations={[
+                                        // Wallet locations
+                                        ...walletLocations
+                                            .filter(location => location.latitude && location.longitude && 
+                                                !isNaN(parseFloat(location.latitude)) && !isNaN(parseFloat(location.longitude)))
+                                            .map(location => ({
+                                                latitude: parseFloat(location.latitude),
+                                                longitude: parseFloat(location.longitude),
+                                                public_key: location.public_key,
+                                                description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
+                                                type: 'wallet',
+                                                marker_type: 'wallet'
+                                            })),
+                                        // Contract execution rules
+                                        ...contractRules
+                                            .filter(rule => rule.latitude && rule.longitude && 
+                                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
+                                            .map(rule => ({
+                                                latitude: parseFloat(rule.latitude),
+                                                longitude: parseFloat(rule.longitude),
+                                                id: rule.id,
+                                                rule_name: rule.rule_name,
+                                                function_name: rule.function_name,
+                                                contract_name: rule.contract_name,
+                                                contract_address: rule.contract_address,
+                                                trigger_on: rule.trigger_on,
+                                                radius_meters: rule.radius_meters,
+                                                auto_execute: rule.auto_execute,
+                                                description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
+                                                type: 'contract_rule',
+                                                marker_type: 'contract_rule'
+                                            })),
+                                        // NFTs
+                                        ...nfts
+                                            .filter(nft => nft.latitude && nft.longitude && 
+                                                !isNaN(parseFloat(nft.latitude)) && !isNaN(parseFloat(nft.longitude)))
+                                            .map(nft => ({
+                                                latitude: parseFloat(nft.latitude),
+                                                longitude: parseFloat(nft.longitude),
+                                                id: nft.id,
+                                                name: nft.name || 'NFT',
+                                                description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
+                                                type: 'nft',
+                                                marker_type: 'nft',
+                                                image_url: nft.image_url,
+                                                ipfs_hash: nft.ipfs_hash,
+                                                server_url: nft.server_url,
+                                                full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
+                                                collection: nft.collection
+                                            }))
+                                    ]}
+                                    title=""
+                                    height="700px"
+                                    showControls={true}
+                                    onNFTDetails={handleNFTDetails}
+                                    onLocationClick={handleContractRuleClick}
+                                    zoomTarget={zoomTarget}
+                                    initialMapStyle="light-globe"
+                                    onFullscreenMapReady={handleFullscreenMapReady}
+                                />
+                            </CardContent>
+                        </Card>
                     </Grid>
                 </Grid>
                 
@@ -729,73 +794,6 @@ const WalletProviderDashboard = () => {
                     </Grid>
                 )}
 
-                {/* Interactive Map */}
-                <Grid item xs={12}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="h6" gutterBottom>🗺️ Wallet Locations & NFTs Map</Typography>
-                            <SharedMap 
-                                locations={[
-                                    // Wallet locations
-                                    ...walletLocations
-                                        .filter(location => location.latitude && location.longitude && 
-                                            !isNaN(parseFloat(location.latitude)) && !isNaN(parseFloat(location.longitude)))
-                                        .map(location => ({
-                                            latitude: parseFloat(location.latitude),
-                                            longitude: parseFloat(location.longitude),
-                                            public_key: location.public_key,
-                                            description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
-                                            type: 'wallet',
-                                            marker_type: 'wallet'
-                                        })),
-                                    // Contract execution rules
-                                    ...contractRules
-                                        .filter(rule => rule.latitude && rule.longitude && 
-                                            !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
-                                        .map(rule => ({
-                                            latitude: parseFloat(rule.latitude),
-                                            longitude: parseFloat(rule.longitude),
-                                            id: rule.id,
-                                            rule_name: rule.rule_name,
-                                            function_name: rule.function_name,
-                                            contract_name: rule.contract_name,
-                                            contract_address: rule.contract_address,
-                                            trigger_on: rule.trigger_on,
-                                            radius_meters: rule.radius_meters,
-                                            auto_execute: rule.auto_execute,
-                                            description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
-                                            type: 'contract_rule',
-                                            marker_type: 'contract_rule'
-                                        })),
-                                    // NFTs
-                                    ...nfts
-                                        .filter(nft => nft.latitude && nft.longitude && 
-                                            !isNaN(parseFloat(nft.latitude)) && !isNaN(parseFloat(nft.longitude)))
-                                        .map(nft => ({
-                                            latitude: parseFloat(nft.latitude),
-                                            longitude: parseFloat(nft.longitude),
-                                            id: nft.id,
-                                            name: nft.name || 'NFT',
-                                            description: `NFT: ${nft.name || 'Unnamed'} | Collection: ${nft.collection?.name || 'Unknown'}`,
-                                            type: 'nft',
-                                            marker_type: 'nft',
-                                            image_url: nft.image_url,
-                                            ipfs_hash: nft.ipfs_hash,
-                                            server_url: nft.server_url,
-                                            full_ipfs_url: nft.ipfs_hash ? `https://bronze-adjacent-barnacle-907.mypinata.cloud/ipfs/${nft.ipfs_hash}` : null,
-                                            collection: nft.collection
-                                        }))
-                                ]}
-                                title="Your Wallet Locations & NFTs"
-                                height="700px"
-                                showControls={true}
-                                onNFTDetails={handleNFTDetails}
-                                zoomTarget={zoomTarget}
-                            />
-                        </CardContent>
-                    </Card>
-                </Grid>
-
                 {/* Wallet Management */}
                 <Grid item xs={12}>
                     <Card>
@@ -917,12 +915,25 @@ const WalletProviderDashboard = () => {
                 onRequestSubmitted={fetchDashboardData}
             />
 
+            {/* Contract Rule Details Dialog */}
+            <ContractDetailsOverlay
+                open={openContractRuleDialog}
+                onClose={() => {
+                    setOpenContractRuleDialog(false);
+                    setSelectedContractRule(null);
+                }}
+                item={selectedContractRule}
+                itemType="contract_rule"
+            />
+
             {/* NFT Details Dialog */}
             <Dialog
                 open={openNFTDialog}
                 onClose={() => setOpenNFTDialog(false)}
                 maxWidth="md"
                 fullWidth
+                sx={{ zIndex: 1500 }} // Higher z-index to appear above fullscreen map
+                PaperProps={{ sx: { zIndex: 1500 } }}
             >
                 <DialogTitle>
                     NFT Details
@@ -967,11 +978,26 @@ const WalletProviderDashboard = () => {
                                         size="small"
                                         sx={{ mt: 1 }}
                                         onClick={() => {
-                                            setZoomTarget({
-                                                latitude: parseFloat(selectedNFT.latitude),
-                                                longitude: parseFloat(selectedNFT.longitude)
-                                            });
-                                            setOpenNFTDialog(false);
+                                            const lat = parseFloat(selectedNFT.latitude);
+                                            const lng = parseFloat(selectedNFT.longitude);
+                                            
+                                            // If fullscreen map is open, zoom to it instead of small map
+                                            if (isFullscreenMapOpen && fullscreenMapInstance) {
+                                                console.log('[WalletProviderDashboard] Zooming fullscreen map to NFT location');
+                                                fullscreenMapInstance.flyTo({
+                                                    center: [lng, lat],
+                                                    zoom: 18,
+                                                    duration: 1000
+                                                });
+                                                setOpenNFTDialog(false);
+                                            } else {
+                                                // Zoom to small map
+                                                setZoomTarget({
+                                                    latitude: lat,
+                                                    longitude: lng
+                                                });
+                                                setOpenNFTDialog(false);
+                                            }
                                         }}
                                     >
                                         🔍 Zoom to Location
@@ -1227,6 +1253,12 @@ const WalletProviderDashboard = () => {
             <SendPayment
                 open={sendPaymentOpen}
                 onClose={() => setSendPaymentOpen(false)}
+            />
+            
+            {/* Receive Payment Dialog */}
+            <ReceivePayment
+                open={receivePaymentOpen}
+                onClose={() => setReceivePaymentOpen(false)}
             />
         </Container>
     );

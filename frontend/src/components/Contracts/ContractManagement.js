@@ -52,6 +52,7 @@ import {
   Rule as RuleIcon,
   CheckCircle as CheckCircleIcon,
   Map as MapIcon,
+  PowerSettingsNew as PowerSettingsNewIcon,
   Schedule as ScheduleIcon,
   Warning as WarningIcon,
   LocationOn as LocationOnIcon
@@ -98,6 +99,9 @@ const ContractManagement = () => {
   const [rules, setRules] = useState([]);
   const [pendingRules, setPendingRules] = useState([]);
   const [loadingPendingRules, setLoadingPendingRules] = useState(false);
+  const [rejectingRuleId, setRejectingRuleId] = useState(null);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [ruleToReject, setRuleToReject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -829,6 +833,25 @@ const ContractManagement = () => {
     }
   };
 
+  const handleToggleRuleActive = async (rule) => {
+    try {
+      const newActiveStatus = !rule.is_active;
+      const response = await api.put(`/contracts/rules/${rule.id}`, {
+        is_active: newActiveStatus
+      });
+      if (response.data.success) {
+        setSuccess(`Rule ${newActiveStatus ? 'activated' : 'deactivated'} successfully`);
+        loadRules();
+        setTimeout(() => setSuccess(''), 3000);
+      } else {
+        setError('Failed to update rule status');
+      }
+    } catch (err) {
+      console.error('Error toggling rule status:', err);
+      setError(err.response?.data?.error || 'Failed to update rule status');
+    }
+  };
+
   const [testingRule, setTestingRule] = useState(false);
   const [executingRule, setExecutingRule] = useState(false);
   const [ruleTestResult, setRuleTestResult] = useState(null);
@@ -836,6 +859,18 @@ const ContractManagement = () => {
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
+  const [executionStep, setExecutionStep] = useState(0);
+  
+  // Helper function to determine current execution step based on status
+  const getExecutionStep = () => {
+    if (!executingRule) return -1;
+    const status = executionStatus.toLowerCase();
+    if (status.includes('authenticating') || status.includes('passkey')) return 1;
+    if (status.includes('signing')) return 2;
+    if (status.includes('submitting') || status.includes('executing')) return 3;
+    if (status.includes('waiting') || status.includes('polling') || status.includes('confirmation') || status.includes('confirmed')) return 4;
+    return 0; // Preparing
+  };
 
   const handleTestRule = async (rule) => {
     setTestingRule(true);
@@ -1119,6 +1154,10 @@ const ContractManagement = () => {
         }
 
         setExecutionStatus('Authenticating with passkey...');
+        setExecutionStep(1);
+        
+        // Small delay to show authentication step
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         // Authenticate with passkey
         const authResult = await webauthnService.authenticateWithPasskey(
@@ -1176,11 +1215,30 @@ const ContractManagement = () => {
         }
       }
 
-      // Close dialog and clear input
-      setExecuteConfirmDialog({ open: false, rule: null });
+      // Keep dialog open to show execution progress
+      // Don't close yet - we'll close it after success
       setSecretKeyInput('');
 
-      setExecutionStatus('Executing function...');
+      setExecutionStatus('Preparing transaction...');
+      setExecutionStep(0);
+      
+      // Small delay to show preparing step
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      setExecutionStatus('Signing transaction...');
+      setExecutionStep(2);
+      
+      // Small delay to show signing step
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      setExecutionStatus('Submitting to blockchain...');
+      setExecutionStep(3);
+      
+      // Small delay to show submitting step
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      setExecutionStatus('Waiting for confirmation...');
+      setExecutionStep(4);
 
       const submitToLedger = !isReadOnly || !!userSecretKey;
       
@@ -1215,6 +1273,7 @@ const ContractManagement = () => {
       const response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
 
       if (response.data.success) {
+        setExecutionStatus('✅ Transaction confirmed!');
         let resultMessage = '';
         if (response.data.transaction_hash) {
           const txHash = response.data.transaction_hash;
@@ -1231,7 +1290,14 @@ const ContractManagement = () => {
         setTimeout(() => setSuccess(''), 8000);
         
         // Reload pending rules to remove the executed rule from the list
-        loadPendingRules();
+        await loadPendingRules();
+        
+        // Close dialog after a short delay to show success
+        setTimeout(() => {
+          setExecuteConfirmDialog({ open: false, rule: null });
+          setExecutionStatus('');
+          setExecutionStep(0);
+        }, 2000);
       } else {
         setError(response.data.error || 'Execution failed');
       }
@@ -1252,7 +1318,11 @@ const ContractManagement = () => {
       }
     } finally {
       setExecutingRule(false);
-      setExecutionStatus('');
+      // Don't clear executionStatus immediately if it was successful - let user see the success message
+      if (!executionStatus.includes('confirmed') && !executionStatus.includes('success')) {
+        setExecutionStatus('');
+      }
+      setExecutionStep(0);
       // Clear secret key input for security
       setSecretKeyInput('');
       setShowSecretKey(false);
@@ -1691,6 +1761,15 @@ const ContractManagement = () => {
                               <CheckCircleIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleToggleRuleActive(rule)}
+                              color={rule.is_active ? 'success' : 'default'}
+                            >
+                              <PowerSettingsNewIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <IconButton
                             size="small"
                             onClick={() => handleCheckQuorum(rule)}
@@ -1789,6 +1868,24 @@ const ContractManagement = () => {
                             </IconButton>
                           </Tooltip>
                         )}
+                        <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleToggleRuleActive(rule)}
+                            color={rule.is_active ? 'success' : 'default'}
+                          >
+                            <PowerSettingsNewIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleToggleRuleActive(rule)}
+                            color={rule.is_active ? 'success' : 'default'}
+                          >
+                            <PowerSettingsNewIcon />
+                          </IconButton>
+                        </Tooltip>
                         <IconButton
                           size="small"
                           onClick={() => handleCheckQuorum(rule)}
@@ -2043,7 +2140,7 @@ const ContractManagement = () => {
                         </Alert>
                       )}
                     </CardContent>
-                    <CardActions sx={{ justifyContent: 'flex-end', p: 2 }}>
+                    <CardActions sx={{ justifyContent: 'flex-end', p: 2, gap: 1 }}>
                       <Button
                         variant="outlined"
                         startIcon={<MapIcon />}
@@ -2060,6 +2157,17 @@ const ContractManagement = () => {
                         disabled={!pendingRule.location}
                       >
                         View Location
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        startIcon={<DeleteIcon />}
+                        onClick={() => {
+                          setRuleToReject(pendingRule);
+                          setRejectDialogOpen(true);
+                        }}
+                      >
+                        Reject
                       </Button>
                       <Button
                         variant="contained"
@@ -2936,11 +3044,67 @@ const ContractManagement = () => {
                 )}
                 
                 {executionStatus && (
-                  <Alert severity="info" sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}>
-                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
-                      {executionStatus}
-                    </Typography>
+                  <Alert 
+                    severity="info" 
+                    sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}
+                    icon={executingRule ? <CircularProgress size={16} /> : null}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {executingRule && <CircularProgress size={16} />}
+                      <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                        {executionStatus}
+                      </Typography>
+                    </Box>
                   </Alert>
+                )}
+                
+                {executingRule && (
+                  <Box sx={{ mt: 2 }}>
+                    <Stepper activeStep={getExecutionStep()} orientation="vertical">
+                      <Step>
+                        <StepLabel>Preparing Transaction</StepLabel>
+                        <StepContent>
+                          <Typography variant="body2" color="text.secondary">
+                            Building transaction parameters and validating inputs...
+                          </Typography>
+                        </StepContent>
+                      </Step>
+                      {needsWebAuthn && (
+                        <Step>
+                          <StepLabel>Authenticating with Passkey</StepLabel>
+                          <StepContent>
+                            <Typography variant="body2" color="text.secondary">
+                              Please authenticate with your passkey when prompted...
+                            </Typography>
+                          </StepContent>
+                        </Step>
+                      )}
+                      <Step>
+                        <StepLabel>Signing Transaction</StepLabel>
+                        <StepContent>
+                          <Typography variant="body2" color="text.secondary">
+                            Signing the transaction with your secret key...
+                          </Typography>
+                        </StepContent>
+                      </Step>
+                      <Step>
+                        <StepLabel>Submitting to Blockchain</StepLabel>
+                        <StepContent>
+                          <Typography variant="body2" color="text.secondary">
+                            Submitting transaction to the Stellar network...
+                          </Typography>
+                        </StepContent>
+                      </Step>
+                      <Step>
+                        <StepLabel>Waiting for Confirmation</StepLabel>
+                        <StepContent>
+                          <Typography variant="body2" color="text.secondary">
+                            Waiting for transaction to be included in a ledger...
+                          </Typography>
+                        </StepContent>
+                      </Step>
+                    </Stepper>
+                  </Box>
                 )}
               </>
             );
@@ -2976,6 +3140,64 @@ const ContractManagement = () => {
             startIcon={executingRule ? <CircularProgress size={20} color="inherit" /> : null}
           >
             {executingRule ? 'Executing...' : 'Execute'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Reject Pending Rule Confirmation Dialog */}
+      <Dialog
+        open={rejectDialogOpen}
+        onClose={() => {
+          setRejectDialogOpen(false);
+          setRuleToReject(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Reject Pending Rule</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" gutterBottom>
+            Are you sure you want to reject the pending rule <strong>"{ruleToReject?.rule_name}"</strong>?
+          </Typography>
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              This will remove the rule from your pending list. The rule will not be executed automatically in the future.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setRejectDialogOpen(false);
+              setRuleToReject(null);
+            }}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!ruleToReject) return;
+              setRejectingRuleId(ruleToReject.rule_id);
+              try {
+                await api.post(`/contracts/rules/pending/${ruleToReject.rule_id}/reject`);
+                setSuccess(`Pending rule "${ruleToReject.rule_name}" rejected successfully`);
+                setTimeout(() => setSuccess(''), 3000);
+                loadPendingRules(); // Reload to remove rejected rule
+                setRejectDialogOpen(false);
+                setRuleToReject(null);
+              } catch (err) {
+                setError(err.response?.data?.error || 'Failed to reject pending rule');
+              } finally {
+                setRejectingRuleId(null);
+              }
+            }}
+            variant="contained"
+            color="error"
+            disabled={rejectingRuleId === ruleToReject?.rule_id}
+            startIcon={rejectingRuleId === ruleToReject?.rule_id ? <CircularProgress size={20} /> : <DeleteIcon />}
+          >
+            {rejectingRuleId === ruleToReject?.rule_id ? 'Rejecting...' : 'Reject Rule'}
           </Button>
         </DialogActions>
       </Dialog>

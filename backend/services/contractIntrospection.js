@@ -439,8 +439,12 @@ class ContractIntrospection {
       }
       
       console.log(`[ContractIntrospection] ✅ Valid WASM file format`);
-      console.log(`[ContractIntrospection] ⚠️  Manual WASM parsing not fully implemented - Soroban CLI recommended`);
+      console.log(`[ContractIntrospection] ⚠️  Manual WASM parsing not implemented - Soroban CLI REQUIRED`);
+      console.log(`[ContractIntrospection] ❌ Cannot extract functions from WASM without Soroban CLI`);
       console.log(`[ContractIntrospection] 💡 Install Soroban CLI: https://soroban.stellar.org/docs/getting-started/soroban-cli`);
+      if (process.platform === 'win32') {
+        console.log(`[ContractIntrospection]    Windows: Download from https://github.com/stellar/soroban-tools/releases`);
+      }
       
       return null;
     } catch (error) {
@@ -528,8 +532,11 @@ class ContractIntrospection {
     } catch (error) {
       // CLI not available or failed
       if (error.code === 'ENOENT') {
-        console.log(`[ContractIntrospection] ⚠️  Soroban CLI not found in PATH`);
+        console.log(`[ContractIntrospection] ⚠️  Soroban CLI not found in PATH (REQUIRED for WASM parsing)`);
         console.log(`[ContractIntrospection] 💡 Install Soroban CLI: https://soroban.stellar.org/docs/getting-started/soroban-cli`);
+        if (process.platform === 'win32') {
+          console.log(`[ContractIntrospection]    Windows: Download from https://github.com/stellar/soroban-tools/releases`);
+        }
       } else {
         console.log(`[ContractIntrospection] ⚠️  Soroban CLI error: ${error.message}`);
       }

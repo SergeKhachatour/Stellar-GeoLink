@@ -18,7 +18,11 @@ import {
   Divider,
   CircularProgress,
   useMediaQuery,
-  useTheme
+  useTheme,
+  Stepper,
+  Step,
+  StepLabel,
+  StepContent
 } from '@mui/material';
 import {
   Close,
@@ -49,11 +53,41 @@ const SendPayment = ({ open, onClose }) => {
   const [scannerError, setScannerError] = useState('');
   const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
   const [userStake, setUserStake] = useState(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [executionStep, setExecutionStep] = useState(0);
+  const [executionStatus, setExecutionStatus] = useState('');
   
   const videoRef = useRef(null);
   const qrScannerRef = useRef(null);
   
   const effectivePublicKey = publicKey || (user && user.public_key);
+
+  // Add global error handler to prevent page refresh on unhandled errors
+  useEffect(() => {
+    const handleError = (event) => {
+      event.preventDefault();
+      console.error('Unhandled error prevented:', event.error);
+      setError(event.error?.message || 'An unexpected error occurred');
+      setLoading(false);
+      return false;
+    };
+    
+    const handleUnhandledRejection = (event) => {
+      event.preventDefault();
+      console.error('Unhandled promise rejection prevented:', event.reason);
+      setError(event.reason?.message || 'An unexpected error occurred');
+      setLoading(false);
+      return false;
+    };
+    
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -65,10 +99,26 @@ const SendPayment = ({ open, onClose }) => {
       setPaymentSource('wallet');
       setError('');
       setSuccess('');
+      setConfirmDialogOpen(false);
+      setExecutionStep(0);
+      setExecutionStatus('');
+      setLoading(false);
       fetchSmartWalletBalance();
       fetchVaultBalance();
     } else {
       stopQRScanner();
+      // Reset all state when dialog closes
+      setRecipient('');
+      setAmount('');
+      setAsset('XLM');
+      setMemo('');
+      setPaymentSource('wallet');
+      setError('');
+      setSuccess('');
+      setConfirmDialogOpen(false);
+      setExecutionStep(0);
+      setExecutionStatus('');
+      setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -173,8 +223,7 @@ const SendPayment = ({ open, onClose }) => {
     };
   }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async () => {
     setError('');
     setSuccess('');
 
@@ -204,20 +253,70 @@ const SendPayment = ({ open, onClose }) => {
       }
     }
 
+    // Open confirmation dialog
+    setConfirmDialogOpen(true);
+  };
+
+  const handleConfirmSend = async (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    setError('');
+    setSuccess('');
+    setExecutionStep(0);
+    setExecutionStatus('Preparing transaction...');
+    setLoading(true);
+
     try {
-      setLoading(true);
-      
       if (paymentSource === 'wallet') {
         // Traditional Stellar payment from wallet balance
-        const result = await sendTransaction(recipient, amount, memo);
+        setExecutionStep(1);
+        setExecutionStatus('Signing transaction...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        setExecutionStep(2);
+        setExecutionStatus('Submitting to blockchain...');
+        let result;
+        try {
+          // Only pass memo if it's not empty
+          // Pass skipAccountRefresh=true and skipLoadingState=true to prevent page refresh during transaction
+          // skipLoadingState prevents WalletConnectionGuard from showing loading screen
+          const memoToSend = memo && memo.trim() ? memo.trim() : null;
+          result = await sendTransaction(recipient, amount, memoToSend, true, true);
+        } catch (txError) {
+          console.error('Transaction submission error:', txError);
+          throw new Error(txError.message || 'Transaction submission failed');
+        }
+        
         if (result) {
-          setSuccess('Payment sent successfully!');
-          await loadAccountInfo(publicKey);
-          setTimeout(() => {
-            onClose();
-          }, 2000);
+          setExecutionStep(3);
+          setExecutionStatus('Waiting for confirmation...');
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Step 4 is "Complete" for wallet payments (no passkey step: 0=Prepare, 1=Sign, 2=Submit, 3=Waiting, 4=Complete)
+          setExecutionStep(4);
+          setExecutionStatus('Transaction confirmed!');
+          
+          // Build success message with transaction details
+          const txHash = result.hash || result.transactionHash || 'N/A';
+          const stellarExpertUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+          let successMsg = `Payment sent successfully!`;
+          if (memo && memo.trim()) {
+            successMsg += `\nMemo: ${memo.trim()}`;
+          }
+          successMsg += `\nTransaction: ${txHash}`;
+          successMsg += `\n🔗 View on StellarExpert: ${stellarExpertUrl}`; // URL will be extracted and rendered as button
+          
+          setSuccess(successMsg);
+          setLoading(false); // Set loading to false so user can click "Done" button
         } else {
           setError('Payment failed');
+          setExecutionStep(0);
+          setExecutionStatus('');
+          setLoading(false);
         }
       } else {
         // Smart wallet payment from contract balance
@@ -225,15 +324,23 @@ const SendPayment = ({ open, onClose }) => {
       }
     } catch (err) {
       console.error('Error sending payment:', err);
-      setError(err.response?.data?.error || err.message || 'Failed to send payment');
-    } finally {
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to send payment';
+      setError(errorMessage);
+      setExecutionStep(0);
+      setExecutionStatus('');
       setLoading(false);
+      // Don't close dialog on error - let user see the error message
     }
   };
 
   const sendSmartWalletPayment = async (destination, amount, asset, memo) => {
     try {
+      setExecutionStep(0);
+      setExecutionStatus('Preparing transaction...');
+      
       // Get passkeys
+      setExecutionStep(1);
+      setExecutionStatus('Getting passkeys...');
       const passkeysResponse = await api.get('/webauthn/passkeys');
       const passkeys = passkeysResponse.data.passkeys || [];
       
@@ -258,8 +365,10 @@ const SendPayment = ({ open, onClose }) => {
       
       const signaturePayload = JSON.stringify(transactionData);
       
-      // Authenticate with passkey - pass the signaturePayload string
-      // The service will extract the first 32 bytes and use them as the challenge
+      // Authenticate with passkey
+      setExecutionStatus('Authenticating with passkey...');
+      setExecutionStep(1); // Keep at step 1 for authentication
+      
       const authResult = await webauthnService.authenticateWithPasskey(
         passkey.credentialId,
         signaturePayload
@@ -269,9 +378,17 @@ const SendPayment = ({ open, onClose }) => {
         throw new Error('Passkey authentication failed');
       }
       
-      // Extract public key from passkey - use the service method
-      // The passkey already has public_key_spki in base64 format
+      // Extract public key from passkey
       const passkeyPublicKeySPKI = passkey.public_key_spki;
+      
+      // Signing transaction
+      setExecutionStep(2);
+      setExecutionStatus('Signing transaction...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Submitting to blockchain
+      setExecutionStep(3);
+      setExecutionStatus('Submitting to blockchain...');
       
       // Call smart wallet execute-payment endpoint
       const response = await api.post('/smart-wallet/execute-payment', {
@@ -288,16 +405,32 @@ const SendPayment = ({ open, onClose }) => {
       });
       
       if (response.data.success) {
-        setSuccess(`Payment sent successfully! Transaction: ${response.data.hash}`);
-        await fetchSmartWalletBalance();
-        setTimeout(() => {
-          onClose();
-        }, 2000);
+        setExecutionStep(4);
+        setExecutionStatus('Waiting for confirmation...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        setExecutionStep(5);
+        setExecutionStatus('Transaction confirmed!');
+        
+        // Build success message with transaction details
+        const txHash = response.data.hash || 'N/A';
+        const stellarExpertUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+        let successMsg = `Payment sent successfully!`;
+        if (memo && memo.trim()) {
+          successMsg += `\nMemo: ${memo.trim()}`;
+        }
+        successMsg += `\nTransaction: ${txHash}`;
+        successMsg += `\n🔗 View on StellarExpert: ${stellarExpertUrl}`;
+        
+        setSuccess(successMsg);
+        setLoading(false); // Set loading to false so user can click "Done" button
       } else {
         throw new Error(response.data.error || 'Payment failed');
       }
     } catch (err) {
       console.error('Error sending smart wallet payment:', err);
+      setExecutionStep(0);
+      setExecutionStatus('');
       throw err;
     }
   };
@@ -311,14 +444,19 @@ const SendPayment = ({ open, onClose }) => {
     <>
       <Dialog
         open={open}
-        onClose={onClose}
+        onClose={() => {
+          if (!confirmDialogOpen && !loading) {
+            onClose();
+          }
+        }}
         fullScreen={fullScreen}
         maxWidth="sm"
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: fullScreen ? 0 : 2,
-            maxHeight: fullScreen ? '100vh' : '90vh'
+            maxHeight: fullScreen ? '100vh' : '90vh',
+            display: confirmDialogOpen ? 'none' : 'block' // Hide main dialog when confirmation is open
           }
         }}
       >
@@ -377,7 +515,7 @@ const SendPayment = ({ open, onClose }) => {
             </Paper>
           </Box>
 
-          <form onSubmit={handleSubmit}>
+          <Box>
             <FormControl fullWidth sx={{ mb: 2 }}>
               <InputLabel>Payment Source</InputLabel>
               <Select
@@ -481,7 +619,7 @@ const SendPayment = ({ open, onClose }) => {
                 {success}
               </Alert>
             )}
-          </form>
+          </Box>
         </DialogContent>
 
         <DialogActions sx={{ 
@@ -501,10 +639,11 @@ const SendPayment = ({ open, onClose }) => {
             Cancel
           </Button>
           <Button
+            type="button"
             onClick={handleSubmit}
             variant="contained"
             color="primary"
-            startIcon={loading ? <CircularProgress size={20} /> : <Send />}
+            startIcon={<Send />}
             disabled={loading}
             fullWidth={fullScreen}
             sx={{ 
@@ -512,7 +651,7 @@ const SendPayment = ({ open, onClose }) => {
               fontSize: fullScreen ? '1rem' : '0.875rem'
             }}
           >
-            {loading ? 'Sending...' : 'Send Payment'}
+            Send Payment
           </Button>
         </DialogActions>
       </Dialog>
@@ -586,6 +725,343 @@ const SendPayment = ({ open, onClose }) => {
             fullWidth
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirmation Dialog with Execution Steps */}
+      <Dialog
+        open={confirmDialogOpen}
+        onClose={() => {
+          if (!loading) {
+            setConfirmDialogOpen(false);
+            setExecutionStep(0);
+            setExecutionStatus('');
+            setError('');
+            setSuccess('');
+          }
+        }}
+        fullScreen={fullScreen}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: fullScreen ? 0 : 2,
+            maxHeight: fullScreen ? '100vh' : '90vh'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          fontSize: fullScreen ? '1.5rem' : '1.25rem',
+          pb: 1
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Send color="primary" />
+            <Typography variant="h6">Payment Confirmation</Typography>
+          </Box>
+          <IconButton 
+            onClick={() => {
+              if (!loading) {
+                setConfirmDialogOpen(false);
+                setExecutionStep(0);
+                setExecutionStatus('');
+                setError('');
+                setSuccess('');
+              }
+            }}
+            disabled={loading}
+            size="small"
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        
+        <DialogContent dividers sx={{ 
+          overflowY: 'auto',
+          fontSize: fullScreen ? '1rem' : '0.875rem'
+        }}>
+          <Typography variant="body1" gutterBottom sx={{ mb: 2 }}>
+            Review your payment details:
+          </Typography>
+          
+          <Paper elevation={1} sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="caption" color="text.secondary">Recipient:</Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {recipient}
+              </Typography>
+            </Box>
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="caption" color="text.secondary">Amount:</Typography>
+              <Typography variant="body2" fontWeight="bold">
+                {amount} {asset}
+              </Typography>
+            </Box>
+            {memo && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="text.secondary">Memo:</Typography>
+                <Typography variant="body2">
+                  {memo}
+                </Typography>
+              </Box>
+            )}
+            <Box>
+              <Typography variant="caption" color="text.secondary">Payment Source:</Typography>
+              <Typography variant="body2">
+                {paymentSource === 'wallet' ? 'From Wallet Balance' : 'From Smart Wallet Balance'}
+              </Typography>
+            </Box>
+          </Paper>
+
+          {paymentSource === 'smart-wallet' && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                This payment will be executed through the smart wallet contract and requires passkey authentication.
+              </Typography>
+            </Alert>
+          )}
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+          
+          {success && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              <Box>
+                {success.split('\n').map((line, index) => {
+                  // Check if line contains StellarExpert URL - render as button
+                  if (line.includes('stellar.expert')) {
+                    const urlMatch = line.match(/https:\/\/[^\s]+/);
+                    if (urlMatch) {
+                      return (
+                        <Box key={index} sx={{ mt: 1 }}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            href={urlMatch[0]}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ 
+                              textTransform: 'none',
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            🔗 View on StellarExpert
+                          </Button>
+                        </Box>
+                      );
+                    }
+                  }
+                  // Check if line contains transaction hash - ensure it wraps
+                  if (line.includes('Transaction:')) {
+                    const hashMatch = line.match(/Transaction:\s*([a-f0-9]+)/i);
+                    if (hashMatch) {
+                      return (
+                        <Box key={index} sx={{ mb: 0.5 }}>
+                          <Typography variant="body2" sx={{ mb: 0.5 }}>
+                            Transaction:
+                          </Typography>
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              fontFamily: 'monospace', 
+                              fontSize: '0.875rem',
+                              wordBreak: 'break-all',
+                              backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                              p: 1,
+                              borderRadius: 1
+                            }}
+                          >
+                            {hashMatch[1]}
+                          </Typography>
+                        </Box>
+                      );
+                    }
+                  }
+                  // Skip empty lines and the StellarExpert line (already handled above)
+                  if (line.trim() === '' || line.includes('🔗 View on StellarExpert')) {
+                    return null;
+                  }
+                  // Regular lines (Payment sent successfully, Memo, etc.)
+                  return (
+                    <Typography key={index} variant="body2" sx={{ mb: 0.5 }}>
+                      {line}
+                    </Typography>
+                  );
+                })}
+              </Box>
+            </Alert>
+          )}
+
+          {executionStatus && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {loading && <CircularProgress size={16} />}
+                <Typography variant="body2">
+                  {executionStatus}
+                </Typography>
+              </Box>
+            </Alert>
+          )}
+
+          {(loading || success) && (
+            <Box sx={{ mt: 2 }}>
+              <Stepper activeStep={executionStep} orientation="vertical">
+                <Step>
+                  <StepLabel>Prepare Transaction</StepLabel>
+                  <StepContent>
+                    <Typography variant="body2" color="text.secondary">
+                      Building transaction parameters...
+                    </Typography>
+                  </StepContent>
+                </Step>
+                {paymentSource === 'smart-wallet' && (
+                  <Step>
+                    <StepLabel>Authenticate with Passkey</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Please authenticate with your passkey when prompted...
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                )}
+                <Step>
+                  <StepLabel>Sign Transaction</StepLabel>
+                  <StepContent>
+                    <Typography variant="body2" color="text.secondary">
+                      Signing the transaction...
+                    </Typography>
+                  </StepContent>
+                </Step>
+                <Step>
+                  <StepLabel>Submit to Blockchain</StepLabel>
+                  <StepContent>
+                    <Typography variant="body2" color="text.secondary">
+                      Submitting transaction to the Stellar network...
+                    </Typography>
+                  </StepContent>
+                </Step>
+                <Step>
+                  <StepLabel>Waiting for Confirmation</StepLabel>
+                  <StepContent>
+                    <Typography variant="body2" color="text.secondary">
+                      Waiting for transaction to be included in a ledger...
+                    </Typography>
+                  </StepContent>
+                </Step>
+                <Step>
+                  <StepLabel>Complete</StepLabel>
+                  <StepContent>
+                    <Typography variant="body2" color="text.secondary">
+                      Transaction confirmed!
+                    </Typography>
+                  </StepContent>
+                </Step>
+              </Stepper>
+            </Box>
+          )}
+        </DialogContent>
+        
+        <DialogActions sx={{ 
+          p: 2, 
+          gap: 1,
+          flexDirection: fullScreen ? 'column-reverse' : 'row'
+        }}>
+          <Button
+            onClick={() => {
+              if (!loading) {
+                setConfirmDialogOpen(false);
+                setExecutionStep(0);
+                setExecutionStatus('');
+                setError('');
+                setSuccess('');
+              }
+            }}
+            variant="outlined"
+            disabled={loading}
+            fullWidth={fullScreen}
+            sx={{ 
+              minHeight: fullScreen ? '48px' : '36px',
+              fontSize: fullScreen ? '1rem' : '0.875rem'
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={async (e) => {
+              if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+              
+              // If success, close both dialogs and refresh all account info
+              if (success) {
+                // Close confirmation dialog first
+                setConfirmDialogOpen(false);
+                setExecutionStep(0);
+                setExecutionStatus('');
+                setError('');
+                setSuccess('');
+                
+                // Reset form state
+                setRecipient('');
+                setAmount('');
+                setMemo('');
+                setPaymentSource('wallet');
+                setLoading(false);
+                
+                // Close main Send Payment dialog
+                onClose();
+                
+                // Refresh all balances and account info AFTER closing dialogs
+                setTimeout(() => {
+                  if (publicKey) {
+                    // Always refresh wallet balance
+                    loadAccountInfo(publicKey).catch(loadError => {
+                      console.warn('Failed to reload account info:', loadError);
+                    });
+                    
+                    // Always refresh smart wallet balances (for both payment types)
+                    fetchSmartWalletBalance().catch(balanceError => {
+                      console.warn('Failed to refresh smart wallet balance:', balanceError);
+                    });
+                    fetchVaultBalance().catch(vaultError => {
+                      console.warn('Failed to refresh vault balance:', vaultError);
+                    });
+                  }
+                }, 300);
+                
+                return;
+              }
+              
+              // Otherwise, proceed with transaction
+              try {
+                await handleConfirmSend(e);
+              } catch (err) {
+                console.error('Unhandled error in handleConfirmSend:', err);
+                setError(err.message || 'An unexpected error occurred');
+                setLoading(false);
+                setExecutionStep(0);
+                setExecutionStatus('');
+              }
+            }}
+            variant="contained"
+            color="primary"
+            startIcon={loading ? <CircularProgress size={20} /> : (success ? null : <Send />)}
+            disabled={loading}
+            fullWidth={fullScreen}
+            sx={{ 
+              minHeight: fullScreen ? '48px' : '36px',
+              fontSize: fullScreen ? '1rem' : '0.875rem'
+            }}
+          >
+            {loading ? 'Processing...' : success ? 'Done' : 'Confirm & Send'}
           </Button>
         </DialogActions>
       </Dialog>

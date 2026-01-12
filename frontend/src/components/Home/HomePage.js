@@ -189,6 +189,139 @@ const HomePage = () => {
                             </Box>
                         </Grid>
                     </Grid>
+
+                    {/* Smart Contract Management Section */}
+                    <Box sx={{ mt: { xs: 6, md: 8 } }}>
+                        <Grid container spacing={{ xs: 3, md: 4 }} alignItems="center">
+                            <Grid item xs={12} md={6}>
+                                <Typography 
+                                    variant="h3" 
+                                    component="h2"
+                                    gutterBottom
+                                    sx={{ 
+                                        fontWeight: 'bold',
+                                        color: '#000000',
+                                        mb: 2,
+                                        fontSize: { xs: '1.75rem', md: '2rem' },
+                                        lineHeight: 1.2
+                                    }}
+                                >
+                                    📜 Smart Contract Management
+                                </Typography>
+                                <Typography 
+                                    variant="body1" 
+                                    paragraph
+                                    sx={{ 
+                                        color: 'rgba(0, 0, 0, 0.85)', 
+                                        mb: 3,
+                                        fontSize: { xs: '1rem', md: '1.125rem' },
+                                        lineHeight: 1.8
+                                    }}
+                                >
+                                    Deploy and manage Soroban smart contracts with advanced WASM introspection, automatic function discovery, and intelligent parameter mapping. Configure location-based execution rules with geofencing, quorum-based multi-signature requirements, and real-time contract invocation triggered by wallet location updates.
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+                                    <Chip 
+                                        label="WASM Parsing" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(0, 0, 0, 0.1)', 
+                                            color: '#000000',
+                                            border: '1px solid rgba(0, 0, 0, 0.2)',
+                                            fontWeight: 'bold'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Function Introspection" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(0, 0, 0, 0.1)', 
+                                            color: '#000000',
+                                            border: '1px solid rgba(0, 0, 0, 0.2)',
+                                            fontWeight: 'bold'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Geofencing Rules" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(0, 0, 0, 0.1)', 
+                                            color: '#000000',
+                                            border: '1px solid rgba(0, 0, 0, 0.2)',
+                                            fontWeight: 'bold'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Quorum Signatures" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(0, 0, 0, 0.1)', 
+                                            color: '#000000',
+                                            border: '1px solid rgba(0, 0, 0, 0.2)',
+                                            fontWeight: 'bold'
+                                        }} 
+                                    />
+                                    <Chip 
+                                        label="Auto-Execution" 
+                                        size="small" 
+                                        sx={{ 
+                                            bgcolor: 'rgba(0, 0, 0, 0.1)', 
+                                            color: '#000000',
+                                            border: '1px solid rgba(0, 0, 0, 0.2)',
+                                            fontWeight: 'bold'
+                                        }} 
+                                    />
+                                </Box>
+                                <Button 
+                                    component={RouterLink}
+                                    to="/contracts"
+                                    variant="contained" 
+                                    size="large"
+                                    sx={{ 
+                                        backgroundColor: '#000000',
+                                        color: '#FFFFFF',
+                                        px: 4,
+                                        py: 1.5,
+                                        '&:hover': {
+                                            backgroundColor: '#1a1a1a',
+                                        }
+                                    }}
+                                >
+                                    Explore Contracts
+                                </Button>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <Box sx={{ 
+                                    p: { xs: 2, md: 3 },
+                                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                                    borderRadius: 2,
+                                    border: '1px solid rgba(0, 0, 0, 0.2)',
+                                    backdropFilter: 'blur(10px)'
+                                }}>
+                                    <Typography variant="h5" gutterBottom sx={{ color: '#000000', fontWeight: 'bold', mb: 2 }}>
+                                        Key Capabilities
+                                    </Typography>
+                                    <Box component="ul" sx={{ pl: 2, color: 'rgba(0, 0, 0, 0.85)' }}>
+                                        <Typography component="li" variant="body1" sx={{ mb: 1.5 }}>
+                                            Automatic function discovery from WASM contracts
+                                        </Typography>
+                                        <Typography component="li" variant="body1" sx={{ mb: 1.5 }}>
+                                            Intelligent parameter mapping and auto-population
+                                        </Typography>
+                                        <Typography component="li" variant="body1" sx={{ mb: 1.5 }}>
+                                            Location-based execution rules with geofencing
+                                        </Typography>
+                                        <Typography component="li" variant="body1" sx={{ mb: 1.5 }}>
+                                            Multi-signature quorum requirements
+                                        </Typography>
+                                        <Typography component="li" variant="body1">
+                                            Real-time contract invocation on location updates
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            </Grid>
+                        </Grid>
+                    </Box>
                 </Container>
             </Box>
 

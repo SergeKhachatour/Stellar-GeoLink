@@ -59,6 +59,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const inputRef = useRef(null);
   const locationUpdateRef = useRef(false); // Track if we've already updated location
   const autoMinimizedRef = useRef(false); // Track if we've already auto-minimized for this map visibility
+  const userManuallyOpenedRef = useRef(false); // Track if user manually opened the chat after map became visible
   const { showMap, hideMap, mapVisible, mapData, proximityRadius, updateUserLocation } = useAIMap();
   const { publicKey } = useWallet();
 
@@ -166,22 +167,31 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     // 2. We're on mobile
     // 3. Chat is currently open/maximized
     // 4. We haven't already auto-minimized for this map visibility
-    // 5. User hasn't manually expanded after auto-minimize
-    if (mapVisible && isMobile && (open || isMaximized) && !autoMinimizedRef.current) {
-      console.log('[AIChat] Map became visible on mobile - auto-minimizing chat');
-      setOpen(false);
-      setIsMaximized(false);
-      setMinimizeNotification(true);
-      autoMinimizedRef.current = true; // Mark that we've auto-minimized
-      // Auto-hide notification after 3 seconds
-      setTimeout(() => {
-        setMinimizeNotification(false);
-      }, 3000);
+    // 5. User hasn't manually opened the chat after map became visible
+    if (mapVisible && isMobile && (open || isMaximized) && !autoMinimizedRef.current && !userManuallyOpenedRef.current) {
+      // Use a timeout to allow manual clicks to work first
+      const timeoutId = setTimeout(() => {
+        // Double-check conditions after delay - don't auto-minimize if user manually opened
+        if (mapVisible && isMobile && (open || isMaximized) && !autoMinimizedRef.current && !userManuallyOpenedRef.current) {
+          console.log('[AIChat] Map became visible on mobile - auto-minimizing chat');
+          setOpen(false);
+          setIsMaximized(false);
+          setMinimizeNotification(true);
+          autoMinimizedRef.current = true; // Mark that we've auto-minimized
+          // Auto-hide notification after 3 seconds
+          setTimeout(() => {
+            setMinimizeNotification(false);
+          }, 3000);
+        }
+      }, 500); // 500ms delay to allow manual opening
+      
+      return () => clearTimeout(timeoutId);
     }
     
-    // Reset auto-minimize flag when map is hidden, so it can auto-minimize again next time
+    // Reset flags when map is hidden, so it can auto-minimize again next time
     if (!mapVisible) {
       autoMinimizedRef.current = false;
+      userManuallyOpenedRef.current = false;
     }
   }, [mapVisible, isMobile, open, isMaximized]);
 
@@ -526,11 +536,11 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     borderRadius: 0
   } : {
     position: 'fixed',
-    bottom: 16,
-    right: 16,
+    bottom: isMobile ? 8 : 16, // Smaller bottom margin on mobile
+    right: isMobile ? 8 : 16, // Smaller right margin on mobile
     zIndex: 10000, // Higher than map (9999) to ensure chat stays visible
-    maxWidth: 400,
-    width: '100%'
+    maxWidth: isMobile ? (open ? 'calc(100% - 16px)' : 200) : 400, // Smaller when closed on mobile
+    width: isMobile ? (open ? 'calc(100% - 16px)' : 'auto') : '100%' // Auto width when closed on mobile
   };
 
   return (
@@ -554,7 +564,7 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           {/* Header */}
           <Box
             sx={{
-              p: 2,
+              p: isMobile && !open ? 1 : 2, // Smaller padding on mobile when closed
               backgroundColor: 'primary.main',
               color: 'white',
               display: 'flex',
@@ -564,26 +574,48 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
             }}
             onClick={() => {
               if (!isMaximized) {
-                setOpen(!open);
-                // Reset auto-minimize flag when user manually toggles
-                if (!open) {
+                const wasOpen = open;
+                const willBeOpen = !open;
+                setOpen(willBeOpen);
+                
+                // If user is manually opening the chat (was closed, now opening)
+                if (!wasOpen && willBeOpen && mapVisible) {
+                  // User manually opened the chat after map became visible
+                  userManuallyOpenedRef.current = true;
+                  autoMinimizedRef.current = false; // Reset so they can keep it open
+                  console.log('[AIChat] User manually opened chat - preventing auto-minimize');
+                }
+                
+                // If user is closing the chat, reset flags
+                if (wasOpen && !willBeOpen) {
+                  userManuallyOpenedRef.current = false;
                   autoMinimizedRef.current = false;
                 }
               }
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar sx={{ bgcolor: 'white', color: 'primary.main' }}>
-                <AIIcon />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: isMobile && !open ? 0.5 : 1 }}>
+              <Avatar sx={{ 
+                bgcolor: 'white', 
+                color: 'primary.main',
+                width: isMobile && !open ? 32 : 40,
+                height: isMobile && !open ? 32 : 40
+              }}>
+                <AIIcon sx={{ fontSize: isMobile && !open ? 18 : 24 }} />
               </Avatar>
               <Box>
-                <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+                <Typography variant="h6" sx={{ 
+                  fontWeight: 'bold',
+                  fontSize: isMobile && !open ? '0.875rem' : (isMobile ? '1rem' : '1.25rem')
+                }}>
                   GeoLink Agent
                 </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                  {isPublic ? 'Public Chat' : 'AI Assistant'}
-                  {userLocation && ' • Location: Available'}
-                </Typography>
+                {(!isMobile || open) && ( // Hide subtitle on mobile when closed
+                  <Typography variant="caption" sx={{ opacity: 0.9, fontSize: isMobile ? '0.7rem' : '0.75rem' }}>
+                    {isPublic ? 'Public Chat' : 'AI Assistant'}
+                    {userLocation && ' • Location: Available'}
+                  </Typography>
+                )}
               </Box>
             </Box>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -632,8 +664,10 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                     setIsMaximized(!isMaximized);
                     if (!isMaximized) {
                       setOpen(true);
-                      // Reset auto-minimize flag when user manually expands
+                      // User manually expanded - prevent auto-minimize
+                      userManuallyOpenedRef.current = true;
                       autoMinimizedRef.current = false;
+                      console.log('[AIChat] User manually maximized chat - preventing auto-minimize');
                     }
                   }}
                 >
@@ -646,9 +680,16 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                   sx={{ color: 'white' }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    const wasOpen = open;
                     setOpen(!open);
-                    // Reset auto-minimize flag when user manually expands
-                    if (!open) {
+                    // If user is closing, reset flags so it can auto-minimize again next time
+                    if (wasOpen && !open) {
+                      userManuallyOpenedRef.current = false;
+                      autoMinimizedRef.current = false;
+                    }
+                    // If user is opening, mark as manually opened
+                    if (!wasOpen && open && mapVisible) {
+                      userManuallyOpenedRef.current = true;
                       autoMinimizedRef.current = false;
                     }
                   }}

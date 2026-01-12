@@ -27,13 +27,15 @@ import UsersManager from './UsersManager';
 import WalletLocationsManager from './WalletLocationsManager';
 import SharedMap from '../SharedMap';
 import api from '../../utils/api';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Send as SendIcon, QrCode as QrCodeIcon } from '@mui/icons-material';
 import AIChat from '../AI/AIChat';
 import { useWallet } from '../../contexts/WalletContext';
 import { useAuth } from '../../contexts/AuthContext';
 import WalletConnectionDialog from '../Wallet/WalletConnectionDialog';
 import SmartWalletBalance from '../Home/SmartWalletBalance';
 import ContractManagement from '../Contracts/ContractManagement';
+import SendPayment from '../Wallet/SendPayment';
+import ReceivePayment from '../Wallet/ReceivePayment';
 
 const AdminDashboard = () => {
     const { user } = useAuth();
@@ -60,6 +62,8 @@ const AdminDashboard = () => {
     // Wallet state
     const { isConnected, publicKey, disconnectWallet, connectWalletViewOnly, setUser } = useWallet();
     const [walletDialogOpen, setWalletDialogOpen] = useState(false);
+    const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
+    const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
 
     // Notify WalletContext of current user
     useEffect(() => {
@@ -545,13 +549,33 @@ const AdminDashboard = () => {
                         </Box>
                         <Box>
                             {isConnected && publicKey ? (
-                                <Button
-                                    variant="outlined"
-                                    color="secondary"
-                                    onClick={disconnectWallet}
-                                >
-                                    Disconnect Wallet
-                                </Button>
+                                <>
+                                    <Button
+                                        variant="contained"
+                                        color="secondary"
+                                        startIcon={<SendIcon />}
+                                        onClick={() => setSendPaymentOpen(true)}
+                                        sx={{ mr: 1 }}
+                                    >
+                                        Send Payment
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        color="secondary"
+                                        startIcon={<QrCodeIcon />}
+                                        onClick={() => setReceivePaymentOpen(true)}
+                                        sx={{ mr: 1 }}
+                                    >
+                                        Receive
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        color="secondary"
+                                        onClick={disconnectWallet}
+                                    >
+                                        Disconnect Wallet
+                                    </Button>
+                                </>
                             ) : (
                                 <Button
                                     variant="contained"
@@ -773,6 +797,18 @@ const AdminDashboard = () => {
             <WalletConnectionDialog
                 open={walletDialogOpen}
                 onClose={() => setWalletDialogOpen(false)}
+            />
+            
+            {/* Send Payment Dialog */}
+            <SendPayment
+                open={sendPaymentOpen}
+                onClose={() => setSendPaymentOpen(false)}
+            />
+            
+            {/* Receive Payment Dialog */}
+            <ReceivePayment
+                open={receivePaymentOpen}
+                onClose={() => setReceivePaymentOpen(false)}
             />
             
             {/* GeoLink Agent */}

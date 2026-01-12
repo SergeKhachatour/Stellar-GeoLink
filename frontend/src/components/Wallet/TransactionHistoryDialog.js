@@ -19,7 +19,8 @@ import {
   Link,
   Chip,
   IconButton,
-  Tooltip
+  Tooltip,
+  TablePagination
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -31,8 +32,11 @@ import { useWallet } from '../../contexts/WalletContext';
 const TransactionHistoryDialog = ({ open, onClose }) => {
   const { publicKey, getTransactionHistory } = useWallet();
   const [transactions, setTransactions] = useState([]);
+  const [allTransactions, setAllTransactions] = useState([]); // Store all transactions
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const fetchTransactions = useCallback(async () => {
     if (!publicKey) {
@@ -43,18 +47,39 @@ const TransactionHistoryDialog = ({ open, onClose }) => {
     setLoading(true);
     setError(null);
     try {
-      const txHistory = await getTransactionHistory(20); // Get last 20 transactions
-      setTransactions(txHistory || []);
+      // Fetch more transactions (100) to support pagination
+      const txHistory = await getTransactionHistory(100);
+      setAllTransactions(txHistory || []);
+      setTransactions((txHistory || []).slice(0, rowsPerPage));
     } catch (err) {
       console.error('Failed to fetch transaction history:', err);
       setError(err.message || 'Failed to load transaction history');
     } finally {
       setLoading(false);
     }
-  }, [publicKey, getTransactionHistory]);
+  }, [publicKey, getTransactionHistory, rowsPerPage]);
+
+  // Update displayed transactions when page or rowsPerPage changes
+  useEffect(() => {
+    if (allTransactions.length > 0) {
+      const startIndex = page * rowsPerPage;
+      const endIndex = startIndex + rowsPerPage;
+      setTransactions(allTransactions.slice(startIndex, endIndex));
+    }
+  }, [page, rowsPerPage, allTransactions]);
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
   useEffect(() => {
     if (open && publicKey) {
+      setPage(0); // Reset to first page when dialog opens
       fetchTransactions();
     }
   }, [open, publicKey, fetchTransactions]);
@@ -196,6 +221,20 @@ const TransactionHistoryDialog = ({ open, onClose }) => {
               </TableBody>
             </Table>
           </TableContainer>
+        )}
+
+        {/* Pagination */}
+        {!loading && !error && allTransactions.length > 0 && (
+          <TablePagination
+            component="div"
+            count={allTransactions.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            sx={{ mt: 2 }}
+          />
         )}
       </DialogContent>
       <DialogActions>
