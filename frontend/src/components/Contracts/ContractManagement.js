@@ -859,6 +859,8 @@ const ContractManagement = () => {
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
+  // Note: executionStep is set but not currently displayed in UI
+  // eslint-disable-next-line no-unused-vars
   const [executionStep, setExecutionStep] = useState(0);
   
   // Helper function to determine current execution step based on status

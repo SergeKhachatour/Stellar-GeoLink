@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -113,7 +113,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         mapRef.current = null;
       }
     }
-  }, [open, item, itemType]);
+  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets]);
 
   const fetchContractDetails = async (contractIdOrAddress) => {
     if (!contractIdOrAddress) {
@@ -136,7 +136,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     }
   };
 
-  const fetchRuleDetails = async (ruleId) => {
+  const fetchRuleDetails = useCallback(async (ruleId) => {
     if (!ruleId) {
       console.warn('No rule ID provided, skipping rule details fetch');
       return;
@@ -161,9 +161,13 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         console.error('Error fetching rule details:', error);
       }
     }
-  };
+  }, []);
 
-  const fetchNearbyWallets = async (lat, lon, radius) => {
+  const fetchNearbyWallets = useCallback(async (lat, lon, radius) => {
+    if (!lat || !lon || !radius) {
+      console.warn('Invalid parameters for fetching nearby wallets');
+      return;
+    }
     try {
       const response = await api.get(`/location/nearby?lat=${lat}&lon=${lon}&radius=${radius * 2}`); // Use 2x radius to show more context
       if (response.data && Array.isArray(response.data)) {
@@ -172,9 +176,10 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         setNearbyWallets(filtered);
       }
     } catch (error) {
-      console.error('Error fetching nearby wallets:', error);
+      // Don't let API errors cause logout - this is non-critical
+      console.warn('Error fetching nearby wallets (non-critical):', error);
     }
-  };
+  }, [publicKey]);
 
   // Calculate itemRadius early to avoid initialization errors
   const itemRadius = item ? (item.radius_meters || item.radius || 100) : 100;

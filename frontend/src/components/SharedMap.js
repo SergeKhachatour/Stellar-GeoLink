@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
-  Paper,
   Typography,
   IconButton,
   Tooltip,
@@ -823,6 +822,12 @@ const SharedMap = ({
               fullscreenMapInstance.setProjection('mercator');
               fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
               break;
+            default:
+              // Default to globe view
+              fullscreenMapInstance.setStyle('mapbox://styles/mapbox/satellite-streets-v12');
+              fullscreenMapInstance.setProjection('globe');
+              fullscreenMapInstance.easeTo({ pitch: 0, bearing: 0, duration: 1000 });
+              break;
           }
         };
       });
@@ -1140,8 +1145,6 @@ const SharedMap = ({
             // Force the container to have its full dimensions
             const container = mapContainer.current;
             if (container.parentElement) {
-              const parentHeight = container.parentElement.offsetHeight;
-              const parentWidth = container.parentElement.offsetWidth;
               container.style.height = '100%';
               container.style.width = '100%';
             }
