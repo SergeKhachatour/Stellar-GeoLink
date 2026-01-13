@@ -1730,31 +1730,61 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
         // Update the execution_results in location_update_queue to mark this rule as rejected
         // We need to find all location_update_queue entries that have this rule_id in their execution_results
         // and update the skipped result to include rejected: true
+        // Use a CTE to properly handle the JSONB array update
         const updateQuery = `
-            UPDATE location_update_queue luq
-            SET execution_results = (
-                SELECT jsonb_agg(
-                    CASE 
-                        WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
-                        THEN result || jsonb_build_object('rejected', true, 'rejected_at', $3)
-                        ELSE result
-                    END
-                )
-                FROM jsonb_array_elements(luq.execution_results) AS result
+            WITH updated_results AS (
+                SELECT 
+                    luq.id,
+                    jsonb_agg(
+                        CASE 
+                            WHEN (result.value->>'rule_id')::integer = $1::integer 
+                                 AND result.value->>'skipped' = 'true'
+                                 AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
+                            THEN result.value || jsonb_build_object(
+                                'rejected', true, 
+                                'rejected_at', $3::text
+                            )
+                            ELSE result.value
+                        END
+                        ORDER BY result.ordinality
+                    ) AS new_execution_results
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                WHERE luq.user_id = $2
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS check_result
+                        WHERE (check_result->>'rule_id')::integer = $1::integer
+                        AND check_result->>'skipped' = 'true'
+                        AND (check_result->>'rejected')::boolean IS DISTINCT FROM true
+                    )
+                GROUP BY luq.id
             )
-            WHERE luq.user_id = $2
-                AND luq.execution_results IS NOT NULL
-                AND EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements(luq.execution_results) AS result
-                    WHERE (result->>'rule_id')::integer = $1::integer
-                    AND result->>'skipped' = 'true'
-                    AND (result->>'rejected')::boolean IS DISTINCT FROM true
-                )
+            UPDATE location_update_queue luq
+            SET execution_results = ur.new_execution_results
+            FROM updated_results ur
+            WHERE luq.id = ur.id
             RETURNING luq.id
         `;
 
-        const result = await pool.query(updateQuery, [parseInt(ruleId), userId, new Date().toISOString()]);
+        // Get actual user ID (handle both JWT and API key auth)
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
+            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+        
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        const result = await pool.query(updateQuery, [parseInt(ruleId), actualUserId, new Date().toISOString()]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -1890,11 +1920,24 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
 
             if (completedResult) {
                 // Create unique key to avoid duplicates
-                const uniqueKey = `${row.rule_id}_${completedResult.transaction_hash || 'no_hash'}_${row.update_id}`;
-                if (seenKeys.has(uniqueKey)) {
-                    continue; // Skip duplicate
+                // Use rule_id + transaction_hash only - same transaction = same execution, regardless of location update
+                // This prevents showing the same transaction multiple times when it appears in multiple location updates
+                const transactionHash = completedResult.transaction_hash;
+                if (!transactionHash) {
+                    // If no transaction hash, use rule_id + completed_at + update_id as fallback
+                    const uniqueKey = `${row.rule_id}_${completedResult.completed_at || row.received_at}_${row.update_id}`;
+                    if (seenKeys.has(uniqueKey)) {
+                        continue; // Skip duplicate
+                    }
+                    seenKeys.add(uniqueKey);
+                } else {
+                    // Use rule_id + transaction_hash for true uniqueness
+                    const uniqueKey = `${row.rule_id}_${transactionHash}`;
+                    if (seenKeys.has(uniqueKey)) {
+                        continue; // Skip duplicate - same rule + same transaction = same execution
+                    }
+                    seenKeys.add(uniqueKey);
                 }
-                seenKeys.add(uniqueKey);
                 // Parse function_parameters from rule
                 let functionParams = {};
                 try {
@@ -2071,11 +2114,24 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
 
             if (rejectedResult) {
                 // Create unique key to avoid duplicates
-                const uniqueKey = `${row.rule_id}_${rejectedResult.rejected_at || 'no_date'}_${row.update_id}`;
-                if (seenKeys.has(uniqueKey)) {
-                    continue; // Skip duplicate
+                // Use rule_id + rejected_at only - same rejection = same entry, regardless of location update
+                // This prevents showing the same rejection multiple times when it appears in multiple location updates
+                const rejectedAt = rejectedResult.rejected_at;
+                if (!rejectedAt) {
+                    // If no rejected_at, use rule_id + update_id as fallback
+                    const uniqueKey = `${row.rule_id}_${row.update_id}`;
+                    if (seenKeys.has(uniqueKey)) {
+                        continue; // Skip duplicate
+                    }
+                    seenKeys.add(uniqueKey);
+                } else {
+                    // Use rule_id + rejected_at for true uniqueness
+                    const uniqueKey = `${row.rule_id}_${rejectedAt}`;
+                    if (seenKeys.has(uniqueKey)) {
+                        continue; // Skip duplicate - same rule + same rejection time = same rejection
+                    }
+                    seenKeys.add(uniqueKey);
                 }
-                seenKeys.add(uniqueKey);
                 
                 // Parse function_parameters from rule
                 let functionParams = {};
@@ -2574,43 +2630,42 @@ router.delete('/rules/:id', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Filter by public_key if available (for multi-role users), otherwise by user_id
-        let result;
-        if (publicKey) {
-            result = await pool.query(
-                `UPDATE contract_execution_rules cer
-                 SET is_active = false,
-                     updated_at = CURRENT_TIMESTAMP
-                 FROM users u
-                 WHERE cer.id = $1 
-                     AND cer.user_id = u.id
-                     AND u.public_key = $2
-                 RETURNING cer.id`,
-                [id, publicKey]
+        // Get actual user ID (handle both JWT and API key auth)
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
             );
-        } else {
-            result = await pool.query(
-                `UPDATE contract_execution_rules
-                 SET is_active = false,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1 AND user_id = $2
-                 RETURNING id`,
-                [id, userId]
-            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+        
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
         }
 
+        // Perform hard delete (actually delete the rule, not just deactivate)
+        const result = await pool.query(
+            `DELETE FROM contract_execution_rules
+             WHERE id = $1 AND user_id = $2
+             RETURNING id`,
+            [id, actualUserId]
+        );
+
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Rule not found' });
+            return res.status(404).json({ error: 'Rule not found or you do not have permission to delete it' });
         }
 
         res.json({
             success: true,
-            message: 'Rule deactivated successfully'
+            message: 'Rule deleted successfully'
         });
     } catch (error) {
-        console.error('Error deactivating contract execution rule:', error);
+        console.error('Error deleting contract execution rule:', error);
         res.status(500).json({ 
-            error: 'Failed to deactivate contract execution rule',
+            error: 'Failed to delete contract execution rule',
             message: error.message 
         });
     }

@@ -61,13 +61,17 @@ const WalletProviderDashboard = () => {
     const [selectedContractRule, setSelectedContractRule] = useState(null);
     const [openContractRuleDialog, setOpenContractRuleDialog] = useState(false);
     const [zoomTarget, setZoomTarget] = useState(null);
-    const [fullscreenMapInstance, setFullscreenMapInstance] = useState(null);
-    const [isFullscreenMapOpen, setIsFullscreenMapOpen] = useState(false);
+    // eslint-disable-next-line no-unused-vars
+    const [fullscreenMapInstance, setFullscreenMapInstance] = useState(null); // Reserved for future fullscreen map features
+    // eslint-disable-next-line no-unused-vars
+    const [isFullscreenMapOpen, setIsFullscreenMapOpen] = useState(false); // Reserved for future fullscreen map features
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
     const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
     const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
     const [userLocation, setUserLocation] = useState(null);
+    const [matchIndicators, setMatchIndicators] = useState({}); // Track matches: { ruleId: timestamp }
+    const [executionIndicators, setExecutionIndicators] = useState({}); // Track executions: { ruleId: timestamp }
   // Pagination for wallets/NFTs table
   const [walletsPage, setWalletsPage] = useState(0);
   const [walletsRowsPerPage, setWalletsRowsPerPage] = useState(10);
@@ -199,6 +203,70 @@ const WalletProviderDashboard = () => {
         }
     };
 
+    // Check for new matches and executions
+    const checkForMatchesAndExecutions = async () => {
+        try {
+            // Check for pending rules (matches)
+            const pendingRes = await api.get('/contracts/rules/pending').catch(() => ({ data: { success: false, pending_rules: [] } }));
+            if (pendingRes.data.success && pendingRes.data.pending_rules) {
+                const newMatches = {};
+                pendingRes.data.pending_rules.forEach(rule => {
+                    if (rule.rule_id) {
+                        newMatches[rule.rule_id] = Date.now();
+                    }
+                });
+                setMatchIndicators(prev => {
+                    const updated = { ...prev, ...newMatches };
+                    // Remove indicators older than 10 seconds
+                    const now = Date.now();
+                    Object.keys(updated).forEach(key => {
+                        if (now - updated[key] > 10000) {
+                            delete updated[key];
+                        }
+                    });
+                    return updated;
+                });
+            }
+
+            // Check for recent executions (completed in last 5 seconds)
+            const completedRes = await api.get('/contracts/rules/completed').catch(() => ({ data: { success: false, completed_rules: [] } }));
+            if (completedRes.data.success && completedRes.data.completed_rules) {
+                const now = Date.now();
+                const newExecutions = {};
+                completedRes.data.completed_rules.forEach(rule => {
+                    if (rule.rule_id && rule.completed_at) {
+                        const completedTime = new Date(rule.completed_at).getTime();
+                        // Only show if completed within last 5 seconds
+                        if (now - completedTime < 5000) {
+                            newExecutions[rule.rule_id] = Date.now();
+                        }
+                    }
+                });
+                setExecutionIndicators(prev => {
+                    const updated = { ...prev, ...newExecutions };
+                    // Remove indicators older than 5 seconds
+                    Object.keys(updated).forEach(key => {
+                        if (now - updated[key] > 5000) {
+                            delete updated[key];
+                        }
+                    });
+                    return updated;
+                });
+            }
+        } catch (err) {
+            console.warn('Error checking for matches/executions:', err);
+        }
+    };
+
+    // Auto-check for matches and executions every 3 seconds
+    useEffect(() => {
+        const interval = setInterval(() => {
+            checkForMatchesAndExecutions();
+        }, 3000);
+
+        return () => clearInterval(interval);
+    }, []);
+
     const handleNFTDetails = (nft) => {
         setSelectedNFT(nft);
         setOpenNFTDialog(true);
@@ -212,12 +280,26 @@ const WalletProviderDashboard = () => {
     };
 
     // Contract rule details handler
-    const handleContractRuleClick = (rule) => {
+    const handleContractRuleClick = (ruleOrCoords) => {
+        // If it's coordinates (from map click), ignore it
+        if (ruleOrCoords && typeof ruleOrCoords.lng === 'number' && typeof ruleOrCoords.lat === 'number') {
+            console.log('Map clicked (not a marker), ignoring');
+            return;
+        }
+        
+        const rule = ruleOrCoords;
         console.log('Contract rule clicked:', rule);
         
-        // Validate that the rule has required fields
+        // Validate that the rule has required fields and is actually a contract rule
         if (!rule) {
             console.error('No rule object provided');
+            return;
+        }
+        
+        // Only process if this is a contract rule (has rule_name or contract-related fields)
+        // Skip if it's a wallet marker (has public_key but no rule_name/contract fields)
+        if (rule.public_key && !rule.rule_name && !rule.contract_id && !rule.contract_address) {
+            console.log('Skipping wallet marker click - not a contract rule');
             return;
         }
         
@@ -509,7 +591,9 @@ const WalletProviderDashboard = () => {
                                                 auto_execute: rule.auto_execute,
                                                 description: `Contract Rule: ${rule.rule_name} | Function: ${rule.function_name}`,
                                                 type: 'contract_rule',
-                                                marker_type: 'contract_rule'
+                                                marker_type: 'contract_rule',
+                                                hasMatch: matchIndicators[rule.id] ? true : false,
+                                                hasExecution: executionIndicators[rule.id] ? true : false
                                             })),
                                         // NFTs
                                         ...nfts

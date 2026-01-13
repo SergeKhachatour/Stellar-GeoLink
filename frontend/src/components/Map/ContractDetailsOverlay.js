@@ -33,7 +33,8 @@ import {
   SmartToy,
   ZoomIn,
   MyLocation,
-  Close
+  Close,
+  Warning
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import api from '../../services/api';
@@ -664,6 +665,27 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                       <Typography variant="body2" color="text.secondary">
                         <strong>Range:</strong> {itemRadius}m
                       </Typography>
+                    )}
+                    {userLocation && distance !== null && (
+                      <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
+                        <Alert 
+                          severity={isWithinRange ? 'success' : 'warning'}
+                          icon={isWithinRange ? <CheckCircle /> : <Warning />}
+                          sx={{ mb: 1 }}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                            {isWithinRange ? '✅ You are within range' : '⚠️ You are outside range'}
+                          </Typography>
+                          <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                            Distance: {distanceText} | Required: {itemRadius}m
+                            {!isWithinRange && (
+                              <span style={{ display: 'block', marginTop: '4px' }}>
+                                You need to be {((distance - itemRadius) / 1000).toFixed(2)}km closer
+                              </span>
+                            )}
+                          </Typography>
+                        </Alert>
+                      </Box>
                     )}
                     {ruleDetails?.minimum_wallet_count && (
                       <Typography variant="body2" color="text.secondary">

@@ -87,6 +87,8 @@ const SharedMap = ({
   const [loading, setLoading] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState(null);
   const fullscreenMapContainer = useRef(null);
+  const hasInitialFitBounds = useRef(false); // Track if we've done initial fitBounds
+  const markerUpdateTimeout = useRef(null); // Debounce marker updates
 
   const initializeMap = useCallback((container) => {
     if (map.current) {
@@ -219,6 +221,7 @@ const SharedMap = ({
         }
 
         // Add markers for locations
+        hasInitialFitBounds.current = false; // Reset on map load
         addMarkersToMap();
       });
 
@@ -236,20 +239,24 @@ const SharedMap = ({
 
   const addMarkersToMap = useCallback(() => {
     if (!map.current || !mapLoaded) return;
+    
+    // Use requestAnimationFrame to ensure smooth updates
+    requestAnimationFrame(() => {
+      if (!map.current) return;
 
-    // Clear existing markers
-    Object.values(markers.current).forEach(marker => {
-      if (marker && marker.remove) {
-        marker.remove();
+      // Clear existing markers
+      Object.values(markers.current).forEach(marker => {
+        if (marker && marker.remove) {
+          marker.remove();
+        }
+      });
+      markers.current = {};
+
+      if (!locations || locations.length === 0) {
+        return;
       }
-    });
-    markers.current = {};
 
-    if (!locations || locations.length === 0) {
-      return;
-    }
-
-    locations.forEach((location, index) => {
+      locations.forEach((location, index) => {
       const lat = parseFloat(location.latitude);
       const lng = parseFloat(location.longitude);
       
@@ -300,12 +307,16 @@ const SharedMap = ({
         // No text content needed - using background-image
       } else if (locationType === 'contract_rule') {
         // Smart Contract Execution Rule marker
+        const hasMatch = location.hasMatch;
+        const hasExecution = location.hasExecution;
+
+        // Simple, stable styling – avoid animations that could hide the icon
         el.style.cssText = `
           width: 36px;
           height: 36px;
           border-radius: 8px;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border: 3px solid white;
+          border: 3px solid ${hasExecution ? '#4caf50' : hasMatch ? '#ff9800' : 'white'};
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0,0,0,0.3);
           display: flex;
@@ -315,6 +326,7 @@ const SharedMap = ({
           color: white;
           font-weight: bold;
         `;
+        // Keep the 📜 icon clearly visible
         el.textContent = '📜';
       } else if (locationType === 'wallet') {
         // Wallet marker
@@ -410,6 +422,15 @@ const SharedMap = ({
         });
       }
 
+      // Add click handler for wallet markers to prevent map click handler from firing
+      if (locationType === 'wallet') {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // Wallet markers just show popup, no special action needed
+        });
+      }
+
       // Add popup
       if (location.public_key || location.description || location.rule_name || location.name) {
         let popupHTML = '';
@@ -446,28 +467,31 @@ const SharedMap = ({
         marker.setPopup(popup);
       }
 
-      markers.current[`marker_${index}`] = marker;
-    });
-
-    // Fit map to show all locations
-    if (locations.length > 0) {
-      const bounds = new Mapboxgl.LngLatBounds();
-      let validLocations = 0;
-      
-      locations.forEach(location => {
-        const lat = parseFloat(location.latitude);
-        const lng = parseFloat(location.longitude);
-        
-        if (!isNaN(lat) && !isNaN(lng)) {
-          bounds.extend([lng, lat]);
-          validLocations++;
-        }
+        markers.current[`marker_${index}`] = marker;
       });
-      
-      if (validLocations > 0) {
-        map.current.fitBounds(bounds, { padding: 50 });
+
+      // Only fit bounds on initial load, not on every data refresh
+      if (!hasInitialFitBounds.current && locations.length > 0) {
+        const bounds = new Mapboxgl.LngLatBounds();
+        let validLocations = 0;
+        
+        locations.forEach(location => {
+          const lat = parseFloat(location.latitude);
+          const lng = parseFloat(location.longitude);
+          
+          if (!isNaN(lat) && !isNaN(lng)) {
+            bounds.extend([lng, lat]);
+            validLocations++;
+          }
+        });
+        
+        if (validLocations > 0 && map.current) {
+          map.current.fitBounds(bounds, { padding: 50 });
+          hasInitialFitBounds.current = true;
+        }
       }
-    }
+      // Don't restore position - let the map stay where the user positioned it
+    });
   }, [mapLoaded, locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeMapView = useCallback((view) => {
@@ -962,12 +986,15 @@ const SharedMap = ({
         // No text content needed - using background-image
       } else if (locationType === 'contract_rule') {
         // Smart Contract Execution Rule marker
+        const hasMatch = location.hasMatch;
+        const hasExecution = location.hasExecution;
+        
         el.style.cssText = `
           width: 36px;
           height: 36px;
           border-radius: 8px;
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border: 3px solid white;
+          border: 3px solid ${hasExecution ? '#4caf50' : hasMatch ? '#ff9800' : 'white'};
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0,0,0,0.3);
           display: flex;
@@ -976,8 +1003,27 @@ const SharedMap = ({
           font-size: 18px;
           color: white;
           font-weight: bold;
+          position: relative;
+          ${hasMatch || hasExecution ? 'animation: pulseMarker 1.5s ease-in-out infinite;' : ''}
         `;
         el.textContent = '📜';
+        
+        // Add indicator ring for matches/executions
+        if (hasMatch || hasExecution) {
+          const ring = document.createElement('div');
+          ring.style.cssText = `
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            border: 3px solid ${hasExecution ? '#4caf50' : '#ff9800'};
+            animation: ringPulse 1.5s ease-in-out infinite;
+            pointer-events: none;
+            top: -3px;
+            left: -3px;
+          `;
+          el.appendChild(ring);
+        }
       } else if (locationType === 'wallet') {
         // Wallet marker
         el.style.cssText = `
@@ -1246,10 +1292,27 @@ const SharedMap = ({
     }
   }, [initializeMap]);
 
+  // Debounced marker update to prevent glitches during frequent data refreshes
   useEffect(() => {
-    if (map.current && mapLoaded && locations) {
-      addMarkersToMap();
+    if (!map.current || !mapLoaded || !locations) return;
+    
+    // Clear any pending update
+    if (markerUpdateTimeout.current) {
+      clearTimeout(markerUpdateTimeout.current);
     }
+    
+    // Debounce marker updates by 500ms to prevent glitches and freezing
+    markerUpdateTimeout.current = setTimeout(() => {
+      if (map.current && mapLoaded) {
+        addMarkersToMap();
+      }
+    }, 500);
+    
+    return () => {
+      if (markerUpdateTimeout.current) {
+        clearTimeout(markerUpdateTimeout.current);
+      }
+    };
   }, [locations, mapLoaded, addMarkersToMap]);
 
   // Handle zoom target
@@ -1311,6 +1374,44 @@ const SharedMap = ({
       }
     };
   }, [fullscreenMap]);
+
+  // Add CSS for pulse animations
+  useEffect(() => {
+    const styleId = 'shared-map-pulse-animations';
+    if (document.getElementById(styleId)) return; // Already added
+    
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      @keyframes pulseMarker {
+        0%, 100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 0.9;
+        }
+      }
+      @keyframes ringPulse {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1.5);
+          opacity: 0;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      const existingStyle = document.getElementById(styleId);
+      if (existingStyle) {
+        document.head.removeChild(existingStyle);
+      }
+    };
+  }, []);
 
   return (
     <>

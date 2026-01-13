@@ -2,13 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useWallet } from '../../contexts/WalletContext';
-
 const NFTLocationMap = ({ nft, userLocation }) => {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
-  const { publicKey } = useWallet();
   const [distance, setDistance] = useState(null);
 
   // Calculate distance
@@ -28,7 +25,7 @@ const NFTLocationMap = ({ nft, userLocation }) => {
   };
 
   useEffect(() => {
-    if (!mapContainer || !nft || !nft.latitude || !nft.longitude) {
+    if (!mapContainer.current || !nft || !nft.latitude || !nft.longitude) {
       return;
     }
 
@@ -55,7 +52,7 @@ const NFTLocationMap = ({ nft, userLocation }) => {
 
     // Create map
     const map = new mapboxgl.Map({
-      container: mapContainer,
+      container: mapContainer.current,
       style: 'mapbox://styles/mapbox/light-v11',
       center: [nftLng, nftLat],
       zoom: 13,
@@ -200,7 +197,7 @@ const NFTLocationMap = ({ nft, userLocation }) => {
         mapRef.current = null;
       }
     };
-  }, [mapContainer, nft, userLocation, distance]);
+  }, [nft, userLocation, distance]);
 
   return (
     <Box>

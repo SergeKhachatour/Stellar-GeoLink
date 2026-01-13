@@ -62,7 +62,9 @@ import {
   Close as CloseIcon,
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon
+  ExpandLess as ExpandLessIcon,
+  QrCodeScanner as QrCodeScannerIcon,
+  CameraAlt as CameraAltIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
@@ -171,6 +173,18 @@ const ContractManagement = () => {
   const [quorumStatus, setQuorumStatus] = useState(null);
   const [checkingQuorum, setCheckingQuorum] = useState(false);
   const [selectedRuleForQuorum, setSelectedRuleForQuorum] = useState(null);
+  const [quorumConfig, setQuorumConfig] = useState({
+    required_wallet_public_keys: [],
+    minimum_wallet_count: null,
+    quorum_type: 'any'
+  });
+  const [newWalletKey, setNewWalletKey] = useState('');
+  const [savingQuorum, setSavingQuorum] = useState(false);
+  const [quorumDialogTab, setQuorumDialogTab] = useState(0); // 0 = Configure, 1 = Status
+  const [isQuorumScannerOpen, setIsQuorumScannerOpen] = useState(false);
+  const [quorumScannerError, setQuorumScannerError] = useState('');
+  const quorumVideoRef = useRef(null);
+  const quorumQrScannerRef = useRef(null);
   
   // Rules Table Pagination
   const [rulesPage, setRulesPage] = useState(0);
@@ -186,6 +200,9 @@ const ContractManagement = () => {
     loadContracts();
     loadRules();
     loadPendingRules();
+    // Also load completed and rejected rules counts on initial load for tab badges
+    loadCompletedRules();
+    loadRejectedRules();
   }, []);
 
   // Reload rules when switching tabs
@@ -197,6 +214,18 @@ const ContractManagement = () => {
     } else if (tabValue === 4) {
       loadRejectedRules();
     }
+  }, [tabValue]);
+
+  // Auto-refresh pending rules count every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (tabValue === 2) {
+        // Only refresh if we're on the pending rules tab
+        loadPendingRules();
+      }
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
   }, [tabValue]);
   
   // Update stepper orientation on window resize
@@ -503,37 +532,43 @@ const ContractManagement = () => {
       parameters: selectedFunc?.parameters
     });
     
-    if (selectedFunc && selectedFunc.parameters && selectedFunc.parameters.length > 0) {
+    if (selectedFunc && selectedFunc.parameters && Array.isArray(selectedFunc.parameters) && selectedFunc.parameters.length > 0) {
       console.log('[ContractManagement] Function has parameters:', selectedFunc.parameters);
       // Generate parameter object with default values based on mapped_from
       const params = {};
       selectedFunc.parameters.forEach(param => {
         console.log('[ContractManagement] Processing parameter:', param);
-        switch (param.mapped_from) {
+        const paramName = param.name || param.parameter_name || 'unknown';
+        const paramType = param.type || 'String';
+        const mappedFrom = param.mapped_from || null;
+        
+        switch (mappedFrom) {
           case 'latitude':
-            params[param.name] = ruleForm.center_latitude || 0;
+            params[paramName] = ruleForm.center_latitude || 0;
             break;
           case 'longitude':
-            params[param.name] = ruleForm.center_longitude || 0;
+            params[paramName] = ruleForm.center_longitude || 0;
             break;
           case 'user_public_key':
-            params[param.name] = '';
+            params[paramName] = '';
             break;
           case 'amount':
-            params[param.name] = 0;
+            params[paramName] = 0;
             break;
           case 'asset_code':
-            params[param.name] = '';
+            params[paramName] = '';
             break;
           default:
             // For custom_value, use empty string or 0 based on type
-            if (param.type === 'I128' || param.type === 'I64' || param.type === 'I32' || 
-                param.type === 'U128' || param.type === 'U64' || param.type === 'U32') {
-              params[param.name] = 0;
-            } else if (param.type === 'Bool') {
-              params[param.name] = false;
+            if (paramType === 'I128' || paramType === 'I64' || paramType === 'I32' || 
+                paramType === 'U128' || paramType === 'U64' || paramType === 'U32') {
+              params[paramName] = 0;
+            } else if (paramType === 'Bool') {
+              params[paramName] = false;
+            } else if (paramType === 'Address') {
+              params[paramName] = '';
             } else {
-              params[param.name] = '';
+              params[paramName] = '';
             }
         }
       });
@@ -544,7 +579,9 @@ const ContractManagement = () => {
       console.log('[ContractManagement] Parameters check:', {
         hasSelectedFunc: !!selectedFunc,
         hasParameters: !!(selectedFunc && selectedFunc.parameters),
-        parametersLength: selectedFunc?.parameters?.length || 0
+        isArray: Array.isArray(selectedFunc?.parameters),
+        parametersLength: selectedFunc?.parameters?.length || 0,
+        parameters: selectedFunc?.parameters
       });
       setRuleForm({ ...ruleForm, function_name: functionName, function_parameters: '{}' });
     }
@@ -694,20 +731,47 @@ const ContractManagement = () => {
           zoomLevel = 16; // For small radii, zoom in close
         }
         
-        // Update radius circle immediately with the radius we're using
-        updateRadiusCircle(newMap, lat, lng, radiusToUse);
+        // Update radius circle - ensure map is ready first
+        const updateCircleAfterPinDrop = () => {
+          if (newMap.isStyleLoaded()) {
+            try {
+              updateRadiusCircle(newMap, lat, lng, radiusToUse);
+            } catch (error) {
+              console.warn('Error updating radius circle after pin drop:', error);
+            }
+          } else {
+            newMap.once('style.load', () => {
+              try {
+                updateRadiusCircle(newMap, lat, lng, radiusToUse);
+              } catch (error) {
+                console.warn('Error updating radius circle after style load:', error);
+              }
+            });
+          }
+        };
+        
+        // Wait a bit for state to update, then try
+        setTimeout(() => {
+          updateCircleAfterPinDrop();
+        }, 100);
         
         // Also update after a short delay to ensure it's visible after zoom
         setTimeout(() => {
-          if (newMap.isStyleLoaded()) {
-            updateRadiusCircle(newMap, lat, lng, radiusToUse);
-          }
+          updateCircleAfterPinDrop();
           newMap.flyTo({
             center: [lng, lat],
             zoom: zoomLevel,
             duration: 1000
           });
-        }, 200);
+          // Update again after flyTo completes
+          setTimeout(() => {
+            updateCircleAfterPinDrop();
+          }, 1100);
+          // And once more after that
+          setTimeout(() => {
+            updateCircleAfterPinDrop();
+          }, 2000);
+        }, 300);
       });
       
       // If location already set, show it
@@ -758,12 +822,63 @@ const ContractManagement = () => {
           }
         });
         
-        // Update radius circle after a short delay to ensure map is ready
-        setTimeout(() => {
+        // Update radius circle - try multiple times to ensure it shows
+        const updateCircle = () => {
           const radius = parseFloat(ruleForm.radius_meters) || 100;
-          updateRadiusCircle(newMap, lat, lng, radius);
+          if (radius > 0 && !isNaN(lat) && !isNaN(lng)) {
+            if (newMap.isStyleLoaded()) {
+              updateRadiusCircle(newMap, lat, lng, radius);
+            } else {
+              // If map not ready, wait and try again
+              newMap.once('style.load', () => {
+                updateRadiusCircle(newMap, lat, lng, radius);
+              });
+            }
+          }
+        };
+        
+        // Try immediately if map is loaded
+        if (newMap.isStyleLoaded()) {
+          updateCircle();
+        } else {
+          // Wait for style to load
+          newMap.once('style.load', () => {
+            updateCircle();
+            // Also try again after a short delay to ensure it's visible
+            setTimeout(() => {
+              updateCircle();
+            }, 200);
+          });
+        }
+        
+        // Also try after delays as fallback to ensure it shows
+        // Use multiple timeouts to handle different loading scenarios
+        setTimeout(() => {
+          updateCircle();
         }, 300);
+        setTimeout(() => {
+          updateCircle();
+        }, 600);
+        setTimeout(() => {
+          updateCircle();
+        }, 1000);
+        setTimeout(() => {
+          updateCircle();
+        }, 1500);
       }
+      
+      // Also add a listener for when the map becomes idle (fully loaded)
+      const handleMapIdle = () => {
+        if (ruleForm.center_latitude && ruleForm.center_longitude) {
+          const lat = parseFloat(ruleForm.center_latitude);
+          const lng = parseFloat(ruleForm.center_longitude);
+          const radius = parseFloat(ruleForm.radius_meters) || 100;
+          if (!isNaN(lat) && !isNaN(lng) && radius > 0) {
+            updateRadiusCircle(newMap, lat, lng, radius);
+          }
+        }
+      };
+      newMap.on('idle', handleMapIdle);
     });
     
     // Cleanup function
@@ -777,7 +892,18 @@ const ContractManagement = () => {
   
   // Update map when location or radius changes (but only if map exists and is loaded)
   useEffect(() => {
-    if (!mapRef.current || activeStep !== 1 || !selectedLocation) return;
+    if (!mapRef.current || activeStep !== 1) return;
+    
+    // If we have coordinates in ruleForm but no selectedLocation, set it
+    if (!selectedLocation && ruleForm.center_latitude && ruleForm.center_longitude) {
+      setSelectedLocation({
+        lat: parseFloat(ruleForm.center_latitude),
+        lng: parseFloat(ruleForm.center_longitude)
+      });
+      return; // Will trigger this effect again with selectedLocation set
+    }
+    
+    if (!selectedLocation) return;
     
     // Always use a radius (default to 100 if not set)
     const radius = parseFloat(ruleForm.radius_meters) || 100;
@@ -802,7 +928,7 @@ const ContractManagement = () => {
     if (selectedLocation && radius > 0) {
       updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
     }
-  }, [selectedLocation, ruleForm.radius_meters, activeStep, updateRadiusCircle]);
+  }, [selectedLocation, ruleForm.radius_meters, ruleForm.center_latitude, ruleForm.center_longitude, activeStep, updateRadiusCircle]);
   
   // Cleanup map on dialog close
   useEffect(() => {
@@ -888,10 +1014,10 @@ const ContractManagement = () => {
 
         if (mapRef.current) {
           const updateMap = () => {
-            if (!mapRef.current || !mapRef.current.isStyleLoaded()) {
-              if (mapRef.current) {
-                mapRef.current.once('style.load', updateMap);
-              }
+            if (!mapRef.current) return;
+            
+            if (!mapRef.current.isStyleLoaded()) {
+              mapRef.current.once('style.load', updateMap);
               return;
             }
 
@@ -968,12 +1094,16 @@ const ContractManagement = () => {
     
     if (mapRef.current) {
       const updateMap = () => {
-        if (!mapRef.current || !mapRef.current.isStyleLoaded()) {
-          if (mapRef.current) {
-            mapRef.current.once('style.load', updateMap);
-          }
+        if (!mapRef.current) return;
+        
+        if (!mapRef.current.isStyleLoaded()) {
+          mapRef.current.once('style.load', updateMap);
           return;
         }
+
+        // Get current radius, ensure it defaults to 100
+        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
+        const radiusToUse = currentRadius > 0 ? currentRadius : 100;
 
         mapRef.current.flyTo({
           center: [lng, lat],
@@ -1013,6 +1143,13 @@ const ContractManagement = () => {
         // Update radius circle - ensure it shows
         const radius = parseFloat(ruleForm.radius_meters) || 100;
         updateRadiusCircle(mapRef.current, lat, lng, radius);
+        
+        // Also update after flyTo completes
+        setTimeout(() => {
+          if (mapRef.current && mapRef.current.isStyleLoaded()) {
+            updateRadiusCircle(mapRef.current, lat, lng, radius);
+          }
+        }, 2100);
       };
       
       updateMap();
@@ -1181,7 +1318,8 @@ const ContractManagement = () => {
   const [executionStatus, setExecutionStatus] = useState('');
   const [paymentSource, setPaymentSource] = useState('wallet'); // 'wallet' or 'smart-wallet'
   const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
-  const [userStake, setUserStake] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [userStake, setUserStake] = useState(null); // Reserved for future use
   // Note: executionStep is set but not currently displayed in UI
   // eslint-disable-next-line no-unused-vars
   const [executionStep, setExecutionStep] = useState(0);
@@ -1933,15 +2071,107 @@ const ContractManagement = () => {
   };
 
   const handleCheckQuorum = async (rule) => {
+    setSelectedRuleForQuorum(rule);
+    // Initialize quorum config from rule
+    const existingKeys = rule.required_wallet_public_keys 
+      ? (typeof rule.required_wallet_public_keys === 'string' 
+          ? JSON.parse(rule.required_wallet_public_keys) 
+          : rule.required_wallet_public_keys)
+      : [];
+    setQuorumConfig({
+      required_wallet_public_keys: existingKeys,
+      minimum_wallet_count: rule.minimum_wallet_count || null,
+      quorum_type: rule.quorum_type || 'any'
+    });
+    setNewWalletKey('');
+    setQuorumStatus(null);
+    setQuorumDialogTab(0); // Start with configuration tab
+    setQuorumCheckOpen(true);
+  };
+
+  const handleAddWalletKey = () => {
+    if (newWalletKey.trim() && !quorumConfig.required_wallet_public_keys.includes(newWalletKey.trim())) {
+      setQuorumConfig(prev => ({
+        ...prev,
+        required_wallet_public_keys: [...prev.required_wallet_public_keys, newWalletKey.trim()]
+      }));
+      setNewWalletKey('');
+    }
+  };
+
+  const handleRemoveWalletKey = (index) => {
+    setQuorumConfig(prev => ({
+      ...prev,
+      required_wallet_public_keys: prev.required_wallet_public_keys.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleSaveQuorumConfig = async () => {
+    if (!selectedRuleForQuorum) return;
+
+    try {
+      setSavingQuorum(true);
+      setError('');
+
+      // Validate configuration
+      if (quorumConfig.required_wallet_public_keys.length > 0) {
+        if (!quorumConfig.minimum_wallet_count || quorumConfig.minimum_wallet_count <= 0) {
+          setError('Minimum wallet count must be set when required wallets are specified');
+          setSavingQuorum(false);
+          return;
+        }
+        if (quorumConfig.minimum_wallet_count > quorumConfig.required_wallet_public_keys.length) {
+          setError(`Minimum wallet count (${quorumConfig.minimum_wallet_count}) cannot exceed the number of required wallets (${quorumConfig.required_wallet_public_keys.length})`);
+          setSavingQuorum(false);
+          return;
+        }
+      }
+
+      const updateData = {
+        required_wallet_public_keys: quorumConfig.required_wallet_public_keys.length > 0 
+          ? quorumConfig.required_wallet_public_keys 
+          : null,
+        minimum_wallet_count: quorumConfig.required_wallet_public_keys.length > 0 
+          ? quorumConfig.minimum_wallet_count 
+          : null,
+        quorum_type: quorumConfig.required_wallet_public_keys.length > 0 
+          ? quorumConfig.quorum_type 
+          : 'any'
+      };
+
+      await api.put(`/contracts/rules/${selectedRuleForQuorum.id}`, updateData);
+      
+      setSuccess('Quorum configuration saved successfully');
+      setTimeout(() => setSuccess(''), 3000);
+      
+      // Reload rules to get updated data
+      await loadRules();
+      
+      // Update selected rule with new data
+      const updatedRules = await api.get('/contracts/rules');
+      const updatedRule = updatedRules.data.find(r => r.id === selectedRuleForQuorum.id);
+      if (updatedRule) {
+        setSelectedRuleForQuorum(updatedRule);
+      }
+    } catch (err) {
+      console.error('Error saving quorum config:', err);
+      setError(err.response?.data?.error || 'Failed to save quorum configuration');
+    } finally {
+      setSavingQuorum(false);
+    }
+  };
+
+  const handleCheckQuorumStatus = async () => {
+    if (!selectedRuleForQuorum) return;
+
     try {
       setCheckingQuorum(true);
       setError('');
-      setSelectedRuleForQuorum(rule);
       
-      const response = await api.get(`/contracts/rules/${rule.id}/quorum`);
+      const response = await api.get(`/contracts/rules/${selectedRuleForQuorum.id}/quorum`);
       
       setQuorumStatus(response.data);
-      setQuorumCheckOpen(true);
+      setQuorumDialogTab(1); // Switch to status tab
     } catch (err) {
       console.error('Error checking quorum:', err);
       setError(err.response?.data?.error || 'Failed to check quorum status');
@@ -1949,6 +2179,92 @@ const ContractManagement = () => {
       setCheckingQuorum(false);
     }
   };
+
+  // Start QR scanner for quorum wallet key
+  const startQuorumQRScanner = async () => {
+    try {
+      // Dynamically import qr-scanner
+      const QrScanner = (await import('qr-scanner')).default;
+      
+      // Check if camera is available
+      const hasCamera = await QrScanner.hasCamera();
+      if (!hasCamera) {
+        setQuorumScannerError('No camera found on this device');
+        return;
+      }
+
+      setIsQuorumScannerOpen(true);
+      setQuorumScannerError('');
+
+      // Wait for modal to render, then start scanner
+      setTimeout(async () => {
+        try {
+          if (quorumVideoRef.current) {
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+            if (!isSecure) {
+              setQuorumScannerError('Camera access requires HTTPS. Please use the secure version of the site.');
+              setIsQuorumScannerOpen(false);
+              return;
+            }
+            
+            const scanner = new QrScanner(
+              quorumVideoRef.current,
+              (result) => {
+                console.log('QR Code detected for quorum:', result);
+                setNewWalletKey(result.data);
+                setIsQuorumScannerOpen(false);
+                stopQuorumQRScanner();
+              },
+              {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+                preferredCamera: 'environment',
+                maxScansPerSecond: 5,
+              }
+            );
+            
+            quorumQrScannerRef.current = scanner;
+            await scanner.start();
+          }
+        } catch (error) {
+          console.error('Error starting quorum scanner:', error);
+          setQuorumScannerError('Failed to start camera. Please check permissions.');
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error loading QR scanner:', error);
+      setQuorumScannerError('QR scanner not available. Please install qr-scanner package.');
+    }
+  };
+
+  // Stop QR scanner for quorum
+  const stopQuorumQRScanner = () => {
+    if (quorumQrScannerRef.current) {
+      try {
+        quorumQrScannerRef.current.stop();
+        quorumQrScannerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error stopping quorum QR scanner:', e);
+      }
+      quorumQrScannerRef.current = null;
+    }
+  };
+
+  // Cleanup QR scanner on unmount
+  useEffect(() => {
+    return () => {
+      stopQuorumQRScanner();
+    };
+  }, []);
+
+  // Cleanup scanner when dialog closes
+  useEffect(() => {
+    if (!quorumCheckOpen) {
+      stopQuorumQRScanner();
+      setIsQuorumScannerOpen(false);
+      setQuorumScannerError('');
+    }
+  }, [quorumCheckOpen]);
 
   const getContractName = (contractId) => {
     const contract = contracts.find(c => c.id === contractId);
@@ -2362,14 +2678,15 @@ const ContractManagement = () => {
                               <PowerSettingsNewIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleCheckQuorum(rule)}
-                            disabled={checkingQuorum || !rule.required_wallet_public_keys || rule.required_wallet_public_keys.length === 0}
-                            title="Check Quorum Status"
-                          >
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
+                          <Tooltip title="Configure Quorum Requirements">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleCheckQuorum(rule)}
+                              disabled={checkingQuorum}
+                            >
+                              <VisibilityIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                           <IconButton
                             size="small"
                             onClick={() => handleEditRule(rule)}
@@ -2469,14 +2786,15 @@ const ContractManagement = () => {
                             <PowerSettingsNewIcon />
                           </IconButton>
                         </Tooltip>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleCheckQuorum(rule)}
-                          disabled={checkingQuorum || !rule.required_wallet_public_keys || rule.required_wallet_public_keys.length === 0}
-                          title="Check Quorum Status"
-                        >
-                          <VisibilityIcon />
-                        </IconButton>
+                        <Tooltip title="Configure Quorum Requirements">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleCheckQuorum(rule)}
+                            disabled={checkingQuorum}
+                          >
+                            <VisibilityIcon />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Test Function">
                           <IconButton
                             size="small"
@@ -3410,10 +3728,33 @@ const ContractManagement = () => {
                               type="number"
                               value={ruleForm.radius_meters}
                               onChange={(e) => {
+                                const radius = parseFloat(e.target.value) || 100;
                                 setRuleForm({ ...ruleForm, radius_meters: e.target.value });
-                                if (mapRef.current && selectedLocation && mapRef.current.isStyleLoaded()) {
-                                  const radius = parseFloat(e.target.value) || 100;
-                                  updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                // Update radius circle on map if location is set
+                                if (mapRef.current && mapRef.current.isStyleLoaded()) {
+                                  if (selectedLocation) {
+                                    updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                  } else if (ruleForm.center_latitude && ruleForm.center_longitude) {
+                                    // If selectedLocation not set but coordinates are, use those
+                                    const lat = parseFloat(ruleForm.center_latitude);
+                                    const lng = parseFloat(ruleForm.center_longitude);
+                                    if (!isNaN(lat) && !isNaN(lng)) {
+                                      updateRadiusCircle(mapRef.current, lat, lng, radius);
+                                    }
+                                  }
+                                } else if (mapRef.current) {
+                                  // Wait for style to load
+                                  mapRef.current.once('style.load', () => {
+                                    if (selectedLocation) {
+                                      updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                    } else if (ruleForm.center_latitude && ruleForm.center_longitude) {
+                                      const lat = parseFloat(ruleForm.center_latitude);
+                                      const lng = parseFloat(ruleForm.center_longitude);
+                                      if (!isNaN(lat) && !isNaN(lng)) {
+                                        updateRadiusCircle(mapRef.current, lat, lng, radius);
+                                      }
+                                    }
+                                  });
                                 }
                               }}
                               fullWidth
@@ -3584,10 +3925,33 @@ const ContractManagement = () => {
                               type="number"
                               value={ruleForm.radius_meters}
                               onChange={(e) => {
+                                const radius = parseFloat(e.target.value) || 100;
                                 setRuleForm({ ...ruleForm, radius_meters: e.target.value });
-                                if (mapRef.current && selectedLocation && mapRef.current.isStyleLoaded()) {
-                                  const radius = parseFloat(e.target.value) || 100;
-                                  updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                // Update radius circle on map if location is set
+                                if (mapRef.current && mapRef.current.isStyleLoaded()) {
+                                  if (selectedLocation) {
+                                    updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                  } else if (ruleForm.center_latitude && ruleForm.center_longitude) {
+                                    // If selectedLocation not set but coordinates are, use those
+                                    const lat = parseFloat(ruleForm.center_latitude);
+                                    const lng = parseFloat(ruleForm.center_longitude);
+                                    if (!isNaN(lat) && !isNaN(lng)) {
+                                      updateRadiusCircle(mapRef.current, lat, lng, radius);
+                                    }
+                                  }
+                                } else if (mapRef.current) {
+                                  // Wait for style to load
+                                  mapRef.current.once('style.load', () => {
+                                    if (selectedLocation) {
+                                      updateRadiusCircle(mapRef.current, selectedLocation.lat, selectedLocation.lng, radius);
+                                    } else if (ruleForm.center_latitude && ruleForm.center_longitude) {
+                                      const lat = parseFloat(ruleForm.center_latitude);
+                                      const lng = parseFloat(ruleForm.center_longitude);
+                                      if (!isNaN(lat) && !isNaN(lng)) {
+                                        updateRadiusCircle(mapRef.current, lat, lng, radius);
+                                      }
+                                    }
+                                  });
                                 }
                               }}
                               fullWidth
@@ -4303,60 +4667,289 @@ const ContractManagement = () => {
       </Dialog>
 
       {/* Quorum Status Dialog */}
-      <Dialog open={quorumCheckOpen} onClose={() => setQuorumCheckOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={quorumCheckOpen} onClose={() => setQuorumCheckOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>
-          Quorum Status: {selectedRuleForQuorum?.rule_name}
+          Quorum Configuration: {selectedRuleForQuorum?.rule_name}
         </DialogTitle>
         <DialogContent>
-          {quorumStatus && (
-            <Box sx={{ mt: 2 }}>
-              <Alert 
-                severity={quorumStatus.quorum_met ? 'success' : 'warning'}
-                sx={{ mb: 2 }}
-              >
-                {quorumStatus.message}
-              </Alert>
-              <Typography variant="subtitle2" gutterBottom>
-                Wallets In Range ({quorumStatus.count_in_range} / {quorumStatus.minimum_required}):
+          <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+            <Tabs value={quorumDialogTab} onChange={(e, newValue) => setQuorumDialogTab(newValue)}>
+              <Tab label="Configure" />
+              <Tab label="Check Status" />
+            </Tabs>
+          </Box>
+
+          {quorumDialogTab === 0 && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Quorum Requirements
               </Typography>
-              {quorumStatus.wallets_in_range && quorumStatus.wallets_in_range.length > 0 ? (
-                <Box sx={{ mb: 2 }}>
-                  {quorumStatus.wallets_in_range.map((wallet, idx) => (
-                    <Chip
-                      key={idx}
-                      label={wallet.substring(0, 10) + '...'}
-                      color="success"
-                      size="small"
-                      sx={{ mr: 1, mb: 1 }}
-                    />
-                  ))}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Configure which wallets must be present within the rule's geofence for execution to proceed.
+              </Typography>
+
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Required Wallet Public Keys
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Enter wallet public key (G...)"
+                    value={newWalletKey}
+                    onChange={(e) => setNewWalletKey(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddWalletKey();
+                      }
+                    }}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={startQuorumQRScanner}
+                            edge="end"
+                            title="Scan QR Code"
+                            size="small"
+                          >
+                            <QrCodeScannerIcon />
+                          </IconButton>
+                        </InputAdornment>
+                      )
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    onClick={handleAddWalletKey}
+                    disabled={!newWalletKey.trim() || quorumConfig.required_wallet_public_keys.includes(newWalletKey.trim())}
+                    startIcon={<AddIcon />}
+                  >
+                    Add
+                  </Button>
                 </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">None</Typography>
-              )}
-              {quorumStatus.wallets_out_of_range && quorumStatus.wallets_out_of_range.length > 0 && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
-                    Wallets Out of Range:
-                  </Typography>
-                  <Box>
-                    {quorumStatus.wallets_out_of_range.map((wallet, idx) => (
+
+                {quorumConfig.required_wallet_public_keys.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {quorumConfig.required_wallet_public_keys.map((key, index) => (
                       <Chip
-                        key={idx}
-                        label={wallet.substring(0, 10) + '...'}
-                        color="error"
-                        size="small"
-                        sx={{ mr: 1, mb: 1 }}
+                        key={index}
+                        label={key.length > 20 ? `${key.substring(0, 20)}...` : key}
+                        onDelete={() => handleRemoveWalletKey(index)}
+                        color="primary"
+                        variant="outlined"
                       />
                     ))}
                   </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No wallets added. Add wallet public keys to enable quorum requirements.
+                  </Typography>
+                )}
+              </Box>
+
+              {quorumConfig.required_wallet_public_keys.length > 0 && (
+                <>
+                  <Box sx={{ mb: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Minimum Wallet Count"
+                      type="number"
+                      size="small"
+                      value={quorumConfig.minimum_wallet_count || ''}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value, 10);
+                        setQuorumConfig(prev => ({
+                          ...prev,
+                          minimum_wallet_count: isNaN(value) ? null : value
+                        }));
+                      }}
+                      helperText={`Must be between 1 and ${quorumConfig.required_wallet_public_keys.length}`}
+                      inputProps={{ min: 1, max: quorumConfig.required_wallet_public_keys.length }}
+                    />
+                  </Box>
+
+                  <Box sx={{ mb: 3 }}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Quorum Type</InputLabel>
+                      <Select
+                        value={quorumConfig.quorum_type}
+                        label="Quorum Type"
+                        onChange={(e) => setQuorumConfig(prev => ({ ...prev, quorum_type: e.target.value }))}
+                      >
+                        <MenuItem value="any">Any (at least minimum count)</MenuItem>
+                        <MenuItem value="all">All (all wallets required)</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      {quorumConfig.quorum_type === 'any' 
+                        ? 'Execution requires at least the minimum number of wallets to be in range.'
+                        : 'Execution requires all specified wallets to be in range.'}
+                    </Typography>
+                  </Box>
+                </>
+              )}
+
+              {error && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {error}
+                </Alert>
+              )}
+            </Box>
+          )}
+
+          {quorumDialogTab === 1 && (
+            <Box>
+              <Typography variant="h6" gutterBottom>
+                Current Quorum Status
+              </Typography>
+              
+              {quorumConfig.required_wallet_public_keys.length === 0 ? (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  No quorum requirements configured. Configure quorum requirements in the "Configure" tab first.
+                </Alert>
+              ) : (
+                <>
+                  <Button
+                    variant="outlined"
+                    onClick={handleCheckQuorumStatus}
+                    disabled={checkingQuorum}
+                    startIcon={checkingQuorum ? <CircularProgress size={20} /> : <VisibilityIcon />}
+                    sx={{ mb: 2 }}
+                  >
+                    {checkingQuorum ? 'Checking...' : 'Check Status'}
+                  </Button>
+
+                  {quorumStatus && (
+                    <Box sx={{ mt: 2 }}>
+                      <Alert 
+                        severity={quorumStatus.quorum_met ? 'success' : 'warning'}
+                        sx={{ mb: 2 }}
+                      >
+                        {quorumStatus.message}
+                      </Alert>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Wallets In Range ({quorumStatus.count_in_range} / {quorumStatus.minimum_required}):
+                      </Typography>
+                      {quorumStatus.wallets_in_range && quorumStatus.wallets_in_range.length > 0 ? (
+                        <Box sx={{ mb: 2 }}>
+                          {quorumStatus.wallets_in_range.map((wallet, idx) => (
+                            <Chip
+                              key={idx}
+                              label={wallet.length > 20 ? `${wallet.substring(0, 20)}...` : wallet}
+                              color="success"
+                              size="small"
+                              sx={{ mr: 1, mb: 1 }}
+                            />
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">None</Typography>
+                      )}
+                      {quorumStatus.wallets_out_of_range && quorumStatus.wallets_out_of_range.length > 0 && (
+                        <>
+                          <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                            Wallets Out of Range:
+                          </Typography>
+                          <Box>
+                            {quorumStatus.wallets_out_of_range.map((wallet, idx) => (
+                              <Chip
+                                key={idx}
+                                label={wallet.length > 20 ? `${wallet.substring(0, 20)}...` : wallet}
+                                color="error"
+                                size="small"
+                                sx={{ mr: 1, mb: 1 }}
+                              />
+                            ))}
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  )}
                 </>
               )}
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setQuorumCheckOpen(false)}>Close</Button>
+          <Button onClick={() => setQuorumCheckOpen(false)}>Cancel</Button>
+          {quorumDialogTab === 0 && (
+            <Button
+              variant="contained"
+              onClick={handleSaveQuorumConfig}
+              disabled={savingQuorum || (quorumConfig.required_wallet_public_keys.length > 0 && (!quorumConfig.minimum_wallet_count || quorumConfig.minimum_wallet_count <= 0))}
+              startIcon={savingQuorum ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+            >
+              {savingQuorum ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* QR Scanner Dialog for Quorum */}
+      <Dialog
+        open={isQuorumScannerOpen}
+        onClose={() => {
+          setIsQuorumScannerOpen(false);
+          stopQuorumQRScanner();
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CameraAltIcon />
+            <Typography variant="h6">Scan QR Code</Typography>
+          </Box>
+          <IconButton
+            onClick={() => {
+              setIsQuorumScannerOpen(false);
+              stopQuorumQRScanner();
+            }}
+            size="small"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        
+        <DialogContent sx={{ textAlign: 'center' }}>
+          <video
+            ref={quorumVideoRef}
+            style={{
+              width: '100%',
+              maxWidth: '500px',
+              borderRadius: '8px',
+              backgroundColor: '#000'
+            }}
+            playsInline
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Position the QR code within the frame. Scanning happens automatically.
+          </Typography>
+          
+          {quorumScannerError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {quorumScannerError}
+            </Alert>
+          )}
+        </DialogContent>
+        
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setIsQuorumScannerOpen(false);
+              stopQuorumQRScanner();
+            }}
+            variant="outlined"
+            fullWidth
+          >
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
 
