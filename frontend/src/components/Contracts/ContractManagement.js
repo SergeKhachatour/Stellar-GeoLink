@@ -1101,10 +1101,6 @@ const ContractManagement = () => {
           return;
         }
 
-        // Get current radius, ensure it defaults to 100
-        const currentRadius = parseFloat(ruleForm.radius_meters) || 100;
-        const radiusToUse = currentRadius > 0 ? currentRadius : 100;
-
         mapRef.current.flyTo({
           center: [lng, lat],
           zoom: 15,
