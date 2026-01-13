@@ -39,6 +39,7 @@ import AIChat from './AI/AIChat';
 import ContractManagement from './Contracts/ContractManagement';
 import SendPayment from './Wallet/SendPayment';
 import ReceivePayment from './Wallet/ReceivePayment';
+import NFTLocationMap from './Map/NFTLocationMap';
 import ContractDetailsOverlay from './Map/ContractDetailsOverlay';
 
 const WalletProviderDashboard = () => {
@@ -66,6 +67,7 @@ const WalletProviderDashboard = () => {
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
     const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
     const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
+    const [userLocation, setUserLocation] = useState(null);
   // Pagination for wallets/NFTs table
   const [walletsPage, setWalletsPage] = useState(0);
   const [walletsRowsPerPage, setWalletsRowsPerPage] = useState(10);
@@ -146,6 +148,21 @@ const WalletProviderDashboard = () => {
 
     useEffect(() => {
         fetchDashboardData();
+        
+        // Get user's current location for map features
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setUserLocation({
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    });
+                },
+                (error) => {
+                    console.warn('Could not get user location:', error);
+                }
+            );
+        }
     }, []);
 
     const fetchDashboardData = async () => {
@@ -950,18 +967,41 @@ const WalletProviderDashboard = () => {
                         <Box>
                             <Grid container spacing={3}>
                                 <Grid item xs={12} md={6}>
-                                    {selectedNFT.full_ipfs_url && (
-                                        <img
-                                            src={selectedNFT.full_ipfs_url}
-                                            alt={selectedNFT.name || 'NFT'}
-                                            style={{
-                                                width: '100%',
-                                                height: 'auto',
-                                                borderRadius: '8px',
-                                                boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
-                                            }}
-                                        />
-                                    )}
+                                    {(() => {
+                                        // Use constructIPFSUrl like SharedMap does
+                                        const constructIPFSUrl = (serverUrl, hash) => {
+                                            if (!hash) return null;
+                                            if (!serverUrl) return `https://ipfs.io/ipfs/${hash}`;
+                                            
+                                            let baseUrl = serverUrl.trim();
+                                            baseUrl = baseUrl.replace(/\/ipfs\/.*$/i, '');
+                                            baseUrl = baseUrl.replace(/\/+$/, '');
+                                            baseUrl = baseUrl.replace(/^https?:\/\//i, '');
+                                            
+                                            return `https://${baseUrl}/ipfs/${hash}`;
+                                        };
+                                        
+                                        const imageUrl = constructIPFSUrl(selectedNFT.server_url, selectedNFT.ipfs_hash) 
+                                            || selectedNFT.image_url 
+                                            || selectedNFT.full_ipfs_url
+                                            || 'https://via.placeholder.com/400x400?text=NFT';
+                                        
+                                        return (
+                                            <img
+                                                src={imageUrl}
+                                                alt={selectedNFT.name || 'NFT'}
+                                                style={{
+                                                    width: '100%',
+                                                    height: 'auto',
+                                                    borderRadius: '8px',
+                                                    boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                                                }}
+                                                onError={(e) => {
+                                                    e.target.src = 'https://via.placeholder.com/400x400?text=NFT';
+                                                }}
+                                            />
+                                        );
+                                    })()}
                                 </Grid>
                                 <Grid item xs={12} md={6}>
                                     <Typography variant="h6" gutterBottom>
@@ -973,41 +1013,24 @@ const WalletProviderDashboard = () => {
                                     <Typography variant="body2" color="text.secondary" gutterBottom>
                                         Location: {selectedNFT.latitude}, {selectedNFT.longitude}
                                     </Typography>
-                                    <Button
-                                        variant="outlined"
-                                        size="small"
-                                        sx={{ mt: 1 }}
-                                        onClick={() => {
-                                            const lat = parseFloat(selectedNFT.latitude);
-                                            const lng = parseFloat(selectedNFT.longitude);
-                                            
-                                            // If fullscreen map is open, zoom to it instead of small map
-                                            if (isFullscreenMapOpen && fullscreenMapInstance) {
-                                                console.log('[WalletProviderDashboard] Zooming fullscreen map to NFT location');
-                                                fullscreenMapInstance.flyTo({
-                                                    center: [lng, lat],
-                                                    zoom: 18,
-                                                    duration: 1000
-                                                });
-                                                setOpenNFTDialog(false);
-                                            } else {
-                                                // Zoom to small map
-                                                setZoomTarget({
-                                                    latitude: lat,
-                                                    longitude: lng
-                                                });
-                                                setOpenNFTDialog(false);
-                                            }
-                                        }}
-                                    >
-                                        🔍 Zoom to Location
-                                    </Button>
                                     {selectedNFT.description && (
-                                        <Typography variant="body2" sx={{ mt: 2 }}>
+                                        <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
                                             {selectedNFT.description}
                                         </Typography>
                                     )}
                                 </Grid>
+                                {/* NFT Location Map */}
+                                {selectedNFT.latitude && selectedNFT.longitude && (
+                                    <Grid item xs={12}>
+                                        <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+                                            NFT Location
+                                        </Typography>
+                                        <NFTLocationMap 
+                                            nft={selectedNFT}
+                                            userLocation={userLocation}
+                                        />
+                                    </Grid>
+                                )}
                             </Grid>
                         </Box>
                     )}

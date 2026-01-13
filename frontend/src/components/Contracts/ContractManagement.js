@@ -101,13 +101,19 @@ function a11yProps(index) {
 }
 
 const ContractManagement = () => {
-  const { publicKey, secretKey } = useWallet();
+  const { publicKey, secretKey, balance: walletBalance } = useWallet();
   const [contracts, setContracts] = useState([]);
   const [rules, setRules] = useState([]);
   const [pendingRules, setPendingRules] = useState([]);
   const [loadingPendingRules, setLoadingPendingRules] = useState(false);
+  const [completedRules, setCompletedRules] = useState([]);
+  const [loadingCompletedRules, setLoadingCompletedRules] = useState(false);
+  const [rejectedRules, setRejectedRules] = useState([]);
+  const [loadingRejectedRules, setLoadingRejectedRules] = useState(false);
   const [rejectingRuleId, setRejectingRuleId] = useState(null);
   const [expandedPendingRule, setExpandedPendingRule] = useState(null);
+  const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
+  const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [ruleToReject, setRuleToReject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -182,10 +188,14 @@ const ContractManagement = () => {
     loadPendingRules();
   }, []);
 
-  // Reload pending rules when switching to pending tab
+  // Reload rules when switching tabs
   useEffect(() => {
     if (tabValue === 2) {
       loadPendingRules();
+    } else if (tabValue === 3) {
+      loadCompletedRules();
+    } else if (tabValue === 4) {
+      loadRejectedRules();
     }
   }, [tabValue]);
   
@@ -371,6 +381,36 @@ const ContractManagement = () => {
       setError(err.response?.data?.error || 'Failed to load pending rules');
     } finally {
       setLoadingPendingRules(false);
+    }
+  };
+
+  const loadCompletedRules = async () => {
+    try {
+      setLoadingCompletedRules(true);
+      const response = await api.get('/contracts/rules/completed');
+      if (response.data.success) {
+        setCompletedRules(response.data.completed_rules || []);
+      }
+    } catch (err) {
+      console.error('Error loading completed rules:', err);
+      setError(err.response?.data?.error || 'Failed to load completed rules');
+    } finally {
+      setLoadingCompletedRules(false);
+    }
+  };
+
+  const loadRejectedRules = async () => {
+    try {
+      setLoadingRejectedRules(true);
+      const response = await api.get('/contracts/rules/rejected');
+      if (response.data.success) {
+        setRejectedRules(response.data.rejected_rules || []);
+      }
+    } catch (err) {
+      console.error('Error loading rejected rules:', err);
+      setError(err.response?.data?.error || 'Failed to load rejected rules');
+    } finally {
+      setLoadingRejectedRules(false);
     }
   };
 
@@ -1139,6 +1179,9 @@ const ContractManagement = () => {
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
+  const [paymentSource, setPaymentSource] = useState('wallet'); // 'wallet' or 'smart-wallet'
+  const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
+  const [userStake, setUserStake] = useState(null);
   // Note: executionStep is set but not currently displayed in UI
   // eslint-disable-next-line no-unused-vars
   const [executionStep, setExecutionStep] = useState(0);
@@ -1275,6 +1318,67 @@ const ContractManagement = () => {
     return false;
   };
 
+  // Fetch smart wallet balance when execute dialog opens for payment functions
+  useEffect(() => {
+    if (executeConfirmDialog.open && executeConfirmDialog.rule) {
+      const rule = executeConfirmDialog.rule;
+      const contract = contracts.find(c => c.id === rule.contract_id);
+      let functionParams = {};
+      try {
+        functionParams = typeof rule.function_parameters === 'string'
+          ? JSON.parse(rule.function_parameters)
+          : rule.function_parameters || {};
+      } catch (e) {
+        // Ignore parse errors
+      }
+      
+      const isPayment = isPaymentFunction(rule.function_name, functionParams);
+      const willRouteThroughSmartWallet = contract?.use_smart_wallet && 
+                                         contract?.smart_wallet_contract_id &&
+                                         isPayment;
+      
+      if (isPayment && publicKey) {
+        // Fetch smart wallet balance
+        const fetchSmartWalletBalance = async () => {
+          try {
+            const response = await api.get('/smart-wallet/balance', {
+              params: { userPublicKey: publicKey }
+            });
+            setUserStake(response.data.balanceInXLM);
+          } catch (err) {
+            console.error('Failed to fetch smart wallet balance:', err);
+            setUserStake(null);
+          }
+        };
+        
+        const fetchVaultBalance = async () => {
+          try {
+            const response = await api.get('/smart-wallet/vault-balance');
+            setVaultBalanceInXLM(response.data.balanceInXLM);
+          } catch (err) {
+            console.error('Failed to fetch vault balance:', err);
+            setVaultBalanceInXLM(null);
+          }
+        };
+        
+        fetchSmartWalletBalance();
+        if (willRouteThroughSmartWallet) {
+          fetchVaultBalance();
+        }
+      } else {
+        setUserStake(null);
+        setVaultBalanceInXLM(null);
+      }
+      
+      // Reset payment source to wallet by default
+      setPaymentSource('wallet');
+    } else {
+      setUserStake(null);
+      setVaultBalanceInXLM(null);
+      setPaymentSource('wallet');
+    }
+  }, [executeConfirmDialog.open, executeConfirmDialog.rule, contracts, publicKey]);
+
   const handleExecuteRule = (rule, event) => {
     // Prevent double execution
     if (event) {
@@ -1314,9 +1418,12 @@ const ContractManagement = () => {
         : rule.function_parameters || {};
 
       // Check if payment will route through smart wallet
-      const willRouteThroughSmartWallet = contract?.use_smart_wallet && 
-                                         contract?.smart_wallet_contract_id &&
-                                         isPaymentFunction(rule.function_name, functionParams);
+      // If payment source is smart-wallet, always route through smart wallet
+      // Otherwise, check contract settings
+      const willRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
+                                         (contract?.use_smart_wallet && 
+                                          contract?.smart_wallet_contract_id &&
+                                          isPaymentFunction(rule.function_name, functionParams));
 
       // Determine if WebAuthn is needed:
       // 1. Contract-level requires_webauthn flag (always require if enabled)
@@ -1411,10 +1518,14 @@ const ContractManagement = () => {
           return;
         }
 
+        // If this is a payment function and payment source is wallet, we might need to handle it differently
+        // For now, if paymentSource is 'wallet' and it's a payment function, we still execute through the contract
+        // but the contract should handle routing based on use_smart_wallet setting
+        
         // Create signature payload from function parameters
         // For smart wallet payments, include payment details in signature payload
         let signaturePayload;
-        if (willRouteThroughSmartWallet) {
+        if (willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
           // For smart wallet payments, create signature payload with payment details
           const paymentData = {
             function: rule.function_name,
@@ -1522,6 +1633,154 @@ const ContractManagement = () => {
       setExecutionStatus('Waiting for confirmation...');
       setExecutionStep(4);
 
+      // If this is a payment function and payment source is smart-wallet, call smart wallet endpoint directly
+      const isPayment = isPaymentFunction(rule.function_name, functionParams);
+      if (isPayment && paymentSource === 'smart-wallet') {
+        // Extract payment parameters
+        const destination = functionParams.destination || functionParams.recipient || functionParams.to || '';
+        const amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
+        const asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'XLM';
+        const memo = functionParams.memo || '';
+        
+        if (!destination || !amount) {
+          setError('Payment destination and amount are required');
+          setExecutingRule(false);
+          return;
+        }
+        
+        // Convert amount to stroops
+        const amountInStroops = (parseFloat(amount) * 10000000).toString();
+        
+        // Get passkeys if not already done
+        if (!webauthnData) {
+          setExecutionStatus('Getting passkeys...');
+          setExecutionStep(1);
+          
+          const passkeysResponse = await api.get('/webauthn/passkeys');
+          const passkeys = passkeysResponse.data.passkeys || [];
+          
+          if (passkeys.length === 0) {
+            setError('No passkey registered. Please register a passkey first.');
+            setExecutingRule(false);
+            return;
+          }
+          
+          const selectedPasskey = passkeys[0];
+          const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
+          const passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
+          
+          if (!credentialId || !passkeyPublicKeySPKI) {
+            setError('Passkey data incomplete. Please ensure your passkey is properly registered.');
+            setExecutingRule(false);
+            return;
+          }
+          
+          // Create transaction data for signature
+          const transactionData = {
+            source: publicKey,
+            destination,
+            amount: amountInStroops,
+            asset: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
+            memo,
+            timestamp: Date.now()
+          };
+          
+          const signaturePayload = JSON.stringify(transactionData);
+          
+          setExecutionStatus('Authenticating with passkey...');
+          setExecutionStep(1);
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Authenticate with passkey
+          const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
+          
+          if (!authResult) {
+            setError('Passkey authentication failed');
+            setExecutingRule(false);
+            return;
+          }
+          
+          webauthnData = {
+            passkeyPublicKeySPKI,
+            webauthnSignature: authResult.signature,
+            webauthnAuthenticatorData: authResult.authenticatorData,
+            webauthnClientData: authResult.clientDataJSON,
+            signaturePayload
+          };
+        }
+        
+        // Get secret key if not already set
+        if (!userSecretKey) {
+          userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+          if (!userSecretKey) {
+            setError('Secret key is required for smart wallet payments. Please enter your secret key above.');
+            setExecutingRule(false);
+            return;
+          }
+        }
+        
+        setExecutionStatus('Submitting to blockchain...');
+        setExecutionStep(3);
+        
+        // Call smart wallet execute-payment endpoint (same as send payment)
+        const response = await api.post('/smart-wallet/execute-payment', {
+          userPublicKey: publicKey,
+          userSecretKey: userSecretKey,
+          destinationAddress: destination,
+          amount: amountInStroops,
+          assetAddress: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
+          signaturePayload: webauthnData.signaturePayload,
+          passkeyPublicKeySPKI: webauthnData.passkeyPublicKeySPKI,
+          webauthnSignature: webauthnData.webauthnSignature,
+          webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
+          webauthnClientData: webauthnData.webauthnClientData,
+          rule_id: rule.id // Pass rule_id so backend can mark it as completed
+        });
+        
+        if (response.data.success) {
+          setExecutionStep(4);
+          setExecutionStatus('Waiting for confirmation...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          setExecutionStep(5);
+          setExecutionStatus('✅ Transaction confirmed!');
+          
+          // Build success message
+          const txHash = response.data.hash || 'N/A';
+          const stellarExpertUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
+          let successMsg = `Payment sent successfully!`;
+          if (memo && memo.trim()) {
+            successMsg += `\nMemo: ${memo.trim()}`;
+          }
+          successMsg += `\nTransaction: ${txHash}`;
+          successMsg += `\n🔗 View on StellarExpert: ${stellarExpertUrl}`;
+          
+          setSuccess(successMsg);
+          setExecutingRule(false);
+          
+          // Reload pending and completed rules after a delay
+          setTimeout(async () => {
+            await Promise.all([
+              loadPendingRules(),
+              loadCompletedRules()
+            ]);
+          }, 1000);
+          
+          // Close dialog after a short delay
+          setTimeout(() => {
+            setExecuteConfirmDialog({ open: false, rule: null });
+            setExecutionStatus('');
+            setExecutionStep(0);
+            setSuccess('');
+          }, 3000);
+        } else {
+          setError(response.data.error || 'Payment failed');
+          setExecutingRule(false);
+        }
+        
+        return; // Exit early for smart wallet payments
+      }
+      
       const submitToLedger = !isReadOnly || !!userSecretKey;
       
       // Debug logging
@@ -1540,7 +1799,8 @@ const ContractManagement = () => {
         user_public_key: publicKey,
         user_secret_key: userSecretKey,
         submit_to_ledger: submitToLedger, // Only submit to ledger if it's a write function OR if we have a secret key for read-only
-        rule_id: rule.id
+        rule_id: rule.id,
+        payment_source: isPayment ? paymentSource : undefined // Pass payment source for payment functions
       };
 
       // Add WebAuthn data if needed
@@ -1572,7 +1832,11 @@ const ContractManagement = () => {
         setTimeout(() => setSuccess(''), 8000);
         
         // Reload pending rules to remove the executed rule from the list
-        await loadPendingRules();
+        // Also reload completed rules to update the count
+        await Promise.all([
+          loadPendingRules(),
+          loadCompletedRules()
+        ]);
         
         // Close dialog after a short delay to show success
         setTimeout(() => {
@@ -1803,24 +2067,70 @@ const ContractManagement = () => {
       )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-        <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
+        <Tabs 
+          value={tabValue} 
+          onChange={(e, newValue) => setTabValue(newValue)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            '& .MuiTabs-scrollButtons': {
+              '&.Mui-disabled': {
+                opacity: 0.3
+              }
+            },
+            // Hide scrollbar but keep scrolling functionality
+            '& .MuiTabs-scroller': {
+              '&::-webkit-scrollbar': {
+                display: 'none'
+              },
+              scrollbarWidth: 'none', // Firefox
+              msOverflowStyle: 'none' // IE and Edge
+            }
+          }}
+        >
           <Tab label="Contracts" {...a11yProps(0)} />
           <Tab label="Execution Rules" {...a11yProps(1)} />
           <Tab 
             label={
               <Box display="flex" alignItems="center" gap={1}>
-                Pending Rules
-                {pendingRules.length > 0 && (
-                  <Chip 
-                    label={pendingRules.length} 
-                    size="small" 
-                    color="warning"
-                    sx={{ minWidth: '24px', height: '20px' }}
-                  />
-                )}
+                <Typography variant="body2" noWrap>Pending Rules</Typography>
+                <Chip 
+                  label={pendingRules.length} 
+                  size="small" 
+                  color="warning"
+                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                />
               </Box>
             } 
             {...a11yProps(2)} 
+          />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Completed Rules</Typography>
+                <Chip 
+                  label={completedRules.length} 
+                  size="small" 
+                  color="success"
+                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                />
+              </Box>
+            } 
+            {...a11yProps(3)} 
+          />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Rejected Rules</Typography>
+                <Chip 
+                  label={rejectedRules.length} 
+                  size="small" 
+                  color="error"
+                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                />
+              </Box>
+            } 
+            {...a11yProps(4)} 
           />
         </Tabs>
       </Box>
@@ -2463,6 +2773,335 @@ const ContractManagement = () => {
                             sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
                           >
                             Execute Now
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Collapse>
+                  </Paper>
+                </React.Fragment>
+              );
+            })}
+          </List>
+        )}
+      </TabPanel>
+
+      {/* Completed Rules Tab */}
+      <TabPanel value={tabValue} index={3}>
+        <Box mb={3}>
+          <Alert severity="success" icon={<CheckCircleIcon />}>
+            <Typography variant="subtitle2" gutterBottom>
+              Successfully Executed Rules
+            </Typography>
+            <Typography variant="body2">
+              These rules were matched and successfully executed after requiring authentication.
+            </Typography>
+          </Alert>
+        </Box>
+        {loadingCompletedRules ? (
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        ) : completedRules.length === 0 ? (
+          <Alert severity="info">
+            No completed rules yet. Rules that are successfully executed will appear here.
+          </Alert>
+        ) : (
+          <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
+            {completedRules.map((completedRule) => {
+              const contract = contracts.find(c => c.id === completedRule.contract_id);
+              const rule = rules.find(r => r.id === completedRule.rule_id);
+              const isExpanded = expandedCompletedRule === completedRule.rule_id;
+              
+              return (
+                <React.Fragment key={completedRule.rule_id}>
+                  <Paper 
+                    sx={{ 
+                      mb: 1.5, 
+                      border: '2px solid', 
+                      borderColor: 'success.main',
+                      borderRadius: 2
+                    }}
+                  >
+                    <ListItemButton
+                      onClick={() => setExpandedCompletedRule(isExpanded ? null : completedRule.rule_id)}
+                      sx={{
+                        py: 1.5,
+                        px: 2,
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
+                    >
+                      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {completedRule.rule_name}
+                          </Typography>
+                          <Chip 
+                            icon={<CheckCircleIcon />} 
+                            label="Completed" 
+                            color="success" 
+                            size="small"
+                          />
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Function:</strong> {completedRule.function_name}
+                          </Typography>
+                          {contract && (
+                            <Chip 
+                              label={contract.contract_name || 'Unknown'} 
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
+                          {completedRule.completed_at && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                              Completed: {new Date(completedRule.completed_at).toLocaleString()}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                      <IconButton
+                        edge="end"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedCompletedRule(isExpanded ? null : completedRule.rule_id);
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </IconButton>
+                    </ListItemButton>
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <Box sx={{ p: 2, pt: 0 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Box mb={2}>
+                          {completedRule.location && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <LocationOnIcon fontSize="small" color="action" />
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                Executed at: {completedRule.location.latitude.toFixed(6)}, {completedRule.location.longitude.toFixed(6)}
+                              </Typography>
+                            </Box>
+                          )}
+                          {completedRule.transaction_hash && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                <strong>Transaction:</strong>{' '}
+                                <a 
+                                  href={`https://stellar.expert/explorer/testnet/tx/${completedRule.transaction_hash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: '#1976d2', textDecoration: 'none' }}
+                                >
+                                  {completedRule.transaction_hash.substring(0, 16)}...
+                                </a>
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {completedRule.function_parameters && (
+                          <Box mb={2}>
+                            <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                              Function Parameters:
+                            </Typography>
+                            <Paper 
+                              variant="outlined" 
+                              sx={{ 
+                                p: 1.5, 
+                                bgcolor: 'grey.50',
+                                maxHeight: '200px',
+                                overflow: 'auto'
+                              }}
+                            >
+                              <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+                                {JSON.stringify(
+                                  typeof completedRule.function_parameters === 'string'
+                                    ? JSON.parse(completedRule.function_parameters)
+                                    : completedRule.function_parameters,
+                                  null,
+                                  2
+                                )}
+                              </pre>
+                            </Paper>
+                          </Box>
+                        )}
+
+                        <Box display="flex" gap={1} flexWrap="wrap" sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<MapIcon />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (completedRule.location) {
+                                setSelectedRuleForMap({
+                                  ...rule,
+                                  center_latitude: completedRule.location.latitude,
+                                  center_longitude: completedRule.location.longitude
+                                });
+                                setMapViewOpen(true);
+                              }
+                            }}
+                            disabled={!completedRule.location}
+                            sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
+                          >
+                            View Location
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Collapse>
+                  </Paper>
+                </React.Fragment>
+              );
+            })}
+          </List>
+        )}
+      </TabPanel>
+
+      {/* Rejected Rules Tab */}
+      <TabPanel value={tabValue} index={4}>
+        <Box mb={3}>
+          <Alert severity="warning" icon={<WarningIcon />}>
+            <Typography variant="subtitle2" gutterBottom>
+              Rejected Rules
+            </Typography>
+            <Typography variant="body2">
+              These rules were matched but you chose not to execute them.
+            </Typography>
+          </Alert>
+        </Box>
+        {loadingRejectedRules ? (
+          <Box display="flex" justifyContent="center" p={4}>
+            <CircularProgress />
+          </Box>
+        ) : rejectedRules.length === 0 ? (
+          <Alert severity="info">
+            No rejected rules. Rules that you reject will appear here.
+          </Alert>
+        ) : (
+          <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
+            {rejectedRules.map((rejectedRule) => {
+              const contract = contracts.find(c => c.id === rejectedRule.contract_id);
+              const rule = rules.find(r => r.id === rejectedRule.rule_id);
+              const isExpanded = expandedRejectedRule === rejectedRule.rule_id;
+              
+              return (
+                <React.Fragment key={rejectedRule.rule_id}>
+                  <Paper 
+                    sx={{ 
+                      mb: 1.5, 
+                      border: '2px solid', 
+                      borderColor: 'error.main',
+                      borderRadius: 2
+                    }}
+                  >
+                    <ListItemButton
+                      onClick={() => setExpandedRejectedRule(isExpanded ? null : rejectedRule.rule_id)}
+                      sx={{
+                        py: 1.5,
+                        px: 2,
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
+                    >
+                      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            {rejectedRule.rule_name}
+                          </Typography>
+                          <Chip 
+                            icon={<DeleteIcon />} 
+                            label="Rejected" 
+                            color="error" 
+                            size="small"
+                          />
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Function:</strong> {rejectedRule.function_name}
+                          </Typography>
+                          {contract && (
+                            <Chip 
+                              label={contract.contract_name || 'Unknown'} 
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
+                          {rejectedRule.rejected_at && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                              Rejected: {new Date(rejectedRule.rejected_at).toLocaleString()}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                      <IconButton
+                        edge="end"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedRejectedRule(isExpanded ? null : rejectedRule.rule_id);
+                        }}
+                        sx={{ ml: 1 }}
+                      >
+                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </IconButton>
+                    </ListItemButton>
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <Box sx={{ p: 2, pt: 0 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Box mb={2}>
+                          {rejectedRule.location && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <LocationOnIcon fontSize="small" color="action" />
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                Matched at: {rejectedRule.location.latitude.toFixed(6)}, {rejectedRule.location.longitude.toFixed(6)}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {rejectedRule.function_parameters && (
+                          <Box mb={2}>
+                            <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                              Function Parameters:
+                            </Typography>
+                            <Paper 
+                              variant="outlined" 
+                              sx={{ 
+                                p: 1.5, 
+                                bgcolor: 'grey.50',
+                                maxHeight: '200px',
+                                overflow: 'auto'
+                              }}
+                            >
+                              <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>
+                                {JSON.stringify(
+                                  typeof rejectedRule.function_parameters === 'string'
+                                    ? JSON.parse(rejectedRule.function_parameters)
+                                    : rejectedRule.function_parameters,
+                                  null,
+                                  2
+                                )}
+                              </pre>
+                            </Paper>
+                          </Box>
+                        )}
+
+                        <Box display="flex" gap={1} flexWrap="wrap" sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<MapIcon />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (rejectedRule.location) {
+                                setSelectedRuleForMap({
+                                  ...rule,
+                                  center_latitude: rejectedRule.location.latitude,
+                                  center_longitude: rejectedRule.location.longitude
+                                });
+                                setMapViewOpen(true);
+                              }
+                            }}
+                            disabled={!rejectedRule.location}
+                            sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
+                          >
+                            View Location
                           </Button>
                         </Box>
                       </Box>
@@ -3848,6 +4487,12 @@ const ContractManagement = () => {
                                                  contract?.smart_wallet_contract_id &&
                                                  isPaymentFunction(rule.function_name, functionParams);
             
+            // Extract payment details from function parameters
+            const paymentDestination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
+            const paymentAmount = functionParams.amount || functionParams.value || functionParams.quantity || '';
+            const paymentAsset = functionParams.asset || functionParams.asset_address || functionParams.token || 'XLM';
+            const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams);
+            
             return (
               <>
                 <Typography 
@@ -3860,6 +4505,57 @@ const ContractManagement = () => {
                 >
                   Are you sure you want to execute the function <strong>"{rule.function_name}"</strong>?
                 </Typography>
+                
+                {/* Payment Details Display */}
+                {isPaymentFunc && paymentDestination && (
+                  <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+                    <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                      Payment Details
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">To:</Typography>
+                        <Typography variant="body2" sx={{ wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                          {paymentDestination}
+                        </Typography>
+                      </Box>
+                      {paymentAmount && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Amount:</Typography>
+                          <Typography variant="body2">
+                            {paymentAmount} {paymentAsset}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Paper>
+                )}
+                
+                {/* Payment Source Selection for Payment Functions */}
+                {isPaymentFunc && (
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>Payment Source</InputLabel>
+                    <Select
+                      value={paymentSource}
+                      onChange={(e) => setPaymentSource(e.target.value)}
+                      label="Payment Source"
+                    >
+                      <MenuItem value="wallet">
+                        From Wallet Balance ({walletBalance ? parseFloat(walletBalance).toFixed(7) : '0.0000000'} XLM)
+                      </MenuItem>
+                      {willRouteThroughSmartWallet && (
+                        <MenuItem value="smart-wallet">
+                          From Smart Wallet Vault ({vaultBalanceInXLM ? parseFloat(vaultBalanceInXLM).toFixed(7) : '0.0000000'} XLM)
+                        </MenuItem>
+                      )}
+                    </Select>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {paymentSource === 'wallet' 
+                        ? 'Pay directly from your Stellar wallet balance'
+                        : 'Pay from your smart wallet contract balance (requires passkey authentication)'}
+                    </Typography>
+                  </FormControl>
+                )}
                 
                 {willRouteThroughSmartWallet && (
                   <Alert severity="info" sx={{ mt: 2 }}>
@@ -4113,6 +4809,10 @@ const ContractManagement = () => {
                 setSuccess(`Pending rule "${ruleToReject.rule_name}" rejected successfully`);
                 setTimeout(() => setSuccess(''), 3000);
                 loadPendingRules(); // Reload to remove rejected rule
+                // Also reload rejected rules if we're on that tab
+                if (tabValue === 4) {
+                  await loadRejectedRules();
+                }
                 setRejectDialogOpen(false);
                 setRuleToReject(null);
               } catch (err) {

@@ -247,6 +247,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       webauthnSignature, // Base64 DER-encoded signature (70-72 bytes)
       webauthnAuthenticatorData, // Base64
       webauthnClientData, // Base64
+      rule_id, // Optional: Rule ID to mark as completed after successful payment
     } = req.body;
 
     console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}`);
@@ -400,6 +401,55 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
       if (txResult.status === 'SUCCESS') {
         console.log(`[Smart Wallet] ✅ Payment successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+        
+        // If rule_id is provided, mark the pending rule as completed in execution_results
+        if (rule_id) {
+          try {
+            const { pool } = require('../config/database');
+            const userId = req.user?.id || req.userId;
+            
+            if (userId) {
+              const markCompletedQuery = `
+                UPDATE location_update_queue luq
+                SET execution_results = (
+                  SELECT jsonb_agg(
+                    CASE 
+                      WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                      THEN result || jsonb_build_object(
+                        'completed', true, 
+                        'completed_at', $3::text,
+                        'transaction_hash', $4::text,
+                        'success', true
+                      )
+                      ELSE result
+                    END
+                  )
+                  FROM jsonb_array_elements(luq.execution_results) AS result
+                )
+                WHERE luq.user_id = $2
+                  AND luq.execution_results IS NOT NULL
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE (result->>'rule_id')::integer = $1::integer
+                    AND result->>'skipped' = 'true'
+                    AND (result->>'completed')::boolean IS DISTINCT FROM true
+                  )
+              `;
+              await pool.query(markCompletedQuery, [
+                parseInt(rule_id), 
+                userId, 
+                new Date().toISOString(),
+                sendResult.hash
+              ]);
+              console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed`);
+            }
+          } catch (updateError) {
+            // Don't fail the payment if we can't update the status
+            console.error(`[Smart Wallet] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+          }
+        }
+        
         return res.json({ 
           success: true, 
           hash: sendResult.hash, 

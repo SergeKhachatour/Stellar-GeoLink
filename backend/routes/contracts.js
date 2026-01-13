@@ -1561,6 +1561,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     AND result->>'reason' = 'requires_webauthn'
                     AND (result->>'rule_id')::integer = cer.id
                     AND (result->>'rejected')::boolean IS DISTINCT FROM true
+                    AND (result->>'completed')::boolean IS DISTINCT FROM true
                 )
             ORDER BY cer.id, luq.received_at DESC
             LIMIT $2
@@ -1734,8 +1735,8 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
             SET execution_results = (
                 SELECT jsonb_agg(
                     CASE 
-                        WHEN result->>'rule_id' = $1::text AND result->>'skipped' = 'true'
-                        THEN result || '{"rejected": true, "rejected_at": $3}'::jsonb
+                        WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                        THEN result || jsonb_build_object('rejected', true, 'rejected_at', $3)
                         ELSE result
                     END
                 )
@@ -1753,7 +1754,7 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
             RETURNING luq.id
         `;
 
-        const result = await pool.query(updateQuery, [ruleId, userId, new Date().toISOString()]);
+        const result = await pool.query(updateQuery, [parseInt(ruleId), userId, new Date().toISOString()]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -1773,6 +1774,367 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
             error: 'Failed to reject pending rule',
             message: error.message 
         });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/completed:
+ *   get:
+ *     summary: Get all completed execution rules
+ *     description: Returns a list of execution rules that were successfully executed after being pending. Supports both JWT and API key authentication.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Maximum number of completed rules to return
+ *     responses:
+ *       200:
+ *         description: List of completed rules
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/rules/completed', authenticateContractUser, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        const limit = parseInt(req.query.limit) || 100; // Increased limit to show more completed rules
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        // Use user_id if available, otherwise try to get it from public_key
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
+            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        // Query location_update_queue for updates with completed rules
+        // Remove DISTINCT ON to show all completed executions, not just one per rule
+        const query = `
+            SELECT 
+                cer.id as rule_id,
+                cer.rule_name,
+                cer.function_name,
+                cer.function_parameters,
+                cc.function_mappings,
+                cer.contract_id,
+                cc.contract_name,
+                cc.contract_address,
+                luq.id as update_id,
+                luq.public_key,
+                luq.latitude,
+                luq.longitude,
+                luq.received_at,
+                luq.processed_at,
+                luq.execution_results
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE luq.user_id = $1
+                AND luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE result->>'skipped' = 'true'
+                    AND (result->>'completed')::boolean = true
+                    AND (result->>'rule_id')::integer = cer.id
+                )
+            ORDER BY luq.received_at DESC
+            LIMIT $2
+        `;
+
+        const result = await pool.query(query, [actualUserId, limit]);
+        
+        // Process results to extract completed rules
+        // Show all completed executions, but use unique key to avoid duplicates
+        const completedRules = [];
+        const seenKeys = new Set(); // Track unique combinations of rule_id + transaction_hash + update_id
+
+        for (const row of result.rows) {
+            // Parse execution_results to find the completed rule
+            let executionResults = [];
+            try {
+                executionResults = typeof row.execution_results === 'string'
+                    ? JSON.parse(row.execution_results)
+                    : row.execution_results || [];
+            } catch (e) {
+                console.error('Error parsing execution_results:', e);
+                continue;
+            }
+
+            const completedResult = executionResults.find(r => 
+                r.rule_id === row.rule_id && 
+                r.skipped === true && 
+                r.completed === true
+            );
+
+            if (completedResult) {
+                // Create unique key to avoid duplicates
+                const uniqueKey = `${row.rule_id}_${completedResult.transaction_hash || 'no_hash'}_${row.update_id}`;
+                if (seenKeys.has(uniqueKey)) {
+                    continue; // Skip duplicate
+                }
+                seenKeys.add(uniqueKey);
+                // Parse function_parameters from rule
+                let functionParams = {};
+                try {
+                    functionParams = typeof row.function_parameters === 'string'
+                        ? JSON.parse(row.function_parameters)
+                        : row.function_parameters || {};
+                } catch (e) {
+                    console.error('Error parsing function_parameters:', e);
+                }
+
+                // Populate parameters using function_mappings
+                const populatedParams = { ...functionParams };
+                if (row.function_mappings) {
+                    const mappings = typeof row.function_mappings === 'string'
+                        ? JSON.parse(row.function_mappings)
+                        : row.function_mappings;
+                    
+                    if (mappings && mappings[row.function_name]) {
+                        const mapping = mappings[row.function_name];
+                        for (const param of mapping.parameters || []) {
+                            if (param.mapped_from && !populatedParams[param.name]) {
+                                // Try to get value from mapped_from field
+                                const mappedValue = populatedParams[param.mapped_from];
+                                if (mappedValue !== undefined) {
+                                    populatedParams[param.name] = mappedValue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                completedRules.push({
+                    rule_id: row.rule_id,
+                    rule_name: row.rule_name,
+                    function_name: row.function_name,
+                    function_parameters: populatedParams,
+                    contract_id: row.contract_id,
+                    contract_name: row.contract_name,
+                    contract_address: row.contract_address,
+                    matched_at: row.received_at,
+                    completed_at: completedResult.completed_at,
+                    transaction_hash: completedResult.transaction_hash,
+                    matched_public_key: row.public_key || completedResult.matched_public_key,
+                    location: {
+                        latitude: parseFloat(row.latitude),
+                        longitude: parseFloat(row.longitude)
+                    }
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            completed_rules: completedRules,
+            count: completedRules.length
+        });
+    } catch (error) {
+        console.error('Error fetching completed rules:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/rejected:
+ *   get:
+ *     summary: Get all rejected execution rules
+ *     description: Returns a list of execution rules that were rejected by the user. Supports both JWT and API key authentication.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Maximum number of rejected rules to return
+ *     responses:
+ *       200:
+ *         description: List of rejected rules
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        const limit = parseInt(req.query.limit) || 100; // Increased limit to show more rejected rules
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        // Use user_id if available, otherwise try to get it from public_key
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
+            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        // Query location_update_queue for updates with rejected rules
+        // Remove DISTINCT ON to show all rejected executions, not just one per rule
+        const query = `
+            SELECT 
+                cer.id as rule_id,
+                cer.rule_name,
+                cer.function_name,
+                cer.function_parameters,
+                cc.function_mappings,
+                cer.contract_id,
+                cc.contract_name,
+                cc.contract_address,
+                luq.id as update_id,
+                luq.public_key,
+                luq.latitude,
+                luq.longitude,
+                luq.received_at,
+                luq.processed_at,
+                luq.execution_results
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE luq.user_id = $1
+                AND luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE result->>'skipped' = 'true'
+                    AND (result->>'rejected')::boolean = true
+                    AND (result->>'rule_id')::integer = cer.id
+                )
+            ORDER BY luq.received_at DESC
+            LIMIT $2
+        `;
+
+        const result = await pool.query(query, [actualUserId, limit]);
+        
+        // Process results to extract rejected rules
+        // Show all rejected executions, but use unique key to avoid duplicates
+        const rejectedRules = [];
+        const seenKeys = new Set(); // Track unique combinations of rule_id + rejected_at + update_id
+
+        for (const row of result.rows) {
+
+            // Parse execution_results to find the rejected rule
+            let executionResults = [];
+            try {
+                executionResults = typeof row.execution_results === 'string'
+                    ? JSON.parse(row.execution_results)
+                    : row.execution_results || [];
+            } catch (e) {
+                console.error('Error parsing execution_results:', e);
+                continue;
+            }
+
+            const rejectedResult = executionResults.find(r => 
+                r.rule_id === row.rule_id && 
+                r.skipped === true && 
+                r.rejected === true
+            );
+
+            if (rejectedResult) {
+                // Create unique key to avoid duplicates
+                const uniqueKey = `${row.rule_id}_${rejectedResult.rejected_at || 'no_date'}_${row.update_id}`;
+                if (seenKeys.has(uniqueKey)) {
+                    continue; // Skip duplicate
+                }
+                seenKeys.add(uniqueKey);
+                
+                // Parse function_parameters from rule
+                let functionParams = {};
+                try {
+                    functionParams = typeof row.function_parameters === 'string'
+                        ? JSON.parse(row.function_parameters)
+                        : row.function_parameters || {};
+                } catch (e) {
+                    console.error('Error parsing function_parameters:', e);
+                }
+
+                // Populate parameters using function_mappings
+                const populatedParams = { ...functionParams };
+                if (row.function_mappings) {
+                    const mappings = typeof row.function_mappings === 'string'
+                        ? JSON.parse(row.function_mappings)
+                        : row.function_mappings;
+                    
+                    if (mappings && mappings[row.function_name]) {
+                        const mapping = mappings[row.function_name];
+                        for (const param of mapping.parameters || []) {
+                            if (param.mapped_from && !populatedParams[param.name]) {
+                                // Try to get value from mapped_from field
+                                const mappedValue = populatedParams[param.mapped_from];
+                                if (mappedValue !== undefined) {
+                                    populatedParams[param.name] = mappedValue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                rejectedRules.push({
+                    rule_id: row.rule_id,
+                    rule_name: row.rule_name,
+                    function_name: row.function_name,
+                    function_parameters: populatedParams,
+                    contract_id: row.contract_id,
+                    contract_name: row.contract_name,
+                    contract_address: row.contract_address,
+                    matched_at: row.received_at,
+                    rejected_at: rejectedResult.rejected_at,
+                    matched_public_key: row.public_key || rejectedResult.matched_public_key,
+                    location: {
+                        latitude: parseFloat(row.latitude),
+                        longitude: parseFloat(row.longitude)
+                    }
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            rejected_rules: rejectedRules,
+            count: rejectedRules.length
+        });
+    } catch (error) {
+        console.error('Error fetching rejected rules:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
     }
 });
 
@@ -2642,9 +3004,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         };
 
         // Check if we should route through smart wallet
-        const shouldRouteThroughSmartWallet = contract.use_smart_wallet && 
-                                               contract.smart_wallet_contract_id &&
-                                               isPaymentFunction(function_name, parameters);
+        // If payment_source is explicitly 'smart-wallet', always route through smart wallet
+        // Otherwise, check contract settings
+        const paymentSource = req.body.payment_source; // 'wallet' or 'smart-wallet'
+        const shouldRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
+                                             (contract.use_smart_wallet && 
+                                              contract.smart_wallet_contract_id &&
+                                              isPaymentFunction(function_name, parameters));
 
         if (shouldRouteThroughSmartWallet) {
             console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
@@ -3564,6 +3930,49 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     const network = contract.network === 'mainnet' ? 'mainnet' : 'testnet';
                     const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${sendResult.hash}`;
                     
+                    // If rule_id is provided, mark the pending rule as completed (even if confirmation is pending)
+                    if (rule_id) {
+                        try {
+                            const markCompletedQuery = `
+                                UPDATE location_update_queue luq
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE 
+                                            WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                                            THEN result || jsonb_build_object(
+                                                'completed', true, 
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true,
+                                                'pending_confirmation', true
+                                            )
+                                            ELSE result
+                                        END
+                                    )
+                                    FROM jsonb_array_elements(luq.execution_results) AS result
+                                )
+                                WHERE luq.user_id = $2
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE (result->>'rule_id')::integer = $1::integer
+                                        AND result->>'skipped' = 'true'
+                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                    )
+                            `;
+                            await pool.query(markCompletedQuery, [
+                                parseInt(rule_id), 
+                                userId, 
+                                new Date().toISOString(),
+                                sendResult.hash
+                            ]);
+                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (pending confirmation)`);
+                        } catch (updateError) {
+                            console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+                        }
+                    }
+                    
                     return res.json({
                         success: true,
                         message: isReadOnly 
@@ -3585,6 +3994,49 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 
                 // Check if contract returned false (payment rejected) - this is now handled in the try-catch above
                 // The check happens immediately after extracting the return value
+                
+                // If rule_id is provided, mark the pending rule as completed in execution_results
+                if (rule_id) {
+                    try {
+                        const markCompletedQuery = `
+                            UPDATE location_update_queue luq
+                            SET execution_results = (
+                                SELECT jsonb_agg(
+                                    CASE 
+                                        WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                                        THEN result || jsonb_build_object(
+                                            'completed', true, 
+                                            'completed_at', $3::text,
+                                            'transaction_hash', $4::text,
+                                            'success', true
+                                        )
+                                        ELSE result
+                                    END
+                                )
+                                FROM jsonb_array_elements(luq.execution_results) AS result
+                            )
+                            WHERE luq.user_id = $2
+                                AND luq.execution_results IS NOT NULL
+                                AND EXISTS (
+                                    SELECT 1
+                                    FROM jsonb_array_elements(luq.execution_results) AS result
+                                    WHERE (result->>'rule_id')::integer = $1::integer
+                                    AND result->>'skipped' = 'true'
+                                    AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                )
+                        `;
+                        await pool.query(markCompletedQuery, [
+                            parseInt(rule_id), 
+                            userId, 
+                            new Date().toISOString(),
+                            sendResult.hash
+                        ]);
+                        console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed`);
+                    } catch (updateError) {
+                        // Don't fail the execution if we can't update the status
+                        console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+                    }
+                }
                 
                 return res.json({
                     success: true,
