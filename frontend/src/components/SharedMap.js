@@ -25,6 +25,41 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
 Mapboxgl.accessToken = MAPBOX_TOKEN;
 
+// Utility function to construct IPFS URLs properly
+const constructIPFSUrl = (serverUrl, hash) => {
+  if (!hash) return null;
+  if (!serverUrl) return `https://ipfs.io/ipfs/${hash}`; // Fallback to public gateway
+  
+  let baseUrl = serverUrl.trim();
+  
+  // Remove any existing /ipfs/ path and everything after it
+  // This handles cases where server_url might be: 
+  // - "domain.com/ipfs/somehash" 
+  // - "domain.com/ipfs/somehash/"
+  // - "https://domain.com/ipfs/somehash"
+  // - "domain.com/ipfs/" (just the path without hash)
+  // IMPORTANT: We always use the hash from ipfs_hash field, not from server_url
+  baseUrl = baseUrl.replace(/\/ipfs\/.*$/i, '');
+  
+  // Remove trailing slashes
+  baseUrl = baseUrl.replace(/\/+$/, '');
+  
+  // Remove protocol if present (we'll add https://)
+  baseUrl = baseUrl.replace(/^https?:\/\//i, '');
+  
+  // Ensure it has https:// protocol
+  if (baseUrl) {
+    baseUrl = `https://${baseUrl}`;
+  } else {
+    // If baseUrl is empty after cleaning, fallback to public gateway
+    return `https://ipfs.io/ipfs/${hash}`;
+  }
+  
+  // Construct full IPFS URL using the hash from ipfs_hash field
+  // Note: hash might already include filename for Workflow 2 NFTs (e.g., "hash/filename.png")
+  return `${baseUrl}/ipfs/${hash}`;
+};
+
 const SharedMap = ({ 
   locations = [], 
   title = "Interactive Map", 
@@ -237,20 +272,23 @@ const SharedMap = ({
       
       if (locationType === 'nft') {
         // NFT marker with image - use correct IPFS URL construction
-        const imageUrl = location.ipfs_hash && location.server_url 
-          ? `${location.server_url}${location.ipfs_hash}`
-          : location.image_url || location.full_ipfs_url;
+        const imageUrl = constructIPFSUrl(location.server_url, location.ipfs_hash) 
+          || location.image_url 
+          || location.full_ipfs_url
+          || 'https://via.placeholder.com/64x64?text=NFT';
         
         el.style.cssText = `
-          width: 40px;
-          height: 40px;
+          width: 64px;
+          height: 64px;
           border-radius: 8px;
           background-image: url('${imageUrl}');
           background-size: cover;
+          background-repeat: no-repeat;
           background-position: center;
-          border: 3px solid #9c27b0;
+          border: 3px solid #FFD700;
           cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          overflow: hidden;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -259,7 +297,7 @@ const SharedMap = ({
           font-weight: bold;
           text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         `;
-        el.textContent = '🎨';
+        // No text content needed - using background-image
       } else if (locationType === 'contract_rule') {
         // Smart Contract Execution Rule marker
         el.style.cssText = `
@@ -896,20 +934,23 @@ const SharedMap = ({
       
       if (locationType === 'nft') {
         // NFT marker with image - use correct IPFS URL construction
-        const imageUrl = location.ipfs_hash && location.server_url 
-          ? `${location.server_url}${location.ipfs_hash}`
-          : location.image_url || location.full_ipfs_url;
+        const imageUrl = constructIPFSUrl(location.server_url, location.ipfs_hash) 
+          || location.image_url 
+          || location.full_ipfs_url
+          || 'https://via.placeholder.com/64x64?text=NFT';
         
         el.style.cssText = `
-          width: 40px;
-          height: 40px;
+          width: 64px;
+          height: 64px;
           border-radius: 8px;
           background-image: url('${imageUrl}');
           background-size: cover;
+          background-repeat: no-repeat;
           background-position: center;
-          border: 3px solid #9c27b0;
+          border: 3px solid #FFD700;
           cursor: pointer;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+          overflow: hidden;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -918,7 +959,7 @@ const SharedMap = ({
           font-weight: bold;
           text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         `;
-        el.textContent = '🎨';
+        // No text content needed - using background-image
       } else if (locationType === 'contract_rule') {
         // Smart Contract Execution Rule marker
         el.style.cssText = `
