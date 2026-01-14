@@ -204,6 +204,7 @@ const ContractManagement = () => {
     // Also load completed and rejected rules counts on initial load for tab badges
     loadCompletedRules();
     loadRejectedRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reload rules when switching tabs
@@ -215,6 +216,7 @@ const ContractManagement = () => {
     } else if (tabValue === 4) {
       loadRejectedRules();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabValue]);
 
   // Auto-refresh pending rules count every 5 seconds
@@ -227,6 +229,7 @@ const ContractManagement = () => {
     }, 5000); // Refresh every 5 seconds
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabValue]);
   
   // Update stepper orientation on window resize
@@ -1381,7 +1384,8 @@ const ContractManagement = () => {
   const [executionStatus, setExecutionStatus] = useState('');
   const executionContentRef = useRef(null);
   const [paymentSource, setPaymentSource] = useState('wallet'); // 'wallet' or 'smart-wallet'
-  const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null); // Reserved for future use (vault balance display)
   // eslint-disable-next-line no-unused-vars
   const [userStake, setUserStake] = useState(null); // Reserved for future use
   // Note: executionStep is set but not currently displayed in UI

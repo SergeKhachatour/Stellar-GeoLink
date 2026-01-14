@@ -222,6 +222,7 @@ const DataConsumerDashboard = () => {
         return () => {
             window.removeEventListener('contractRuleChanged', handleRuleChange);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleNFTDetails = (nft) => {

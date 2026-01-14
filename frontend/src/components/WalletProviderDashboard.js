@@ -273,6 +273,7 @@ const WalletProviderDashboard = () => {
         return () => {
             window.removeEventListener('contractRuleChanged', handleRuleChange);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Check for new matches and executions

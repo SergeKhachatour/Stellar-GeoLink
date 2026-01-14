@@ -148,6 +148,7 @@ const AdminDashboard = () => {
         return () => {
             window.removeEventListener('contractRuleChanged', handleRuleChange);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const fetchDashboardStats = async () => {
