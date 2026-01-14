@@ -811,6 +811,13 @@ router.post('/', authenticateContractUser, async (req, res) => {
             }
         }
 
+        // Auto-populate smart_wallet_contract_id from config if use_smart_wallet is true and it's not provided
+        const contractsConfig = require('../config/contracts');
+        if (use_smart_wallet && (!smart_wallet_contract_id || smart_wallet_contract_id === null || smart_wallet_contract_id === '')) {
+            smart_wallet_contract_id = contractsConfig.SMART_WALLET_CONTRACT_ID;
+            console.log(`[Contracts] Auto-populated smart_wallet_contract_id from config: ${smart_wallet_contract_id}`);
+        }
+
         // Check if contract already exists for this user
         const existingContract = await pool.query(
             `SELECT id FROM custom_contracts 
@@ -1022,6 +1029,13 @@ router.put('/:id', authenticateContractUser, async (req, res) => {
             return res.status(404).json({ error: 'Contract not found or not accessible' });
         }
 
+        // Auto-populate smart_wallet_contract_id from config if use_smart_wallet is true and it's not provided
+        const contractsConfig = require('../config/contracts');
+        if (use_smart_wallet && (!smart_wallet_contract_id || smart_wallet_contract_id === null || smart_wallet_contract_id === '')) {
+            smart_wallet_contract_id = contractsConfig.SMART_WALLET_CONTRACT_ID;
+            console.log(`[Contracts PUT] Auto-populated smart_wallet_contract_id from config: ${smart_wallet_contract_id}`);
+        }
+
         // Normalize discovered_functions to object format (keyed by function name) if provided
         let normalizedDiscoveredFunctions = discovered_functions;
         if (discovered_functions !== undefined && discovered_functions !== null) {
@@ -1083,6 +1097,13 @@ router.put('/:id', authenticateContractUser, async (req, res) => {
             updates.push(`use_smart_wallet = $${paramIndex}`);
             params.push(use_smart_wallet);
             paramIndex++;
+            
+            // If use_smart_wallet is being set to true and smart_wallet_contract_id is not provided,
+            // auto-populate it from config
+            if (use_smart_wallet && (smart_wallet_contract_id === undefined || smart_wallet_contract_id === null || smart_wallet_contract_id === '')) {
+                smart_wallet_contract_id = contractsConfig.SMART_WALLET_CONTRACT_ID;
+                console.log(`[Contracts PUT] Auto-populated smart_wallet_contract_id from config when enabling use_smart_wallet: ${smart_wallet_contract_id}`);
+            }
         }
         if (smart_wallet_contract_id !== undefined) {
             updates.push(`smart_wallet_contract_id = $${paramIndex}`);
@@ -1528,10 +1549,10 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         }
 
         // Query location_update_queue for updates with skipped rules (requires_webauthn)
-        // Join with contract_execution_rules to get rule details
-        // Use JSONB operators to check for skipped rules with requires_webauthn reason
+        // Each public key should have its own pending rule entry
+        // Use DISTINCT ON (cer.id, luq.public_key) to ensure uniqueness per rule + public key combination
         const query = `
-            SELECT DISTINCT ON (cer.id)
+            SELECT DISTINCT ON (cer.id, luq.public_key)
                 cer.id as rule_id,
                 cer.rule_name,
                 cer.function_name,
@@ -1563,7 +1584,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     AND (result->>'rejected')::boolean IS DISTINCT FROM true
                     AND (result->>'completed')::boolean IS DISTINCT FROM true
                 )
-            ORDER BY cer.id, luq.received_at DESC
+            ORDER BY cer.id, luq.public_key, luq.received_at DESC
             LIMIT $2
         `;
 
@@ -1572,12 +1593,15 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for user_id ${actualUserId}`);
 
         // Process results to extract skipped rules
+        // Each public key should have its own pending rule entry
         const pendingRules = [];
-        const processedRuleIds = new Set();
+        const processedKeys = new Set(); // Track rule_id + public_key combinations
 
         for (const row of result.rows) {
-            if (processedRuleIds.has(row.rule_id)) continue;
-            processedRuleIds.add(row.rule_id);
+            // Create unique key from rule_id + public_key to ensure each public key gets its own pending entry
+            const uniqueKey = `${row.rule_id}_${row.public_key}`;
+            if (processedKeys.has(uniqueKey)) continue;
+            processedKeys.add(uniqueKey);
 
             // Parse execution_results to find the skipped rule
             let executionResults = [];
@@ -1621,32 +1645,118 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     console.error('[PendingRules] Error parsing function_mappings:', e);
                 }
 
-                // Populate parameters with matched data
+                // Populate parameters with matched data and mark system-generated ones
                 const mapping = functionMappings?.[row.function_name];
                 const populatedParams = { ...functionParams };
+                const systemGenerated = {}; // Track which parameters are system-generated
                 
                 if (mapping?.parameters) {
                     for (const param of mapping.parameters) {
+                        const paramName = param.name;
+                        const paramType = param.type || param.parameter_type || '';
+                        
                         if (param.mapped_from === 'latitude') {
-                            populatedParams[param.name] = parseFloat(row.latitude);
+                            populatedParams[paramName] = parseFloat(row.latitude);
+                            systemGenerated[paramName] = true;
                         } else if (param.mapped_from === 'longitude') {
-                            populatedParams[param.name] = parseFloat(row.longitude);
+                            populatedParams[paramName] = parseFloat(row.longitude);
+                            systemGenerated[paramName] = true;
                         } else if (param.mapped_from === 'user_public_key') {
                             // Use the matched wallet's public key (from location_update_queue)
-                            populatedParams[param.name] = row.public_key || skippedResult.matched_public_key || '';
+                            populatedParams[paramName] = row.public_key || skippedResult.matched_public_key || '';
+                            systemGenerated[paramName] = true;
+                        } else if (paramName === 'signer_address' && (paramType === 'Address' || paramType === 'address')) {
+                            // Will be auto-populated from user's public key (the wallet executing the payment)
+                            // NOT the destination address
+                            const currentValue = populatedParams[paramName];
+                            const matchedPublicKey = row.public_key || skippedResult.matched_public_key;
+                            // If signer_address is set to the destination address, reset it
+                            if (typeof currentValue === 'string' && currentValue === matchedPublicKey) {
+                                // This is incorrectly set to destination - reset it
+                                populatedParams[paramName] = '[Will be system-generated from your wallet]';
+                                systemGenerated[paramName] = true;
+                            } else if (!populatedParams[paramName]) {
+                                populatedParams[paramName] = '[Will be system-generated from your wallet]';
+                                systemGenerated[paramName] = true;
+                            }
+                        } else if (paramName === 'destination' && (paramType === 'Address' || paramType === 'address')) {
+                            // Pre-fill with matched public key if not already set
+                            const matchedPublicKey = row.public_key || skippedResult.matched_public_key;
+                            if (matchedPublicKey && (!populatedParams[paramName] || populatedParams[paramName] === '')) {
+                                populatedParams[paramName] = matchedPublicKey;
+                                systemGenerated[paramName] = true;
+                            }
+                        } else if (paramName === 'asset' && (paramType === 'Address' || paramType === 'address')) {
+                            // Pre-fill with XLM contract address if not set
+                            if (!populatedParams[paramName] || populatedParams[paramName] === 'XLM' || populatedParams[paramName] === 'native') {
+                                populatedParams[paramName] = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                                systemGenerated[paramName] = true;
+                            }
+                        } else if (paramName === 'amount' && (paramType === 'I128' || paramType === 'i128')) {
+                            // Keep existing amount or mark as required
+                            if (!populatedParams[paramName]) {
+                                populatedParams[paramName] = '[Required - set in rule]';
+                            }
+                        } else if (paramName.includes('webauthn') || (paramName.includes('signature') && paramName !== 'signature_payload')) {
+                            // WebAuthn parameters are always system-generated
+                            // Check if it's incorrectly set to an address (starts with G or C) and reset it
+                            const currentValue = populatedParams[paramName];
+                            if (typeof currentValue === 'string' && (currentValue.startsWith('G') || currentValue.startsWith('C'))) {
+                                // This is incorrectly set to an address - reset it
+                                populatedParams[paramName] = '[Will be system-generated during WebAuthn authentication]';
+                                systemGenerated[paramName] = true;
+                            } else if (!populatedParams[paramName]) {
+                                populatedParams[paramName] = '[Will be system-generated during WebAuthn authentication]';
+                                systemGenerated[paramName] = true;
+                            }
+                        } else if (paramName === 'signature_payload') {
+                            // Signature payload is always system-generated
+                            // Check if it's incorrectly set to an address and reset it
+                            const currentValue = populatedParams[paramName];
+                            if (typeof currentValue === 'string' && (currentValue.startsWith('G') || currentValue.startsWith('C'))) {
+                                // This is incorrectly set to an address - reset it
+                                populatedParams[paramName] = '[Will be system-generated from transaction data]';
+                                systemGenerated[paramName] = true;
+                            } else if (!populatedParams[paramName]) {
+                                populatedParams[paramName] = '[Will be system-generated from transaction data]';
+                                systemGenerated[paramName] = true;
+                            }
                         }
                     }
                 } else {
                     // Fallback: try to infer common parameter names
-                    // If destination/recipient/to exists but is empty, populate with matched public key
-                    const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
                     const matchedPublicKey = row.public_key || skippedResult.matched_public_key;
+                    const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+                    
+                    // First, clear/reset any WebAuthn parameters that might have incorrect values
+                    // These should NEVER be set to addresses or other values
+                    const webauthnKeys = ['webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'signature_payload'];
+                    webauthnKeys.forEach(key => {
+                        // If the value looks like a Stellar address (starts with G or C), reset it
+                        if (populatedParams.hasOwnProperty(key) && typeof populatedParams[key] === 'string') {
+                            const value = populatedParams[key];
+                            if (value.startsWith('G') || value.startsWith('C')) {
+                                // This is incorrectly set to an address - reset it
+                                populatedParams[key] = '[Will be system-generated during WebAuthn authentication]';
+                                systemGenerated[key] = true;
+                            } else if (!populatedParams[key] || populatedParams[key] === '') {
+                                populatedParams[key] = '[Will be system-generated during WebAuthn authentication]';
+                                systemGenerated[key] = true;
+                            }
+                        } else if (populatedParams.hasOwnProperty(key) && !populatedParams[key]) {
+                            populatedParams[key] = '[Will be system-generated during WebAuthn authentication]';
+                            systemGenerated[key] = true;
+                        }
+                    });
                     
                     if (matchedPublicKey) {
                         for (const key of destinationKeys) {
-                            if (populatedParams.hasOwnProperty(key) && (!populatedParams[key] || populatedParams[key] === '')) {
+                            // Only set destination keys, and make sure we're not overwriting WebAuthn params
+                            if (populatedParams.hasOwnProperty(key) && 
+                                !webauthnKeys.includes(key) && 
+                                (!populatedParams[key] || populatedParams[key] === '')) {
                                 populatedParams[key] = matchedPublicKey;
-                                break;
+                                systemGenerated[key] = true;
                             }
                         }
                     }
@@ -1654,9 +1764,17 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     // Populate latitude/longitude if parameters exist
                     if (populatedParams.hasOwnProperty('latitude') && (!populatedParams.latitude || populatedParams.latitude === 0)) {
                         populatedParams.latitude = parseFloat(row.latitude);
+                        systemGenerated.latitude = true;
                     }
                     if (populatedParams.hasOwnProperty('longitude') && (!populatedParams.longitude || populatedParams.longitude === 0)) {
                         populatedParams.longitude = parseFloat(row.longitude);
+                        systemGenerated.longitude = true;
+                    }
+                    
+                    // Mark signer_address as system-generated (will be user's wallet, not destination)
+                    if (populatedParams.hasOwnProperty('signer_address') && !populatedParams.signer_address) {
+                        populatedParams.signer_address = '[Will be system-generated from your wallet]';
+                        systemGenerated.signer_address = true;
                     }
                 }
 
@@ -1665,6 +1783,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     rule_name: row.rule_name,
                     function_name: row.function_name,
                     function_parameters: populatedParams, // Use populated parameters
+                    system_generated_params: systemGenerated, // Track which params are system-generated
                     contract_id: row.contract_id,
                     contract_name: row.contract_name,
                     contract_address: row.contract_address,
@@ -1720,53 +1839,13 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
 router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (req, res) => {
     try {
         const { ruleId } = req.params;
+        const { matched_public_key } = req.body; // Optional: specific public key to reject for
         const userId = req.user?.id || req.userId;
         const publicKey = req.user?.public_key;
         
         if (!userId && !publicKey) {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
-
-        // Update the execution_results in location_update_queue to mark this rule as rejected
-        // We need to find all location_update_queue entries that have this rule_id in their execution_results
-        // and update the skipped result to include rejected: true
-        // Use a CTE to properly handle the JSONB array update
-        const updateQuery = `
-            WITH updated_results AS (
-                SELECT 
-                    luq.id,
-                    jsonb_agg(
-                        CASE 
-                            WHEN (result.value->>'rule_id')::integer = $1::integer 
-                                 AND result.value->>'skipped' = 'true'
-                                 AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
-                            THEN result.value || jsonb_build_object(
-                                'rejected', true, 
-                                'rejected_at', $3::text
-                            )
-                            ELSE result.value
-                        END
-                        ORDER BY result.ordinality
-                    ) AS new_execution_results
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
-                WHERE luq.user_id = $2
-                    AND luq.execution_results IS NOT NULL
-                    AND EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(luq.execution_results) AS check_result
-                        WHERE (check_result->>'rule_id')::integer = $1::integer
-                        AND check_result->>'skipped' = 'true'
-                        AND (check_result->>'rejected')::boolean IS DISTINCT FROM true
-                    )
-                GROUP BY luq.id
-            )
-            UPDATE location_update_queue luq
-            SET execution_results = ur.new_execution_results
-            FROM updated_results ur
-            WHERE luq.id = ur.id
-            RETURNING luq.id
-        `;
 
         // Get actual user ID (handle both JWT and API key auth)
         let actualUserId = userId;
@@ -1784,7 +1863,97 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
             return res.status(401).json({ error: 'User ID not found. Authentication required.' });
         }
 
-        const result = await pool.query(updateQuery, [parseInt(ruleId), actualUserId, new Date().toISOString()]);
+        // Update the execution_results in location_update_queue to mark this rule as rejected
+        // If matched_public_key is provided, only reject for that specific public key
+        // Otherwise, reject all instances for this user (backward compatibility)
+        // Use a CTE to properly handle the JSONB array update
+        let updateQuery;
+        let queryParams;
+        
+        if (matched_public_key) {
+            // Reject specific rule + public key combination
+            updateQuery = `
+                WITH updated_results AS (
+                    SELECT 
+                        luq.id,
+                        jsonb_agg(
+                            CASE 
+                                WHEN (result.value->>'rule_id')::integer = $1::integer 
+                                     AND result.value->>'skipped' = 'true'
+                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
+                                     AND (result.value->>'matched_public_key' = $4 OR luq.public_key = $4)
+                                THEN result.value || jsonb_build_object(
+                                    'rejected', true, 
+                                    'rejected_at', $3::text
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        ) AS new_execution_results
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    WHERE luq.user_id = $2
+                        AND luq.public_key = $4
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(luq.execution_results) AS check_result
+                            WHERE (check_result->>'rule_id')::integer = $1::integer
+                            AND check_result->>'skipped' = 'true'
+                            AND (check_result->>'rejected')::boolean IS DISTINCT FROM true
+                            AND (check_result->>'matched_public_key' = $4 OR luq.public_key = $4)
+                        )
+                    GROUP BY luq.id
+                )
+                UPDATE location_update_queue luq
+                SET execution_results = ur.new_execution_results
+                FROM updated_results ur
+                WHERE luq.id = ur.id
+                RETURNING luq.id
+            `;
+            queryParams = [parseInt(ruleId), actualUserId, new Date().toISOString(), matched_public_key];
+        } else {
+            // Reject all instances of this rule for this user (backward compatibility)
+            updateQuery = `
+                WITH updated_results AS (
+                    SELECT 
+                        luq.id,
+                        jsonb_agg(
+                            CASE 
+                                WHEN (result.value->>'rule_id')::integer = $1::integer 
+                                     AND result.value->>'skipped' = 'true'
+                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
+                                THEN result.value || jsonb_build_object(
+                                    'rejected', true, 
+                                    'rejected_at', $3::text
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        ) AS new_execution_results
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    WHERE luq.user_id = $2
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(luq.execution_results) AS check_result
+                            WHERE (check_result->>'rule_id')::integer = $1::integer
+                            AND check_result->>'skipped' = 'true'
+                            AND (check_result->>'rejected')::boolean IS DISTINCT FROM true
+                        )
+                    GROUP BY luq.id
+                )
+                UPDATE location_update_queue luq
+                SET execution_results = ur.new_execution_results
+                FROM updated_results ur
+                WHERE luq.id = ur.id
+                RETURNING luq.id
+            `;
+            queryParams = [parseInt(ruleId), actualUserId, new Date().toISOString()];
+        }
+
+        const result = await pool.query(updateQuery, queryParams);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 
@@ -1802,6 +1971,152 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
         console.error('Error rejecting pending rule:', error);
         res.status(500).json({ 
             error: 'Failed to reject pending rule',
+            message: error.message 
+        });
+    }
+});
+
+/**
+ * POST /api/contracts/rules/pending/:ruleId/complete
+ * Mark a pending rule (requires_webauthn) as completed in location_update_queue.execution_results.
+ * Recovery path for cases where an execution succeeded on-chain but DB status update failed.
+ *
+ * Body: { matched_public_key?: string, transaction_hash?: string }
+ */
+router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (req, res) => {
+    try {
+        const { ruleId } = req.params;
+        const { matched_public_key, transaction_hash } = req.body || {};
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        // Get actual user ID (handle both JWT and API key auth)
+        let actualUserId = userId;
+        if (!actualUserId && publicKey) {
+            const userResult = await pool.query(
+                'SELECT id FROM users WHERE public_key = $1',
+                [publicKey]
+            );
+            if (userResult.rows.length > 0) {
+                actualUserId = userResult.rows[0].id;
+            }
+        }
+
+        if (!actualUserId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        const completedAt = new Date().toISOString();
+        let updateQuery;
+        let queryParams;
+
+        if (matched_public_key) {
+            // Complete specific rule + public key combination
+            updateQuery = `
+                WITH updated_results AS (
+                    SELECT 
+                        luq.id,
+                        jsonb_agg(
+                            CASE 
+                                WHEN (result.value->>'rule_id')::integer = $1::integer 
+                                     AND (result.value->>'skipped' = 'true' OR (result.value->>'skipped')::boolean = true)
+                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
+                                     AND (result.value->>'completed')::boolean IS DISTINCT FROM true
+                                     AND (result.value->>'matched_public_key' = $4 OR luq.public_key = $4)
+                                THEN result.value || jsonb_build_object(
+                                    'completed', true, 
+                                    'completed_at', $3::text,
+                                    'transaction_hash', COALESCE($5::text, result.value->>'transaction_hash'),
+                                    'success', true
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        ) AS new_execution_results
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    WHERE luq.user_id = $2
+                        AND luq.public_key = $4
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(luq.execution_results) AS check_result
+                            WHERE (check_result->>'rule_id')::integer = $1::integer
+                            AND (check_result->>'skipped' = 'true' OR (check_result->>'skipped')::boolean = true)
+                            AND (check_result->>'completed')::boolean IS DISTINCT FROM true
+                            AND (check_result->>'matched_public_key' = $4 OR luq.public_key = $4)
+                        )
+                    GROUP BY luq.id
+                )
+                UPDATE location_update_queue luq
+                SET execution_results = ur.new_execution_results
+                FROM updated_results ur
+                WHERE luq.id = ur.id
+                RETURNING luq.id
+            `;
+            queryParams = [parseInt(ruleId), actualUserId, completedAt, matched_public_key, transaction_hash || null];
+        } else {
+            // Complete all instances of this rule for this user (backward compatibility)
+            updateQuery = `
+                WITH updated_results AS (
+                    SELECT 
+                        luq.id,
+                        jsonb_agg(
+                            CASE 
+                                WHEN (result.value->>'rule_id')::integer = $1::integer 
+                                     AND (result.value->>'skipped' = 'true' OR (result.value->>'skipped')::boolean = true)
+                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
+                                     AND (result.value->>'completed')::boolean IS DISTINCT FROM true
+                                THEN result.value || jsonb_build_object(
+                                    'completed', true, 
+                                    'completed_at', $3::text,
+                                    'transaction_hash', COALESCE($4::text, result.value->>'transaction_hash'),
+                                    'success', true
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        ) AS new_execution_results
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    WHERE luq.user_id = $2
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(luq.execution_results) AS check_result
+                            WHERE (check_result->>'rule_id')::integer = $1::integer
+                            AND (check_result->>'skipped' = 'true' OR (check_result->>'skipped')::boolean = true)
+                            AND (check_result->>'completed')::boolean IS DISTINCT FROM true
+                        )
+                    GROUP BY luq.id
+                )
+                UPDATE location_update_queue luq
+                SET execution_results = ur.new_execution_results
+                FROM updated_results ur
+                WHERE luq.id = ur.id
+                RETURNING luq.id
+            `;
+            queryParams = [parseInt(ruleId), actualUserId, completedAt, transaction_hash || null];
+        }
+
+        const result = await pool.query(updateQuery, queryParams);
+
+        res.json({
+            success: true,
+            updated_rows: result.rowCount,
+            updated_update_ids: result.rows.map(r => r.id),
+            completed_rule_id: parseInt(ruleId),
+            matched_public_key: matched_public_key || null,
+            transaction_hash: transaction_hash || null
+        });
+    } catch (error) {
+        console.error('Error completing pending rule:', error);
+        res.status(500).json({ 
+            error: 'Failed to complete pending rule',
             message: error.message 
         });
     }
@@ -1858,7 +2173,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         }
 
         // Query location_update_queue for updates with completed rules
-        // Remove DISTINCT ON to show all completed executions, not just one per rule
+        // Use a subquery to ensure we only get contract info for the specific rule that was completed
         const query = `
             SELECT 
                 cer.id as rule_id,
@@ -1875,20 +2190,16 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 luq.longitude,
                 luq.received_at,
                 luq.processed_at,
-                luq.execution_results
+                luq.execution_results,
+                result_data->>'rule_id' as execution_rule_id
             FROM location_update_queue luq
-            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+            JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
             JOIN custom_contracts cc ON cer.contract_id = cc.id
             WHERE luq.user_id = $1
                 AND luq.status IN ('matched', 'executed')
                 AND luq.execution_results IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 
-                    FROM jsonb_array_elements(luq.execution_results) AS result
-                    WHERE result->>'skipped' = 'true'
-                    AND (result->>'completed')::boolean = true
-                    AND (result->>'rule_id')::integer = cer.id
-                )
+                AND (result_data->>'completed')::boolean = true
             ORDER BY luq.received_at DESC
             LIMIT $2
         `;
@@ -1914,7 +2225,6 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
 
             const completedResult = executionResults.find(r => 
                 r.rule_id === row.rule_id && 
-                r.skipped === true && 
                 r.completed === true
             );
 
@@ -2051,7 +2361,7 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
         }
 
         // Query location_update_queue for updates with rejected rules
-        // Remove DISTINCT ON to show all rejected executions, not just one per rule
+        // Use a subquery to ensure we only get contract info for the specific rule that was rejected
         const query = `
             SELECT 
                 cer.id as rule_id,
@@ -2068,20 +2378,17 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
                 luq.longitude,
                 luq.received_at,
                 luq.processed_at,
-                luq.execution_results
+                luq.execution_results,
+                result_data->>'rule_id' as execution_rule_id
             FROM location_update_queue luq
-            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+            JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
             JOIN custom_contracts cc ON cer.contract_id = cc.id
             WHERE luq.user_id = $1
                 AND luq.status IN ('matched', 'executed')
                 AND luq.execution_results IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 
-                    FROM jsonb_array_elements(luq.execution_results) AS result
-                    WHERE result->>'skipped' = 'true'
-                    AND (result->>'rejected')::boolean = true
-                    AND (result->>'rule_id')::integer = cer.id
-                )
+                AND result_data->>'skipped' = 'true'
+                AND (result_data->>'rejected')::boolean = true
             ORDER BY luq.received_at DESC
             LIMIT $2
         `;
@@ -2945,8 +3252,11 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             webauthnSignature,
             webauthnAuthenticatorData,
             webauthnClientData,
-            signaturePayload
+            signaturePayload: signaturePayloadFromRequest
         } = req.body;
+        
+        // Use let so we can reassign if needed
+        let signaturePayload = signaturePayloadFromRequest;
 
         if (!function_name) {
             return res.status(400).json({ error: 'Function name is required' });
@@ -3062,14 +3372,30 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // If payment_source is explicitly 'smart-wallet', always route through smart wallet
         // Otherwise, check contract settings
         const paymentSource = req.body.payment_source; // 'wallet' or 'smart-wallet'
+        const contractsConfig = require('../config/contracts');
+        const hasSmartWalletContractId = contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID;
         const shouldRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
                                              (contract.use_smart_wallet && 
-                                              contract.smart_wallet_contract_id &&
+                                              hasSmartWalletContractId &&
                                               isPaymentFunction(function_name, parameters));
+        
+        console.log('[Execute] 🔄 Smart wallet routing decision:', {
+            paymentSource,
+            use_smart_wallet: contract.use_smart_wallet,
+            smart_wallet_contract_id: contract.smart_wallet_contract_id,
+            config_smart_wallet_id: contractsConfig.SMART_WALLET_CONTRACT_ID,
+            hasSmartWalletContractId,
+            isPaymentFunction: isPaymentFunction(function_name, parameters),
+            shouldRouteThroughSmartWallet,
+            hasPasskeySPKI: !!passkeyPublicKeySPKI,
+            hasWebAuthnSignature: !!webauthnSignature
+        });
 
         if (shouldRouteThroughSmartWallet) {
             console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
             
+            try {
+            console.log(`[Execute] 📋 Extracting payment parameters from:`, JSON.stringify(parameters));
             // Extract payment parameters from function parameters
             const extractPaymentParams = (params) => {
                 // Common parameter name mappings
@@ -3124,17 +3450,52 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 return { destination, amount, asset: asset || null };
             };
 
-            const paymentParams = extractPaymentParams(parameters);
+            let paymentParams = extractPaymentParams(parameters);
+            console.log(`[Execute] 📋 Extracted payment params:`, JSON.stringify(paymentParams));
+            
+            // If destination is missing, try to extract it from signature_payload
+            if (!paymentParams.destination && parameters.signature_payload) {
+                try {
+                    const payload = typeof parameters.signature_payload === 'string' 
+                        ? JSON.parse(parameters.signature_payload) 
+                        : parameters.signature_payload;
+                    if (payload.destination) {
+                        paymentParams.destination = payload.destination;
+                        console.log(`[Execute] 📋 Extracted destination from signature_payload: ${paymentParams.destination}`);
+                    }
+                } catch (e) {
+                    console.warn(`[Execute] ⚠️ Could not parse signature_payload:`, e.message);
+                }
+            }
+            
+            // If amount is missing, try to extract it from signature_payload
+            if (!paymentParams.amount && parameters.signature_payload) {
+                try {
+                    const payload = typeof parameters.signature_payload === 'string' 
+                        ? JSON.parse(parameters.signature_payload) 
+                        : parameters.signature_payload;
+                    if (payload.amount) {
+                        // Convert from stroops if it's a string
+                        paymentParams.amount = payload.amount;
+                        console.log(`[Execute] 📋 Extracted amount from signature_payload: ${paymentParams.amount}`);
+                    }
+                } catch (e) {
+                    console.warn(`[Execute] ⚠️ Could not parse signature_payload:`, e.message);
+                }
+            }
             
             if (!paymentParams.destination || !paymentParams.amount) {
+                console.log(`[Execute] ❌ Missing payment parameters - destination: ${paymentParams.destination}, amount: ${paymentParams.amount}`);
                 return res.status(400).json({ 
                     error: 'Payment function requires destination and amount parameters',
                     received_params: Object.keys(parameters),
-                    expected_params: ['destination (or recipient/to)', 'amount (or value/quantity)']
+                    expected_params: ['destination (or recipient/to)', 'amount (or value/quantity)'],
+                    note: 'Destination and amount can be provided directly or in signature_payload'
                 });
             }
 
             // Convert amount to stroops if needed (assuming it's in XLM)
+            console.log(`[Execute] 💰 Converting amount: ${paymentParams.amount} (type: ${typeof paymentParams.amount})`);
             let amountInStroops = paymentParams.amount;
             if (typeof amountInStroops === 'string' && amountInStroops.includes('.')) {
                 // Likely in XLM, convert to stroops
@@ -3149,7 +3510,10 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 }
             }
 
+            console.log(`[Execute] 💰 Amount in stroops: ${amountInStroops}`);
+            
             // Check if WebAuthn is required
+            console.log(`[Execute] 🔐 Checking WebAuthn requirements - contract.requires_webauthn: ${contract.requires_webauthn}, webauthnSignature: ${!!webauthnSignature}`);
             const needsWebAuthn = contract.requires_webauthn || 
                                  (webauthnSignature && webauthnAuthenticatorData && webauthnClientData);
 
@@ -3161,14 +3525,59 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             }
 
             // Create signature payload if not provided
-            const finalSignaturePayload = signaturePayload || JSON.stringify({
-                function: function_name,
-                contract_id: id,
-                destination: paymentParams.destination,
-                amount: amountInStroops,
-                asset: paymentParams.asset || 'native',
-                timestamp: Date.now()
-            });
+            // Use the same structure as send payment: {source, destination, amount, asset, memo, timestamp}
+            // The smart wallet contract expects this structure for verification
+            const assetForPayload = paymentParams.asset === 'XLM' || paymentParams.asset === 'native' || !paymentParams.asset
+                ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'
+                : paymentParams.asset;
+            
+            // If signaturePayload is provided, parse it to ensure it has the correct format
+            let finalSignaturePayload;
+            if (signaturePayload) {
+                try {
+                    const parsed = typeof signaturePayload === 'string' ? JSON.parse(signaturePayload) : signaturePayload;
+                    // Ensure all required fields are present and in correct format
+                    finalSignaturePayload = JSON.stringify({
+                        source: parsed.source || user_public_key,
+                        destination: parsed.destination || paymentParams.destination,
+                        amount: parsed.amount || amountInStroops,
+                        asset: parsed.asset || assetForPayload,
+                        memo: parsed.memo || '',
+                        timestamp: parsed.timestamp || Date.now()
+                    });
+                    console.log(`[Execute] 📋 Using provided signature payload (normalized):`, {
+                        source: (parsed.source || user_public_key).substring(0, 8) + '...',
+                        destination: (parsed.destination || paymentParams.destination).substring(0, 8) + '...',
+                        amount: parsed.amount || amountInStroops,
+                        asset: (parsed.asset || assetForPayload).substring(0, 8) + '...'
+                    });
+                } catch (e) {
+                    console.warn(`[Execute] ⚠️ Could not parse signature payload, creating new one:`, e.message);
+                    finalSignaturePayload = JSON.stringify({
+                        source: user_public_key,
+                        destination: paymentParams.destination,
+                        amount: amountInStroops,
+                        asset: assetForPayload,
+                        memo: '',
+                        timestamp: Date.now()
+                    });
+                }
+            } else {
+                finalSignaturePayload = JSON.stringify({
+                    source: user_public_key,
+                    destination: paymentParams.destination,
+                    amount: amountInStroops,
+                    asset: assetForPayload,
+                    memo: '',
+                    timestamp: Date.now()
+                });
+                console.log(`[Execute] 📋 Created new signature payload:`, {
+                    source: user_public_key.substring(0, 8) + '...',
+                    destination: paymentParams.destination.substring(0, 8) + '...',
+                    amount: amountInStroops,
+                    asset: assetForPayload.substring(0, 8) + '...'
+                });
+            }
 
             // Process WebAuthn signature if provided
             let processedWebAuthnSignature = webauthnSignature;
@@ -3205,8 +3614,20 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             const rpcUrl = process.env.SOROBAN_RPC_URL || contractsConfig.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
             const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: true });
             
-            // Use the smart wallet contract ID from the contract configuration
-            const smartWalletContractId = contract.smart_wallet_contract_id;
+            // Use the smart wallet contract ID from the contract configuration or fallback to config
+            // The contract record's smart_wallet_contract_id might be null, so use config as fallback
+            const smartWalletContractId = contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID;
+            console.log(`[Execute] 📝 Using smart wallet contract ID: ${smartWalletContractId} (from contract: ${contract.smart_wallet_contract_id || 'null'}, from config: ${contractsConfig.SMART_WALLET_CONTRACT_ID})`);
+            
+            if (!smartWalletContractId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Smart wallet contract ID not configured',
+                    details: 'The contract record does not have a smart_wallet_contract_id set, and SMART_WALLET_CONTRACT_ID is not configured in the environment or config file.',
+                    suggestion: 'Please set the smart_wallet_contract_id in the contract record or configure SMART_WALLET_CONTRACT_ID in the environment variables.'
+                });
+            }
+            
             const smartWalletContract = new StellarSdk.Contract(smartWalletContractId);
 
             // Create ScVals for smart wallet execute_payment
@@ -3265,6 +3686,111 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 Buffer.from(webauthnClientData, 'base64')
             );
 
+            // Verify the registered passkey matches what we're using (CRITICAL for signature verification)
+            // The contract stores passkeys by Stellar public_key (address), not by user_id
+            // If multiple roles share the same public_key, only the LAST registered passkey exists on the contract
+            // We must use the passkey that's actually registered on the contract, not the one from the database
+            console.log('[Execute] 🔍 Passkey verification check:', {
+                needsWebAuthn,
+                hasPasskeySPKI: !!passkeyPublicKeySPKI,
+                passkeySPKILength: passkeyPublicKeySPKI ? passkeyPublicKeySPKI.length : 0
+            });
+            
+            if (needsWebAuthn && passkeyPublicKeySPKI) {
+                console.log('[Execute] 🔍 Verifying registered passkey matches extracted passkey...');
+                console.log('[Execute] ⚠️ Note: Contract stores passkeys by public_key, not user_id. If multiple roles share the same public_key, only the last registered passkey exists on the contract.');
+                
+                try {
+                    // Extract passkey public key from SPKI
+                    const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
+                    let passkeyPubkey65;
+                    if (spkiBytes.length === 65 && spkiBytes[0] === 0x04) {
+                        // Already in correct format (65 bytes, starts with 0x04)
+                        passkeyPubkey65 = spkiBytes;
+                    } else {
+                        // Extract from SPKI format
+                        passkeyPubkey65 = extractPublicKeyFromSPKI(spkiBytes);
+                    }
+                    
+                    // Get the passkey registered on the contract
+                    const horizonServer = new StellarSdk.Horizon.Server(
+                        contract.network === 'mainnet' 
+                            ? 'https://horizon.stellar.org'
+                            : 'https://horizon-testnet.stellar.org'
+                    );
+                    
+                    const getPasskeyOp = smartWalletContract.call('get_passkey_pubkey', signerAddressScVal);
+                    const accountForCheck = await horizonServer.loadAccount(user_public_key);
+                    const checkTx = new StellarSdk.TransactionBuilder(
+                        new StellarSdk.Account(user_public_key, accountForCheck.sequenceNumber()),
+                        {
+                            fee: StellarSdk.BASE_FEE,
+                            networkPassphrase: networkPassphrase
+                        }
+                    )
+                        .addOperation(getPasskeyOp)
+                        .setTimeout(30)
+                        .build();
+                    
+                    const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+                    const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+                    
+                    if (checkResult && checkResult.result && checkResult.result.retval) {
+                        let registeredPubkeyScVal;
+                        const retval = checkResult.result.retval;
+                        
+                        if (retval && typeof retval === 'object' && typeof retval.switch === 'function') {
+                            registeredPubkeyScVal = retval;
+                        } else if (typeof retval === 'string') {
+                            registeredPubkeyScVal = StellarSdk.xdr.ScVal.fromXDR(retval, 'base64');
+                        }
+                        
+                        if (registeredPubkeyScVal && registeredPubkeyScVal.switch && registeredPubkeyScVal.switch().name === 'scvBytes') {
+                            const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
+                            const registeredPubkeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
+                            const extractedPubkeyHex = passkeyPubkey65.toString('hex');
+                            
+                            console.log(`[Execute] 📋 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
+                            console.log(`[Execute] 📋 Extracted passkey from request (hex): ${extractedPubkeyHex.substring(0, 32)}...`);
+                            
+                            if (registeredPubkeyHex !== extractedPubkeyHex) {
+                                console.error('[Execute] ❌ Passkey mismatch detected!');
+                                console.error('  The passkey registered on the contract does not match the passkey used for signing.');
+                                console.error('  This likely means you registered a passkey for a different role with the same public_key.');
+                                console.error('  The contract stores only ONE passkey per public_key (the last one registered).');
+                                return res.status(400).json({
+                                    success: false,
+                                    error: 'Passkey mismatch',
+                                    details: 'The passkey public key registered on the contract does not match the passkey used for signing. This can happen if you have multiple roles (e.g., data consumer, wallet provider) with the same Stellar public key, and you registered different passkeys for each role. The contract stores only the last registered passkey per public key.',
+                                    suggestion: 'Please use the same passkey that was last registered for this public key, or re-register the passkey for this role.',
+                                    registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
+                                    extractedPasskey: extractedPubkeyHex.substring(0, 32) + '...'
+                                });
+                            } else {
+                                console.log('[Execute] ✅ Registered passkey matches extracted passkey');
+                            }
+                        } else {
+                            console.warn('[Execute] ⚠️ Could not parse registered passkey, proceeding anyway');
+                        }
+                    } else {
+                        console.warn('[Execute] ⚠️ Could not retrieve registered passkey, proceeding anyway');
+                    }
+                    console.log('[Execute] ✅ Passkey verification complete, proceeding to balance check');
+                } catch (checkError) {
+                    console.error('[Execute] ❌ Error checking registered passkey:', checkError.message);
+                    console.error('[Execute] ❌ Stack:', checkError.stack);
+                    // Don't proceed if we can't verify - the contract will fail anyway
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Failed to verify registered passkey',
+                        details: checkError.message,
+                        suggestion: 'Please ensure your passkey is registered on the smart wallet contract and matches the one you are using for signing.'
+                    });
+                }
+            } else {
+                console.log('[Execute] ⚠️ WebAuthn not required or passkey SPKI not provided, skipping passkey verification');
+            }
+            
             // Check user's balance in smart wallet BEFORE executing payment (like XYZ-Wallet does)
             console.log(`[Execute] 💰 Checking smart wallet balance for user: ${user_public_key}`);
             try {
@@ -3287,22 +3813,75 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     .setTimeout(30)
                     .build();
                 
+                console.log(`[Execute] 💰 Preparing balance check transaction...`);
                 const balanceCheckPrepared = await sorobanServer.prepareTransaction(balanceCheckTx);
+                console.log(`[Execute] 💰 Simulating balance check transaction...`);
                 const balanceSimulation = await sorobanServer.simulateTransaction(balanceCheckPrepared);
+                console.log(`[Execute] 💰 Balance simulation result:`, {
+                    hasError: !!balanceSimulation.errorResult,
+                    hasResult: !!balanceSimulation.result,
+                    hasRetval: !!(balanceSimulation.result && balanceSimulation.result.retval)
+                });
                 
                 if (balanceSimulation.errorResult) {
                     console.warn(`[Execute] ⚠️  Could not check balance: ${balanceSimulation.errorResult.value()}`);
+                    console.warn(`[Execute] ⚠️  Continuing anyway - contract will reject if balance is insufficient`);
                 } else if (balanceSimulation.result && balanceSimulation.result.retval) {
                     const balanceResult = balanceSimulation.result.retval;
                     let balance = '0';
                     
-                    if (balanceResult.i128) {
-                        const parts = balanceResult.i128();
-                        const lo = parts.lo().toString();
-                        const hi = parts.hi().toString();
-                        balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
-                    } else {
-                        balance = balanceResult.toString() || '0';
+                    console.log(`[Execute] 💰 Balance result type:`, typeof balanceResult, balanceResult);
+                    
+                    // Try to extract balance using scValToNative first (cleanest approach)
+                    try {
+                        const { scValToNative } = require('@stellar/stellar-sdk');
+                        const nativeValue = scValToNative(balanceResult);
+                        if (typeof nativeValue === 'bigint' || typeof nativeValue === 'string' || typeof nativeValue === 'number') {
+                            balance = nativeValue.toString();
+                            console.log(`[Execute] 💰 Extracted balance using scValToNative: ${balance}`);
+                        }
+                    } catch (scValError) {
+                        console.log(`[Execute] 💰 scValToNative failed, trying manual extraction:`, scValError.message);
+                    }
+                    
+                    // If scValToNative didn't work, try manual extraction
+                    if (balance === '0') {
+                        try {
+                            // Check if it has i128 method
+                            if (balanceResult.i128 && typeof balanceResult.i128 === 'function') {
+                                const parts = balanceResult.i128();
+                                const lo = parts.lo().toString();
+                                const hi = parts.hi().toString();
+                                balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
+                                console.log(`[Execute] 💰 Extracted i128 via method - hi: ${hi}, lo: ${lo}, total: ${balance}`);
+                            } else if (balanceResult._value && balanceResult._value._attributes) {
+                                // Handle ChildStruct format from simulation
+                                const attrs = balanceResult._value._attributes;
+                                if (attrs.hi && attrs.lo) {
+                                    // Handle Hyper and UnsignedHyper types
+                                    const lo = attrs.lo.toString ? attrs.lo.toString() : String(attrs.lo);
+                                    const hi = attrs.hi.toString ? attrs.hi.toString() : String(attrs.hi);
+                                    balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
+                                    console.log(`[Execute] 💰 Extracted i128 from _attributes - hi: ${hi}, lo: ${lo}, total: ${balance}`);
+                                }
+                            } else if (balanceResult.switch && typeof balanceResult.switch === 'function') {
+                                const switchVal = balanceResult.switch();
+                                if (switchVal && switchVal.name === 'scvI128') {
+                                    const i128Parts = balanceResult.i128();
+                                    if (i128Parts) {
+                                        const lo = i128Parts.lo().toString();
+                                        const hi = i128Parts.hi().toString();
+                                        balance = hi === '0' ? lo : (BigInt(hi) << 64n | BigInt(lo)).toString();
+                                        console.log(`[Execute] 💰 Extracted i128 via switch - hi: ${hi}, lo: ${lo}, total: ${balance}`);
+                                    }
+                                }
+                            } else {
+                                balance = balanceResult.toString() || '0';
+                            }
+                        } catch (extractError) {
+                            console.warn(`[Execute] ⚠️ Error extracting balance:`, extractError.message);
+                            balance = '0';
+                        }
                     }
                     
                     const balanceInXLM = (BigInt(balance) / 10000000n).toString();
@@ -3316,24 +3895,23 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     });
                     
                     if (availableBalance < requiredAmount) {
-                        return res.status(400).json({
-                            success: false,
-                            error: 'Insufficient smart wallet balance',
-                            message: `You have ${balanceInXLM} XLM in your smart wallet, but need ${(requiredAmount / 10000000n).toString()} XLM for this payment.`,
-                            details: 'Please deposit funds to your smart wallet before executing this payment.',
-                            available_balance: balanceInXLM + ' XLM',
-                            required_amount: (requiredAmount / 10000000n).toString() + ' XLM',
-                            function_name,
-                            contract_id: contract.id,
-                            smart_wallet_contract_id: contract.smart_wallet_contract_id
-                        });
+                        console.log(`[Execute] ⚠️ Balance check shows insufficient funds, but continuing anyway`);
+                        console.log(`[Execute] ⚠️ Note: Balance check may be inaccurate. Contract will reject if balance is truly insufficient.`);
+                        // Don't block execution - let the contract handle the validation
+                        // The contract will reject the transaction if balance is insufficient
+                    } else {
+                        console.log(`[Execute] ✅ Balance sufficient, proceeding with payment`);
                     }
+                } else {
+                    console.warn(`[Execute] ⚠️  Balance check returned no result, continuing anyway`);
                 }
             } catch (balanceCheckError) {
                 console.warn(`[Execute] ⚠️  Could not check smart wallet balance:`, balanceCheckError.message);
+                console.warn(`[Execute] ⚠️  Stack:`, balanceCheckError.stack);
                 // Continue anyway - the contract will reject if balance is insufficient
             }
             
+            console.log(`[Execute] 🔨 Building smart wallet execute_payment operation...`);
             // Call smart wallet's execute_payment
             const smartWalletOp = smartWalletContract.call(
                 'execute_payment',
@@ -3346,14 +3924,17 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 authenticatorDataScVal,
                 clientDataScVal
             );
+            console.log(`[Execute] ✅ Smart wallet operation built`);
 
             // Build and execute transaction
+            console.log(`[Execute] 📡 Loading account from Horizon...`);
             const horizonServer = new StellarSdk.Horizon.Server(
                 contract.network === 'mainnet' 
                     ? 'https://horizon.stellar.org' 
                     : 'https://horizon-testnet.stellar.org'
             );
             const account = await horizonServer.loadAccount(user_public_key);
+            console.log(`[Execute] ✅ Account loaded, sequence: ${account.sequenceNumber()}`);
             
             const transaction = new StellarSdk.TransactionBuilder(
                 new StellarSdk.Account(user_public_key, account.sequenceNumber()),
@@ -3432,6 +4013,49 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         });
                     }
                     
+                    // Mark pending rule as completed if rule_id is provided
+                    if (rule_id) {
+                        try {
+                            const markCompletedQuery = `
+                                UPDATE location_update_queue luq
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE 
+                                            WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                                            THEN result || jsonb_build_object(
+                                                'completed', true, 
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true
+                                            )
+                                            ELSE result
+                                        END
+                                    )
+                                    FROM jsonb_array_elements(luq.execution_results) AS result
+                                )
+                                WHERE luq.user_id = $2
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE (result->>'rule_id')::integer = $1::integer
+                                        AND result->>'skipped' = 'true'
+                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                    )
+                            `;
+                            await pool.query(markCompletedQuery, [
+                                parseInt(rule_id), 
+                                userId, 
+                                new Date().toISOString(),
+                                sendResult.hash
+                            ]);
+                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (smart wallet routing)`);
+                        } catch (updateError) {
+                            // Don't fail the response if we can't update the status
+                            console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+                        }
+                    }
+                    
                     return res.json({
                         success: true,
                         message: `Payment routed through smart wallet and executed successfully`,
@@ -3457,6 +4081,19 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 transaction_hash: sendResult.hash,
                 message: 'Transaction did not complete within 60 seconds'
             });
+            } catch (smartWalletError) {
+                console.error('[Execute] ❌ Error in smart wallet routing:', smartWalletError);
+                console.error('[Execute] ❌ Error stack:', smartWalletError.stack);
+                const contractsConfig = require('../config/contracts');
+                return res.status(500).json({
+                    success: false,
+                    error: 'Smart wallet payment execution failed',
+                    message: smartWalletError.message,
+                    details: smartWalletError.toString(),
+                    routed_through_smart_wallet: true,
+                    smart_wallet_contract_id: contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID
+                });
+            }
         }
 
         // Get function mapping (for non-smart-wallet routing)
@@ -3623,30 +4260,140 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     throw new Error(`Invalid signature length after decoding: ${rawSignature64.length} bytes`);
                 }
                 
-                // Create signature payload if not provided
-                if (!signaturePayload && !processedParameters.signature_payload) {
-                    // Build signature payload from transaction data
+                // Check if we need to regenerate signature payload
+                // IMPORTANT: If a WebAuthn signature already exists, we MUST NOT regenerate the payload
+                // because the signature was created for the existing payload. Regenerating would invalidate the signature.
+                const isPaymentFunction = function_name.toLowerCase().includes('payment') || 
+                                         function_name.toLowerCase().includes('transfer') ||
+                                         function_name.toLowerCase().includes('send') ||
+                                         function_name.toLowerCase().includes('pay');
+                
+                // Check if existing signature_payload has old format (contains "function" or "contract_id")
+                // Prioritize signaturePayload from req.body (set by frontend) over processedParameters.signature_payload
+                // The frontend regenerates the payload and sets it in req.body.signaturePayload
+                // If signaturePayload from req.body exists, use it; otherwise fall back to processedParameters.signature_payload
+                console.log(`[Execute] 🔍 Checking signature payload - signaturePayload from req.body: ${signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined'}`);
+                console.log(`[Execute] 🔍 Checking signature payload - processedParameters.signature_payload: ${processedParameters.signature_payload ? (processedParameters.signature_payload.length > 100 ? processedParameters.signature_payload.substring(0, 100) + '...' : processedParameters.signature_payload) : 'undefined'}`);
+                
+                // Always prioritize signaturePayload from req.body if it exists
+                const payloadToCheck = signaturePayload || processedParameters.signature_payload;
+                const hasOldFormat = payloadToCheck && (
+                    payloadToCheck.includes('"function"') || 
+                    payloadToCheck.includes('"contract_id"') ||
+                    payloadToCheck.includes('function:') ||
+                    payloadToCheck.includes('contract_id:')
+                );
+                
+                // If signaturePayload from req.body exists, check it specifically (not the fallback)
+                const reqBodyHasOldFormat = signaturePayload && (
+                    signaturePayload.includes('"function"') || 
+                    signaturePayload.includes('"contract_id"') ||
+                    signaturePayload.includes('function:') ||
+                    signaturePayload.includes('contract_id:')
+                );
+                
+                // If signaturePayload from req.body exists and is NOT in old format, use it and ignore processedParameters.signature_payload
+                // This ensures we use the regenerated payload from the frontend
+                if (signaturePayload && !reqBodyHasOldFormat) {
+                    // Frontend has already regenerated the payload in correct format - use it
+                    console.log(`[Execute] ✅ Using signaturePayload from request body (frontend regenerated in correct format)`);
+                    // Don't check processedParameters.signature_payload - use the one from req.body
+                    // Update processedParameters to use the correct payload
+                    processedParameters.signature_payload = signaturePayload;
+                } else if (signaturePayload && reqBodyHasOldFormat) {
+                    // Frontend sent old format payload in req.body - this shouldn't happen but handle it
+                    console.warn(`[Execute] ⚠️ signaturePayload from request body is in old format - this shouldn't happen`);
+                }
+                
+                // Only regenerate if:
+                // 1. No WebAuthn signature exists yet (safe to regenerate)
+                // 2. OR payload doesn't exist
+                // 3. OR payload has old format BUT no WebAuthn signature (meaning signature will be created after regeneration)
+                // DO NOT regenerate if WebAuthn signature already exists - it was created for the existing payload
+                const hasWebAuthnSignature = webauthnSignature && webauthnAuthenticatorData && webauthnClientData;
+                
+                if ((isPaymentFunction || hasOldFormat || !existingPayload) && !hasWebAuthnSignature) {
+                    // Convert asset to contract address format if needed
+                    let assetForPayload = processedParameters.asset || 'native';
+                    if (assetForPayload === 'XLM' || assetForPayload === 'native' || assetForPayload === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
+                        assetForPayload = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                    }
+                    
+                    // Get amount in stroops (ensure it's a string)
+                    let amountForPayload = processedParameters.amount || '0';
+                    if (typeof amountForPayload === 'number') {
+                        // If it's a small number, assume it's in XLM and convert to stroops
+                        if (amountForPayload < 1000000) {
+                            amountForPayload = Math.floor(amountForPayload * 10000000).toString();
+                        } else {
+                            amountForPayload = amountForPayload.toString();
+                        }
+                    } else {
+                        amountForPayload = amountForPayload.toString();
+                    }
+                    
+                    // Build signature payload from transaction data (same structure as send payment)
                     const txData = {
                         source: user_public_key,
                         destination: processedParameters.destination || '',
-                        amount: processedParameters.amount || '0',
-                        asset: processedParameters.asset || 'native',
+                        amount: amountForPayload,
+                        asset: assetForPayload,
+                        memo: '', // Empty memo for contract execution
                         timestamp: Date.now()
                     };
                     signaturePayload = JSON.stringify(txData);
-                    console.log(`[Execute] ✅ Generated signature payload from transaction data`);
+                    console.log(`[Execute] ✅ Regenerated signature payload with correct format (matching send payment):`, {
+                        source: user_public_key.substring(0, 8) + '...',
+                        destination: (processedParameters.destination || '').substring(0, 8) + '...',
+                        amount: amountForPayload,
+                        asset: assetForPayload.substring(0, 8) + '...'
+                    });
+                } else if (hasWebAuthnSignature && (hasOldFormat || !payloadToCheck)) {
+                    // WebAuthn signature exists but payload is old format or missing
+                    // For payment functions, we need the new format. For non-payment functions, old format is acceptable.
+                    if (isPaymentFunction) {
+                        // Payment functions must use new format
+                        // Check if signaturePayload from req.body is in correct format (frontend should have regenerated it)
+                        if (signaturePayload && !reqBodyHasOldFormat) {
+                            // Frontend regenerated the payload - use it
+                            console.log(`[Execute] ✅ Using regenerated signaturePayload from request body (WebAuthn signature will be recreated)`);
+                            processedParameters.signature_payload = signaturePayload;
+                        } else {
+                            // Payload is still in old format or missing - this is a problem for payment functions
+                            console.error(`[Execute] ❌ WebAuthn signature exists but payload is ${hasOldFormat ? 'old format' : 'missing'} for payment function`);
+                            return res.status(400).json({
+                                error: 'Invalid signature payload',
+                                message: 'The WebAuthn signature was created for a different payload format. Please re-authenticate with the correct payload.',
+                                suggestion: 'The signature payload must be in the format: {"source", "destination", "amount", "asset", "memo", "timestamp"}. Please clear the WebAuthn signature and re-authenticate.'
+                            });
+                        }
+                    } else {
+                        // Non-payment functions can use old format - it's acceptable
+                        console.log(`[Execute] ℹ️  Non-payment function with WebAuthn - allowing old format payload`);
+                        if (payloadToCheck) {
+                            processedParameters.signature_payload = payloadToCheck;
+                        } else if (signaturePayload) {
+                            processedParameters.signature_payload = signaturePayload;
+                        }
+                    }
+                } else if (hasWebAuthnSignature && payloadToCheck && !hasOldFormat) {
+                    // WebAuthn signature exists and payload is valid - use existing payload
+                    signaturePayload = payloadToCheck;
+                    console.log(`[Execute] ℹ️  Using existing signature payload (WebAuthn signature was created for this payload)`);
                 }
                 
                 // Update parameters with processed WebAuthn data
+                // Use the signaturePayload (either regenerated or existing, depending on whether WebAuthn signature exists)
                 processedParameters = {
                     ...processedParameters,
-                    signature_payload: signaturePayload || processedParameters.signature_payload || JSON.stringify(processedParameters),
+                    signature_payload: signaturePayload, // Use existing or regenerated payload
                     webauthn_signature: rawSignature64.toString('base64'), // Convert back to base64 for ScVal conversion
                     webauthn_authenticator_data: webauthnAuthenticatorData,
                     webauthn_client_data: webauthnClientData
                 };
                 
                 console.log(`[Execute] ✅ WebAuthn signature processed - Length: ${rawSignature64.length} bytes`);
+                console.log(`[Execute] ✅ Using signature_payload: ${signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'none'}`);
             } catch (error) {
                 console.error(`[Execute] ❌ Error processing WebAuthn signature:`, error);
                 return res.status(400).json({
@@ -4050,10 +4797,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 // Check if contract returned false (payment rejected) - this is now handled in the try-catch above
                 // The check happens immediately after extracting the return value
                 
-                // If rule_id is provided, mark the pending rule as completed in execution_results
+                // If rule_id is provided, mark the rule as completed in execution_results
+                // This handles both pending rules (skipped = true) and direct executions
                 if (rule_id) {
                     try {
-                        const markCompletedQuery = `
+                        // First, try to update existing pending rule entry
+                        const updatePendingQuery = `
                             UPDATE location_update_queue luq
                             SET execution_results = (
                                 SELECT jsonb_agg(
@@ -4079,14 +4828,89 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     AND result->>'skipped' = 'true'
                                     AND (result->>'completed')::boolean IS DISTINCT FROM true
                                 )
+                            RETURNING luq.id
                         `;
-                        await pool.query(markCompletedQuery, [
+                        const updateResult = await pool.query(updatePendingQuery, [
                             parseInt(rule_id), 
                             userId, 
                             new Date().toISOString(),
                             sendResult.hash
                         ]);
-                        console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed`);
+                        
+                        // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
+                        if (updateResult.rows.length === 0) {
+                            const createCompletionQuery = `
+                                WITH latest_update AS (
+                                    SELECT id, execution_results
+                                    FROM location_update_queue
+                                    WHERE user_id = $2
+                                    ORDER BY received_at DESC
+                                    LIMIT 1
+                                )
+                                UPDATE location_update_queue luq
+                                SET execution_results = COALESCE(
+                                    luq.execution_results || '[]'::jsonb,
+                                    '[]'::jsonb
+                                ) || jsonb_build_array(
+                                    jsonb_build_object(
+                                        'rule_id', $1::integer,
+                                        'completed', true,
+                                        'completed_at', $3::text,
+                                        'transaction_hash', $4::text,
+                                        'success', true,
+                                        'skipped', false,
+                                        'direct_execution', true
+                                    )
+                                )
+                                FROM latest_update lu
+                                WHERE luq.id = lu.id
+                                RETURNING luq.id
+                            `;
+                            const createResult = await pool.query(createCompletionQuery, [
+                                parseInt(rule_id),
+                                userId,
+                                new Date().toISOString(),
+                                sendResult.hash
+                            ]);
+                            
+                            if (createResult.rows.length > 0) {
+                                console.log(`[Execute] ✅ Created completion entry for direct execution of rule ${rule_id}`);
+                            } else {
+                                // If no location_update_queue entry exists, create one
+                                const createNewEntryQuery = `
+                                    INSERT INTO location_update_queue (
+                                        user_id, public_key, latitude, longitude, 
+                                        status, execution_results, received_at, processed_at
+                                    )
+                                    VALUES (
+                                        $2, $5, 0, 0, 'executed',
+                                        jsonb_build_array(
+                                            jsonb_build_object(
+                                                'rule_id', $1::integer,
+                                                'completed', true,
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true,
+                                                'skipped', false,
+                                                'direct_execution', true
+                                            )
+                                        ),
+                                        NOW(), NOW()
+                                    )
+                                    RETURNING id
+                                `;
+                                const newEntryResult = await pool.query(createNewEntryQuery, [
+                                    parseInt(rule_id),
+                                    userId,
+                                    new Date().toISOString(),
+                                    sendResult.hash,
+                                    user_public_key || 'G000000000000000000000000000000000000000000000000000000000000000'
+                                ]);
+                                console.log(`[Execute] ✅ Created new location_update_queue entry for direct execution of rule ${rule_id}`);
+                            }
+                        } else {
+                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed`);
+                        }
                     } catch (updateError) {
                         // Don't fail the execution if we can't update the status
                         console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);

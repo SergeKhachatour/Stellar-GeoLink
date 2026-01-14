@@ -38,6 +38,7 @@ import {
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import api from '../../services/api';
+import webauthnService from '../../services/webauthnService';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
@@ -532,27 +533,106 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       return;
     }
 
-    if (!secretKey && contract.requires_webauthn) {
-      setExecutionError('This contract requires WebAuthn. Please use a passkey-enabled wallet.');
-      return;
-    }
-
     setExecuting(true);
     setExecutionError(null);
 
     try {
+      // Find the selected function to check if it requires WebAuthn
+      const selectedFunc = contractFunctions.find(f => (f.name || f) === selectedFunction);
+      const functionParamsList = selectedFunc?.parameters || [];
+      
+      // Check if function requires WebAuthn by checking parameter names or contract flag
+      const webauthnParamNames = [
+        'webauthn_signature',
+        'webauthn_authenticator_data',
+        'webauthn_client_data',
+        'signature_payload'
+      ];
+      const hasWebAuthnParams = functionParamsList.some(param => 
+        webauthnParamNames.includes(param.name || param.parameter_name)
+      );
+      const requiresWebAuthn = contract.requires_webauthn || hasWebAuthnParams;
+
       // Get function mapping to determine parameters
       const functionMapping = contract.function_mappings?.[selectedFunction];
       // Build parameters based on mapping or use provided params
-      let finalParams = {};
+      let finalParams = { ...functionParams };
+      
       if (functionMapping && functionMapping.parameters) {
         functionMapping.parameters.forEach(param => {
           if (functionParams[param.name] !== undefined) {
             finalParams[param.name] = functionParams[param.name];
           }
         });
-      } else {
-        finalParams = functionParams;
+      }
+
+      // If WebAuthn is required, generate signature
+      let webauthnData = {};
+      if (requiresWebAuthn) {
+        try {
+          // Get passkeys
+          const passkeysResponse = await api.get('/webauthn/passkeys');
+          const passkeys = passkeysResponse.data.passkeys || [];
+          
+          if (passkeys.length === 0) {
+            throw new Error('No passkeys registered. Please register a passkey first.');
+          }
+
+          // Use the first passkey
+          const passkey = passkeys[0];
+          
+          // Create signature payload - use same structure as send payment: {source, destination, amount, asset, memo, timestamp}
+          // This is required for smart wallet contract verification
+          const destination = finalParams.destination || finalParams.to || finalParams.recipient || '';
+          const amount = finalParams.amount || '0';
+          const asset = finalParams.asset === 'XLM' || finalParams.asset === 'native' || !finalParams.asset
+            ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'
+            : finalParams.asset;
+          
+          const signaturePayload = JSON.stringify({
+            source: publicKey,
+            destination: destination,
+            amount: amount,
+            asset: asset,
+            memo: '', // Empty memo for contract execution
+            timestamp: Date.now()
+          });
+          
+          // Authenticate with passkey
+          const authResult = await webauthnService.authenticateWithPasskey(
+            passkey.credentialId,
+            signaturePayload
+          );
+          
+          if (!authResult) {
+            throw new Error('Passkey authentication failed');
+          }
+
+          // Extract WebAuthn data
+          webauthnData = {
+            passkeyPublicKeySPKI: passkey.public_key_spki,
+            webauthnSignature: authResult.signature,
+            webauthnAuthenticatorData: authResult.authenticatorData,
+            webauthnClientData: authResult.clientDataJSON,
+            signaturePayload: signaturePayload
+          };
+
+          // Add WebAuthn data to parameters if the function expects them
+          if (hasWebAuthnParams) {
+            finalParams = {
+              ...finalParams,
+              signature_payload: signaturePayload,
+              webauthn_signature: authResult.signature,
+              webauthn_authenticator_data: authResult.authenticatorData,
+              webauthn_client_data: authResult.clientDataJSON
+            };
+          }
+        } catch (webauthnError) {
+          console.error('WebAuthn error:', webauthnError);
+          setExecutionError(webauthnError.message || 'WebAuthn authentication failed');
+          setExecuting(false);
+          return;
+        }
       }
 
       // Execute contract function
@@ -561,7 +641,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         parameters: finalParams,
         user_public_key: publicKey,
         user_secret_key: secretKey,
-        network: contract.network || 'testnet'
+        network: contract.network || 'testnet',
+        ...webauthnData
       });
 
       if (response.data.success) {
@@ -585,7 +666,68 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
 
   if (!item) return null;
 
-  const contractFunctions = contract?.discovered_functions || contract?.functions || [];
+  // Convert discovered_functions from object to array if needed
+  const getContractFunctions = () => {
+    if (!contract) {
+      console.log('[ContractDetailsOverlay] No contract available');
+      return [];
+    }
+    
+    const functions = contract.discovered_functions || contract.functions;
+    console.log('[ContractDetailsOverlay] Raw functions data:', {
+      hasDiscoveredFunctions: !!contract.discovered_functions,
+      hasFunctions: !!contract.functions,
+      functionsType: typeof functions,
+      isArray: Array.isArray(functions),
+      isObject: typeof functions === 'object' && functions !== null,
+      functionsKeys: typeof functions === 'object' && functions !== null ? Object.keys(functions) : null
+    });
+    
+    if (!functions) {
+      console.log('[ContractDetailsOverlay] No functions found in contract');
+      return [];
+    }
+    
+    // If it's already an array, return it
+    if (Array.isArray(functions)) {
+      console.log('[ContractDetailsOverlay] Functions is array, returning as-is:', functions.length);
+      return functions;
+    }
+    
+    // If it's an object (keyed by function name), convert to array
+    if (typeof functions === 'object' && functions !== null) {
+      const functionArray = Object.entries(functions).map(([key, func]) => {
+        // If the value is already a function object, return it
+        if (func && typeof func === 'object' && (func.name || key)) {
+          return {
+            name: func.name || key,
+            parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || [])
+          };
+        }
+        // If it's a string or simple value, create a function object
+        if (typeof func === 'string') {
+          return {
+            name: func,
+            parameters: []
+          };
+        }
+        // Otherwise, use the key as the name
+        return {
+          name: key,
+          parameters: []
+        };
+      }).filter(func => func && func.name);
+      
+      console.log('[ContractDetailsOverlay] Converted object to array:', functionArray.length, functionArray);
+      return functionArray;
+    }
+    
+    console.log('[ContractDetailsOverlay] Functions is neither array nor object, returning empty');
+    return [];
+  };
+
+  const contractFunctions = getContractFunctions();
+  console.log('[ContractDetailsOverlay] Final contractFunctions:', contractFunctions.length, contractFunctions);
 
   return (
     <Dialog 
@@ -858,22 +1000,249 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
           </>
         )}
 
+        {/* Contract Functions - Show before map for better visibility */}
+        {contract && (
+          <Box mb={2}>
+            <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mb: 1.5 }}>
+              <Code fontSize="small" sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Available Functions ({contractFunctions.length})
+            </Typography>
+            {contractFunctions.length > 0 ? (
+              <>
+                {contractFunctions.map((func, index) => (
+                  <Accordion 
+                    key={index}
+                    expanded={expandedFunction === index}
+                    onChange={() => setExpandedFunction(expandedFunction === index ? null : index)}
+                    sx={{ mb: 1 }}
+                  >
+                    <AccordionSummary expandIcon={<ExpandMore />}>
+                      <Box display="flex" alignItems="center" gap={1} width="100%">
+                        <Code fontSize="small" />
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 'medium' }}>
+                          {func.name || func}
+                        </Typography>
+                        {func.parameters && func.parameters.length > 0 && (
+                          <Chip 
+                            label={`${func.parameters.length} param${func.parameters.length !== 1 ? 's' : ''}`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ ml: 'auto' }}
+                          />
+                        )}
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails>
+                      {func.parameters && func.parameters.length > 0 ? (
+                        <Box>
+                          <Typography variant="body2" color="text.secondary" gutterBottom sx={{ fontWeight: 'bold', mb: 1 }}>
+                            Parameters:
+                          </Typography>
+                          {func.parameters.map((param, paramIndex) => (
+                            <TextField
+                              key={paramIndex}
+                              fullWidth
+                              size="small"
+                              label={param.name}
+                              type={param.type === 'u32' || param.type === 'i32' ? 'number' : 'text'}
+                              value={functionParams[param.name] || ''}
+                              onChange={(e) => handleFunctionParamChange(func.name || func, param.name, e.target.value)}
+                              margin="dense"
+                              helperText={`Type: ${param.type || param.parameter_type || 'unknown'}`}
+                              sx={{ mb: 1 }}
+                            />
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No parameters required
+                        </Typography>
+                      )}
+                    </AccordionDetails>
+                  </Accordion>
+                ))}
+
+                {/* Function Selection & Execution */}
+                <Box mt={2} pt={2} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                  <FormControl fullWidth margin="normal">
+                    <InputLabel>Select Function to Execute</InputLabel>
+                    <Select
+                      value={selectedFunction}
+                      onChange={(e) => {
+                        console.log('[ContractDetailsOverlay] Function selected:', e.target.value);
+                        setSelectedFunction(e.target.value);
+                        
+                        // Pre-fill parameters when function is selected
+                        const selectedFunc = contractFunctions.find(f => (f.name || f) === e.target.value);
+                        if (selectedFunc && selectedFunc.parameters) {
+                          const preFilledParams = {};
+                          selectedFunc.parameters.forEach(param => {
+                            const paramName = param.name || param.parameter_name;
+                            const paramType = param.type || param.parameter_type || '';
+                            const mappedFrom = param.mapped_from;
+                            
+                            // Pre-fill based on mapping or parameter name
+                            if (mappedFrom === 'latitude' && item?.latitude) {
+                              preFilledParams[paramName] = item.latitude;
+                            } else if (mappedFrom === 'longitude' && item?.longitude) {
+                              preFilledParams[paramName] = item.longitude;
+                            } else if (mappedFrom === 'user_public_key' && item?.matched_public_key) {
+                              preFilledParams[paramName] = item.matched_public_key;
+                            } else if (paramName === 'signer_address' && (paramType === 'Address' || paramType === 'address')) {
+                              preFilledParams[paramName] = publicKey || '[Will be system-generated from your wallet]';
+                            } else if (paramName === 'destination' && (paramType === 'Address' || paramType === 'address')) {
+                              preFilledParams[paramName] = item?.matched_public_key || '[Will be system-generated]';
+                            } else if (paramName === 'asset' && (paramType === 'Address' || paramType === 'address')) {
+                              preFilledParams[paramName] = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                            } else if (paramName.includes('webauthn') || paramName.includes('signature')) {
+                              preFilledParams[paramName] = '[Will be system-generated during WebAuthn authentication]';
+                            } else if (paramName === 'signature_payload') {
+                              preFilledParams[paramName] = '[Will be system-generated from transaction data]';
+                            }
+                          });
+                          setFunctionParams(preFilledParams);
+                        } else {
+                          setFunctionParams({});
+                        }
+                      }}
+                      label="Select Function to Execute"
+                      displayEmpty
+                      MenuProps={{
+                        PaperProps: {
+                          sx: {
+                            zIndex: 1600, // Higher than dialog z-index (1500)
+                            maxHeight: 300
+                          }
+                        }
+                      }}
+                    >
+                      {contractFunctions.length > 0 ? (
+                        contractFunctions.map((func, index) => {
+                          const funcName = func.name || func;
+                          console.log('[ContractDetailsOverlay] Adding function to dropdown:', funcName, func);
+                          return (
+                            <MenuItem key={index} value={funcName}>
+                              <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
+                                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                                  {funcName}
+                                </Typography>
+                                {func.parameters && Array.isArray(func.parameters) && func.parameters.length > 0 && (
+                                  <Chip 
+                                    label={`${func.parameters.length} param${func.parameters.length !== 1 ? 's' : ''}`}
+                                    size="small"
+                                    sx={{ ml: 1 }}
+                                  />
+                                )}
+                              </Box>
+                            </MenuItem>
+                          );
+                        })
+                      ) : (
+                        <MenuItem disabled>
+                          {contract ? 'No functions available' : 'Loading contract...'}
+                        </MenuItem>
+                      )}
+                    </Select>
+                    {contractFunctions.length === 0 && contract && (
+                      <Alert severity="warning" sx={{ mt: 1 }}>
+                        No functions found. The contract may need function discovery. Check console for details.
+                      </Alert>
+                    )}
+                  </FormControl>
+
+                  {/* Show parameter inputs when function is selected */}
+                  {selectedFunction && (() => {
+                    const selectedFunc = contractFunctions.find(f => (f.name || f) === selectedFunction);
+                    const params = selectedFunc?.parameters || [];
+                    const webauthnParamNames = ['webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'signature_payload'];
+                    const hasWebAuthnParams = params.some(p => webauthnParamNames.includes(p.name || p.parameter_name));
+                    const requiresWebAuthn = contract?.requires_webauthn || hasWebAuthnParams;
+                    
+                    return (
+                      <Box mt={2}>
+                        {params.length > 0 && (
+                          <Box mb={2}>
+                            <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold', mb: 1 }}>
+                              Function Parameters:
+                            </Typography>
+                            {params
+                              .filter(param => !webauthnParamNames.includes(param.name || param.parameter_name)) // Don't show WebAuthn params as inputs
+                              .map((param, paramIndex) => {
+                                const paramName = param.name || param.parameter_name;
+                                const paramType = param.type || param.parameter_type || 'unknown';
+                                return (
+                                  <TextField
+                                    key={paramIndex}
+                                    fullWidth
+                                    size="small"
+                                    label={paramName}
+                                    type={paramType.includes('u32') || paramType.includes('i32') || paramType.includes('I128') ? 'number' : 'text'}
+                                    value={functionParams[paramName] || ''}
+                                    onChange={(e) => handleFunctionParamChange(selectedFunction, paramName, e.target.value)}
+                                    margin="dense"
+                                    helperText={`Type: ${paramType}`}
+                                    sx={{ mb: 1 }}
+                                  />
+                                );
+                              })}
+                            {requiresWebAuthn && (
+                              <Alert severity="info" sx={{ mt: 1 }}>
+                                This function requires WebAuthn/passkey authentication. You will be prompted to authenticate when executing.
+                              </Alert>
+                            )}
+                          </Box>
+                        )}
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={executing ? <CircularProgress size={20} /> : <PlayArrow />}
+                          onClick={handleExecuteFunction}
+                          disabled={!isWithinRange || !isConnected || executing}
+                          fullWidth
+                          size="large"
+                        >
+                          {executing 
+                            ? 'Executing...' 
+                            : isWithinRange 
+                              ? `Execute "${selectedFunction}"` 
+                              : 'Move within range to execute'
+                          }
+                        </Button>
+                      </Box>
+                    );
+                  })()}
+
+                  {executionError && (
+                    <Alert severity="error" sx={{ mt: 2 }}>
+                      {executionError}
+                    </Alert>
+                  )}
+                </Box>
+              </>
+            ) : (
+              <Alert severity="info">
+                No functions discovered for this contract. Please use the Contract Management page to discover functions first.
+              </Alert>
+            )}
+          </Box>
+        )}
+
         {/* User Location & Proximity Check */}
-        {userLocation && (
+        {userLocation && itemType === 'contract_rule' && (
           <Box mb={2}>
             <Alert 
               severity={isWithinRange ? 'success' : 'warning'}
               icon={isWithinRange ? <CheckCircle /> : <Cancel />}
             >
-              <Typography variant="body2">
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                {isWithinRange ? '✅ You are within range!' : '⚠️ You are outside range'}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
                 <strong>Your Location:</strong> {userLocation.latitude.toFixed(6)}, {userLocation.longitude.toFixed(6)}
               </Typography>
               <Typography variant="body2">
                 <strong>Distance:</strong> {distanceText}
-                {isWithinRange 
-                  ? ' - You are within range!' 
-                  : ` - You need to be within ${itemRadius}m to execute functions`
-                }
+                {!isWithinRange && ` - You need to be within ${itemRadius}m to execute functions`}
               </Typography>
             </Alert>
           </Box>
@@ -883,8 +1252,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         {itemType === 'contract_rule' && item.latitude && item.longitude && (
           <Box mb={2}>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-              <Typography variant="subtitle1">
-                <strong>Rule Location & Eligibility</strong>
+              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                Rule Location & Eligibility Map
               </Typography>
               <Box display="flex" gap={1}>
                 {userLocation && (
@@ -957,110 +1326,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
           </Box>
         )}
 
-        {/* Contract Functions */}
-        {contract ? (
-          <>
-            {contractFunctions.length > 0 ? (
-              <Box>
-                <Typography variant="subtitle1" gutterBottom>
-                  <strong>Available Functions</strong>
-                </Typography>
-                {contractFunctions.map((func, index) => (
-                  <Accordion 
-                    key={index}
-                    expanded={expandedFunction === index}
-                    onChange={() => setExpandedFunction(expandedFunction === index ? null : index)}
-                  >
-                    <AccordionSummary expandIcon={<ExpandMore />}>
-                      <Box display="flex" alignItems="center" gap={1} width="100%">
-                        <Code fontSize="small" />
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                          {func.name || func}
-                        </Typography>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      {func.parameters && func.parameters.length > 0 ? (
-                        <Box>
-                          <Typography variant="body2" color="text.secondary" gutterBottom>
-                            Parameters:
-                          </Typography>
-                          {func.parameters.map((param, paramIndex) => (
-                            <TextField
-                              key={paramIndex}
-                              fullWidth
-                              size="small"
-                              label={param.name}
-                              type={param.type === 'u32' || param.type === 'i32' ? 'number' : 'text'}
-                              value={functionParams[param.name] || ''}
-                              onChange={(e) => handleFunctionParamChange(func.name, param.name, e.target.value)}
-                              margin="dense"
-                              helperText={`Type: ${param.type || 'unknown'}`}
-                            />
-                          ))}
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No parameters required
-                        </Typography>
-                      )}
-                    </AccordionDetails>
-                  </Accordion>
-                ))}
-
-                {/* Function Selection & Execution */}
-                {contractFunctions.length > 0 && (
-                  <Box mt={2}>
-                    <FormControl fullWidth margin="normal">
-                      <InputLabel>Select Function to Execute</InputLabel>
-                      <Select
-                        value={selectedFunction}
-                        onChange={(e) => setSelectedFunction(e.target.value)}
-                        label="Select Function to Execute"
-                      >
-                        {contractFunctions.map((func, index) => (
-                          <MenuItem key={index} value={func.name || func}>
-                            {func.name || func}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-
-                    {selectedFunction && (
-                      <Box mt={2}>
-                        <Button
-                          variant="contained"
-                          color="primary"
-                          startIcon={executing ? <CircularProgress size={20} /> : <PlayArrow />}
-                          onClick={handleExecuteFunction}
-                          disabled={!isWithinRange || !isConnected || executing}
-                          fullWidth
-                        >
-                          {executing 
-                            ? 'Executing...' 
-                            : isWithinRange 
-                              ? `Execute "${selectedFunction}"` 
-                              : 'Move within range to execute'
-                          }
-                        </Button>
-                      </Box>
-                    )}
-                  </Box>
-                )}
-              </Box>
-            ) : (
-              <Alert severity="info">
-                No functions discovered for this contract. You may need to discover functions first.
-              </Alert>
-            )}
-
-            {executionError && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {executionError}
-              </Alert>
-            )}
-          </>
-        ) : (
+        {/* For non-contract_rule types, show contract info if available */}
+        {!contract && itemType !== 'contract_rule' && (
           <Alert severity="info">
             No smart contract associated with this {itemType === 'nft' ? 'NFT' : 'wallet'}.
           </Alert>

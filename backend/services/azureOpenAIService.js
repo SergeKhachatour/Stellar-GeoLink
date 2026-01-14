@@ -1482,11 +1482,27 @@ Be helpful, clear, and concise. If a user asks about something outside GeoLink/S
     }
   }
 
+  // Trim conversation history to prevent token limit errors
+  // Keep system message + last 20 messages (10 exchanges) to stay within token limits
+  const MAX_MESSAGES = parseInt(process.env.AZURE_OPENAI_MAX_MESSAGES || '20');
+  const trimmedMessages = contextMessages.length > MAX_MESSAGES
+    ? [
+        // Keep first message if it's a system context message
+        ...(contextMessages[0]?.role === 'user' && contextMessages[0]?.content?.includes('[System Context]') 
+          ? [contextMessages[0]] 
+          : []),
+        // Keep last MAX_MESSAGES messages
+        ...contextMessages.slice(-MAX_MESSAGES)
+      ]
+    : contextMessages;
+
+  console.log(`[processChatCompletion] Message history: ${contextMessages.length} messages, trimmed to ${trimmedMessages.length} messages`);
+
   const modelArgs = {
     model: process.env.AZURE_OPENAI_MODEL_NAME || process.env.AZURE_OPENAI_MODEL || 'gpt-4o',
     messages: [
       { role: 'system', content: systemMessage },
-      ...contextMessages
+      ...trimmedMessages
     ],
     tools: tools,
     tool_choice: process.env.AZURE_OPENAI_TOOL_CHOICE || 'auto',

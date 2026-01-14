@@ -150,6 +150,102 @@ const WalletProviderDashboard = () => {
         }
     }, [user, isConnected, publicKey, connectWalletViewOnly]);
 
+    // Individual fetch functions to prevent flickering
+    const fetchWallets = async () => {
+        try {
+            const res = await api.get('/user/wallets');
+            setWallets(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch wallets:', err);
+        }
+    };
+
+    const fetchApiKey = async () => {
+        try {
+            const res = await api.get('/user/api-keys');
+            setApiKey(res.data[0] || null);
+        } catch (err) {
+            console.warn('Failed to fetch API key:', err);
+        }
+    };
+
+    const fetchApiUsage = async () => {
+        try {
+            const res = await api.get('/user/api-usage');
+            setApiUsage(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch API usage:', err);
+        }
+    };
+
+    const fetchRequestHistory = async () => {
+        try {
+            const res = await api.get('/user/api-key-requests');
+            setRequestHistory(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch request history:', err);
+        }
+    };
+
+    const fetchWalletLocations = async () => {
+        try {
+            const res = await api.get('/location/dashboard/wallet-locations');
+            setWalletLocations(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch wallet locations:', err);
+        }
+    };
+
+    const fetchNFTs = async () => {
+        try {
+            const res = await api.get('/nft/public');
+            setNfts(res.data.nfts || []);
+        } catch (err) {
+            console.warn('Failed to fetch NFTs:', err);
+        }
+    };
+
+    const fetchContractRules = async () => {
+        try {
+            const res = await api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }));
+            setContractRules(res.data?.rules || []);
+        } catch (err) {
+            console.warn('Failed to fetch contract rules:', err);
+        }
+    };
+
+    const fetchMarketAnalysis = async () => {
+        try {
+            const res = await api.get('/wallet-provider/market-analysis');
+            setMarketAnalysis(res.data);
+        } catch (marketErr) {
+            console.warn('Market analysis not available:', marketErr);
+            setMarketAnalysis(null);
+        }
+    };
+
+    // Initial data load - fetch all at once for first load
+    const fetchDashboardData = async () => {
+        try {
+            setLoading(true);
+            // Fetch all data in parallel for initial load
+            await Promise.all([
+                fetchWallets(),
+                fetchApiKey(),
+                fetchApiUsage(),
+                fetchRequestHistory(),
+                fetchWalletLocations(),
+                fetchNFTs(),
+                fetchContractRules(),
+                fetchMarketAnalysis()
+            ]);
+        } catch (err) {
+            setError('Failed to load dashboard data');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchDashboardData();
         
@@ -167,41 +263,17 @@ const WalletProviderDashboard = () => {
                 }
             );
         }
-    }, []);
 
-    const fetchDashboardData = async () => {
-        try {
-            const [walletsRes, keyRes, usageRes, historyRes, locationsRes, nftsRes, rulesRes] = await Promise.all([
-                api.get('/user/wallets'),
-                api.get('/user/api-keys'),
-                api.get('/user/api-usage'),
-                api.get('/user/api-key-requests'),
-                api.get('/location/dashboard/wallet-locations'),
-                api.get('/nft/public'),
-                api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }))
-            ]);
-            setWallets(walletsRes.data);
-            setApiKey(keyRes.data[0] || null);
-            setApiUsage(usageRes.data);
-            setRequestHistory(historyRes.data);
-            setWalletLocations(locationsRes.data);
-            setNfts(nftsRes.data.nfts || []);
-            setContractRules(rulesRes.data?.rules || []);
-            
-            // Try to fetch market analysis separately
-            try {
-                const marketRes = await api.get('/wallet-provider/market-analysis');
-                setMarketAnalysis(marketRes.data);
-            } catch (marketErr) {
-                console.warn('Market analysis not available:', marketErr);
-                setMarketAnalysis(null);
-            }
-        } catch (err) {
-            setError('Failed to load dashboard data');
-        } finally {
-            setLoading(false);
-        }
-    };
+        // Listen for rule changes from ContractManagement
+        const handleRuleChange = () => {
+            fetchContractRules();
+        };
+        window.addEventListener('contractRuleChanged', handleRuleChange);
+
+        return () => {
+            window.removeEventListener('contractRuleChanged', handleRuleChange);
+        };
+    }, []);
 
     // Check for new matches and executions
     const checkForMatchesAndExecutions = async () => {
@@ -407,7 +479,11 @@ const WalletProviderDashboard = () => {
         e.preventDefault();
         try {
             await api.post('/location/update', newWallet);
-            fetchDashboardData();
+            // Refresh only relevant data
+            await Promise.all([
+                fetchWallets(),
+                fetchWalletLocations()
+            ]);
             setNewWallet({
                 public_key: '',
                 blockchain: 'Stellar',
@@ -574,10 +650,11 @@ const WalletProviderDashboard = () => {
                                                 type: 'wallet',
                                                 marker_type: 'wallet'
                                             })),
-                                        // Contract execution rules
+                                        // Contract execution rules (only active ones)
                                         ...contractRules
                                             .filter(rule => rule.latitude && rule.longitude && 
-                                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
+                                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)) &&
+                                                rule.is_active !== false) // Only show active rules
                                             .map(rule => ({
                                                 latitude: parseFloat(rule.latitude),
                                                 longitude: parseFloat(rule.longitude),
@@ -1013,7 +1090,12 @@ const WalletProviderDashboard = () => {
                 open={requestFormOpen}
                 onClose={() => setRequestFormOpen(false)}
                 userType="wallet_provider"
-                onRequestSubmitted={fetchDashboardData}
+                onRequestSubmitted={async () => {
+                    await Promise.all([
+                        fetchApiKey(),
+                        fetchRequestHistory()
+                    ]);
+                }}
             />
 
             {/* Contract Rule Details Dialog */}

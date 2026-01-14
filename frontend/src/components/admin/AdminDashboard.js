@@ -126,8 +126,28 @@ const AdminDashboard = () => {
         }
     }, [user, isConnected, publicKey, connectWalletViewOnly]);
 
+    const fetchContractRules = async () => {
+        try {
+            const rulesRes = await api.get('/contracts/execution-rules/locations');
+            setContractRules(rulesRes.data?.rules || []);
+        } catch (rulesErr) {
+            console.warn('Contract rules not available:', rulesErr);
+            setContractRules([]);
+        }
+    };
+
     useEffect(() => {
         fetchDashboardStats();
+
+        // Listen for rule changes from ContractManagement
+        const handleRuleChange = () => {
+            fetchContractRules();
+        };
+        window.addEventListener('contractRuleChanged', handleRuleChange);
+
+        return () => {
+            window.removeEventListener('contractRuleChanged', handleRuleChange);
+        };
     }, []);
 
     const fetchDashboardStats = async () => {
@@ -148,13 +168,7 @@ const AdminDashboard = () => {
             setNfts(nftsRes.data.nfts || []);
             
             // Fetch contract execution rules
-            try {
-                const rulesRes = await api.get('/contracts/execution-rules/locations');
-                setContractRules(rulesRes.data?.rules || []);
-            } catch (rulesErr) {
-                console.warn('Contract rules not available:', rulesErr);
-                setContractRules([]);
-            }
+            await fetchContractRules();
             
             // Try to fetch market analysis separately
             try {
@@ -421,10 +435,11 @@ const AdminDashboard = () => {
                                 marker_type: 'wallet'
                             })),
                         // Contract execution rules
-                        ...contractRules
-                            .filter(rule => rule.latitude && rule.longitude && 
-                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)))
-                            .map(rule => ({
+                                        ...contractRules
+                                            .filter(rule => rule.latitude && rule.longitude && 
+                                                !isNaN(parseFloat(rule.latitude)) && !isNaN(parseFloat(rule.longitude)) &&
+                                                rule.is_active !== false) // Only show active rules
+                                            .map(rule => ({
                                 latitude: parseFloat(rule.latitude),
                                 longitude: parseFloat(rule.longitude),
                                 id: rule.id,

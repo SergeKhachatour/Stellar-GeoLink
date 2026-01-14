@@ -250,7 +250,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       rule_id, // Optional: Rule ID to mark as completed after successful payment
     } = req.body;
 
-    console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}`);
+    console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}, Rule ID: ${rule_id || 'Not provided'}`);
 
     if (!userPublicKey || !userSecretKey || !destinationAddress || !amount) {
       console.error('[Smart Wallet] ❌ Missing required parameters');
@@ -403,51 +403,109 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
         console.log(`[Smart Wallet] ✅ Payment successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
         
         // If rule_id is provided, mark the pending rule as completed in execution_results
+        console.log(`[Smart Wallet] 🔍 Checking if rule_id is provided: ${rule_id ? `Yes (${rule_id})` : 'No'}`);
         if (rule_id) {
           try {
-            const { pool } = require('../config/database');
+            // backend/config/database.js exports the Pool instance directly (module.exports = pool)
+            // so we must require it without destructuring.
+            const pool = require('../config/database');
             const userId = req.user?.id || req.userId;
             
+            console.log(`[Smart Wallet] 📝 Attempting to mark rule ${rule_id} as completed for user ${userId}`);
+            
             if (userId) {
-              const markCompletedQuery = `
-                UPDATE location_update_queue luq
-                SET execution_results = (
-                  SELECT jsonb_agg(
-                    CASE 
-                      WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
-                      THEN result || jsonb_build_object(
-                        'completed', true, 
-                        'completed_at', $3::text,
-                        'transaction_hash', $4::text,
-                        'success', true
-                      )
-                      ELSE result
-                    END
-                  )
-                  FROM jsonb_array_elements(luq.execution_results) AS result
-                )
-                WHERE luq.user_id = $2
+              // First, check if the rule exists in execution_results
+              const checkQuery = `
+                SELECT luq.id, luq.execution_results
+                FROM location_update_queue luq
+                WHERE luq.user_id = $1
                   AND luq.execution_results IS NOT NULL
                   AND EXISTS (
                     SELECT 1
                     FROM jsonb_array_elements(luq.execution_results) AS result
-                    WHERE (result->>'rule_id')::integer = $1::integer
-                    AND result->>'skipped' = 'true'
-                    AND (result->>'completed')::boolean IS DISTINCT FROM true
+                    WHERE (result->>'rule_id')::integer = $2::integer
                   )
+                ORDER BY luq.id DESC
+                LIMIT 1
               `;
-              await pool.query(markCompletedQuery, [
-                parseInt(rule_id), 
-                userId, 
-                new Date().toISOString(),
-                sendResult.hash
-              ]);
-              console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed`);
+              
+              const checkResult = await pool.query(checkQuery, [userId, parseInt(rule_id)]);
+              console.log(`[Smart Wallet] 🔍 Found ${checkResult.rows.length} location_update_queue entry(ies) with rule_id ${rule_id}`);
+              
+              if (checkResult.rows.length > 0) {
+                const executionResults = checkResult.rows[0].execution_results;
+                console.log(`[Smart Wallet] 📋 Current execution_results:`, JSON.stringify(executionResults, null, 2));
+                
+                const markCompletedQuery = `
+                  UPDATE location_update_queue luq
+                  SET execution_results = (
+                    SELECT jsonb_agg(
+                      CASE 
+                        WHEN (
+                          (result->>'rule_id')::integer = $1::integer OR 
+                          (result->>'rule_id')::text = $1::text
+                        ) AND (
+                          result->>'skipped' = 'true' OR 
+                          (result->>'skipped')::boolean = true
+                        )
+                        THEN result || jsonb_build_object(
+                          'completed', true, 
+                          'completed_at', $3::text,
+                          'transaction_hash', $4::text,
+                          'success', true
+                        )
+                        ELSE result
+                      END
+                    )
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                  )
+                  WHERE luq.user_id = $2
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM jsonb_array_elements(luq.execution_results) AS result
+                      WHERE (
+                        (result->>'rule_id')::integer = $1::integer OR 
+                        (result->>'rule_id')::text = $1::text
+                      )
+                      AND (
+                        result->>'skipped' = 'true' OR 
+                        (result->>'skipped')::boolean = true
+                      )
+                      AND (
+                        (result->>'completed')::boolean IS DISTINCT FROM true OR
+                        result->>'completed' IS NULL
+                      )
+                    )
+                `;
+                
+                const updateResult = await pool.query(markCompletedQuery, [
+                  parseInt(rule_id), 
+                  userId, 
+                  new Date().toISOString(),
+                  sendResult.hash
+                ]);
+                
+                console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed. Rows affected: ${updateResult.rowCount}`);
+                
+                // Verify the update
+                const verifyResult = await pool.query(checkQuery, [userId, parseInt(rule_id)]);
+                if (verifyResult.rows.length > 0) {
+                  console.log(`[Smart Wallet] ✅ Verified execution_results after update:`, JSON.stringify(verifyResult.rows[0].execution_results, null, 2));
+                }
+              } else {
+                console.warn(`[Smart Wallet] ⚠️ No location_update_queue entry found with rule_id ${rule_id} for user ${userId}`);
+              }
+            } else {
+              console.warn(`[Smart Wallet] ⚠️ No userId found in request`);
             }
           } catch (updateError) {
             // Don't fail the payment if we can't update the status
-            console.error(`[Smart Wallet] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+            console.error(`[Smart Wallet] ❌ Error marking rule ${rule_id} as completed:`, updateError);
+            console.error(`[Smart Wallet] ❌ Error stack:`, updateError.stack);
           }
+        } else {
+          console.log(`[Smart Wallet] ℹ️ No rule_id provided, skipping rule completion marking`);
         }
         
         return res.json({ 

@@ -122,41 +122,86 @@ const DataConsumerDashboard = () => {
         }
     }, [user, isConnected, publicKey, connectWalletViewOnly]);
 
-    useEffect(() => {
-        fetchDashboardData();
-    }, []);
+    // Individual fetch functions to prevent flickering
+    const fetchApiKey = async () => {
+        try {
+            const res = await api.get('/user/api-keys');
+            setApiKey(res.data[0] || null);
+        } catch (err) {
+            console.warn('Failed to fetch API key:', err);
+        }
+    };
 
+    const fetchApiUsage = async () => {
+        try {
+            const res = await api.get('/user/api-usage');
+            setApiUsage(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch API usage:', err);
+        }
+    };
+
+    const fetchRequestHistory = async () => {
+        try {
+            const res = await api.get('/user/api-key-requests');
+            setRequestHistory(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch request history:', err);
+        }
+    };
+
+    const fetchWalletLocations = async () => {
+        try {
+            const res = await api.get('/location/dashboard/wallet-locations');
+            setWalletLocations(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch wallet locations:', err);
+        }
+    };
+
+    const fetchNFTs = async () => {
+        try {
+            const res = await api.get('/nft/public');
+            setNfts(res.data.nfts || []);
+        } catch (err) {
+            console.warn('Failed to fetch NFTs:', err);
+        }
+    };
+
+    const fetchContractRules = async () => {
+        try {
+            const res = await api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }));
+            setContractRules(res.data?.rules || []);
+        } catch (err) {
+            console.warn('Failed to fetch contract rules:', err);
+        }
+    };
+
+    const fetchMarketAnalysis = async () => {
+        try {
+            const res = await api.get('/data-consumer/market-analysis');
+            setMarketAnalysis(res.data);
+        } catch (marketErr) {
+            console.warn('Market analysis not available:', marketErr);
+            setMarketAnalysis(null);
+        }
+    };
+
+    // Initial data load - fetch all at once for first load
     const fetchDashboardData = async () => {
         try {
             setLoading(true);
             setError('');
-            
-            // Fetch basic data first
-            const [keyRes, usageRes, historyRes, locationsRes, nftsRes, rulesRes] = await Promise.all([
-                api.get('/user/api-keys'),
-                api.get('/user/api-usage'),
-                api.get('/user/api-key-requests'),
-                api.get('/location/dashboard/wallet-locations'),
-                api.get('/nft/public'),
-                api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }))
+            // Fetch all data in parallel for initial load
+            await Promise.all([
+                fetchApiKey(),
+                fetchApiUsage(),
+                fetchRequestHistory(),
+                fetchWalletLocations(),
+                fetchNFTs(),
+                fetchContractRules(),
+                fetchMarketAnalysis()
             ]);
-            
-            setApiKey(keyRes.data[0] || null);
-            setApiUsage(usageRes.data);
-            setRequestHistory(historyRes.data);
-            setWalletLocations(locationsRes.data);
-            setNfts(nftsRes.data.nfts || []);
-            setContractRules(rulesRes.data?.rules || []);
-            
-            // Try to fetch market analysis separately
-            try {
-                const marketRes = await api.get('/data-consumer/market-analysis');
-                setMarketAnalysis(marketRes.data);
-            } catch (marketErr) {
-                console.warn('Market analysis not available:', marketErr);
-                setMarketAnalysis(null);
-            }
-            
         } catch (err) {
             console.error('Failed to load dashboard data:', err);
             setError('Failed to load dashboard data');
@@ -164,6 +209,20 @@ const DataConsumerDashboard = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchDashboardData();
+
+        // Listen for rule changes from ContractManagement
+        const handleRuleChange = () => {
+            fetchContractRules();
+        };
+        window.addEventListener('contractRuleChanged', handleRuleChange);
+
+        return () => {
+            window.removeEventListener('contractRuleChanged', handleRuleChange);
+        };
+    }, []);
 
     const handleNFTDetails = (nft) => {
         setSelectedNFT(nft);
@@ -613,7 +672,12 @@ const DataConsumerDashboard = () => {
             <ApiKeyRequestForm
                 open={requestFormOpen}
                 onClose={() => setRequestFormOpen(false)}
-                onSuccess={fetchDashboardData}
+                onSuccess={async () => {
+                    await Promise.all([
+                        fetchApiKey(),
+                        fetchRequestHistory()
+                    ]);
+                }}
             />
 
             {/* NFT Details Dialog */}

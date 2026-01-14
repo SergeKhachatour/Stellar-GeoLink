@@ -64,7 +64,8 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   QrCodeScanner as QrCodeScannerIcon,
-  CameraAlt as CameraAltIcon
+  CameraAlt as CameraAltIcon,
+  AccountBalanceWallet as AccountBalanceWalletIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
@@ -403,7 +404,45 @@ const ContractManagement = () => {
       setLoadingPendingRules(true);
       const response = await api.get('/contracts/rules/pending');
       if (response.data.success) {
-        setPendingRules(response.data.pending_rules || []);
+        const pending = response.data.pending_rules || [];
+        setPendingRules(pending);
+
+        // Auto-finalize any pending rules that we successfully executed on-chain but didn't get marked completed.
+        // We persist the last tx hash per (rule_id + matched_public_key) when we execute via smart-wallet.
+        try {
+          const candidates = pending
+            .map((r) => {
+              const rid = r.rule_id || r.id;
+              const mpk = r.matched_public_key || '';
+              const key = `rule_tx_${rid}_${mpk}`;
+              const txHash = localStorage.getItem(key);
+              return txHash ? { rid, mpk, key, txHash } : null;
+            })
+            .filter(Boolean);
+
+          if (candidates.length > 0) {
+            await Promise.all(
+              candidates.map((c) =>
+                api.post(`/contracts/rules/pending/${c.rid}/complete`, {
+                  matched_public_key: c.mpk || undefined,
+                  transaction_hash: c.txHash
+                })
+              )
+            );
+
+            // Clear stored hashes once we've attempted finalization
+            candidates.forEach((c) => localStorage.removeItem(c.key));
+
+            // Refresh pending + completed views
+            const refreshed = await api.get('/contracts/rules/pending');
+            if (refreshed.data?.success) {
+              setPendingRules(refreshed.data.pending_rules || []);
+            }
+            await loadCompletedRules();
+          }
+        } catch (finalizeErr) {
+          console.warn('[ContractManagement] Auto-finalize pending rules failed:', finalizeErr?.message || finalizeErr);
+        }
       }
     } catch (err) {
       console.error('Error loading pending rules:', err);
@@ -550,7 +589,7 @@ const ContractManagement = () => {
             params[paramName] = ruleForm.center_longitude || 0;
             break;
           case 'user_public_key':
-            params[paramName] = '';
+            params[paramName] = publicKey || '[Will be system-generated from matched wallet]';
             break;
           case 'amount':
             params[paramName] = 0;
@@ -559,8 +598,18 @@ const ContractManagement = () => {
             params[paramName] = '';
             break;
           default:
-            // For custom_value, use empty string or 0 based on type
-            if (paramType === 'I128' || paramType === 'I64' || paramType === 'I32' || 
+            // Pre-fill based on parameter name and type
+            if (paramName === 'signer_address' && (paramType === 'Address' || paramType === 'address')) {
+              params[paramName] = publicKey || '[Will be system-generated from your wallet]';
+            } else if (paramName === 'destination' && (paramType === 'Address' || paramType === 'address')) {
+              params[paramName] = '[Will be system-generated from matched wallet]';
+            } else if (paramName === 'asset' && (paramType === 'Address' || paramType === 'address')) {
+              params[paramName] = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'; // XLM contract address
+            } else if (paramName.includes('webauthn') || paramName.includes('signature')) {
+              params[paramName] = '[Will be system-generated during WebAuthn authentication]';
+            } else if (paramName === 'signature_payload') {
+              params[paramName] = '[Will be system-generated from transaction data]';
+            } else if (paramType === 'I128' || paramType === 'I64' || paramType === 'I32' || 
                 paramType === 'U128' || paramType === 'U64' || paramType === 'U32') {
               params[paramName] = 0;
             } else if (paramType === 'Bool') {
@@ -1254,6 +1303,12 @@ const ContractManagement = () => {
       if (response.data.success) {
         setSuccess(editingRule ? 'Rule updated successfully' : 'Rule created successfully');
         loadRules();
+        // Refresh tab counts
+        loadPendingRules();
+        loadCompletedRules();
+        loadRejectedRules();
+        // Dispatch event to notify WalletProviderDashboard to refresh contract rules
+        window.dispatchEvent(new CustomEvent('contractRuleChanged'));
         setTimeout(() => {
           setRuleDialogOpen(false);
           setSuccess('');
@@ -1276,6 +1331,12 @@ const ContractManagement = () => {
       if (response.data.success) {
         setSuccess('Rule deleted successfully');
         loadRules();
+        // Refresh tab counts
+        loadPendingRules();
+        loadCompletedRules();
+        loadRejectedRules();
+        // Dispatch event to notify WalletProviderDashboard to refresh contract rules
+        window.dispatchEvent(new CustomEvent('contractRuleChanged'));
         setTimeout(() => setSuccess(''), 3000);
       } else {
         setError('Failed to delete rule');
@@ -1295,6 +1356,12 @@ const ContractManagement = () => {
       if (response.data.success) {
         setSuccess(`Rule ${newActiveStatus ? 'activated' : 'deactivated'} successfully`);
         loadRules();
+        // Refresh tab counts
+        loadPendingRules();
+        loadCompletedRules();
+        loadRejectedRules();
+        // Dispatch event to notify WalletProviderDashboard to refresh contract rules
+        window.dispatchEvent(new CustomEvent('contractRuleChanged'));
         setTimeout(() => setSuccess(''), 3000);
       } else {
         setError('Failed to update rule status');
@@ -1312,6 +1379,7 @@ const ContractManagement = () => {
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
+  const executionContentRef = useRef(null);
   const [paymentSource, setPaymentSource] = useState('wallet'); // 'wallet' or 'smart-wallet'
   const [vaultBalanceInXLM, setVaultBalanceInXLM] = useState(null);
   // eslint-disable-next-line no-unused-vars
@@ -1324,10 +1392,11 @@ const ContractManagement = () => {
   const getExecutionStep = () => {
     if (!executingRule) return -1;
     const status = executionStatus.toLowerCase();
-    if (status.includes('authenticating') || status.includes('passkey')) return 1;
-    if (status.includes('signing')) return 2;
+    if (status.includes('confirmed') || status.includes('success') || status.includes('complete')) return 5;
+    if (status.includes('waiting') || status.includes('polling') || status.includes('confirmation')) return 4;
     if (status.includes('submitting') || status.includes('executing')) return 3;
-    if (status.includes('waiting') || status.includes('polling') || status.includes('confirmation') || status.includes('confirmed')) return 4;
+    if (status.includes('signing')) return 2;
+    if (status.includes('authenticating') || status.includes('passkey')) return 1;
     return 0; // Preparing
   };
 
@@ -1467,9 +1536,10 @@ const ContractManagement = () => {
       }
       
       const isPayment = isPaymentFunction(rule.function_name, functionParams);
-      const willRouteThroughSmartWallet = contract?.use_smart_wallet && 
-                                         contract?.smart_wallet_contract_id &&
-                                         isPayment;
+      // Check if payment will route through smart wallet
+      // Backend will use config fallback if smart_wallet_contract_id is null
+      // So we show the option if use_smart_wallet is true and it's a payment function
+      const willRouteThroughSmartWallet = contract?.use_smart_wallet && isPayment;
       
       if (isPayment && publicKey) {
         // Fetch smart wallet balance
@@ -1505,7 +1575,19 @@ const ContractManagement = () => {
       }
       
       // Reset payment source to wallet by default
-      setPaymentSource('wallet');
+      // If contract uses smart wallet and this is a payment function, default to smart-wallet source
+      const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
+                           rule.function_name.toLowerCase().includes('payment') ||
+                           rule.function_name.toLowerCase().includes('transfer') ||
+                           rule.function_name.toLowerCase().includes('send') ||
+                           rule.function_name.toLowerCase().includes('pay');
+      
+      if (contract?.use_smart_wallet && isPaymentFunc) {
+        setPaymentSource('smart-wallet');
+        console.log('[ContractManagement] Auto-setting payment_source to smart-wallet for payment function with use_smart_wallet enabled');
+      } else {
+        setPaymentSource('wallet');
+      }
     } else {
       setUserStake(null);
       setVaultBalanceInXLM(null);
@@ -1513,7 +1595,7 @@ const ContractManagement = () => {
     }
   }, [executeConfirmDialog.open, executeConfirmDialog.rule, contracts, publicKey]);
 
-  const handleExecuteRule = (rule, event) => {
+  const handleExecuteRule = async (rule, event) => {
     // Prevent double execution
     if (event) {
       event.stopPropagation();
@@ -1525,16 +1607,23 @@ const ContractManagement = () => {
       return;
     }
 
-    // Open confirmation dialog
+    // Skip confirmation dialog - go straight to execution
     setExecuteConfirmDialog({ open: true, rule });
+    // Start execution immediately
+    await handleConfirmExecute(rule);
   };
 
-  const handleConfirmExecute = async () => {
-    const rule = executeConfirmDialog.rule;
+  const handleConfirmExecute = async (ruleParam = null) => {
+    const rule = ruleParam || executeConfirmDialog.rule;
     if (!rule) {
       setExecuteConfirmDialog({ open: false, rule: null });
       setSecretKeyInput('');
       return;
+    }
+    
+    // Ensure dialog is open
+    if (!executeConfirmDialog.open && !ruleParam) {
+      setExecuteConfirmDialog({ open: true, rule });
     }
 
     if (!publicKey) {
@@ -1545,8 +1634,10 @@ const ContractManagement = () => {
     const contract = contracts.find(c => c.id === rule.contract_id);
     const isReadOnly = isReadOnlyFunction(rule.function_name);
     
+    // Keep confirmation dialog open to show execution steps
+    // Don't close it - it will show the execution progress
     setExecutingRule(true);
-    try {
+      try {
       let functionParams = typeof rule.function_parameters === 'string'
         ? JSON.parse(rule.function_parameters)
         : rule.function_parameters || {};
@@ -1554,9 +1645,11 @@ const ContractManagement = () => {
       // Check if payment will route through smart wallet
       // If payment source is smart-wallet, always route through smart wallet
       // Otherwise, check contract settings
+      // Check if payment will route through smart wallet
+      // Backend will use config fallback if smart_wallet_contract_id is null
+      // So we check use_smart_wallet and payment function, not smart_wallet_contract_id
       const willRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
                                          (contract?.use_smart_wallet && 
-                                          contract?.smart_wallet_contract_id &&
                                           isPaymentFunction(rule.function_name, functionParams));
 
       // Determine if WebAuthn is needed:
@@ -1635,7 +1728,25 @@ const ContractManagement = () => {
           return;
         }
 
-        const selectedPasskey = passkeys[0]; // Use first passkey
+        // IMPORTANT: Use the passkey that's registered on the contract, not just the first one
+        // The contract stores only ONE passkey per public_key, so we must use the one that's on the contract
+        let selectedPasskey = passkeys.find(p => p.isOnContract === true);
+        
+        // If no passkey is marked as on contract, try to find one that matches the contract passkey hex
+        if (!selectedPasskey && passkeysResponse.data.contractPasskeyHex) {
+          // Fallback: use first passkey if we can't determine which is on contract
+          console.warn('[ContractManagement] ⚠️ No passkey marked as on contract, using first passkey');
+          selectedPasskey = passkeys[0];
+        } else if (!selectedPasskey) {
+          // If still no passkey found, use the first one
+          selectedPasskey = passkeys[0];
+        }
+        
+        console.log('[ContractManagement] Using passkey:', {
+          credentialId: selectedPasskey.credentialId || selectedPasskey.credential_id,
+          isOnContract: selectedPasskey.isOnContract,
+          hasPublicKey: !!(selectedPasskey.publicKey || selectedPasskey.public_key_spki)
+        });
         const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
         
         if (!credentialId) {
@@ -1657,21 +1768,68 @@ const ContractManagement = () => {
         // but the contract should handle routing based on use_smart_wallet setting
         
         // Create signature payload from function parameters
-        // For smart wallet payments, include payment details in signature payload
+        // For payment functions (especially those requiring WebAuthn), ALWAYS use the new format
+        // Format: {source, destination, amount, asset, memo, timestamp}
+        // This matches the format expected by the smart wallet contract
         let signaturePayload;
-        if (willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
-          // For smart wallet payments, create signature payload with payment details
+        
+        // Check if this is a payment function
+        const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
+                             rule.function_name.toLowerCase().includes('payment') ||
+                             rule.function_name.toLowerCase().includes('transfer') ||
+                             rule.function_name.toLowerCase().includes('send') ||
+                             rule.function_name.toLowerCase().includes('pay');
+        
+        if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
+          // For payment functions, create signature payload in the format expected by the smart wallet contract
+          // Format: {source, destination, amount, asset, memo, timestamp}
+          // This matches the format used in SendPayment component
+          // IMPORTANT: For pending rules, use matched_public_key as destination if available
+          // The backend will set destination from matched_public_key, so the signature must match
+          let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
+          
+          // If destination is empty and this is a pending rule, check if matched_public_key is available
+          // This ensures the signature payload matches what the backend will use
+          if (!destination && rule.matched_public_key) {
+            destination = rule.matched_public_key;
+            console.log('[ContractManagement] Using matched_public_key as destination for signature payload:', destination.substring(0, 8) + '...');
+          }
+          
+          // If still empty, log a warning
+          if (!destination) {
+            console.warn('[ContractManagement] ⚠️ Destination is empty for payment function - signature verification may fail');
+          }
+          let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
+          // Convert to stroops if it's a small number (assume XLM)
+          if (typeof amount === 'number' && amount < 1000000) {
+            amount = Math.floor(amount * 10000000).toString();
+          } else {
+            amount = amount.toString();
+          }
+          let asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'native';
+          // Convert XLM/native to contract address
+          if (asset === 'XLM' || asset === 'native' || asset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
+            asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+          }
+          
+          // ALWAYS regenerate signature payload for payment functions to ensure correct format
+          // The old format payload from functionParams should NOT be used
+          // Format must be: {source, destination, amount, asset, memo, timestamp}
+          console.log('[ContractManagement] Regenerating signature payload for payment function');
+          console.log('[ContractManagement] Old payload (if exists):', functionParams.signature_payload ? (functionParams.signature_payload.length > 100 ? functionParams.signature_payload.substring(0, 100) + '...' : functionParams.signature_payload) : 'none');
+          
           const paymentData = {
-            function: rule.function_name,
-            contract_id: rule.contract_id,
-            destination: functionParams.destination || functionParams.recipient || functionParams.to,
-            amount: functionParams.amount || functionParams.value || functionParams.quantity,
-            asset: functionParams.asset || functionParams.asset_address || functionParams.token || 'native',
+            source: publicKey, // User's public key (source of payment)
+            destination: destination,
+            amount: amount,
+            asset: asset,
+            memo: '', // Empty memo for contract execution
             timestamp: Date.now()
           };
-          signaturePayload = functionParams.signature_payload || JSON.stringify(paymentData);
+          signaturePayload = JSON.stringify(paymentData);
+          console.log('[ContractManagement] Regenerated payload:', signaturePayload);
         } else {
-          // For regular functions, use existing logic
+          // For regular (non-payment) functions, use existing logic
           signaturePayload = functionParams.signature_payload || JSON.stringify({
             function: rule.function_name,
             contract_id: rule.contract_id,
@@ -1693,22 +1851,27 @@ const ContractManagement = () => {
         );
 
         // Prepare WebAuthn data
+        // IMPORTANT: Use the regenerated signaturePayload (not the old one from functionParams)
+        console.log('[ContractManagement] Using regenerated signaturePayload:', signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined');
         webauthnData = {
           passkeyPublicKeySPKI,
           webauthnSignature: authResult.signature,
           webauthnAuthenticatorData: authResult.authenticatorData,
           webauthnClientData: authResult.clientDataJSON,
-          signaturePayload
+          signaturePayload // This should be the regenerated payload in correct format
         };
 
         // Update function parameters with WebAuthn data
+        // Use the regenerated signaturePayload, not the old one
         functionParams = {
           ...functionParams,
-          signature_payload: signaturePayload,
+          signature_payload: signaturePayload, // Use regenerated payload
           webauthn_signature: authResult.signature,
           webauthn_authenticator_data: authResult.authenticatorData,
           webauthn_client_data: authResult.clientDataJSON
         };
+        
+        console.log('[ContractManagement] Updated functionParams.signature_payload:', functionParams.signature_payload ? (functionParams.signature_payload.length > 100 ? functionParams.signature_payload.substring(0, 100) + '...' : functionParams.signature_payload) : 'undefined');
       } else {
         // Use secret key authentication (traditional)
         userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
@@ -1770,14 +1933,85 @@ const ContractManagement = () => {
       // If this is a payment function and payment source is smart-wallet, call smart wallet endpoint directly
       const isPayment = isPaymentFunction(rule.function_name, functionParams);
       if (isPayment && paymentSource === 'smart-wallet') {
-        // Extract payment parameters
-        const destination = functionParams.destination || functionParams.recipient || functionParams.to || '';
-        const amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
+        console.log('[ContractManagement] Extracting payment parameters for smart wallet execution:', {
+          functionParams,
+          ruleMatchedPublicKey: rule.matched_public_key,
+          hasSignaturePayload: !!functionParams.signature_payload
+        });
+        
+        // Extract payment parameters - check signature_payload first if destination/amount are empty
+        let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
+        let amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
+        
+        // If destination is empty, try to extract from signature_payload (for pending rules)
+        if (!destination && functionParams.signature_payload) {
+          try {
+            const payload = typeof functionParams.signature_payload === 'string' 
+              ? JSON.parse(functionParams.signature_payload) 
+              : functionParams.signature_payload;
+            if (payload.destination) {
+              destination = payload.destination;
+              console.log('[ContractManagement] ✅ Extracted destination from signature_payload:', destination.substring(0, 8) + '...');
+            }
+          } catch (e) {
+            console.warn('[ContractManagement] ⚠️ Could not parse signature_payload:', e.message);
+          }
+        }
+        
+        // If destination is still empty, check matched_public_key (for pending rules)
+        if (!destination && rule.matched_public_key) {
+          destination = rule.matched_public_key;
+          console.log('[ContractManagement] ✅ Using matched_public_key as destination:', destination.substring(0, 8) + '...');
+        }
+        
+        // If amount is empty, try to extract from signature_payload
+        if (!amount && functionParams.signature_payload) {
+          try {
+            const payload = typeof functionParams.signature_payload === 'string' 
+              ? JSON.parse(functionParams.signature_payload) 
+              : functionParams.signature_payload;
+            if (payload.amount) {
+              // Convert from stroops to XLM if needed
+              const amountNum = parseFloat(payload.amount);
+              amount = amountNum >= 1000000 ? (amountNum / 10000000).toString() : payload.amount;
+              console.log('[ContractManagement] ✅ Extracted amount from signature_payload:', amount);
+            }
+          } catch (e) {
+            console.warn('[ContractManagement] ⚠️ Could not parse signature_payload:', e.message);
+          }
+        }
+        
         const asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'XLM';
         const memo = functionParams.memo || '';
         
+        console.log('[ContractManagement] Final payment parameters:', {
+          destination: destination ? destination.substring(0, 8) + '...' : 'MISSING',
+          amount: amount || 'MISSING',
+          asset,
+          userStake: userStake ? parseFloat(userStake).toFixed(7) : '0'
+        });
+        
         if (!destination || !amount) {
-          setError('Payment destination and amount are required');
+          setError(`Payment destination and amount are required. 
+            Destination: ${destination ? 'Found' : 'Missing'}
+            Amount: ${amount ? 'Found' : 'Missing'}
+            Please ensure the rule has destination and amount parameters set, or they are in the signature_payload.`);
+          setExecutingRule(false);
+          return;
+        }
+        
+        // Validate amount against user stake
+        const amountNum = parseFloat(amount);
+        const userStakeNum = userStake ? parseFloat(userStake.toString()) : 0;
+        
+        if (userStakeNum <= 0) {
+          setError('You have no stake in the smart wallet contract. Please deposit funds first.');
+          setExecutingRule(false);
+          return;
+        }
+        
+        if (amountNum > userStakeNum) {
+          setError(`Insufficient stake. You have ${userStakeNum.toFixed(7)} XLM stake, but trying to send ${amountNum.toFixed(7)} XLM.`);
           setExecutingRule(false);
           return;
         }
@@ -1799,7 +2033,15 @@ const ContractManagement = () => {
             return;
           }
           
-          const selectedPasskey = passkeys[0];
+          // IMPORTANT: Use the passkey that's registered on the contract
+          // The contract stores only ONE passkey per public_key, so we must use the one that's on the contract
+          let selectedPasskey = passkeys.find(p => p.isOnContract === true);
+          if (!selectedPasskey) {
+            // Fallback: use first passkey if we can't determine which is on contract
+            console.warn('[ContractManagement] ⚠️ No passkey marked as on contract, using first passkey');
+            selectedPasskey = passkeys[0];
+          }
+          
           const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
           const passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
           
@@ -1808,6 +2050,12 @@ const ContractManagement = () => {
             setExecutingRule(false);
             return;
           }
+          
+          console.log('[ContractManagement] Using passkey for smart wallet payment:', {
+            credentialId: credentialId.substring(0, 16) + '...',
+            isOnContract: selectedPasskey.isOnContract,
+            hasPublicKey: !!passkeyPublicKeySPKI
+          });
           
           // Create transaction data for signature
           const transactionData = {
@@ -1868,7 +2116,7 @@ const ContractManagement = () => {
           webauthnSignature: webauthnData.webauthnSignature,
           webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
           webauthnClientData: webauthnData.webauthnClientData,
-          rule_id: rule.id // Pass rule_id so backend can mark it as completed
+          rule_id: (rule.rule_id || rule.id) // Pass rule_id so backend can mark it as completed
         });
         
         if (response.data.success) {
@@ -1881,6 +2129,25 @@ const ContractManagement = () => {
           
           // Build success message
           const txHash = response.data.hash || 'N/A';
+
+          // Persist tx hash and force-complete the pending entry as a recovery path
+          // (in case the smart-wallet endpoint couldn't update location_update_queue)
+          const rid = rule.rule_id || rule.id;
+          const mpk = rule.matched_public_key || '';
+          if (txHash && txHash !== 'N/A' && rid) {
+            const key = `rule_tx_${rid}_${mpk}`;
+            localStorage.setItem(key, txHash);
+            try {
+              await api.post(`/contracts/rules/pending/${rid}/complete`, {
+                matched_public_key: mpk || undefined,
+                transaction_hash: txHash
+              });
+              localStorage.removeItem(key);
+            } catch (e) {
+              console.warn('[ContractManagement] Could not finalize pending rule in DB (will retry on refresh):', e?.message || e);
+            }
+          }
+
           const stellarExpertUrl = `https://stellar.expert/explorer/testnet/tx/${txHash}`;
           let successMsg = `Payment sent successfully!`;
           if (memo && memo.trim()) {
@@ -1892,6 +2159,13 @@ const ContractManagement = () => {
           setSuccess(successMsg);
           setExecutingRule(false);
           
+          // Auto-scroll to bottom to show success message
+          setTimeout(() => {
+            if (executionContentRef.current) {
+              executionContentRef.current.scrollTop = executionContentRef.current.scrollHeight;
+            }
+          }, 100);
+          
           // Reload pending and completed rules after a delay
           setTimeout(async () => {
             await Promise.all([
@@ -1900,16 +2174,17 @@ const ContractManagement = () => {
             ]);
           }, 1000);
           
-          // Close dialog after a short delay
-          setTimeout(() => {
-            setExecuteConfirmDialog({ open: false, rule: null });
-            setExecutionStatus('');
-            setExecutionStep(0);
-            setSuccess('');
-          }, 3000);
+          // Keep dialog open to show result - user can close manually with Done button
         } else {
           setError(response.data.error || 'Payment failed');
           setExecutingRule(false);
+          // Auto-scroll to show error
+          setTimeout(() => {
+            if (executionContentRef.current) {
+              executionContentRef.current.scrollTop = executionContentRef.current.scrollHeight;
+            }
+          }, 100);
+          // Keep dialog open - user can close with Done button
         }
         
         return; // Exit early for smart wallet payments
@@ -1949,6 +2224,7 @@ const ContractManagement = () => {
       const response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
 
       if (response.data.success) {
+        setExecutionStep(5);
         setExecutionStatus('✅ Transaction confirmed!');
         let resultMessage = '';
         if (response.data.transaction_hash) {
@@ -1972,14 +2248,23 @@ const ContractManagement = () => {
           loadCompletedRules()
         ]);
         
-        // Close dialog after a short delay to show success
+        // Set executing to false and auto-scroll to show success
+        setExecutingRule(false);
+        setTimeout(() => {
+          if (executionContentRef.current) {
+            executionContentRef.current.scrollTop = executionContentRef.current.scrollHeight;
+          }
+        }, 100);
+        // Keep dialog open - user can close with Done button
+      } else {
+        setError(response.data.error || 'Execution failed');
+        setExecutingRule(false);
+        // Close dialog on error after a delay
         setTimeout(() => {
           setExecuteConfirmDialog({ open: false, rule: null });
           setExecutionStatus('');
           setExecutionStep(0);
-        }, 2000);
-      } else {
-        setError(response.data.error || 'Execution failed');
+        }, 3000);
       }
     } catch (err) {
       console.error('Error executing rule function:', err);
@@ -1996,13 +2281,14 @@ const ContractManagement = () => {
       } else {
         setError(errorMessage + (errorDetails ? `\n\nDetails: ${errorDetails}` : '') + (errorSuggestion ? `\n\nSuggestion: ${errorSuggestion}` : ''));
       }
-    } finally {
       setExecutingRule(false);
-      // Don't clear executionStatus immediately if it was successful - let user see the success message
-      if (!executionStatus.includes('confirmed') && !executionStatus.includes('success')) {
+      // Close dialog on error after a delay
+      setTimeout(() => {
+        setExecuteConfirmDialog({ open: false, rule: null });
         setExecutionStatus('');
-      }
-      setExecutionStep(0);
+        setExecutionStep(0);
+      }, 3000);
+    } finally {
       // Clear secret key input for security
       setSecretKeyInput('');
       setShowSecretKey(false);
@@ -2919,13 +3205,21 @@ const ContractManagement = () => {
           </Alert>
         ) : (
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
-            {pendingRules.map((pendingRule) => {
+            {pendingRules.map((pendingRule, index) => {
               const contract = contracts.find(c => c.id === pendingRule.contract_id);
               const rule = rules.find(r => r.id === pendingRule.rule_id);
-              const isExpanded = expandedPendingRule === pendingRule.rule_id;
+              // Merge matched_public_key from pendingRule into rule object for execution
+              // This ensures the signature payload uses the correct destination
+              const ruleWithMatchedKey = rule ? {
+                ...rule,
+                matched_public_key: pendingRule.matched_public_key
+              } : null;
+              // Use rule_id + matched_public_key + index for unique key to handle multiple pending rules per rule
+              const uniqueKey = `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${index}`;
+              const isExpanded = expandedPendingRule === uniqueKey;
               
               return (
-                <React.Fragment key={pendingRule.rule_id}>
+                <React.Fragment key={uniqueKey}>
                   <Paper 
                     sx={{ 
                       mb: 1.5, 
@@ -2936,7 +3230,7 @@ const ContractManagement = () => {
                     }}
                   >
                     <ListItemButton
-                      onClick={() => setExpandedPendingRule(isExpanded ? null : pendingRule.rule_id)}
+                      onClick={() => setExpandedPendingRule(isExpanded ? null : uniqueKey)}
                       sx={{
                         py: 1.5,
                         px: 2,
@@ -2968,6 +3262,11 @@ const ContractManagement = () => {
                               sx={{ fontSize: '0.7rem', height: '20px' }}
                             />
                           )}
+                          {pendingRule.matched_public_key && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
+                              Wallet: {pendingRule.matched_public_key.substring(0, 8)}...{pendingRule.matched_public_key.substring(pendingRule.matched_public_key.length - 8)}
+                            </Typography>
+                          )}
                           {pendingRule.matched_at && (
                             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                               {new Date(pendingRule.matched_at).toLocaleString()}
@@ -2979,7 +3278,7 @@ const ContractManagement = () => {
                         size="small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedPendingRule(isExpanded ? null : pendingRule.rule_id);
+                          setExpandedPendingRule(isExpanded ? null : uniqueKey);
                         }}
                         sx={{ ml: 1 }}
                       >
@@ -2993,6 +3292,14 @@ const ContractManagement = () => {
                         
                         {/* Rule Details */}
                         <Box mb={2}>
+                          {pendingRule.matched_public_key && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <AccountBalanceWalletIcon fontSize="small" color="action" />
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                                <strong>Matched Wallet:</strong> {pendingRule.matched_public_key}
+                              </Typography>
+                            </Box>
+                          )}
                           {pendingRule.location && (
                             <Box display="flex" alignItems="center" gap={1} mb={1}>
                               <LocationOnIcon fontSize="small" color="action" />
@@ -3004,32 +3311,60 @@ const ContractManagement = () => {
                         </Box>
 
                         {/* Function Parameters Preview */}
-                        {pendingRule.function_parameters && (
-                          <Box mb={2}>
-                            <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
-                              Function Parameters:
-                            </Typography>
-                            <Paper 
-                              variant="outlined" 
-                              sx={{ 
-                                p: 1.5, 
-                                bgcolor: 'grey.50',
-                                maxHeight: '150px',
-                                overflow: 'auto'
-                              }}
-                            >
-                              <pre style={{ margin: 0, fontSize: '0.75rem' }}>
-                                {JSON.stringify(
-                                  typeof pendingRule.function_parameters === 'string'
-                                    ? JSON.parse(pendingRule.function_parameters)
-                                    : pendingRule.function_parameters,
-                                  null,
-                                  2
-                                )}
-                              </pre>
-                            </Paper>
-                          </Box>
-                        )}
+                        {pendingRule.function_parameters && (() => {
+                          const params = typeof pendingRule.function_parameters === 'string'
+                            ? JSON.parse(pendingRule.function_parameters)
+                            : pendingRule.function_parameters;
+                          const systemGenerated = pendingRule.system_generated_params || {};
+                          
+                          return (
+                            <Box mb={2}>
+                              <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                                Function Parameters:
+                              </Typography>
+                              <Paper 
+                                variant="outlined" 
+                                sx={{ 
+                                  p: 1.5, 
+                                  bgcolor: 'grey.50',
+                                  maxHeight: '200px',
+                                  overflow: 'auto'
+                                }}
+                              >
+                                <Box component="pre" sx={{ margin: 0, fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                                  {Object.entries(params).map(([key, value]) => {
+                                    const isSystemGenerated = systemGenerated[key];
+                                    const valueStr = typeof value === 'string' && value.startsWith('[Will be') 
+                                      ? value 
+                                      : JSON.stringify(value, null, 2);
+                                    return (
+                                      <Box key={key} sx={{ mb: 0.5 }}>
+                                        <Box component="span" sx={{ fontWeight: 'bold', color: isSystemGenerated ? 'info.main' : 'text.primary' }}>
+                                          {key}:
+                                        </Box>
+                                        <Box component="span" sx={{ 
+                                          ml: 1, 
+                                          color: isSystemGenerated ? 'info.main' : 'text.secondary',
+                                          fontStyle: typeof value === 'string' && value.startsWith('[Will be') ? 'italic' : 'normal'
+                                        }}>
+                                          {valueStr}
+                                        </Box>
+                                        {isSystemGenerated && (
+                                          <Chip 
+                                            label="System Generated" 
+                                            size="small" 
+                                            color="info"
+                                            sx={{ ml: 1, height: '16px', fontSize: '0.65rem' }}
+                                          />
+                                        )}
+                                      </Box>
+                                    );
+                                  })}
+                                </Box>
+                              </Paper>
+                            </Box>
+                          );
+                        })()}
 
                         {/* Message */}
                         {pendingRule.message && (
@@ -3045,16 +3380,16 @@ const ContractManagement = () => {
                             size="small"
                             startIcon={<MapIcon />}
                             onClick={() => {
-                              if (pendingRule.location) {
+                              if (pendingRule.location && ruleWithMatchedKey) {
                                 setSelectedRuleForMap({
-                                  ...rule,
+                                  ...ruleWithMatchedKey,
                                   center_latitude: pendingRule.location.latitude,
                                   center_longitude: pendingRule.location.longitude
                                 });
                                 setMapViewOpen(true);
                               }
                             }}
-                            disabled={!pendingRule.location}
+                            disabled={!pendingRule.location || !ruleWithMatchedKey}
                             sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
                           >
                             View Location
@@ -3079,11 +3414,11 @@ const ContractManagement = () => {
                             startIcon={<CheckCircleIcon />}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (rule) {
-                                handleExecuteRule(rule, e);
+                              if (ruleWithMatchedKey) {
+                                handleExecuteRule(ruleWithMatchedKey, e);
                               }
                             }}
-                            disabled={!rule}
+                            disabled={!ruleWithMatchedKey}
                             sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' }, minWidth: { xs: '100%', sm: 'auto' } }}
                           >
                             Execute Now
@@ -3990,6 +4325,14 @@ const ContractManagement = () => {
                         label="Function Name"
                         onChange={(e) => handleFunctionSelect(e.target.value)}
                         disabled={!ruleForm.contract_id}
+                        MenuProps={{
+                          PaperProps: {
+                            sx: {
+                              zIndex: 1600, // Higher than dialog z-index
+                              maxHeight: 300
+                            }
+                          }
+                        }}
                       >
                         {ruleForm.contract_id ? (
                           (() => {
@@ -5015,8 +5358,10 @@ const ContractManagement = () => {
 
       {/* Execute Confirmation Dialog - Mobile Friendly */}
       <Dialog
-        open={executeConfirmDialog.open}
+        open={executeConfirmDialog.open || executingRule}
         onClose={() => {
+          // Don't allow closing while executing
+          if (executingRule) return;
           setExecuteConfirmDialog({ open: false, rule: null });
           setSecretKeyInput('');
           setShowSecretKey(false);
@@ -5027,8 +5372,12 @@ const ContractManagement = () => {
         PaperProps={{
           sx: {
             m: window.innerWidth < 768 ? 0 : 2,
-            maxHeight: window.innerWidth < 768 ? '100vh' : '90vh'
+            maxHeight: window.innerWidth < 768 ? '100vh' : '90vh',
+            zIndex: executingRule ? 1600 : 1400 // Higher z-index when executing
           }
+        }}
+        sx={{
+          zIndex: executingRule ? 1600 : 1400 // Higher z-index when executing
         }}
       >
         <DialogTitle sx={{ 
@@ -5036,15 +5385,116 @@ const ContractManagement = () => {
           fontSize: window.innerWidth < 768 ? '1.1rem' : '1.25rem',
           fontWeight: 600
         }}>
-          Confirm Function Execution
+          {executingRule ? 'Executing Function...' : 'Confirm Function Execution'}
         </DialogTitle>
-        <DialogContent dividers sx={{ 
+        <DialogContent 
+          ref={executionContentRef}
+          dividers 
+          sx={{ 
           maxHeight: window.innerWidth < 768 ? 'calc(100vh - 200px)' : '60vh',
           overflowY: 'auto',
           px: window.innerWidth < 768 ? 2 : 3,
-          py: 2
+          py: 2,
+          display: executingRule && !success && !error ? 'block' : 'block' // Ensure proper display
         }}>
-          {executeConfirmDialog.rule && (() => {
+          {/* Show execution status and stepper when executing */}
+          {executingRule && !success && !error && (
+            <>
+              {executionStatus && (
+                <Alert 
+                  severity="info" 
+                  sx={{ mb: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}
+                  icon={<CircularProgress size={16} />}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={16} />
+                    <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
+                      {executionStatus}
+                    </Typography>
+                  </Box>
+                </Alert>
+              )}
+              <Box sx={{ mt: 2 }}>
+                <Stepper activeStep={getExecutionStep()} orientation="vertical">
+                  <Step>
+                    <StepLabel>Preparing Transaction</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Building transaction parameters and validating inputs...
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                  {executeConfirmDialog.rule && (() => {
+                    const rule = executeConfirmDialog.rule;
+                    const contract = contracts.find(c => c.id === rule.contract_id);
+                    const needsWebAuthn = requiresWebAuthn(rule, contract);
+                    return needsWebAuthn ? (
+                      <Step>
+                        <StepLabel>Authenticating with Passkey</StepLabel>
+                        <StepContent>
+                          <Typography variant="body2" color="text.secondary">
+                            Please authenticate with your passkey when prompted...
+                          </Typography>
+                        </StepContent>
+                      </Step>
+                    ) : null;
+                  })()}
+                  <Step>
+                    <StepLabel>Signing Transaction</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Signing the transaction with your secret key...
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                  <Step>
+                    <StepLabel>Submitting to Blockchain</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Submitting transaction to the Stellar network...
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                  <Step>
+                    <StepLabel>Waiting for Confirmation</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Waiting for transaction to be included in a ledger...
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                  <Step>
+                    <StepLabel>Complete</StepLabel>
+                    <StepContent>
+                      <Typography variant="body2" color="text.secondary">
+                        Transaction confirmed and included in ledger!
+                      </Typography>
+                    </StepContent>
+                  </Step>
+                </Stepper>
+              </Box>
+              {success && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                    {success}
+                  </Typography>
+                </Alert>
+              )}
+              {error && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                    {error}
+                  </Typography>
+                </Alert>
+              )}
+            </>
+          )}
+          
+          {/* Hide confirmation content - skip straight to execution */}
+          {false && !executingRule && !success && !error && executeConfirmDialog.rule && (() => {
+            // Early return if executingRule becomes true (defensive check)
+            if (executingRule) return null;
+            
             const rule = executeConfirmDialog.rule;
             const isReadOnly = isReadOnlyFunction(rule.function_name);
             const hasSecretKey = secretKey || localStorage.getItem('stellar_secret_key');
@@ -5072,8 +5522,10 @@ const ContractManagement = () => {
             } catch (e) {
               // Ignore parse errors
             }
+            // Check if payment will route through smart wallet
+            // Backend will use config fallback if smart_wallet_contract_id is null
+            // So we show the option if use_smart_wallet is true and it's a payment function
             const willRouteThroughSmartWallet = contract?.use_smart_wallet && 
-                                                 contract?.smart_wallet_contract_id &&
                                                  isPaymentFunction(rule.function_name, functionParams);
             
             // Extract payment details from function parameters
@@ -5134,15 +5586,25 @@ const ContractManagement = () => {
                       </MenuItem>
                       {willRouteThroughSmartWallet && (
                         <MenuItem value="smart-wallet">
-                          From Smart Wallet Vault ({vaultBalanceInXLM ? parseFloat(vaultBalanceInXLM).toFixed(7) : '0.0000000'} XLM)
+                          From Smart Wallet Balance ({userStake ? parseFloat(userStake).toFixed(7) : '0.0000000'} XLM)
                         </MenuItem>
                       )}
                     </Select>
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
                       {paymentSource === 'wallet' 
                         ? 'Pay directly from your Stellar wallet balance'
-                        : 'Pay from your smart wallet contract balance (requires passkey authentication)'}
+                        : `Pay from your smart wallet balance (your stake: ${userStake ? parseFloat(userStake).toFixed(7) : '0.0000000'} XLM, requires passkey authentication)`}
                     </Typography>
+                    {paymentSource === 'smart-wallet' && userStake && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        <Typography variant="body2">
+                          Your stake in smart wallet: <strong>{parseFloat(userStake).toFixed(7)} XLM</strong>
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          You can send up to {parseFloat(userStake).toFixed(7)} XLM from your stake.
+                        </Typography>
+                      </Alert>
+                    )}
                   </FormControl>
                 )}
                 
@@ -5257,69 +5719,6 @@ const ContractManagement = () => {
                   </Alert>
                 )}
                 
-                {executionStatus && (
-                  <Alert 
-                    severity="info" 
-                    sx={{ mt: 2, fontSize: window.innerWidth < 768 ? '0.875rem' : '0.9375rem' }}
-                    icon={executingRule ? <CircularProgress size={16} /> : null}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {executingRule && <CircularProgress size={16} />}
-                      <Typography variant="body2" sx={{ fontSize: 'inherit' }}>
-                        {executionStatus}
-                      </Typography>
-                    </Box>
-                  </Alert>
-                )}
-                
-                {executingRule && (
-                  <Box sx={{ mt: 2 }}>
-                    <Stepper activeStep={getExecutionStep()} orientation="vertical">
-                      <Step>
-                        <StepLabel>Preparing Transaction</StepLabel>
-                        <StepContent>
-                          <Typography variant="body2" color="text.secondary">
-                            Building transaction parameters and validating inputs...
-                          </Typography>
-                        </StepContent>
-                      </Step>
-                      {needsWebAuthn && (
-                        <Step>
-                          <StepLabel>Authenticating with Passkey</StepLabel>
-                          <StepContent>
-                            <Typography variant="body2" color="text.secondary">
-                              Please authenticate with your passkey when prompted...
-                            </Typography>
-                          </StepContent>
-                        </Step>
-                      )}
-                      <Step>
-                        <StepLabel>Signing Transaction</StepLabel>
-                        <StepContent>
-                          <Typography variant="body2" color="text.secondary">
-                            Signing the transaction with your secret key...
-                          </Typography>
-                        </StepContent>
-                      </Step>
-                      <Step>
-                        <StepLabel>Submitting to Blockchain</StepLabel>
-                        <StepContent>
-                          <Typography variant="body2" color="text.secondary">
-                            Submitting transaction to the Stellar network...
-                          </Typography>
-                        </StepContent>
-                      </Step>
-                      <Step>
-                        <StepLabel>Waiting for Confirmation</StepLabel>
-                        <StepContent>
-                          <Typography variant="body2" color="text.secondary">
-                            Waiting for transaction to be included in a ledger...
-                          </Typography>
-                        </StepContent>
-                      </Step>
-                    </Stepper>
-                  </Box>
-                )}
               </>
             );
           })()}
@@ -5334,27 +5733,61 @@ const ContractManagement = () => {
             minHeight: '44px' // Better touch target for mobile
           }
         }}>
-          <Button 
-            onClick={() => {
-              setExecuteConfirmDialog({ open: false, rule: null });
-              setSecretKeyInput('');
-              setShowSecretKey(false);
-            }}
-            variant={window.innerWidth < 768 ? 'outlined' : 'text'}
-            fullWidth={window.innerWidth < 768}
-          >
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleConfirmExecute} 
-            variant="contained" 
-            color="primary"
-            disabled={executingRule}
-            fullWidth={window.innerWidth < 768}
-            startIcon={executingRule ? <CircularProgress size={20} color="inherit" /> : null}
-          >
-            {executingRule ? 'Executing...' : 'Execute'}
-          </Button>
+          {/* Hide Cancel and Execute buttons - execution starts automatically */}
+          {false && !executingRule && !success && !error && (
+            <>
+              <Button 
+                onClick={() => {
+                  setExecuteConfirmDialog({ open: false, rule: null });
+                  setSecretKeyInput('');
+                  setShowSecretKey(false);
+                }}
+                variant={window.innerWidth < 768 ? 'outlined' : 'text'}
+                fullWidth={window.innerWidth < 768}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleConfirmExecute} 
+                variant="contained" 
+                color="primary"
+                fullWidth={window.innerWidth < 768}
+              >
+                Execute
+              </Button>
+            </>
+          )}
+          {/* Show Executing button ONLY when executing and no success/error */}
+          {executingRule && !success && !error && (
+            <Button 
+              variant="contained" 
+              color="primary"
+              disabled
+              fullWidth
+              startIcon={<CircularProgress size={20} color="inherit" />}
+            >
+              Executing...
+            </Button>
+          )}
+          {(success || error) && (
+            <Button 
+              variant="contained" 
+              color={success ? "success" : "error"}
+              onClick={() => {
+                setExecuteConfirmDialog({ open: false, rule: null });
+                setExecutionStatus('');
+                setExecutionStep(0);
+                setExecutingRule(false);
+                setSuccess('');
+                setError('');
+                setSecretKeyInput('');
+                setShowSecretKey(false);
+              }}
+              fullWidth
+            >
+              Done
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
@@ -5394,7 +5827,10 @@ const ContractManagement = () => {
               if (!ruleToReject) return;
               setRejectingRuleId(ruleToReject.rule_id);
               try {
-                await api.post(`/contracts/rules/pending/${ruleToReject.rule_id}/reject`);
+                // Pass matched_public_key to reject the specific pending rule for that public key
+                await api.post(`/contracts/rules/pending/${ruleToReject.rule_id}/reject`, {
+                  matched_public_key: ruleToReject.matched_public_key
+                });
                 setSuccess(`Pending rule "${ruleToReject.rule_name}" rejected successfully`);
                 setTimeout(() => setSuccess(''), 3000);
                 loadPendingRules(); // Reload to remove rejected rule
