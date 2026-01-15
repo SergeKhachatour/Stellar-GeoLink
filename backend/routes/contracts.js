@@ -3551,6 +3551,56 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 }
             }
             
+            // Replace placeholder destination with matched_public_key if needed
+            if (paymentParams.destination) {
+                const isPlaceholder = typeof paymentParams.destination === 'string' && 
+                    (paymentParams.destination.includes('[Will be system-generated') || 
+                     paymentParams.destination.includes('system-generated'));
+                
+                if (isPlaceholder) {
+                    // Try to get matched_public_key from various sources
+                    let matchedKey = parameters.matched_public_key || 
+                                    req.body.matched_public_key;
+                    
+                    // If not found, try to fetch from location_update_queue
+                    if (!matchedKey && rule_id) {
+                        try {
+                            const matchedKeyQuery = `
+                                SELECT luq.public_key
+                                FROM location_update_queue luq
+                                WHERE luq.user_id = $1
+                                    AND luq.status IN ('matched', 'executed')
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1 
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE result->>'skipped' = 'true'
+                                        AND result->>'reason' = 'requires_webauthn'
+                                        AND (result->>'rule_id')::integer = $2
+                                    )
+                                ORDER BY luq.received_at DESC
+                                LIMIT 1
+                            `;
+                            const matchedKeyResult = await pool.query(matchedKeyQuery, [req.user?.id || req.userId, rule_id]);
+                            if (matchedKeyResult.rows.length > 0) {
+                                matchedKey = matchedKeyResult.rows[0].public_key;
+                                console.log(`[Execute] ✅ Fetched matched_public_key from location_update_queue: ${matchedKey?.substring(0, 8)}...`);
+                            }
+                        } catch (error) {
+                            console.warn(`[Execute] ⚠️  Could not fetch matched_public_key:`, error.message);
+                        }
+                    }
+                    
+                    if (matchedKey) {
+                        paymentParams.destination = matchedKey;
+                        console.log(`[Execute] ✅ Replaced placeholder destination with matched_public_key in payment params: ${matchedKey?.substring(0, 8)}...`);
+                    } else {
+                        console.error(`[Execute] ❌ Destination is placeholder but matched_public_key not available`);
+                        throw new Error(`Destination address is required but not available. Placeholder text found: ${paymentParams.destination}. Please provide matched_public_key in the request.`);
+                    }
+                }
+            }
+            
             // If amount is missing, try to extract it from signature_payload
             if (!paymentParams.amount && parameters.signature_payload) {
                 try {
