@@ -2414,7 +2414,7 @@ const ContractManagement = () => {
                 } catch (apiError) {
                   console.error('API registration failed, trying direct contract call:', apiError);
                   // Fallback to direct contract call
-                  const webauthnService = (await import('../services/webauthnService')).default;
+                  const webauthnService = (await import('../../services/webauthnService')).default;
                   const registrationSuccess = await webauthnService.registerSignerOnContract(
                     currentPublicKey,
                     availableSecretKey,
