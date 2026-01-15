@@ -151,7 +151,19 @@ const ContractManagement = () => {
     target_wallet_public_key: '',
     required_wallet_public_keys: [],
     minimum_wallet_count: null,
-    quorum_type: 'any'
+    quorum_type: 'any',
+    // Rate limiting
+    max_executions_per_public_key: null,
+    execution_time_window_seconds: null,
+    // Time-based triggers
+    min_location_duration_seconds: null,
+    // Auto-deactivation
+    auto_deactivate_on_balance_threshold: false,
+    balance_threshold_xlm: null,
+    balance_check_asset_address: null,
+    use_smart_wallet_balance: false,
+    // Submit read-only to ledger
+    submit_readonly_to_ledger: false
   });
   
   // Map states for location selection
@@ -187,9 +199,17 @@ const ContractManagement = () => {
   const quorumVideoRef = useRef(null);
   const quorumQrScannerRef = useRef(null);
   
-  // Rules Table Pagination
+  // Pagination state for all tabs
+  const [contractsPage, setContractsPage] = useState(0);
+  const [contractsRowsPerPage, setContractsRowsPerPage] = useState(12); // 12 for grid (3x4 or 4x3)
   const [rulesPage, setRulesPage] = useState(0);
   const [rulesRowsPerPage, setRulesRowsPerPage] = useState(10);
+  const [pendingRulesPage, setPendingRulesPage] = useState(0);
+  const [pendingRulesRowsPerPage, setPendingRulesRowsPerPage] = useState(10);
+  const [completedRulesPage, setCompletedRulesPage] = useState(0);
+  const [completedRulesRowsPerPage, setCompletedRulesRowsPerPage] = useState(10);
+  const [rejectedRulesPage, setRejectedRulesPage] = useState(0);
+  const [rejectedRulesRowsPerPage, setRejectedRulesRowsPerPage] = useState(10);
   
   // Quick Map View States
   const [mapViewOpen, setMapViewOpen] = useState(false);
@@ -526,7 +546,19 @@ const ContractManagement = () => {
       target_wallet_public_key: '',
       required_wallet_public_keys: [],
       minimum_wallet_count: null,
-      quorum_type: 'any'
+      quorum_type: 'any',
+      // Rate limiting
+      max_executions_per_public_key: null,
+      execution_time_window_seconds: null,
+      // Time-based triggers
+      min_location_duration_seconds: null,
+      // Auto-deactivation
+      auto_deactivate_on_balance_threshold: false,
+      balance_threshold_xlm: null,
+      balance_check_asset_address: null,
+      use_smart_wallet_balance: false,
+      // Submit read-only to ledger
+      submit_readonly_to_ledger: false
     });
     setEditingRule(null);
     setActiveStep(0);
@@ -1223,7 +1255,19 @@ const ContractManagement = () => {
       target_wallet_public_key: rule.target_wallet_public_key || '',
       required_wallet_public_keys: rule.required_wallet_public_keys || [],
       minimum_wallet_count: rule.minimum_wallet_count || null,
-      quorum_type: rule.quorum_type || 'any'
+      quorum_type: rule.quorum_type || 'any',
+      // Rate limiting
+      max_executions_per_public_key: rule.max_executions_per_public_key || null,
+      execution_time_window_seconds: rule.execution_time_window_seconds || null,
+      // Time-based triggers
+      min_location_duration_seconds: rule.min_location_duration_seconds || null,
+      // Auto-deactivation
+      auto_deactivate_on_balance_threshold: rule.auto_deactivate_on_balance_threshold || false,
+      balance_threshold_xlm: rule.balance_threshold_xlm || null,
+      balance_check_asset_address: rule.balance_check_asset_address || null,
+      use_smart_wallet_balance: rule.use_smart_wallet_balance || false,
+      // Submit read-only to ledger
+      submit_readonly_to_ledger: rule.submit_readonly_to_ledger || false
     });
     setRuleDialogOpen(true);
   };
@@ -1288,7 +1332,19 @@ const ContractManagement = () => {
         target_wallet_public_key: ruleForm.target_wallet_public_key || null,
         required_wallet_public_keys: requiredWallets.length > 0 ? requiredWallets : null,
         minimum_wallet_count: ruleForm.minimum_wallet_count || null,
-        quorum_type: ruleForm.quorum_type
+        quorum_type: ruleForm.quorum_type,
+        // Rate limiting
+        max_executions_per_public_key: ruleForm.max_executions_per_public_key || null,
+        execution_time_window_seconds: ruleForm.execution_time_window_seconds || null,
+        // Time-based triggers
+        min_location_duration_seconds: ruleForm.min_location_duration_seconds || null,
+        // Auto-deactivation
+        auto_deactivate_on_balance_threshold: ruleForm.auto_deactivate_on_balance_threshold || false,
+        balance_threshold_xlm: ruleForm.balance_threshold_xlm || null,
+        balance_check_asset_address: ruleForm.balance_check_asset_address || null,
+        use_smart_wallet_balance: ruleForm.use_smart_wallet_balance || false,
+        // Submit read-only to ledger
+        submit_readonly_to_ledger: ruleForm.submit_readonly_to_ledger || false
       };
 
       if (ruleForm.rule_type === 'location' || ruleForm.rule_type === 'proximity') {
@@ -2163,6 +2219,18 @@ const ContractManagement = () => {
           setSuccess(successMsg);
           setExecutingRule(false);
           
+          // Dispatch custom event to refresh vault balance in dashboard
+          // Wait a moment for the transaction to propagate on the network
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('smartWalletPaymentSuccess', {
+              detail: {
+                txHash,
+                amount: amount, // amount is already in XLM
+                destination: destination
+              }
+            }));
+          }, 2000);
+          
           // Auto-scroll to bottom to show success message
           setTimeout(() => {
             if (executionContentRef.current) {
@@ -2231,8 +2299,8 @@ const ContractManagement = () => {
         setExecutionStep(5);
         setExecutionStatus('✅ Transaction confirmed!');
         let resultMessage = '';
-        if (response.data.transaction_hash) {
-          const txHash = response.data.transaction_hash;
+        const txHash = response.data.transaction_hash;
+        if (txHash) {
           const network = response.data.network || 'testnet';
           const stellarExpertUrl = response.data.stellar_expert_url || `https://stellar.expert/explorer/${network}/tx/${txHash}`;
           resultMessage = `Function "${rule.function_name}" executed successfully! Transaction: ${txHash}`;
@@ -2244,6 +2312,25 @@ const ContractManagement = () => {
         }
         setSuccess(resultMessage);
         setTimeout(() => setSuccess(''), 8000);
+        
+        // Dispatch custom event to refresh vault balance if this was a payment function
+        // Wait a moment for the transaction to propagate on the network
+        if (isPayment && txHash) {
+          // Extract payment parameters from functionParams for the event
+          const paymentAmount = functionParams.amount || functionParams.value || functionParams.quantity || null;
+          const paymentDestination = functionParams.destination || functionParams.recipient || functionParams.to || null;
+          
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('smartWalletPaymentSuccess', {
+              detail: {
+                txHash,
+                amount: paymentAmount || null,
+                destination: paymentDestination || null,
+                functionName: rule.function_name
+              }
+            }));
+          }, 2000);
+        }
         
         // Reload pending rules to remove the executed rule from the list
         // Also reload completed rules to update the count
@@ -2278,9 +2365,92 @@ const ContractManagement = () => {
       
       // Handle passkey mismatch error specifically
       if (errorMessage.toLowerCase().includes('passkey') && errorMessage.toLowerCase().includes('mismatch')) {
+        // Try to automatically re-register the passkey if we have the necessary information
+        // Get values from the current execution context
+        const currentPublicKey = publicKey || localStorage.getItem('stellar_public_key');
+        const availableSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+        
+        // Try to get passkey info from the last execution attempt
+        // We'll need to fetch it from the API
+        if (currentPublicKey && availableSecretKey) {
+          try {
+            setExecutionStatus('Re-registering passkey on contract...');
+            setExecutionStep(1);
+            
+            // Get passkeys to find the one being used
+            const passkeysResponse = await api.get('/webauthn/passkeys');
+            const passkeys = passkeysResponse.data.passkeys || [];
+            
+            if (passkeys.length > 0) {
+              // Use the passkey that was likely used (first one or one marked as on contract)
+              const selectedPasskey = passkeys.find(p => p.isOnContract === true) || passkeys[0];
+              const passkeyPublicKeySPKI = selectedPasskey?.publicKey || selectedPasskey?.public_key_spki;
+              
+              if (passkeyPublicKeySPKI) {
+                try {
+                  // Use the API endpoint for registration (cleaner and more reliable)
+                  const registerResponse = await api.post('/smart-wallet/register-signer', {
+                    userPublicKey: currentPublicKey,
+                    userSecretKey: availableSecretKey,
+                    passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+                    rpId: window.location.hostname
+                  });
+                  
+                  if (registerResponse.data.success) {
+                    setExecutionStatus('Passkey re-registered successfully!');
+                    setExecutionStep(2);
+                    
+                    // Wait a moment for the contract to update
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Show success message and ask user to try again
+                    setSuccess('✅ Passkey has been re-registered successfully! Please try executing the rule again.');
+                    setError('');
+                    setExecutingRule(false);
+                    return;
+                  } else {
+                    throw new Error(registerResponse.data.error || 'Registration failed');
+                  }
+                } catch (apiError) {
+                  console.error('API registration failed, trying direct contract call:', apiError);
+                  // Fallback to direct contract call
+                  const webauthnService = (await import('../services/webauthnService')).default;
+                  const registrationSuccess = await webauthnService.registerSignerOnContract(
+                    currentPublicKey,
+                    availableSecretKey,
+                    passkeyPublicKeySPKI
+                  );
+                  
+                  if (registrationSuccess) {
+                    setExecutionStatus('Passkey re-registered successfully!');
+                    setExecutionStep(2);
+                    
+                    // Wait a moment for the contract to update
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Show success message and ask user to try again
+                    setSuccess('✅ Passkey has been re-registered successfully! Please try executing the rule again.');
+                    setError('');
+                    setExecutingRule(false);
+                    return;
+                  }
+                }
+              }
+            }
+          } catch (reRegError) {
+            console.error('Failed to auto-re-register passkey:', reRegError);
+            // Fall through to show manual registration message
+          }
+        }
+        
+        // If auto-registration failed or secret key not available, show manual instructions
         setError(
           `🔐 Passkey Mismatch: ${errorDetails || errorMessage}\n\n` +
-          `💡 ${errorSuggestion || 'Please re-register your passkey for this role, or use the passkey that was last registered for this public key.'}`
+          `💡 ${errorSuggestion || 'Please re-register your passkey for this role, or use the passkey that was last registered for this public key.'}\n\n` +
+          `🔄 To fix this:\n` +
+          `1. Go to your wallet settings\n` +
+          `2. Re-register your passkey for this role\n` +
+          `3. Try executing the rule again`
         );
       } else {
         setError(errorMessage + (errorDetails ? `\n\nDetails: ${errorDetails}` : '') + (errorSuggestion ? `\n\nSuggestion: ${errorSuggestion}` : ''));
@@ -2561,6 +2731,16 @@ const ContractManagement = () => {
     return rules.filter(r => r.contract_id === contractId).length;
   };
   
+  // Pagination handlers
+  const handleContractsPageChange = (event, newPage) => {
+    setContractsPage(newPage);
+  };
+  
+  const handleContractsRowsPerPageChange = (event) => {
+    setContractsRowsPerPage(parseInt(event.target.value, 10));
+    setContractsPage(0);
+  };
+
   const handleRulesPageChange = (event, newPage) => {
     setRulesPage(newPage);
   };
@@ -2568,6 +2748,33 @@ const ContractManagement = () => {
   const handleRulesRowsPerPageChange = (event) => {
     setRulesRowsPerPage(parseInt(event.target.value, 10));
     setRulesPage(0);
+  };
+
+  const handlePendingRulesPageChange = (event, newPage) => {
+    setPendingRulesPage(newPage);
+  };
+  
+  const handlePendingRulesRowsPerPageChange = (event) => {
+    setPendingRulesRowsPerPage(parseInt(event.target.value, 10));
+    setPendingRulesPage(0);
+  };
+
+  const handleCompletedRulesPageChange = (event, newPage) => {
+    setCompletedRulesPage(newPage);
+  };
+  
+  const handleCompletedRulesRowsPerPageChange = (event) => {
+    setCompletedRulesRowsPerPage(parseInt(event.target.value, 10));
+    setCompletedRulesPage(0);
+  };
+
+  const handleRejectedRulesPageChange = (event, newPage) => {
+    setRejectedRulesPage(newPage);
+  };
+  
+  const handleRejectedRulesRowsPerPageChange = (event) => {
+    setRejectedRulesRowsPerPage(parseInt(event.target.value, 10));
+    setRejectedRulesPage(0);
   };
   
   const handleViewRuleMap = (rule) => {
@@ -2748,8 +2955,11 @@ const ContractManagement = () => {
             No contracts found. Click "Add Contract" to create your first smart contract.
           </Alert>
         ) : (
+          <>
           <Grid container spacing={3}>
-            {contracts.map((contract) => (
+            {contracts
+              .slice(contractsPage * contractsRowsPerPage, contractsPage * contractsRowsPerPage + contractsRowsPerPage)
+              .map((contract) => (
               <Grid item xs={12} md={6} lg={4} key={contract.id}>
                 <Card>
                   <CardContent>
@@ -2853,6 +3063,17 @@ const ContractManagement = () => {
               </Grid>
             ))}
           </Grid>
+          <TablePagination
+            component="div"
+            count={contracts.length}
+            page={contractsPage}
+            onPageChange={handleContractsPageChange}
+            rowsPerPage={contractsRowsPerPage}
+            onRowsPerPageChange={handleContractsRowsPerPageChange}
+            rowsPerPageOptions={[6, 12, 24, 48]}
+            sx={{ mt: 2 }}
+          />
+          </>
         )}
       </TabPanel>
 
@@ -3208,8 +3429,11 @@ const ContractManagement = () => {
             No pending rules. All matched rules have been executed automatically.
           </Alert>
         ) : (
+          <>
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
-            {pendingRules.map((pendingRule, index) => {
+            {pendingRules
+              .slice(pendingRulesPage * pendingRulesRowsPerPage, pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage)
+              .map((pendingRule, index) => {
               const contract = contracts.find(c => c.id === pendingRule.contract_id);
               const rule = rules.find(r => r.id === pendingRule.rule_id);
               // Merge matched_public_key from pendingRule into rule object for execution
@@ -3435,6 +3659,17 @@ const ContractManagement = () => {
               );
             })}
           </List>
+          <TablePagination
+            component="div"
+            count={pendingRules.length}
+            page={pendingRulesPage}
+            onPageChange={handlePendingRulesPageChange}
+            rowsPerPage={pendingRulesRowsPerPage}
+            onRowsPerPageChange={handlePendingRulesRowsPerPageChange}
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            sx={{ mt: 2 }}
+          />
+          </>
         )}
       </TabPanel>
 
@@ -3459,8 +3694,11 @@ const ContractManagement = () => {
             No completed rules yet. Rules that are successfully executed will appear here.
           </Alert>
         ) : (
+          <>
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
-            {completedRules.map((completedRule) => {
+            {completedRules
+              .slice(completedRulesPage * completedRulesRowsPerPage, completedRulesPage * completedRulesRowsPerPage + completedRulesRowsPerPage)
+              .map((completedRule) => {
               const contract = contracts.find(c => c.id === completedRule.contract_id);
               const rule = rules.find(r => r.id === completedRule.rule_id);
               const isExpanded = expandedCompletedRule === completedRule.rule_id;
@@ -3607,6 +3845,17 @@ const ContractManagement = () => {
               );
             })}
           </List>
+          <TablePagination
+            component="div"
+            count={completedRules.length}
+            page={completedRulesPage}
+            onPageChange={handleCompletedRulesPageChange}
+            rowsPerPage={completedRulesRowsPerPage}
+            onRowsPerPageChange={handleCompletedRulesRowsPerPageChange}
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            sx={{ mt: 2 }}
+          />
+          </>
         )}
       </TabPanel>
 
@@ -3631,8 +3880,11 @@ const ContractManagement = () => {
             No rejected rules. Rules that you reject will appear here.
           </Alert>
         ) : (
+          <>
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
-            {rejectedRules.map((rejectedRule) => {
+            {rejectedRules
+              .slice(rejectedRulesPage * rejectedRulesRowsPerPage, rejectedRulesPage * rejectedRulesRowsPerPage + rejectedRulesRowsPerPage)
+              .map((rejectedRule) => {
               const contract = contracts.find(c => c.id === rejectedRule.contract_id);
               const rule = rules.find(r => r.id === rejectedRule.rule_id);
               const isExpanded = expandedRejectedRule === rejectedRule.rule_id;
@@ -3764,6 +4016,17 @@ const ContractManagement = () => {
               );
             })}
           </List>
+          <TablePagination
+            component="div"
+            count={rejectedRules.length}
+            page={rejectedRulesPage}
+            onPageChange={handleRejectedRulesPageChange}
+            rowsPerPage={rejectedRulesRowsPerPage}
+            onRowsPerPageChange={handleRejectedRulesRowsPerPageChange}
+            rowsPerPageOptions={[5, 10, 25, 50]}
+            sx={{ mt: 2 }}
+          />
+          </>
         )}
       </TabPanel>
 
@@ -4789,6 +5052,128 @@ const ContractManagement = () => {
                         <MenuItem value="exact">Exact (exactly minimum count)</MenuItem>
                       </Select>
                     </FormControl>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6">Rate Limiting (Optional)</Typography>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Limit how many times a public key can execute this rule within a time window.
+                    </Alert>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          label="Max Executions per Public Key"
+                          type="number"
+                          value={ruleForm.max_executions_per_public_key || ''}
+                          onChange={(e) => setRuleForm({ ...ruleForm, max_executions_per_public_key: e.target.value ? parseInt(e.target.value) : null })}
+                          fullWidth
+                          helperText="Maximum number of executions per public key (leave empty for unlimited)"
+                          inputProps={{ min: 1 }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          label="Time Window (seconds)"
+                          type="number"
+                          value={ruleForm.execution_time_window_seconds || ''}
+                          onChange={(e) => setRuleForm({ ...ruleForm, execution_time_window_seconds: e.target.value ? parseInt(e.target.value) : null })}
+                          fullWidth
+                          helperText="Time window in seconds (e.g., 3600 = 1 hour)"
+                          inputProps={{ min: 1 }}
+                        />
+                      </Grid>
+                    </Grid>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6">Time-Based Trigger (Optional)</Typography>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Require public keys to be at the location for a minimum duration before execution.
+                    </Alert>
+
+                    <TextField
+                      label="Minimum Location Duration (seconds)"
+                      type="number"
+                      value={ruleForm.min_location_duration_seconds || ''}
+                      onChange={(e) => setRuleForm({ ...ruleForm, min_location_duration_seconds: e.target.value ? parseInt(e.target.value) : null })}
+                      fullWidth
+                      helperText="Minimum time in seconds a public key must be at location before rule can execute (e.g., 300 = 5 minutes)"
+                      inputProps={{ min: 0 }}
+                    />
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6">Read-Only Function Submission (Optional)</Typography>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      Submit read-only function calls to the Stellar ledger so they appear on Stellar Expert for tracking and audit purposes. Requires SERVICE_ACCOUNT_SECRET_KEY to be configured on the server.
+                    </Alert>
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={ruleForm.submit_readonly_to_ledger || false}
+                          onChange={(e) => setRuleForm({ ...ruleForm, submit_readonly_to_ledger: e.target.checked })}
+                        />
+                      }
+                      label="Submit Read-Only Functions to Ledger"
+                    />
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6">Auto-Deactivation (Optional)</Typography>
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                      Automatically deactivate this rule when balance drops below threshold.
+                    </Alert>
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={ruleForm.auto_deactivate_on_balance_threshold}
+                          onChange={(e) => setRuleForm({ ...ruleForm, auto_deactivate_on_balance_threshold: e.target.checked })}
+                        />
+                      }
+                      label="Auto-Deactivate on Balance Threshold"
+                    />
+
+                    {ruleForm.auto_deactivate_on_balance_threshold && (
+                      <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              label="Balance Threshold (XLM)"
+                              type="number"
+                              value={ruleForm.balance_threshold_xlm || ''}
+                              onChange={(e) => setRuleForm({ ...ruleForm, balance_threshold_xlm: e.target.value ? parseFloat(e.target.value) : null })}
+                              fullWidth
+                              required={ruleForm.auto_deactivate_on_balance_threshold}
+                              helperText="Rule deactivates when balance drops below this amount"
+                              inputProps={{ min: 0, step: 0.0000001 }}
+                            />
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <TextField
+                              label="Asset Address (Optional)"
+                              value={ruleForm.balance_check_asset_address || ''}
+                              onChange={(e) => setRuleForm({ ...ruleForm, balance_check_asset_address: e.target.value || null })}
+                              fullWidth
+                              helperText="Leave empty for native XLM, or enter asset contract address"
+                              placeholder="CDLZFC3S..."
+                            />
+                          </Grid>
+                        </Grid>
+
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={ruleForm.use_smart_wallet_balance}
+                              onChange={(e) => setRuleForm({ ...ruleForm, use_smart_wallet_balance: e.target.checked })}
+                            />
+                          }
+                          label="Check Smart Wallet Vault Balance (instead of direct wallet balance)"
+                        />
+                      </Box>
+                    )}
                     
                     <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
                       <Button onClick={handleRuleBack}>Back</Button>
@@ -4884,6 +5269,128 @@ const ContractManagement = () => {
                           <MenuItem value="exact">Exact (exactly minimum count)</MenuItem>
                         </Select>
                       </FormControl>
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6">Rate Limiting (Optional)</Typography>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Limit how many times a public key can execute this rule within a time window.
+                      </Alert>
+
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            label="Max Executions per Public Key"
+                            type="number"
+                            value={ruleForm.max_executions_per_public_key || ''}
+                            onChange={(e) => setRuleForm({ ...ruleForm, max_executions_per_public_key: e.target.value ? parseInt(e.target.value) : null })}
+                            fullWidth
+                            helperText="Maximum number of executions per public key (leave empty for unlimited)"
+                            inputProps={{ min: 1 }}
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            label="Time Window (seconds)"
+                            type="number"
+                            value={ruleForm.execution_time_window_seconds || ''}
+                            onChange={(e) => setRuleForm({ ...ruleForm, execution_time_window_seconds: e.target.value ? parseInt(e.target.value) : null })}
+                            fullWidth
+                            helperText="Time window in seconds (e.g., 3600 = 1 hour)"
+                            inputProps={{ min: 1 }}
+                          />
+                        </Grid>
+                      </Grid>
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6">Time-Based Trigger (Optional)</Typography>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Require public keys to be at the location for a minimum duration before execution.
+                      </Alert>
+
+                      <TextField
+                        label="Minimum Location Duration (seconds)"
+                        type="number"
+                        value={ruleForm.min_location_duration_seconds || ''}
+                        onChange={(e) => setRuleForm({ ...ruleForm, min_location_duration_seconds: e.target.value ? parseInt(e.target.value) : null })}
+                        fullWidth
+                        helperText="Minimum time in seconds a public key must be at location before rule can execute (e.g., 300 = 5 minutes)"
+                        inputProps={{ min: 0 }}
+                      />
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6">Read-Only Function Submission (Optional)</Typography>
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Submit read-only function calls to the Stellar ledger so they appear on Stellar Expert for tracking and audit purposes. Requires SERVICE_ACCOUNT_SECRET_KEY to be configured on the server.
+                      </Alert>
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={ruleForm.submit_readonly_to_ledger || false}
+                            onChange={(e) => setRuleForm({ ...ruleForm, submit_readonly_to_ledger: e.target.checked })}
+                          />
+                        }
+                        label="Submit Read-Only Functions to Ledger"
+                      />
+
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6">Auto-Deactivation (Optional)</Typography>
+                      <Alert severity="warning" sx={{ mb: 2 }}>
+                        Automatically deactivate this rule when balance drops below threshold.
+                      </Alert>
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={ruleForm.auto_deactivate_on_balance_threshold}
+                            onChange={(e) => setRuleForm({ ...ruleForm, auto_deactivate_on_balance_threshold: e.target.checked })}
+                          />
+                        }
+                        label="Auto-Deactivate on Balance Threshold"
+                      />
+
+                      {ruleForm.auto_deactivate_on_balance_threshold && (
+                        <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <Grid container spacing={2}>
+                            <Grid item xs={12} sm={6}>
+                              <TextField
+                                label="Balance Threshold (XLM)"
+                                type="number"
+                                value={ruleForm.balance_threshold_xlm || ''}
+                                onChange={(e) => setRuleForm({ ...ruleForm, balance_threshold_xlm: e.target.value ? parseFloat(e.target.value) : null })}
+                                fullWidth
+                                required={ruleForm.auto_deactivate_on_balance_threshold}
+                                helperText="Rule deactivates when balance drops below this amount"
+                                inputProps={{ min: 0, step: 0.0000001 }}
+                              />
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                              <TextField
+                                label="Asset Address (Optional)"
+                                value={ruleForm.balance_check_asset_address || ''}
+                                onChange={(e) => setRuleForm({ ...ruleForm, balance_check_asset_address: e.target.value || null })}
+                                fullWidth
+                                helperText="Leave empty for native XLM, or enter asset contract address"
+                                placeholder="CDLZFC3S..."
+                              />
+                            </Grid>
+                          </Grid>
+
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                checked={ruleForm.use_smart_wallet_balance}
+                                onChange={(e) => setRuleForm({ ...ruleForm, use_smart_wallet_balance: e.target.checked })}
+                              />
+                            }
+                            label="Check Smart Wallet Vault Balance (instead of direct wallet balance)"
+                          />
+                        </Box>
+                      )}
                       
                       <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
                         <Button onClick={handleRuleBack}>Back</Button>
@@ -4952,6 +5459,15 @@ const ContractManagement = () => {
                         <Typography><strong>Function:</strong> {ruleForm.function_name || 'N/A'}</Typography>
                         <Typography><strong>Trigger:</strong> {ruleForm.trigger_on}</Typography>
                         <Typography><strong>Auto Execute:</strong> {ruleForm.auto_execute ? 'Yes' : 'No'}</Typography>
+                        {ruleForm.max_executions_per_public_key && (
+                          <Typography><strong>Rate Limit:</strong> {ruleForm.max_executions_per_public_key} executions per {ruleForm.execution_time_window_seconds ? `${ruleForm.execution_time_window_seconds}s` : 'time window'}</Typography>
+                        )}
+                        {ruleForm.min_location_duration_seconds && (
+                          <Typography><strong>Min Location Duration:</strong> {ruleForm.min_location_duration_seconds} seconds</Typography>
+                        )}
+                        {ruleForm.auto_deactivate_on_balance_threshold && (
+                          <Typography><strong>Auto-Deactivate:</strong> When balance drops below {ruleForm.balance_threshold_xlm} XLM</Typography>
+                        )}
                       </Paper>
                       
                       <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>

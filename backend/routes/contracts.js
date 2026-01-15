@@ -1280,7 +1280,19 @@ router.post('/rules', authenticateContractUser, async (req, res) => {
             target_wallet_public_key = null,
             required_wallet_public_keys = null,
             minimum_wallet_count = null,
-            quorum_type = 'any'
+            quorum_type = 'any',
+            // Rate limiting
+            max_executions_per_public_key = null,
+            execution_time_window_seconds = null,
+            // Time-based triggers
+            min_location_duration_seconds = null,
+            // Auto-deactivation
+            auto_deactivate_on_balance_threshold = false,
+            balance_threshold_xlm = null,
+            balance_check_asset_address = null,
+            use_smart_wallet_balance = false,
+            // Submit read-only to ledger
+            submit_readonly_to_ledger = false
         } = req.body;
 
         const userId = req.user?.id || req.userId;
@@ -1329,8 +1341,12 @@ router.post('/rules', authenticateContractUser, async (req, res) => {
                 center_latitude, center_longitude, radius_meters, geofence_id,
                 function_name, function_parameters, trigger_on,
                 auto_execute, requires_confirmation, target_wallet_public_key,
-                required_wallet_public_keys, minimum_wallet_count, quorum_type
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                required_wallet_public_keys, minimum_wallet_count, quorum_type,
+                max_executions_per_public_key, execution_time_window_seconds,
+                min_location_duration_seconds, auto_deactivate_on_balance_threshold,
+                balance_threshold_xlm, balance_check_asset_address, use_smart_wallet_balance,
+                submit_readonly_to_ledger
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             RETURNING *
         `, [
             userId, contract_id, rule_name, rule_type,
@@ -1338,7 +1354,11 @@ router.post('/rules', authenticateContractUser, async (req, res) => {
             function_name, JSON.stringify(function_parameters), trigger_on,
             auto_execute, requires_confirmation, target_wallet_public_key,
             required_wallet_public_keys ? JSON.stringify(required_wallet_public_keys) : null,
-            minimum_wallet_count, quorum_type
+            minimum_wallet_count, quorum_type,
+            max_executions_per_public_key, execution_time_window_seconds,
+            min_location_duration_seconds, auto_deactivate_on_balance_threshold,
+            balance_threshold_xlm, balance_check_asset_address, use_smart_wallet_balance,
+            submit_readonly_to_ledger
         ]);
 
         res.status(201).json({
@@ -2714,7 +2734,19 @@ router.put('/rules/:id', authenticateContractUser, async (req, res) => {
             target_wallet_public_key,
             required_wallet_public_keys,
             minimum_wallet_count,
-            quorum_type
+            quorum_type,
+            // Rate limiting
+            max_executions_per_public_key,
+            execution_time_window_seconds,
+            // Time-based triggers
+            min_location_duration_seconds,
+            // Auto-deactivation
+            auto_deactivate_on_balance_threshold,
+            balance_threshold_xlm,
+            balance_check_asset_address,
+            use_smart_wallet_balance,
+            // Submit read-only to ledger
+            submit_readonly_to_ledger
         } = req.body;
 
         const userId = req.user?.id || req.userId;
@@ -2843,6 +2875,57 @@ router.put('/rules/:id', authenticateContractUser, async (req, res) => {
         if (quorum_type !== undefined) {
             updates.push(`quorum_type = $${paramIndex}`);
             params.push(quorum_type);
+            paramIndex++;
+        }
+
+        // Rate limiting fields
+        if (max_executions_per_public_key !== undefined) {
+            updates.push(`max_executions_per_public_key = $${paramIndex}`);
+            params.push(max_executions_per_public_key || null);
+            paramIndex++;
+        }
+
+        if (execution_time_window_seconds !== undefined) {
+            updates.push(`execution_time_window_seconds = $${paramIndex}`);
+            params.push(execution_time_window_seconds || null);
+            paramIndex++;
+        }
+
+        // Time-based trigger fields
+        if (min_location_duration_seconds !== undefined) {
+            updates.push(`min_location_duration_seconds = $${paramIndex}`);
+            params.push(min_location_duration_seconds || null);
+            paramIndex++;
+        }
+
+        // Auto-deactivation fields
+        if (auto_deactivate_on_balance_threshold !== undefined) {
+            updates.push(`auto_deactivate_on_balance_threshold = $${paramIndex}`);
+            params.push(auto_deactivate_on_balance_threshold);
+            paramIndex++;
+        }
+
+        if (balance_threshold_xlm !== undefined) {
+            updates.push(`balance_threshold_xlm = $${paramIndex}`);
+            params.push(balance_threshold_xlm || null);
+            paramIndex++;
+        }
+
+        if (balance_check_asset_address !== undefined) {
+            updates.push(`balance_check_asset_address = $${paramIndex}`);
+            params.push(balance_check_asset_address || null);
+            paramIndex++;
+        }
+
+        if (use_smart_wallet_balance !== undefined) {
+            updates.push(`use_smart_wallet_balance = $${paramIndex}`);
+            params.push(use_smart_wallet_balance);
+            paramIndex++;
+        }
+
+        if (submit_readonly_to_ledger !== undefined) {
+            updates.push(`submit_readonly_to_ledger = $${paramIndex}`);
+            params.push(submit_readonly_to_ledger);
             paramIndex++;
         }
 
@@ -3644,21 +3727,31 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             const destinationScVal = StellarSdk.xdr.ScVal.scvAddress(destinationScAddress);
 
             // Asset address handling
+            // Use assetForPayload (which has the correct contract address) instead of paymentParams.asset
+            // This ensures we use the same asset format as in the signature payload
+            const assetToUse = assetForPayload || paymentParams.asset;
+            console.log(`[Execute] 💰 Asset conversion - paymentParams.asset: ${paymentParams.asset}, assetForPayload: ${assetForPayload?.substring(0, 8)}..., using: ${assetToUse?.substring(0, 8)}...`);
+            
             let assetScAddress;
-            if (paymentParams.asset && paymentParams.asset.startsWith('C')) {
-                const contractIdBytes = StellarSdk.StrKey.decodeContract(paymentParams.asset);
+            if (assetToUse && assetToUse.startsWith('C')) {
+                // Contract address (e.g., native XLM contract)
+                const contractIdBytes = StellarSdk.StrKey.decodeContract(assetToUse);
                 assetScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(contractIdBytes);
-            } else if (paymentParams.asset && paymentParams.asset.startsWith('G')) {
-                const assetAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(paymentParams.asset);
+                console.log(`[Execute] 💰 Using contract address for asset: ${assetToUse.substring(0, 8)}...`);
+            } else if (assetToUse && assetToUse.startsWith('G')) {
+                // Account address (legacy native XLM)
+                const assetAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(assetToUse);
                 assetScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
                     StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(assetAddressBytes)
                 );
+                console.log(`[Execute] 💰 Using account address for asset: ${assetToUse.substring(0, 8)}...`);
             } else {
-                // Native XLM
+                // Native XLM (fallback)
                 const nativeAssetBytes = StellarSdk.StrKey.decodeEd25519PublicKey('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF');
                 assetScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
                     StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(nativeAssetBytes)
                 );
+                console.log(`[Execute] 💰 Using native XLM address (fallback)`);
             }
             const assetScVal = StellarSdk.xdr.ScVal.scvAddress(assetScAddress);
 
@@ -3758,13 +3851,15 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 console.error('  The passkey registered on the contract does not match the passkey used for signing.');
                                 console.error('  This likely means you registered a passkey for a different role with the same public_key.');
                                 console.error('  The contract stores only ONE passkey per public_key (the last one registered).');
+                                console.error('[Execute] 💡 Suggestion: Re-register the passkey using the same one you are currently using for signing.');
                                 return res.status(400).json({
                                     success: false,
                                     error: 'Passkey mismatch',
                                     details: 'The passkey public key registered on the contract does not match the passkey used for signing. This can happen if you have multiple roles (e.g., data consumer, wallet provider) with the same Stellar public key, and you registered different passkeys for each role. The contract stores only the last registered passkey per public key.',
-                                    suggestion: 'Please use the same passkey that was last registered for this public key, or re-register the passkey for this role.',
+                                    suggestion: 'The system will attempt to automatically re-register your passkey. If that fails, please manually re-register your passkey for this role using the same passkey you are currently using for signing. You can do this from your wallet settings or by calling the register_signer function on the smart wallet contract.',
                                     registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
-                                    extractedPasskey: extractedPubkeyHex.substring(0, 32) + '...'
+                                    extractedPasskey: extractedPubkeyHex.substring(0, 32) + '...',
+                                    canAutoRegister: true // Flag to indicate frontend can attempt auto-registration
                                 });
                             } else {
                                 console.log('[Execute] ✅ Registered passkey matches extracted passkey');
@@ -3792,12 +3887,29 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             }
             
             // Check user's balance in smart wallet BEFORE executing payment (like XYZ-Wallet does)
+            // IMPORTANT: For native XLM, the smart wallet contract expects the SAC (Stellar Asset Contract) address
+            // CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC, not the account address format
             console.log(`[Execute] 💰 Checking smart wallet balance for user: ${user_public_key}`);
             try {
+                // Create asset ScVal for balance check (use SAC for native XLM)
+                let balanceCheckAssetScVal;
+                if (assetToUse && assetToUse.startsWith('C')) {
+                    // Already a contract address (including SAC for native XLM)
+                    balanceCheckAssetScVal = assetScVal;
+                    console.log(`[Execute] 💰 Balance check using contract address: ${assetToUse.substring(0, 8)}...`);
+                } else {
+                    // For native XLM, use SAC contract address
+                    const sacContractId = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                    const sacContractBytes = StellarSdk.StrKey.decodeContract(sacContractId);
+                    const sacScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(sacContractBytes);
+                    balanceCheckAssetScVal = StellarSdk.xdr.ScVal.scvAddress(sacScAddress);
+                    console.log(`[Execute] 💰 Balance check using SAC contract address for native XLM: ${sacContractId.substring(0, 8)}...`);
+                }
+                
                 const balanceCheckOp = smartWalletContract.call(
                     'get_balance',
                     signerAddressScVal,
-                    assetScVal
+                    balanceCheckAssetScVal
                 );
                 
                 // Use dummy account for simulation (read-only call)
@@ -3830,7 +3942,15 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     const balanceResult = balanceSimulation.result.retval;
                     let balance = '0';
                     
-                    console.log(`[Execute] 💰 Balance result type:`, typeof balanceResult, balanceResult);
+                    console.log(`[Execute] 💰 Balance result type:`, typeof balanceResult);
+                    console.log(`[Execute] 💰 Balance result structure:`, {
+                        hasSwitch: typeof balanceResult.switch === 'function',
+                        hasI128: typeof balanceResult.i128 === 'function',
+                        hasValue: !!balanceResult._value,
+                        hasAttributes: !!(balanceResult._value && balanceResult._value._attributes),
+                        constructor: balanceResult.constructor?.name,
+                        keys: Object.keys(balanceResult).slice(0, 10)
+                    });
                     
                     // Try to extract balance using scValToNative first (cleanest approach)
                     try {
@@ -3961,10 +4081,19 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
 
             // Poll for result
             let txResult = null;
+            console.log(`[Execute] ⏳ Polling for transaction result (hash: ${sendResult.hash.substring(0, 16)}...)...`);
             for (let i = 0; i < 30; i++) {
                 await new Promise(r => setTimeout(r, 2000));
-                txResult = await sorobanServer.getTransaction(sendResult.hash);
+                try {
+                    txResult = await sorobanServer.getTransaction(sendResult.hash);
+                    console.log(`[Execute] 📊 Poll attempt ${i + 1}/30 - Status: ${txResult.status || 'PENDING'}`);
+                } catch (pollError) {
+                    console.warn(`[Execute] ⚠️ Poll attempt ${i + 1}/30 failed:`, pollError.message);
+                    continue;
+                }
+                
                 if (txResult.status === 'SUCCESS') {
+                    console.log(`[Execute] ✅ Transaction succeeded!`);
                     // Check the contract's return value
                     let contractReturnedFalse = false;
                     try {
@@ -4105,19 +4234,36 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Process WebAuthn signature if provided
         let processedParameters = { ...parameters };
         
-        // IMPORTANT: WebAuthn parameters should ALWAYS come from the request body, never from stored function_parameters
-        // Extract WebAuthn data from request body first (these take precedence)
-        if (webauthnSignature) {
-            processedParameters.webauthn_signature = webauthnSignature;
-        }
-        if (webauthnAuthenticatorData) {
-            processedParameters.webauthn_authenticator_data = webauthnAuthenticatorData;
-        }
-        if (webauthnClientData) {
-            processedParameters.webauthn_client_data = webauthnClientData;
-        }
-        if (signaturePayload) {
-            processedParameters.signature_payload = signaturePayload;
+        // IMPORTANT: Only include WebAuthn parameters if they are actually required
+        // WebAuthn parameters should only be sent when:
+        // 1. requires_webauthn is true (contract explicitly requires WebAuthn)
+        // 2. OR use_smart_wallet is true (smart wallet payments may require WebAuthn)
+        // If neither is true, do NOT send WebAuthn parameters to avoid contract rejection
+        const shouldIncludeWebAuthn = contract.requires_webauthn || contract.use_smart_wallet;
+        
+        if (shouldIncludeWebAuthn) {
+            // IMPORTANT: WebAuthn parameters should ALWAYS come from the request body, never from stored function_parameters
+            // Extract WebAuthn data from request body first (these take precedence)
+            if (webauthnSignature) {
+                processedParameters.webauthn_signature = webauthnSignature;
+            }
+            if (webauthnAuthenticatorData) {
+                processedParameters.webauthn_authenticator_data = webauthnAuthenticatorData;
+            }
+            if (webauthnClientData) {
+                processedParameters.webauthn_client_data = webauthnClientData;
+            }
+            if (signaturePayload) {
+                processedParameters.signature_payload = signaturePayload;
+            }
+        } else {
+            // Remove WebAuthn parameters if they exist in the parameters object
+            // This ensures they are not sent to the contract when not required
+            delete processedParameters.webauthn_signature;
+            delete processedParameters.webauthn_authenticator_data;
+            delete processedParameters.webauthn_client_data;
+            delete processedParameters.signature_payload;
+            console.log(`[Execute] 🚫 WebAuthn parameters removed - requires_webauthn: ${contract.requires_webauthn}, use_smart_wallet: ${contract.use_smart_wallet}`);
         }
         
         // Auto-populate missing parameters for pending rule execution

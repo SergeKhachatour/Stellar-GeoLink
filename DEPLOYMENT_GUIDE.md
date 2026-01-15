@@ -91,6 +91,17 @@ STELLAR_NETWORK=TESTNET
 SOROBAN_RPC_URL=https://soroban-testnet.stellar.org:443
 ```
 
+#### Service Account Configuration (NEW - for read-only function submission)
+```
+SERVICE_ACCOUNT_SECRET_KEY=your_service_account_secret_key_here
+```
+
+**Important:** This is the secret key of a Stellar account used by the backend to submit read-only contract function calls to the ledger. 
+- **Create the account:** Run `node backend/scripts/create-service-account.js` locally to generate a keypair
+- **Fund the account:** Send 1-2 XLM to the public key for transaction fees
+- **Add to Azure:** Copy the secret key to Azure Portal (never commit it to Git)
+- **Security:** This key should be kept secure - it's used to sign transactions on behalf of the service
+
 #### Existing Variables (Verify these are set)
 ```
 NODE_ENV=production
@@ -196,6 +207,11 @@ After pushing and setting environment variables:
 3. **Rotate API keys regularly** - Especially for production
 4. **Monitor usage** - Check Azure OpenAI usage in Azure Portal
 5. **Set up alerts** - Configure alerts for high API usage
+6. **Service Account Security** - The `SERVICE_ACCOUNT_SECRET_KEY` should:
+   - Only be stored in Azure Portal Application Settings (never in code)
+   - Use a dedicated account with minimal XLM (just enough for fees)
+   - Be rotated if compromised
+   - Never be shared or logged
 
 ---
 
