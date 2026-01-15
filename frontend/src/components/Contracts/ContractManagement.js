@@ -66,6 +66,7 @@ import {
   QrCodeScanner as QrCodeScannerIcon,
   CameraAlt as CameraAltIcon,
   AccountBalanceWallet as AccountBalanceWalletIcon
+  ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import CustomContractDialog from '../NFT/CustomContractDialog';
@@ -1438,6 +1439,7 @@ const ContractManagement = () => {
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
+  const [executionResult, setExecutionResult] = useState(null); // Store execution result details
   const executionContentRef = useRef(null);
   const [paymentSource, setPaymentSource] = useState('wallet'); // 'wallet' or 'smart-wallet'
   // eslint-disable-next-line no-unused-vars
@@ -2216,7 +2218,24 @@ const ContractManagement = () => {
           successMsg += `\nTransaction: ${txHash}`;
           successMsg += `\n🔗 View on StellarExpert: ${stellarExpertUrl}`;
           
+          // Store execution result details for smart wallet payments
+          setExecutionResult({
+            functionName: rule.function_name,
+            transactionHash: txHash,
+            network: 'testnet',
+            stellarExpertUrl: stellarExpertUrl,
+            executionType: 'smart_wallet_payment',
+            timestamp: new Date().toISOString(),
+            parameters: {
+              destination: destination,
+              amount: amount,
+              asset: 'XLM'
+            }
+          });
+          
           setSuccess(successMsg);
+          // Keep success message visible longer (15 seconds)
+          setTimeout(() => setSuccess(''), 15000);
           setExecutingRule(false);
           
           // Dispatch custom event to refresh vault balance in dashboard
@@ -2300,18 +2319,31 @@ const ContractManagement = () => {
         setExecutionStatus('✅ Transaction confirmed!');
         let resultMessage = '';
         const txHash = response.data.transaction_hash;
+        const network = response.data.network || 'testnet';
+        const stellarExpertUrl = txHash ? (response.data.stellar_expert_url || `https://stellar.expert/explorer/${network}/tx/${txHash}`) : null;
+        
+        // Store execution result details
+        setExecutionResult({
+          functionName: rule.function_name,
+          transactionHash: txHash,
+          network: network,
+          stellarExpertUrl: stellarExpertUrl,
+          executionType: response.data.execution_type || 'submitted_to_ledger',
+          timestamp: new Date().toISOString(),
+          parameters: functionParams
+        });
+        
         if (txHash) {
-          const network = response.data.network || 'testnet';
-          const stellarExpertUrl = response.data.stellar_expert_url || `https://stellar.expert/explorer/${network}/tx/${txHash}`;
           resultMessage = `Function "${rule.function_name}" executed successfully! Transaction: ${txHash}`;
-          if (response.data.stellar_expert_url) {
+          if (stellarExpertUrl) {
             resultMessage += `\nView on StellarExpert: ${stellarExpertUrl}`;
           }
         } else {
           resultMessage = `Function "${rule.function_name}" executed successfully!`;
         }
         setSuccess(resultMessage);
-        setTimeout(() => setSuccess(''), 8000);
+        // Keep success message visible longer (15 seconds instead of 8)
+        setTimeout(() => setSuccess(''), 15000);
         
         // Dispatch custom event to refresh vault balance if this was a payment function
         // Wait a moment for the transaction to propagate on the network
@@ -5885,6 +5917,7 @@ const ContractManagement = () => {
           setExecuteConfirmDialog({ open: false, rule: null });
           setSecretKeyInput('');
           setShowSecretKey(false);
+          setExecutionResult(null); // Clear execution result when closing
         }}
         maxWidth="sm"
         fullWidth
@@ -5999,6 +6032,129 @@ const ContractManagement = () => {
                     {success}
                   </Typography>
                 </Alert>
+              )}
+              
+              {/* Execution Result Details - Show when execution completes successfully */}
+              {!executingRule && success && executionResult && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="h6" gutterBottom sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                    Execution Details
+                  </Typography>
+                  <Paper sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Function Name
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                          {executionResult.functionName}
+                        </Typography>
+                      </Box>
+                      
+                      {executionResult.transactionHash && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            Transaction Hash
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              sx={{ 
+                                fontFamily: 'monospace', 
+                                wordBreak: 'break-all',
+                                flex: 1,
+                                cursor: 'pointer',
+                                '&:hover': { textDecoration: 'underline' }
+                              }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(executionResult.transactionHash);
+                                setSuccess('Transaction hash copied to clipboard!');
+                                setTimeout(() => setSuccess(success), 2000);
+                              }}
+                            >
+                              {executionResult.transactionHash}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                navigator.clipboard.writeText(executionResult.transactionHash);
+                                setSuccess('Transaction hash copied to clipboard!');
+                                setTimeout(() => setSuccess(success), 2000);
+                              }}
+                              sx={{ flexShrink: 0 }}
+                            >
+                              <ContentCopyIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                      )}
+                      
+                      {executionResult.stellarExpertUrl && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            View on Stellar Expert
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography 
+                              variant="body2" 
+                              component="a"
+                              href={executionResult.stellarExpertUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ 
+                                color: 'primary.main',
+                                textDecoration: 'none',
+                                wordBreak: 'break-all',
+                                flex: 1,
+                                '&:hover': { textDecoration: 'underline' }
+                              }}
+                            >
+                              {executionResult.stellarExpertUrl}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                navigator.clipboard.writeText(executionResult.stellarExpertUrl);
+                                setSuccess('Stellar Expert URL copied to clipboard!');
+                                setTimeout(() => setSuccess(success), 2000);
+                              }}
+                              sx={{ flexShrink: 0 }}
+                            >
+                              <ContentCopyIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                      )}
+                      
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Network
+                        </Typography>
+                        <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
+                          {executionResult.network}
+                        </Typography>
+                      </Box>
+                      
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Execution Type
+                        </Typography>
+                        <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
+                          {executionResult.executionType.replace(/_/g, ' ')}
+                        </Typography>
+                      </Box>
+                      
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Timestamp
+                        </Typography>
+                        <Typography variant="body2">
+                          {new Date(executionResult.timestamp).toLocaleString()}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Paper>
+                </Box>
               )}
               {error && (
                 <Alert severity="error" sx={{ mt: 2 }}>
@@ -6295,6 +6451,16 @@ const ContractManagement = () => {
               color={success ? "success" : "error"}
               onClick={() => {
                 setExecuteConfirmDialog({ open: false, rule: null });
+                setSecretKeyInput('');
+                setShowSecretKey(false);
+                setExecutionResult(null); // Clear execution result
+                setSuccess('');
+                setError('');
+                setExecutionStatus('');
+                setExecutionStep(0);
+              }}
+              onClick={() => {
+                setExecuteConfirmDialog({ open: false, rule: null });
                 setExecutionStatus('');
                 setExecutionStep(0);
                 setExecutingRule(false);
@@ -6302,6 +6468,7 @@ const ContractManagement = () => {
                 setError('');
                 setSecretKeyInput('');
                 setShowSecretKey(false);
+                setExecutionResult(null); // Clear execution result
               }}
               fullWidth
             >
