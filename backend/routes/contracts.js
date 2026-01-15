@@ -4342,11 +4342,22 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         console.log(`[Execute] ✅ Auto-populated ${paramName} from user_public_key: ${currentValue}`);
                     } else if (paramName === 'destination' && (param.type === 'Address' || param.type === 'address')) {
                         // Destination should come from pending rule (matched wallet's public key)
-                        if (matchedPublicKey) {
+                        // Check if current value is a placeholder that needs to be replaced
+                        const isPlaceholder = typeof currentValue === 'string' && 
+                            (currentValue.includes('[Will be system-generated') || 
+                             currentValue.includes('system-generated'));
+                        
+                        if (isPlaceholder || !currentValue || currentValue === '') {
+                            if (matchedPublicKey) {
+                                currentValue = matchedPublicKey;
+                                console.log(`[Execute] ✅ Auto-populated ${paramName} from matched_public_key (replaced placeholder): ${currentValue}`);
+                            } else {
+                                console.warn(`[Execute] ⚠️  Destination address not found in parameters and matched_public_key not available`);
+                            }
+                        } else if (matchedPublicKey && (currentValue === user_public_key || isPlaceholder)) {
+                            // Replace if it's set to user's own address or is a placeholder
                             currentValue = matchedPublicKey;
-                            console.log(`[Execute] ✅ Auto-populated ${paramName} from matched_public_key: ${currentValue}`);
-                        } else {
-                            console.warn(`[Execute] ⚠️  Destination address not found in parameters and matched_public_key not available`);
+                            console.log(`[Execute] ✅ Replaced ${paramName} with matched_public_key: ${currentValue}`);
                         }
                     } else if (paramName === 'asset' && (param.type === 'Address' || param.type === 'address')) {
                         // Convert XLM/native to contract address
@@ -4606,6 +4617,28 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 console.log(`[Execute] ✅ Converted ${param.name} to stroops via direct lookup: ${directValue}`);
                             } else if (typeof directValue !== 'string') {
                                 directValue = directValue.toString();
+                            }
+                        }
+                        
+                        // Replace placeholder text with actual matched wallet address
+                        if (param.name === 'destination' && (param.type === 'Address' || param.type === 'address')) {
+                            const isPlaceholder = typeof directValue === 'string' && 
+                                (directValue.includes('[Will be system-generated') || 
+                                 directValue.includes('system-generated'));
+                            
+                            if (isPlaceholder) {
+                                // Try to get matched_public_key from various sources
+                                const matchedKey = matchedPublicKey || 
+                                                  processedParameters.matched_public_key ||
+                                                  req.body.matched_public_key;
+                                
+                                if (matchedKey) {
+                                    directValue = matchedKey;
+                                    console.log(`[Execute] ✅ Replaced placeholder destination with matched_public_key: ${directValue?.substring(0, 8)}...`);
+                                } else {
+                                    console.error(`[Execute] ❌ Destination is placeholder but matched_public_key not available`);
+                                    throw new Error(`Destination address is required but not available. Placeholder text found: ${directValue}. Please provide matched_public_key in the request.`);
+                                }
                             }
                         }
                         
