@@ -65,7 +65,7 @@ import {
   ExpandLess as ExpandLessIcon,
   QrCodeScanner as QrCodeScannerIcon,
   CameraAlt as CameraAltIcon,
-  AccountBalanceWallet as AccountBalanceWalletIcon
+  AccountBalanceWallet as AccountBalanceWalletIcon,
   ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
@@ -6449,16 +6449,6 @@ const ContractManagement = () => {
             <Button 
               variant="contained" 
               color={success ? "success" : "error"}
-              onClick={() => {
-                setExecuteConfirmDialog({ open: false, rule: null });
-                setSecretKeyInput('');
-                setShowSecretKey(false);
-                setExecutionResult(null); // Clear execution result
-                setSuccess('');
-                setError('');
-                setExecutionStatus('');
-                setExecutionStep(0);
-              }}
               onClick={() => {
                 setExecuteConfirmDialog({ open: false, rule: null });
                 setExecutionStatus('');
