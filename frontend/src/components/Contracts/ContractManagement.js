@@ -1792,19 +1792,36 @@ const ContractManagement = () => {
 
       // Get secret key if needed
       let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
-      if (userSecretKey && publicKey) {
-        try {
-          const StellarSdk = await import('@stellar/stellar-sdk');
-          const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
-          if (keypair.publicKey() !== publicKey) {
-            setError('Secret key does not match the connected wallet. Please check your secret key.');
+      
+      // Check if any rule requires a secret key (write operations)
+      const hasWriteOperations = selectedRules.some(pr => {
+        const rule = rules.find(r => r.id === pr.rule_id);
+        if (!rule) return false;
+        return !isReadOnlyFunction(rule.function_name);
+      });
+
+      // If we have write operations, validate secret key
+      if (hasWriteOperations) {
+        if (!userSecretKey) {
+          setError('Secret key is required for executing write operations. Please enter your secret key in the execution dialog.');
+          setBatchExecuting(false);
+          return;
+        }
+        
+        if (publicKey) {
+          try {
+            const StellarSdk = await import('@stellar/stellar-sdk');
+            const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+            if (keypair.publicKey() !== publicKey) {
+              setError('Secret key does not match the connected wallet. Please check your secret key.');
+              setBatchExecuting(false);
+              return;
+            }
+          } catch (err) {
+            setError('Invalid secret key format. Please check your secret key.');
             setBatchExecuting(false);
             return;
           }
-        } catch (err) {
-          setError('Invalid secret key format. Please check your secret key.');
-          setBatchExecuting(false);
-          return;
         }
       }
 
@@ -1893,6 +1910,11 @@ const ContractManagement = () => {
                                         isPaymentFunction(rule.function_name, functionParams));
 
     const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
+
+    // For write operations, secret key is required
+    if (!isReadOnly && !userSecretKey) {
+      throw new Error('Secret key is required for executing write operations');
+    }
 
     let webauthnData = null;
 
@@ -2060,15 +2082,54 @@ const ContractManagement = () => {
     // Regular contract execution
     const submitToLedger = !isReadOnly || !!userSecretKey;
 
+    // Validate required fields
+    if (!rule.function_name) {
+      throw new Error('Function name is required');
+    }
+    if (!publicKey) {
+      throw new Error('User public key is required');
+    }
+    if (!rule.contract_id) {
+      throw new Error('Contract ID is required');
+    }
+
+    // For write operations, secret key is required
+    if (!isReadOnly && !userSecretKey) {
+      throw new Error('Secret key is required for executing write operations');
+    }
+
     const executePayload = {
       function_name: rule.function_name,
       parameters: functionParams,
       user_public_key: publicKey,
-      user_secret_key: userSecretKey,
       submit_to_ledger: submitToLedger,
-      rule_id: rule.id,
-      payment_source: isPayment ? paymentSource : undefined
+      rule_id: rule.id
     };
+
+    // Include secret_key (required for write operations, optional for read-only)
+    // Backend will validate this, but we include it if available
+    if (userSecretKey) {
+      executePayload.user_secret_key = userSecretKey;
+    } else if (!isReadOnly) {
+      // This should have been caught above, but double-check
+      throw new Error('Secret key is required for write operations');
+    }
+
+    // Include payment_source only if it's a payment function
+    if (isPayment && paymentSource) {
+      executePayload.payment_source = paymentSource;
+    }
+
+    console.log('[BatchExecute] Executing rule:', {
+      rule_id: rule.id,
+      rule_name: rule.rule_name,
+      function_name: rule.function_name,
+      contract_id: rule.contract_id,
+      isReadOnly,
+      hasSecretKey: !!userSecretKey,
+      hasWebAuthn: !!webauthnData,
+      payload_keys: Object.keys(executePayload)
+    });
 
     // Include WebAuthn data if available
     if (webauthnData) {
@@ -2080,10 +2141,35 @@ const ContractManagement = () => {
     }
 
     // Use contract ID, not rule ID
-    const response = await api.post(`/contracts/${rule.contract_id}/execute`, executePayload);
+    let response;
+    try {
+      response = await api.post(`/contracts/${rule.contract_id}/execute`, executePayload);
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || error.message || 'Execution failed';
+      const errorDetails = error.response?.data || {};
+      console.error('[BatchExecute] API error:', {
+        status: error.response?.status,
+        error: errorMessage,
+        details: errorDetails,
+        payload: {
+          function_name: executePayload.function_name,
+          contract_id: rule.contract_id,
+          has_secret_key: !!executePayload.user_secret_key,
+          has_webauthn: !!webauthnData
+        }
+      });
+      throw new Error(`${errorMessage}${error.response?.status ? ` (Status: ${error.response.status})` : ''}`);
+    }
 
     if (!response.data.success) {
-      throw new Error(response.data.error || 'Execution failed');
+      const errorMsg = response.data.error || 'Execution failed';
+      console.error('[BatchExecute] Execution failed:', {
+        rule_id: rule.id,
+        rule_name: rule.rule_name,
+        error: errorMsg,
+        response: response.data
+      });
+      throw new Error(errorMsg);
     }
 
     // Mark as completed if it was a pending rule
