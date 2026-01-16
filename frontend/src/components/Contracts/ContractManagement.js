@@ -1745,28 +1745,39 @@ const ContractManagement = () => {
       return;
     }
 
-    // Check if any rule requires a secret key (write operations)
+    // Check if any rule requires a secret key (write operations without WebAuthn)
     console.log('[BatchExecute] Checking for write operations...');
-    const hasWriteOperations = selectedRules.some(pr => {
+    const writeOperationsNeedingSecretKey = selectedRules.filter(pr => {
       const rule = rules.find(r => r.id === pr.rule_id);
+      const contract = contracts.find(c => c.id === pr.contract_id);
       if (!rule) return false;
-      return !isReadOnlyFunction(rule.function_name);
+      
+      const isReadOnly = isReadOnlyFunction(rule.function_name);
+      if (isReadOnly) return false; // Read-only doesn't need secret key
+      
+      // If WebAuthn is available, we don't need secret key
+      const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
+      if (needsWebAuthn) return false; // WebAuthn will handle signing
+      
+      // Write operation without WebAuthn needs secret key
+      return true;
     });
-    console.log('[BatchExecute] hasWriteOperations:', hasWriteOperations);
+    
+    console.log('[BatchExecute] Write operations needing secret key:', writeOperationsNeedingSecretKey.length);
 
     // Get secret key from various sources
     let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
     console.log('[BatchExecute] Secret key available:', !!userSecretKey);
 
-    // If we have write operations and no secret key, show dialog
-    if (hasWriteOperations && !userSecretKey) {
-      console.log('[BatchExecute] Secret key needed - showing dialog');
+    // Only require secret key if we have write operations that don't use WebAuthn
+    if (writeOperationsNeedingSecretKey.length > 0 && !userSecretKey) {
+      console.log('[BatchExecute] Secret key needed for non-WebAuthn write operations - showing dialog');
       setPendingBatchExecution(true);
       setBatchSecretKeyDialogOpen(true);
       return;
     }
 
-    // Proceed with execution
+    // Proceed with execution (userSecretKey may be null if all operations use WebAuthn)
     await performBatchExecution(userSecretKey);
   };
 
@@ -2035,9 +2046,9 @@ const ContractManagement = () => {
 
     const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
 
-    // For write operations, secret key is required
-    if (!isReadOnly && !userSecretKey) {
-      throw new Error('Secret key is required for executing write operations');
+    // For write operations, secret key is only required if WebAuthn is not available
+    if (!isReadOnly && !needsWebAuthn && !userSecretKey) {
+      throw new Error('Secret key is required for executing write operations without WebAuthn');
     }
 
     let webauthnData = null;
