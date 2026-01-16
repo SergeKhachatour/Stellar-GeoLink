@@ -2790,10 +2790,6 @@ const ContractManagement = () => {
     return contract ? (contract.contract_name || contract.contract_address.substring(0, 10) + '...') : 'Unknown';
   };
   
-  const getRuleCountForContract = (contractId) => {
-    return rules.filter(r => r.contract_id === contractId).length;
-  };
-  
   // Pagination handlers
   const handleContractsPageChange = (event, newPage) => {
     setContractsPage(newPage);
