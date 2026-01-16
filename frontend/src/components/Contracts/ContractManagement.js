@@ -129,6 +129,10 @@ const ContractManagement = () => {
   const [selectedPendingRules, setSelectedPendingRules] = useState(new Set());
   const [batchExecuting, setBatchExecuting] = useState(false);
   const [batchExecutionProgress, setBatchExecutionProgress] = useState({ current: 0, total: 0, currentRule: null });
+  const [batchSecretKeyDialogOpen, setBatchSecretKeyDialogOpen] = useState(false);
+  const [batchSecretKeyInput, setBatchSecretKeyInput] = useState('');
+  const [batchSecretKeyShow, setBatchSecretKeyShow] = useState(false);
+  const [pendingBatchExecution, setPendingBatchExecution] = useState(false); // Track if we're waiting for secret key
   const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
   const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -1731,6 +1735,46 @@ const ContractManagement = () => {
 
     console.log('[BatchExecute] Public key check passed, getting selected rules...');
     // Get all selected pending rules
+    const selectedRules = pendingRules.filter((pr, index) => {
+      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${index}`;
+      return selectedPendingRules.has(uniqueKey);
+    });
+
+    if (selectedRules.length === 0) {
+      setError('No rules selected');
+      return;
+    }
+
+    // Check if any rule requires a secret key (write operations)
+    console.log('[BatchExecute] Checking for write operations...');
+    const hasWriteOperations = selectedRules.some(pr => {
+      const rule = rules.find(r => r.id === pr.rule_id);
+      if (!rule) return false;
+      return !isReadOnlyFunction(rule.function_name);
+    });
+    console.log('[BatchExecute] hasWriteOperations:', hasWriteOperations);
+
+    // Get secret key from various sources
+    let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+    console.log('[BatchExecute] Secret key available:', !!userSecretKey);
+
+    // If we have write operations and no secret key, show dialog
+    if (hasWriteOperations && !userSecretKey) {
+      console.log('[BatchExecute] Secret key needed - showing dialog');
+      setPendingBatchExecution(true);
+      setBatchSecretKeyDialogOpen(true);
+      return;
+    }
+
+    // Proceed with execution
+    await performBatchExecution(userSecretKey);
+  };
+
+  // Helper function to perform the actual batch execution
+  const performBatchExecution = async (userSecretKey) => {
+    console.log('[BatchExecute] performBatchExecution called with secret key:', !!userSecretKey);
+    
+    // Get all selected pending rules
     console.log('[BatchExecute] Filtering selected rules from', pendingRules.length, 'pending rules');
     console.log('[BatchExecute] Selected keys:', Array.from(selectedPendingRules));
     const selectedRules = pendingRules.filter((pr, index) => {
@@ -1808,46 +1852,20 @@ const ContractManagement = () => {
         }
       }
 
-      // Get secret key if needed
-      console.log('[BatchExecute] Getting secret key...');
-      let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
-      console.log('[BatchExecute] Secret key available:', !!userSecretKey);
-      
-      // Check if any rule requires a secret key (write operations)
-      console.log('[BatchExecute] Checking for write operations...');
-      const hasWriteOperations = selectedRules.some(pr => {
-        const rule = rules.find(r => r.id === pr.rule_id);
-        if (!rule) return false;
-        const isWrite = !isReadOnlyFunction(rule.function_name);
-        if (isWrite) {
-          console.log('[BatchExecute] Found write operation:', { rule_id: pr.rule_id, function_name: rule.function_name });
-        }
-        return isWrite;
-      });
-      console.log('[BatchExecute] hasWriteOperations:', hasWriteOperations);
-
-      // If we have write operations, validate secret key
-      if (hasWriteOperations) {
-        if (!userSecretKey) {
-          setError('Secret key is required for executing write operations. Please enter your secret key in the execution dialog.');
-          setBatchExecuting(false);
-          return;
-        }
-        
-        if (publicKey) {
-          try {
-            const StellarSdk = await import('@stellar/stellar-sdk');
-            const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
-            if (keypair.publicKey() !== publicKey) {
-              setError('Secret key does not match the connected wallet. Please check your secret key.');
-              setBatchExecuting(false);
-              return;
-            }
-          } catch (err) {
-            setError('Invalid secret key format. Please check your secret key.');
+      // Validate secret key if provided
+      if (userSecretKey && publicKey) {
+        try {
+          const StellarSdk = await import('@stellar/stellar-sdk');
+          const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+          if (keypair.publicKey() !== publicKey) {
+            setError('Secret key does not match the connected wallet. Please check your secret key.');
             setBatchExecuting(false);
             return;
           }
+        } catch (err) {
+          setError('Invalid secret key format. Please check your secret key.');
+          setBatchExecuting(false);
+          return;
         }
       }
 
@@ -1951,6 +1969,44 @@ const ContractManagement = () => {
       setBatchExecuting(false);
       setBatchExecutionProgress({ current: 0, total: 0, currentRule: null });
     }
+  };
+
+  const handleBatchSecretKeyConfirm = async () => {
+    const enteredSecretKey = batchSecretKeyInput.trim();
+    if (!enteredSecretKey) {
+      setError('Please enter your secret key');
+      return;
+    }
+
+    // Validate secret key format and match with public key
+    if (publicKey) {
+      try {
+        const StellarSdk = await import('@stellar/stellar-sdk');
+        const keypair = StellarSdk.Keypair.fromSecret(enteredSecretKey);
+        if (keypair.publicKey() !== publicKey) {
+          setError('Secret key does not match the connected wallet. Please check your secret key.');
+          return;
+        }
+      } catch (err) {
+        setError('Invalid secret key format. Please check your secret key.');
+        return;
+      }
+    }
+
+    // Close dialog and continue execution
+    setBatchSecretKeyDialogOpen(false);
+    setBatchSecretKeyInput('');
+    setPendingBatchExecution(false);
+    
+    // Continue with batch execution using the entered secret key
+    await performBatchExecution(enteredSecretKey);
+  };
+
+  const handleBatchSecretKeyCancel = () => {
+    setBatchSecretKeyDialogOpen(false);
+    setBatchSecretKeyInput('');
+    setPendingBatchExecution(false);
+    setError('');
   };
 
   const handleConfirmExecuteBatch = async (rule, contract, userSecretKey, credentialId, passkeyPublicKeySPKI) => {
@@ -7370,6 +7426,48 @@ const ContractManagement = () => {
             startIcon={rejectingRuleId === ruleToReject?.rule_id ? <CircularProgress size={20} /> : <DeleteIcon />}
           >
             {rejectingRuleId === ruleToReject?.rule_id ? 'Rejecting...' : 'Reject Rule'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Batch Secret Key Dialog */}
+      <Dialog open={batchSecretKeyDialogOpen} onClose={handleBatchSecretKeyCancel} maxWidth="sm" fullWidth>
+        <DialogTitle>Enter Secret Key for Batch Execution</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Some of the selected rules require write operations. Please enter your Stellar secret key to proceed with batch execution.
+          </Typography>
+          <TextField
+            fullWidth
+            label="Secret Key"
+            type={batchSecretKeyShow ? 'text' : 'password'}
+            value={batchSecretKeyInput}
+            onChange={(e) => setBatchSecretKeyInput(e.target.value)}
+            margin="normal"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={() => setBatchSecretKeyShow(!batchSecretKeyShow)}
+                    edge="end"
+                  >
+                    {batchSecretKeyShow ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </IconButton>
+                </InputAdornment>
+              )
+            }}
+            helperText="Your secret key will be used to sign transactions for write operations"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleBatchSecretKeyCancel}>Cancel</Button>
+          <Button
+            onClick={handleBatchSecretKeyConfirm}
+            variant="contained"
+            color="primary"
+            disabled={!batchSecretKeyInput.trim()}
+          >
+            Continue Execution
           </Button>
         </DialogActions>
       </Dialog>
