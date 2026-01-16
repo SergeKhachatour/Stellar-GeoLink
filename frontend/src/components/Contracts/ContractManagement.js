@@ -2224,9 +2224,9 @@ const ContractManagement = () => {
       throw new Error('Contract ID is required');
     }
 
-    // For write operations, secret key is required
-    if (!isReadOnly && !userSecretKey) {
-      throw new Error('Secret key is required for executing write operations');
+    // For write operations, secret key is required only if WebAuthn is not being used
+    if (!isReadOnly && !needsWebAuthn && !userSecretKey) {
+      throw new Error('Secret key is required for executing write operations without WebAuthn');
     }
 
     const executePayload = {
@@ -2237,13 +2237,13 @@ const ContractManagement = () => {
       rule_id: rule.id
     };
 
-    // Include secret_key (required for write operations, optional for read-only)
+    // Include secret_key (required for write operations without WebAuthn, optional for read-only)
     // Backend will validate this, but we include it if available
     if (userSecretKey) {
       executePayload.user_secret_key = userSecretKey;
-    } else if (!isReadOnly) {
+    } else if (!isReadOnly && !needsWebAuthn) {
       // This should have been caught above, but double-check
-      throw new Error('Secret key is required for write operations');
+      throw new Error('Secret key is required for write operations without WebAuthn');
     }
 
     // Include payment_source only if it's a payment function
