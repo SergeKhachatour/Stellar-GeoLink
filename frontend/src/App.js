@@ -123,13 +123,7 @@ function AppContent() {
                 />
                 <Route 
                     path="/contracts" 
-                    element={
-                        <ProtectedRoute>
-                            <WalletConnectionGuard showPasskeyManager={false}>
-                                <ContractManagement />
-                            </WalletConnectionGuard>
-                        </ProtectedRoute>
-                    } 
+                    element={<ContractManagement />}
                 />
             </Routes>
         </>
