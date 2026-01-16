@@ -31,6 +31,7 @@ import {
   MenuItem,
   Switch,
   FormControlLabel,
+  Container,
   Tooltip,
   Divider,
   Stepper,
@@ -69,6 +70,7 @@ import {
   ContentCopy as ContentCopyIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import CustomContractDialog from '../NFT/CustomContractDialog';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -106,7 +108,13 @@ function a11yProps(index) {
 
 const ContractManagement = () => {
   const { publicKey, secretKey, balance: walletBalance } = useWallet();
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
   const [contracts, setContracts] = useState([]);
+  const [allRules, setAllRules] = useState([]); // Store all rules for public view
+  const [filterNetwork, setFilterNetwork] = useState('all');
+  const [filterContractName, setFilterContractName] = useState('');
+  const [showActiveRulesOnly, setShowActiveRulesOnly] = useState(true);
   const [rules, setRules] = useState([]);
   const [pendingRules, setPendingRules] = useState([]);
   const [loadingPendingRules, setLoadingPendingRules] = useState(false);
@@ -221,24 +229,28 @@ const ContractManagement = () => {
   useEffect(() => {
     loadContracts();
     loadRules();
-    loadPendingRules();
-    // Also load completed and rejected rules counts on initial load for tab badges
-    loadCompletedRules();
-    loadRejectedRules();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Reload rules when switching tabs
-  useEffect(() => {
-    if (tabValue === 2) {
+    // Only load user-specific data if authenticated
+    if (isAuthenticated) {
       loadPendingRules();
-    } else if (tabValue === 3) {
       loadCompletedRules();
-    } else if (tabValue === 4) {
       loadRejectedRules();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabValue]);
+  }, [isAuthenticated]);
+
+  // Reload rules when switching tabs (only if authenticated)
+  useEffect(() => {
+    if (isAuthenticated) {
+      if (tabValue === 2) {
+        loadPendingRules();
+      } else if (tabValue === 3) {
+        loadCompletedRules();
+      } else if (tabValue === 4) {
+        loadRejectedRules();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabValue, isAuthenticated]);
 
   // Auto-refresh pending rules count every 5 seconds
   useEffect(() => {
@@ -356,7 +368,9 @@ const ContractManagement = () => {
     try {
       setLoading(true);
       setError('');
-      const response = await api.get('/contracts');
+      // Use public endpoint if not authenticated, authenticated endpoint if logged in
+      const endpoint = isAuthenticated ? '/contracts' : '/contracts/public';
+      const response = await api.get(endpoint);
       if (response.data.success) {
         // Parse discovered_functions for each contract to ensure proper format
         const contracts = (response.data.contracts || []).map(contract => {
@@ -414,12 +428,29 @@ const ContractManagement = () => {
 
   const loadRules = async () => {
     try {
-      const response = await api.get('/contracts/rules');
+      // Use public endpoint if not authenticated, authenticated endpoint if logged in
+      const endpoint = isAuthenticated ? '/contracts/rules' : '/contracts/rules/public';
+      const response = await api.get(endpoint);
       if (response.data.success) {
-        setRules(response.data.rules || []);
+        const loadedRules = response.data.rules || [];
+        setRules(loadedRules);
+        setAllRules(loadedRules); // Store all rules for filtering
       }
     } catch (err) {
       console.error('Error loading rules:', err);
+      // If authenticated endpoint fails and user is logged in, try public endpoint as fallback
+      if (isAuthenticated) {
+        try {
+          const publicResponse = await api.get('/contracts/rules/public');
+          if (publicResponse.data.success) {
+            const loadedRules = publicResponse.data.rules || [];
+            setRules(loadedRules);
+            setAllRules(loadedRules);
+          }
+        } catch (publicErr) {
+          console.error('Error loading public rules:', publicErr);
+        }
+      }
     }
   };
 
@@ -2878,23 +2909,85 @@ const ContractManagement = () => {
     }
   };
 
+  // Filter contracts based on filter state
+  const filteredContracts = contracts.filter(contract => {
+    if (filterNetwork !== 'all' && contract.network !== filterNetwork) {
+      return false;
+    }
+    if (filterContractName && !contract.contract_name?.toLowerCase().includes(filterContractName.toLowerCase())) {
+      return false;
+    }
+    return true;
+  });
+
+  // Get unique networks for filter
+  const networks = [...new Set(contracts.map(c => c.network).filter(Boolean))];
+
+  // Get active rules for a contract
+  const getActiveRulesForContract = (contractId) => {
+    return (allRules.length > 0 ? allRules : rules).filter(r => r.contract_id === contractId && r.is_active);
+  };
+
+  // Filter rules based on showActiveRulesOnly toggle
+  const filteredRules = showActiveRulesOnly 
+    ? rules.filter(r => r.is_active === true)
+    : rules;
+
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" gutterBottom>
-          Smart Contract Management
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => {
-            setEditingContract(null);
-            setContractDialogOpen(true);
-          }}
-        >
-          Add Contract
-        </Button>
-      </Box>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Box>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h4" gutterBottom>
+            {isAuthenticated ? 'Smart Contract Management' : 'Explore Smart Contracts'}
+          </Typography>
+          {isAuthenticated && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setEditingContract(null);
+                setContractDialogOpen(true);
+              }}
+            >
+              Add Contract
+            </Button>
+          )}
+          {!isAuthenticated && (
+            <Button
+              variant="outlined"
+              onClick={() => window.location.href = '/login'}
+            >
+              Login to Create Contract
+            </Button>
+          )}
+        </Box>
+
+        {/* Filtering UI */}
+        <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <FormControl size="small" sx={{ minWidth: 150 }}>
+            <InputLabel>Network</InputLabel>
+            <Select
+              value={filterNetwork}
+              label="Network"
+              onChange={(e) => setFilterNetwork(e.target.value)}
+            >
+              <MenuItem value="all">All Networks</MenuItem>
+              {networks.map(network => (
+                <MenuItem key={network} value={network}>{network}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            size="small"
+            label="Search Contract Name"
+            value={filterContractName}
+            onChange={(e) => setFilterContractName(e.target.value)}
+            sx={{ minWidth: 200 }}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
+            Showing {filteredContracts.length} of {contracts.length} contracts
+          </Typography>
+        </Box>
 
       {error && (
         <Alert severity="error" onClose={() => setError('')} sx={{ mb: 2 }}>
@@ -2943,7 +3036,8 @@ const ContractManagement = () => {
                 />
               </Box>
             } 
-            {...a11yProps(2)} 
+            {...a11yProps(2)}
+            disabled={!isAuthenticated}
           />
           <Tab 
             label={
@@ -2957,7 +3051,8 @@ const ContractManagement = () => {
                 />
               </Box>
             } 
-            {...a11yProps(3)} 
+            {...a11yProps(3)}
+            disabled={!isAuthenticated}
           />
           <Tab 
             label={
@@ -2971,7 +3066,8 @@ const ContractManagement = () => {
                 />
               </Box>
             } 
-            {...a11yProps(4)} 
+            {...a11yProps(4)}
+            disabled={!isAuthenticated}
           />
         </Tabs>
       </Box>
@@ -2982,17 +3078,22 @@ const ContractManagement = () => {
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />
           </Box>
-        ) : contracts.length === 0 ? (
+        ) : filteredContracts.length === 0 ? (
           <Alert severity="info">
-            No contracts found. Click "Add Contract" to create your first smart contract.
+            {contracts.length === 0 
+              ? (isAuthenticated ? 'No contracts found. Click "Add Contract" to create your first smart contract.' : 'No contracts found.')
+              : 'No contracts match your filters. Try adjusting your search criteria.'
+            }
           </Alert>
         ) : (
           <>
           <Grid container spacing={3}>
-            {contracts
+            {filteredContracts
               .slice(contractsPage * contractsRowsPerPage, contractsPage * contractsRowsPerPage + contractsRowsPerPage)
-              .map((contract) => (
-              <Grid item xs={12} md={6} lg={4} key={contract.id}>
+              .map((contract) => {
+                const activeRules = getActiveRulesForContract(contract.id);
+                return (
+                  <Grid item xs={12} md={6} lg={4} key={contract.id}>
                 <Card>
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
@@ -3022,8 +3123,32 @@ const ContractManagement = () => {
                       </Typography>
                     )}
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Rules:</strong> {getRuleCountForContract(contract.id)} execution rule{getRuleCountForContract(contract.id) !== 1 ? 's' : ''}
+                      <strong>Rules:</strong> {activeRules.length} active rule{activeRules.length !== 1 ? 's' : ''} 
+                      {allRules.filter(r => r.contract_id === contract.id && !r.is_active).length > 0 && 
+                        ` (${allRules.filter(r => r.contract_id === contract.id && !r.is_active).length} inactive)`
+                      }
                     </Typography>
+                    {activeRules.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                          <strong>Active Execution Rules:</strong>
+                        </Typography>
+                        {activeRules.slice(0, 3).map(rule => (
+                          <Chip
+                            key={rule.id}
+                            label={rule.rule_name || rule.function_name}
+                            size="small"
+                            color="success"
+                            sx={{ mr: 0.5, mb: 0.5 }}
+                          />
+                        ))}
+                        {activeRules.length > 3 && (
+                          <Typography variant="caption" color="text.secondary">
+                            +{activeRules.length - 3} more
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
                     {contract.use_smart_wallet && (
                       <Box sx={{ mt: 1 }}>
                         <Chip 
@@ -3049,55 +3174,72 @@ const ContractManagement = () => {
                     )}
                   </CardContent>
                   <CardActions>
-                    <Button
-                      size="small"
-                      startIcon={<EditIcon />}
-                      onClick={() => handleEditContract(contract)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="small"
-                      startIcon={<RuleIcon />}
-                      onClick={() => handleAddRule(contract)}
-                    >
-                      Add Rule
-                    </Button>
-                    {contract.wasm_file_name ? (
+                    {isAuthenticated && (contract.owner_public_key === publicKey || !contract.owner_public_key) && (
+                      <>
+                        <Button
+                          size="small"
+                          startIcon={<EditIcon />}
+                          onClick={() => handleEditContract(contract)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<RuleIcon />}
+                          onClick={() => handleAddRule(contract)}
+                        >
+                          Add Rule
+                        </Button>
+                      </>
+                    )}
+                    {!isAuthenticated && (
                       <Button
                         size="small"
-                        startIcon={<DownloadIcon />}
-                        onClick={() => handleDownloadWasm(contract)}
+                        onClick={() => window.location.href = '/login'}
                       >
-                        Download WASM
-                      </Button>
-                    ) : (
-                      <Button
-                        size="small"
-                        startIcon={<UploadIcon />}
-                        onClick={() => {
-                          setSelectedContractForWasm(contract);
-                          setWasmUploadOpen(true);
-                        }}
-                      >
-                        Upload WASM
+                        Login to Manage
                       </Button>
                     )}
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() => handleDeleteContract(contract.id)}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
+                    {isAuthenticated && (contract.owner_public_key === publicKey || !contract.owner_public_key) && (
+                      <>
+                        {contract.wasm_file_name ? (
+                          <Button
+                            size="small"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => handleDownloadWasm(contract)}
+                          >
+                            Download WASM
+                          </Button>
+                        ) : (
+                          <Button
+                            size="small"
+                            startIcon={<UploadIcon />}
+                            onClick={() => {
+                              setSelectedContractForWasm(contract);
+                              setWasmUploadOpen(true);
+                            }}
+                          >
+                            Upload WASM
+                          </Button>
+                        )}
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteContract(contract.id)}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </>
+                    )}
                   </CardActions>
                 </Card>
-              </Grid>
-            ))}
+                  </Grid>
+                );
+              })}
           </Grid>
           <TablePagination
             component="div"
-            count={contracts.length}
+            count={filteredContracts.length}
             page={contractsPage}
             onPageChange={handleContractsPageChange}
             rowsPerPage={contractsRowsPerPage}
@@ -3111,18 +3253,33 @@ const ContractManagement = () => {
 
       {/* Execution Rules Tab */}
       <TabPanel value={tabValue} index={1}>
-        <Box display="flex" justifyContent="flex-end" mb={2}>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => handleAddRule()}
-          >
-            Add Execution Rule
-          </Button>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+          {isAuthenticated && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => handleAddRule()}
+            >
+              Add Execution Rule
+            </Button>
+          )}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showActiveRulesOnly}
+                onChange={(e) => setShowActiveRulesOnly(e.target.checked)}
+              />
+            }
+            label="Show Active Rules Only"
+            sx={{ ml: isAuthenticated ? 'auto' : 0 }}
+          />
         </Box>
-        {rules.length === 0 ? (
+        {filteredRules.length === 0 ? (
           <Alert severity="info">
-            No execution rules found. Create rules to automatically execute contract functions based on location.
+            {rules.length === 0 
+              ? 'No execution rules found. Create rules to automatically execute contract functions based on location.'
+              : 'No rules match your filter. Try adjusting the "Show Active Rules Only" toggle.'
+            }
           </Alert>
         ) : (
           <>
@@ -3139,11 +3296,11 @@ const ContractManagement = () => {
                       <TableCell>Trigger</TableCell>
                       <TableCell>Quorum</TableCell>
                       <TableCell>Status</TableCell>
-                      <TableCell>Actions</TableCell>
+                      {isAuthenticated && <TableCell>Actions</TableCell>}
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {rules
+                    {filteredRules
                       .slice(rulesPage * rulesRowsPerPage, rulesPage * rulesRowsPerPage + rulesRowsPerPage)
                       .map((rule) => (
                       <TableRow key={rule.id}>
@@ -3176,70 +3333,86 @@ const ContractManagement = () => {
                             size="small"
                           />
                         </TableCell>
-                        <TableCell>
-                          {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
-                            <Tooltip title="View Location on Map">
+                        {isAuthenticated ? (
+                          <TableCell>
+                            {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
+                              <Tooltip title="View Location on Map">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleViewRuleMap(rule)}
+                                  color="primary"
+                                >
+                                  <MapIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="Test Function">
                               <IconButton
                                 size="small"
-                                onClick={() => handleViewRuleMap(rule)}
-                                color="primary"
+                                onClick={() => handleTestRule(rule)}
+                                disabled={testingRule || executingRule}
+                                color="info"
                               >
-                                <MapIcon fontSize="small" />
+                                <PlayArrowIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
-                          )}
-                          <Tooltip title="Test Function">
+                            <Tooltip title="Execute Function">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => handleExecuteRule(rule, e)}
+                                disabled={testingRule || executingRule}
+                                color="success"
+                              >
+                                <CheckCircleIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleToggleRuleActive(rule)}
+                                color={rule.is_active ? 'success' : 'default'}
+                              >
+                                <PowerSettingsNewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Configure Quorum Requirements">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleCheckQuorum(rule)}
+                                disabled={checkingQuorum}
+                              >
+                                <VisibilityIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                             <IconButton
                               size="small"
-                              onClick={() => handleTestRule(rule)}
-                              disabled={testingRule || executingRule}
-                              color="info"
+                              onClick={() => handleEditRule(rule)}
                             >
-                              <PlayArrowIcon fontSize="small" />
+                              <EditIcon fontSize="small" />
                             </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Execute Function">
                             <IconButton
                               size="small"
-                              onClick={(e) => handleExecuteRule(rule, e)}
-                              disabled={testingRule || executingRule}
-                              color="success"
+                              color="error"
+                              onClick={() => handleDeleteRule(rule.id)}
                             >
-                              <CheckCircleIcon fontSize="small" />
+                              <DeleteIcon fontSize="small" />
                             </IconButton>
-                          </Tooltip>
-                          <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleToggleRuleActive(rule)}
-                              color={rule.is_active ? 'success' : 'default'}
-                            >
-                              <PowerSettingsNewIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Configure Quorum Requirements">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleCheckQuorum(rule)}
-                              disabled={checkingQuorum}
-                            >
-                              <VisibilityIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleEditRule(rule)}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteRule(rule.id)}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </TableCell>
+                          </TableCell>
+                        ) : (
+                          <TableCell>
+                            {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
+                              <Tooltip title="View Location on Map">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleViewRuleMap(rule)}
+                                  color="primary"
+                                >
+                                  <MapIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -3249,7 +3422,7 @@ const ContractManagement = () => {
 
             {/* Mobile Card View */}
             <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-              {rules
+              {filteredRules
                 .slice(rulesPage * rulesRowsPerPage, rulesPage * rulesRowsPerPage + rulesRowsPerPage)
                 .map((rule) => (
                 <Card key={rule.id} sx={{ mb: 2 }}>
@@ -3303,9 +3476,75 @@ const ContractManagement = () => {
                           <Chip label="None" size="small" />
                         )}
                       </Box>
-                      <Divider sx={{ my: 1 }} />
-                      <Box display="flex" gap={1} flexWrap="wrap">
-                        {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
+                      {isAuthenticated && <Divider sx={{ my: 1 }} />}
+                      {isAuthenticated && (
+                        <Box display="flex" gap={1} flexWrap="wrap">
+                          {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
+                            <Tooltip title="View Location on Map">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleViewRuleMap(rule)}
+                                color="primary"
+                              >
+                                <MapIcon />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleToggleRuleActive(rule)}
+                              color={rule.is_active ? 'success' : 'default'}
+                            >
+                              <PowerSettingsNewIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Configure Quorum Requirements">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleCheckQuorum(rule)}
+                              disabled={checkingQuorum}
+                            >
+                              <VisibilityIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Test Function">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleTestRule(rule)}
+                              disabled={testingRule || executingRule}
+                              color="info"
+                            >
+                              <PlayArrowIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Execute Function">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleExecuteRule(rule, e)}
+                              disabled={testingRule || executingRule}
+                              color="success"
+                            >
+                              <CheckCircleIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleEditRule(rule)}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteRule(rule.id)}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                      )}
+                      {!isAuthenticated && rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
+                        <Box display="flex" gap={1} flexWrap="wrap" sx={{ mt: 1 }}>
                           <Tooltip title="View Location on Map">
                             <IconButton
                               size="small"
@@ -3315,59 +3554,8 @@ const ContractManagement = () => {
                               <MapIcon />
                             </IconButton>
                           </Tooltip>
-                        )}
-                        <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleToggleRuleActive(rule)}
-                            color={rule.is_active ? 'success' : 'default'}
-                          >
-                            <PowerSettingsNewIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Configure Quorum Requirements">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleCheckQuorum(rule)}
-                            disabled={checkingQuorum}
-                          >
-                            <VisibilityIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Test Function">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleTestRule(rule)}
-                            disabled={testingRule || executingRule}
-                            color="info"
-                          >
-                            <PlayArrowIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Execute Function">
-                          <IconButton
-                            size="small"
-                            onClick={(e) => handleExecuteRule(rule, e)}
-                            disabled={testingRule || executingRule}
-                            color="success"
-                          >
-                            <CheckCircleIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleEditRule(rule)}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteRule(rule.id)}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
+                        </Box>
+                      )}
                     </Box>
                   </CardContent>
                 </Card>
@@ -3375,7 +3563,7 @@ const ContractManagement = () => {
             </Box>
             <TablePagination
               component="div"
-              count={rules.length}
+              count={filteredRules.length}
               page={rulesPage}
               onPageChange={handleRulesPageChange}
               rowsPerPage={rulesRowsPerPage}
@@ -6532,7 +6720,8 @@ const ContractManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+      </Box>
+    </Container>
   );
 };
 

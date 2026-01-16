@@ -437,20 +437,19 @@ const PublicNFTShowcase = () => {
         // Construct image URL using the utility function that handles dynamic IPFS server URLs
         const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
         
+        // Create marker element - using inline styles only (matching contract rule markers)
         const el = document.createElement('div');
-        el.className = 'nft-marker';
-        el.style.cssText = `
-          width: 64px;
-          height: 64px;
-          background-image: url('${imageUrl}');
-          background-size: cover;
-          background-repeat: no-repeat;
-          background-position: center;
-          border-radius: 8px;
-          border: 3px solid #FFD700;
-          cursor: pointer;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        `;
+        el.style.width = '48px';
+        el.style.height = '48px';
+        el.style.borderRadius = '8px';
+        el.style.backgroundImage = `url('${imageUrl}')`;
+        el.style.backgroundSize = 'cover';
+        el.style.backgroundRepeat = 'no-repeat';
+        el.style.backgroundPosition = 'center';
+        el.style.border = '3px solid #FFD700';
+        el.style.cursor = 'pointer';
+        el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+        el.style.overflow = 'hidden';
 
         // Create marker - matching XYZ-Wallet exactly (no anchor specified, uses default 'center')
         // Mapbox automatically handles 3D globe positioning - markers stay at exact coordinates when globe rotates

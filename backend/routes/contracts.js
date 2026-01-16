@@ -1185,6 +1185,38 @@ router.put('/:id', authenticateContractUser, async (req, res) => {
  *       401:
  *         description: Authentication required
  */
+// Public endpoint to get all active contracts (for browsing)
+router.get('/public', async (req, res) => {
+    try {
+        const query = `SELECT cc.id, cc.contract_address, cc.contract_name, cc.network, 
+                cc.discovered_functions, cc.function_mappings, cc.use_smart_wallet,
+                cc.smart_wallet_contract_id, cc.payment_function_name, cc.requires_webauthn,
+                cc.webauthn_verifier_contract_id, 
+                cc.wasm_file_name, cc.wasm_file_size, cc.wasm_source, cc.wasm_hash, cc.wasm_uploaded_at,
+                cc.created_at, cc.updated_at, cc.is_active,
+                u.public_key as owner_public_key
+         FROM custom_contracts cc
+         JOIN users u ON cc.user_id = u.id
+         WHERE cc.is_active = true
+         ORDER BY cc.created_at DESC`;
+
+        const result = await pool.query(query);
+
+        res.json({
+            success: true,
+            contracts: result.rows,
+            count: result.rows.length
+        });
+    } catch (error) {
+        console.error('Error fetching public contracts:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch contracts',
+            message: error.message 
+        });
+    }
+});
+
+// Authenticated endpoint to get user's contracts (for management)
 router.get('/', authenticateContractUser, async (req, res) => {
     try {
         const userId = req.user?.id || req.userId;
@@ -1403,6 +1435,96 @@ router.post('/rules', authenticateContractUser, async (req, res) => {
  *       401:
  *         description: Authentication required
  */
+// Public endpoint to get all active execution rules (for browsing)
+router.get('/rules/public', async (req, res) => {
+    try {
+        const { contract_id, is_active } = req.query;
+
+        let query = `
+            SELECT cer.*, 
+                   cc.contract_address, 
+                   cc.contract_name,
+                   g.name as geofence_name,
+                   u.public_key as owner_public_key
+            FROM contract_execution_rules cer
+            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
+            LEFT JOIN geofences g ON cer.geofence_id = g.id
+            JOIN users u ON cer.user_id = u.id
+            WHERE cc.is_active = true
+        `;
+        const params = [];
+        let paramIndex = 1;
+
+        if (contract_id) {
+            query += ` AND cer.contract_id = $${paramIndex}`;
+            params.push(contract_id);
+            paramIndex++;
+        }
+
+        if (is_active !== undefined) {
+            query += ` AND cer.is_active = $${paramIndex}`;
+            params.push(is_active === 'true' || is_active === true);
+            paramIndex++;
+        } else {
+            // Default to only active rules for public view
+            query += ` AND cer.is_active = true`;
+        }
+
+        query += ` ORDER BY cer.created_at DESC`;
+
+        const result = await pool.query(query, params);
+
+        // Parse JSON fields safely
+        const rules = result.rows.map(rule => {
+            let functionParams = rule.function_parameters;
+            let requiredWallets = rule.required_wallet_public_keys;
+            
+            try {
+                if (typeof functionParams === 'string' && functionParams.trim()) {
+                    functionParams = JSON.parse(functionParams);
+                } else if (!functionParams) {
+                    functionParams = {};
+                }
+            } catch (e) {
+                console.warn('Error parsing function_parameters:', e);
+                functionParams = {};
+            }
+            
+            try {
+                if (typeof requiredWallets === 'string' && requiredWallets.trim()) {
+                    requiredWallets = JSON.parse(requiredWallets);
+                } else if (Array.isArray(requiredWallets)) {
+                    // Already an array, keep it
+                } else if (!requiredWallets) {
+                    requiredWallets = null;
+                }
+            } catch (e) {
+                console.warn('Error parsing required_wallet_public_keys:', e);
+                requiredWallets = null;
+            }
+            
+            return {
+                ...rule,
+                function_parameters: functionParams,
+                required_wallet_public_keys: requiredWallets
+            };
+        });
+
+        res.json({
+            success: true,
+            rules: rules,
+            count: rules.length
+        });
+    } catch (error) {
+        console.error('Error fetching public execution rules:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch execution rules',
+            message: error.message 
+        });
+    }
+});
+
+// Authenticated endpoint to get user's execution rules
 router.get('/rules', authenticateContractUser, async (req, res) => {
     try {
         const { contract_id, is_active } = req.query;
@@ -1552,65 +1674,93 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Get user ID from public_key if needed
-        let actualUserId = userId;
-        if (!actualUserId && publicKey) {
-            const userResult = await pool.query(
-                'SELECT id FROM users WHERE public_key = $1',
-                [publicKey]
-            );
-            if (userResult.rows.length > 0) {
-                actualUserId = userResult.rows[0].id;
+        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        let query, params;
+        if (publicKey) {
+            query = `
+                SELECT DISTINCT ON (cer.id, luq.public_key)
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    cc.requires_webauthn,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results
+                FROM location_update_queue luq
+                JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.public_key = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE result->>'skipped' = 'true'
+                        AND result->>'reason' = 'requires_webauthn'
+                        AND (result->>'rule_id')::integer = cer.id
+                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
+                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                    )
+                ORDER BY cer.id, luq.public_key, luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [publicKey, parseInt(limit)];
+        } else {
+            if (!userId) {
+                return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
+            query = `
+                SELECT DISTINCT ON (cer.id, luq.public_key)
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    cc.requires_webauthn,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results
+                FROM location_update_queue luq
+                JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.user_id = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE result->>'skipped' = 'true'
+                        AND result->>'reason' = 'requires_webauthn'
+                        AND (result->>'rule_id')::integer = cer.id
+                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
+                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                    )
+                ORDER BY cer.id, luq.public_key, luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [userId, parseInt(limit)];
         }
 
-        if (!actualUserId) {
-            return res.status(401).json({ error: 'User not found' });
-        }
-
-        // Query location_update_queue for updates with skipped rules (requires_webauthn)
-        // Each public key should have its own pending rule entry
-        // Use DISTINCT ON (cer.id, luq.public_key) to ensure uniqueness per rule + public key combination
-        const query = `
-            SELECT DISTINCT ON (cer.id, luq.public_key)
-                cer.id as rule_id,
-                cer.rule_name,
-                cer.function_name,
-                cer.function_parameters,
-                cc.function_mappings,
-                cer.contract_id,
-                cc.contract_name,
-                cc.contract_address,
-                cc.requires_webauthn,
-                luq.id as update_id,
-                luq.public_key,
-                luq.latitude,
-                luq.longitude,
-                luq.received_at,
-                luq.processed_at,
-                luq.execution_results
-            FROM location_update_queue luq
-            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
-            JOIN custom_contracts cc ON cer.contract_id = cc.id
-            WHERE luq.user_id = $1
-                AND luq.status IN ('matched', 'executed')
-                AND luq.execution_results IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 
-                    FROM jsonb_array_elements(luq.execution_results) AS result
-                    WHERE result->>'skipped' = 'true'
-                    AND result->>'reason' = 'requires_webauthn'
-                    AND (result->>'rule_id')::integer = cer.id
-                    AND (result->>'rejected')::boolean IS DISTINCT FROM true
-                    AND (result->>'completed')::boolean IS DISTINCT FROM true
-                )
-            ORDER BY cer.id, luq.public_key, luq.received_at DESC
-            LIMIT $2
-        `;
-
-        const result = await pool.query(query, [actualUserId, parseInt(limit)]);
+        const result = await pool.query(query, params);
         
-        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for user_id ${actualUserId}`);
+        const identifier = publicKey || userId;
+        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${publicKey ? 'public_key' : 'user_id'} ${identifier}`);
 
         // Process results to extract skipped rules
         // Each public key should have its own pending rule entry
@@ -2176,55 +2326,76 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Use user_id if available, otherwise try to get it from public_key
-        let actualUserId = userId;
-        if (!actualUserId && publicKey) {
-            const userResult = await pool.query(
-                'SELECT id FROM users WHERE public_key = $1',
-                [publicKey]
-            );
-            if (userResult.rows.length > 0) {
-                actualUserId = userResult.rows[0].id;
+        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        let query, params;
+        if (publicKey) {
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.public_key = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data->>'completed')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [publicKey, limit];
+        } else {
+            if (!userId) {
+                return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.user_id = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data->>'completed')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [userId, limit];
         }
 
-        if (!actualUserId) {
-            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
-        }
-
-        // Query location_update_queue for updates with completed rules
-        // Use a subquery to ensure we only get contract info for the specific rule that was completed
-        const query = `
-            SELECT 
-                cer.id as rule_id,
-                cer.rule_name,
-                cer.function_name,
-                cer.function_parameters,
-                cc.function_mappings,
-                cer.contract_id,
-                cc.contract_name,
-                cc.contract_address,
-                luq.id as update_id,
-                luq.public_key,
-                luq.latitude,
-                luq.longitude,
-                luq.received_at,
-                luq.processed_at,
-                luq.execution_results,
-                result_data->>'rule_id' as execution_rule_id
-            FROM location_update_queue luq
-            CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
-            JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
-            JOIN custom_contracts cc ON cer.contract_id = cc.id
-            WHERE luq.user_id = $1
-                AND luq.status IN ('matched', 'executed')
-                AND luq.execution_results IS NOT NULL
-                AND (result_data->>'completed')::boolean = true
-            ORDER BY luq.received_at DESC
-            LIMIT $2
-        `;
-
-        const result = await pool.query(query, [actualUserId, limit]);
+        const result = await pool.query(query, params);
         
         // Process results to extract completed rules
         // Show all completed executions, but use unique key to avoid duplicates
@@ -2364,56 +2535,78 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Use user_id if available, otherwise try to get it from public_key
-        let actualUserId = userId;
-        if (!actualUserId && publicKey) {
-            const userResult = await pool.query(
-                'SELECT id FROM users WHERE public_key = $1',
-                [publicKey]
-            );
-            if (userResult.rows.length > 0) {
-                actualUserId = userResult.rows[0].id;
+        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        let query, params;
+        if (publicKey) {
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.public_key = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND result_data->>'skipped' = 'true'
+                    AND (result_data->>'rejected')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [publicKey, limit];
+        } else {
+            if (!userId) {
+                return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE luq.user_id = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND result_data->>'skipped' = 'true'
+                    AND (result_data->>'rejected')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $2
+            `;
+            params = [userId, limit];
         }
 
-        if (!actualUserId) {
-            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
-        }
-
-        // Query location_update_queue for updates with rejected rules
-        // Use a subquery to ensure we only get contract info for the specific rule that was rejected
-        const query = `
-            SELECT 
-                cer.id as rule_id,
-                cer.rule_name,
-                cer.function_name,
-                cer.function_parameters,
-                cc.function_mappings,
-                cer.contract_id,
-                cc.contract_name,
-                cc.contract_address,
-                luq.id as update_id,
-                luq.public_key,
-                luq.latitude,
-                luq.longitude,
-                luq.received_at,
-                luq.processed_at,
-                luq.execution_results,
-                result_data->>'rule_id' as execution_rule_id
-            FROM location_update_queue luq
-            CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
-            JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
-            JOIN custom_contracts cc ON cer.contract_id = cc.id
-            WHERE luq.user_id = $1
-                AND luq.status IN ('matched', 'executed')
-                AND luq.execution_results IS NOT NULL
-                AND result_data->>'skipped' = 'true'
-                AND (result_data->>'rejected')::boolean = true
-            ORDER BY luq.received_at DESC
-            LIMIT $2
-        `;
-
-        const result = await pool.query(query, [actualUserId, limit]);
+        const result = await pool.query(query, params);
         
         // Process results to extract rejected rules
         // Show all rejected executions, but use unique key to avoid duplicates
@@ -5537,6 +5730,68 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
 
 // Get contract execution rules with location data for map display
 // Supports both JWT and API key authentication
+// Public endpoint to get all active execution rules with locations (for map display)
+router.get('/execution-rules/locations/public', async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                cer.id,
+                cer.rule_name,
+                cer.rule_type,
+                cer.center_latitude,
+                cer.center_longitude,
+                cer.radius_meters,
+                cer.function_name,
+                cer.is_active,
+                cer.trigger_on,
+                cer.auto_execute,
+                cc.contract_name,
+                cc.contract_address,
+                cc.network,
+                u.public_key as owner_public_key
+            FROM contract_execution_rules cer
+            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
+            JOIN users u ON cer.user_id = u.id
+            WHERE cer.rule_type = 'location'
+                AND cer.center_latitude IS NOT NULL 
+                AND cer.center_longitude IS NOT NULL
+                AND cer.is_active = true
+                AND cc.is_active = true
+            ORDER BY cer.created_at DESC
+        `;
+
+        const result = await pool.query(query);
+
+        // Format response for map markers
+        const rules = result.rows.map(rule => ({
+            id: rule.id,
+            type: 'contract_rule',
+            rule_name: rule.rule_name,
+            rule_type: rule.rule_type,
+            latitude: parseFloat(rule.center_latitude),
+            longitude: parseFloat(rule.center_longitude),
+            radius_meters: rule.radius_meters ? parseFloat(rule.radius_meters) : null,
+            function_name: rule.function_name,
+            contract_name: rule.contract_name,
+            contract_address: rule.contract_address,
+            network: rule.network,
+            trigger_on: rule.trigger_on,
+            auto_execute: rule.auto_execute,
+            is_active: rule.is_active,
+            owner_public_key: rule.owner_public_key
+        }));
+
+        res.json({
+            success: true,
+            rules: rules
+        });
+    } catch (error) {
+        console.error('Error fetching public contract execution rules locations:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Authenticated endpoint to get user's execution rules with locations
 router.get('/execution-rules/locations', authenticateContractUser, async (req, res) => {
     try {
         const userId = req.user?.id || req.userId;

@@ -580,26 +580,21 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       }
       
       // Construct image URL using the utility function that handles dynamic IPFS server URLs
-      // This matches the home page implementation exactly
       const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/64x64?text=NFT';
       
+      // Create marker element - using same approach as contract rule markers (inline styles only, no CSS class)
       const el = document.createElement('div');
-      el.className = 'nft-marker'; // Match home page class name exactly
-      
-      // Use background-image CSS approach (matching home page exactly)
-      el.style.cssText = `
-        width: 64px;
-        height: 64px;
-        background-image: url('${imageUrl}');
-        background-size: cover;
-        background-repeat: no-repeat;
-        background-position: center;
-        border-radius: 8px;
-        border: 3px solid #FFD700;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-        overflow: hidden;
-      `;
+      el.style.width = '48px';
+      el.style.height = '48px';
+      el.style.borderRadius = '8px';
+      el.style.backgroundImage = `url('${imageUrl}')`;
+      el.style.backgroundSize = 'cover';
+      el.style.backgroundRepeat = 'no-repeat';
+      el.style.backgroundPosition = 'center';
+      el.style.border = '3px solid #FFD700';
+      el.style.cursor = 'pointer';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      el.style.overflow = 'hidden';
 
       // Create radius circle for this NFT if radius is provided
       if (nft.radius && nft.radius > 0) {
@@ -923,7 +918,8 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
           : `${(distance / 1000).toFixed(2)}km`
         : 'Unknown';
 
-      // Create popup
+      // Create popup with unique ID for button
+      const popupId = `contract-rule-popup-${rule.id || index}`;
       const popup = new mapboxgl.Popup({ offset: 25 })
         .setHTML(`
           <div style="min-width: 200px;">
@@ -934,6 +930,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
             ${rule.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${rule.radius_meters}m</p>` : ''}
             ${rule.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
             ${distance ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${distanceText}</p>` : ''}
+            <button id="${popupId}-btn" style="margin-top: 8px; padding: 6px 12px; background-color: #667eea; color: white; border: none; border-radius: 4px; font-size: 12px; cursor: pointer;">View Details</button>
           </div>
         `);
 
@@ -941,6 +938,35 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         .setLngLat([lng, lat])
         .setPopup(popup)
         .addTo(mapInstance);
+
+      // Function to open overlay
+      const openOverlay = () => {
+        const ruleData = {
+          ...rule,
+          type: 'contract_rule',
+          latitude: lat,
+          longitude: lng,
+          distance: distance,
+          distance_meters: distance
+        };
+        setSelectedContractItem(ruleData);
+        setContractOverlayOpen(true);
+        popup.remove();
+      };
+
+      // Add click handler to marker element
+      marker.getElement().addEventListener('click', openOverlay);
+
+      // Add click handler to popup button after popup is opened
+      popup.on('open', () => {
+        const btn = document.getElementById(`${popupId}-btn`);
+        if (btn) {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openOverlay();
+          });
+        }
+      });
 
       marker._geolinkType = 'contract_rule';
       markersRef.current.push(marker);
@@ -965,7 +991,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         duration: 1000
       });
     }
-  }, [calculateDistance, createRadiusCircle]);
+  }, [calculateDistance, createRadiusCircle, setSelectedContractItem, setContractOverlayOpen]);
 
   // Create geofence visualization
   const createGeofenceVisualization = useCallback((geofence, mapInstance) => {

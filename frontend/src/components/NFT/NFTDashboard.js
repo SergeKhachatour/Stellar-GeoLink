@@ -756,9 +756,8 @@ const NFTDashboard = () => {
         return;
       }
 
-      // Create marker element (matching XYZ-Wallet guide - using background-image CSS property)
+      // Create marker element - using inline styles only (matching contract rule markers)
       const el = document.createElement('div');
-      el.className = 'nft-marker'; // Use CSS class (defined in stylesheet above)
       
       // Construct image URL using the utility function
       const imageUrl = constructIPFSUrl(nft.server_url, nft.ipfs_hash) || nft.image_url || 'https://via.placeholder.com/48x48?text=NFT';
@@ -786,16 +785,18 @@ const NFTDashboard = () => {
         has_ipfs_server: !!nft.ipfs_server_id
       });
       
-      // Set only dynamic styles inline (background-image) - matching XYZ-Wallet guide
-      // Set background image immediately
+      // Use inline styles only (matching contract rule markers approach)
+      el.style.width = '48px';
+      el.style.height = '48px';
+      el.style.borderRadius = '8px';
       el.style.backgroundImage = `url('${imageUrl}')`;
       el.style.backgroundSize = 'cover';
       el.style.backgroundRepeat = 'no-repeat';
       el.style.backgroundPosition = 'center';
-      
-      // CRITICAL: Disable transitions that interfere with Mapbox positioning
-      // NOTE: Do NOT set transform: none - Mapbox needs to transform markers for positioning
-      el.style.transition = 'none';
+      el.style.border = '3px solid #FFD700';
+      el.style.cursor = 'pointer';
+      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      el.style.overflow = 'hidden';
       
       // Handle image load errors with fallback - ensure image loads before setting background
       const img = new Image();

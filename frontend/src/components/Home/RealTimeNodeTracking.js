@@ -278,26 +278,18 @@ const RealTimeNodeTracking = () => {
       markerColor = '#F44336'; // Red for inactive
     }
 
-    // Create marker element with pointer cursor (matching NFT Dashboard style)
+    // Create marker element - using inline styles only (matching contract rule markers)
     const el = document.createElement('div');
-    el.className = 'node-marker';
     
-    // CRITICAL: Set all styles at once using cssText to ensure consistency
-    // This matches the NFT Dashboard pattern exactly
-    el.style.cssText = `
-      width: 20px !important;
-      height: 20px !important;
-      cursor: pointer !important;
-      position: relative !important;
-      z-index: 1000 !important;
-      pointer-events: auto !important;
-      border-radius: 50% !important;
-      border: 3px solid #ffffff !important;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-      overflow: hidden !important;
-      background-color: ${markerColor} !important;
-      transition: none !important;
-    `;
+    // Use inline styles only (matching contract rule markers approach)
+    el.style.width = '20px';
+    el.style.height = '20px';
+    el.style.borderRadius = '50%';
+    el.style.backgroundColor = markerColor;
+    el.style.border = '3px solid #ffffff';
+    el.style.cursor = 'pointer';
+    el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+    el.style.overflow = 'hidden';
     
     // Hover effect - use opacity and shadow instead of scale to prevent marker movement
     // CRITICAL: Ensure transition remains 'none' during hover

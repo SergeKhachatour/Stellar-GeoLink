@@ -229,11 +229,14 @@ async function verifyNFTLocation(nftId, userLatitude, userLongitude, token) {
 async function getNearbyContractRules(latitude, longitude, radius = 20000000, token = null) {
   try {
     const baseUrl = getApiBaseUrl();
-    const apiUrl = `${baseUrl}/contracts/execution-rules/locations`;
+    // Use public endpoint when no token is provided (logged out)
+    const apiUrl = token 
+      ? `${baseUrl}/contracts/execution-rules/locations`
+      : `${baseUrl}/contracts/execution-rules/locations/public`;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
     
     console.log(`[getNearbyContractRules] Calling API: ${apiUrl}`);
-    console.log(`[getNearbyContractRules] Params: lat=${latitude}, lon=${longitude}, radius=${radius}`);
+    console.log(`[getNearbyContractRules] Params: lat=${latitude}, lon=${longitude}, radius=${radius}, hasToken=${!!token}`);
     
     const response = await axios.get(apiUrl, {
       headers
@@ -265,6 +268,30 @@ async function getNearbyContractRules(latitude, longitude, radius = 20000000, to
     };
   } catch (error) {
     console.error(`[getNearbyContractRules] Error:`, error.response?.data || error.message);
+    // If authenticated endpoint fails and we have a token, try public endpoint as fallback
+    if (token && error.response?.status === 401) {
+      console.log(`[getNearbyContractRules] Auth failed, trying public endpoint as fallback`);
+      try {
+        const baseUrl = getApiBaseUrl();
+        const response = await axios.get(`${baseUrl}/contracts/execution-rules/locations/public`);
+        let rules = response.data?.rules || [];
+        if (radius < 20000000 && latitude != null && longitude != null) {
+          rules = rules.filter(rule => {
+            if (!rule.latitude || !rule.longitude) return false;
+            const distance = calculateDistance(
+              latitude,
+              longitude,
+              parseFloat(rule.latitude),
+              parseFloat(rule.longitude)
+            );
+            return distance <= radius;
+          });
+        }
+        return { rules: rules, count: rules.length };
+      } catch (fallbackError) {
+        console.error(`[getNearbyContractRules] Fallback also failed:`, fallbackError.message);
+      }
+    }
     // Return empty array on error instead of throwing
     return { rules: [], count: 0 };
   }
