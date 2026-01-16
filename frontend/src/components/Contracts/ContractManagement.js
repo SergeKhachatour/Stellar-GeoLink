@@ -1712,7 +1712,14 @@ const ContractManagement = () => {
   };
 
   const handleBatchExecuteSelected = async () => {
+    console.log('[BatchExecute] handleBatchExecuteSelected called', {
+      selectedCount: selectedPendingRules.size,
+      batchExecuting,
+      hasPublicKey: !!publicKey
+    });
+    
     if (selectedPendingRules.size === 0 || batchExecuting) {
+      console.log('[BatchExecute] Early return:', { selectedCount: selectedPendingRules.size, batchExecuting });
       return;
     }
 
@@ -4033,11 +4040,24 @@ const ContractManagement = () => {
         ) : (
           <>
           {/* Batch Selection and Execution Controls */}
-          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={2}>
-            <Box display="flex" alignItems="center" gap={1}>
+          <Box 
+            display="flex" 
+            alignItems="center" 
+            justifyContent="space-between" 
+            mb={2} 
+            flexWrap="wrap" 
+            gap={2}
+            sx={{ 
+              width: '100%',
+              position: 'relative',
+              zIndex: 1
+            }}
+          >
+            <Box display="flex" alignItems="center" gap={1} sx={{ flex: { xs: '1 1 100%', sm: '0 1 auto' } }}>
               <IconButton
                 size="small"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   const currentPageRules = pendingRules.slice(
                     pendingRulesPage * pendingRulesRowsPerPage,
                     pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage
@@ -4060,6 +4080,7 @@ const ContractManagement = () => {
                   }
                   setSelectedPendingRules(newSelected);
                 }}
+                sx={{ flexShrink: 0 }}
               >
                 {pendingRules.slice(
                   pendingRulesPage * pendingRulesRowsPerPage,
@@ -4073,7 +4094,7 @@ const ContractManagement = () => {
                   <CheckBoxOutlineBlankIcon />
                 )}
               </IconButton>
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                 Select All ({selectedPendingRules.size} selected)
               </Typography>
             </Box>
@@ -4081,9 +4102,17 @@ const ContractManagement = () => {
               variant="contained"
               color="primary"
               startIcon={batchExecuting ? <CircularProgress size={16} /> : <CheckCircleIcon />}
-              onClick={handleBatchExecuteSelected}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleBatchExecuteSelected();
+              }}
               disabled={selectedPendingRules.size === 0 || batchExecuting}
-              sx={{ minWidth: 180 }}
+              sx={{ 
+                minWidth: { xs: '100%', sm: 180 },
+                flex: { xs: '1 1 100%', sm: '0 1 auto' },
+                position: 'relative',
+                zIndex: 2
+              }}
             >
               {batchExecuting 
                 ? `Executing ${batchExecutionProgress.current}/${batchExecutionProgress.total}...`
