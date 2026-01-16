@@ -1826,12 +1826,25 @@ const ContractManagement = () => {
       }
 
       // Execute each rule sequentially
+      console.log('[BatchExecute] Starting execution loop for', selectedRules.length, 'rules');
       for (let i = 0; i < selectedRules.length; i++) {
         const pendingRule = selectedRules[i];
+        console.log(`[BatchExecute] Processing rule ${i + 1}/${selectedRules.length}:`, {
+          pending_rule_id: pendingRule.rule_id,
+          contract_id: pendingRule.contract_id,
+          matched_key: pendingRule.matched_public_key?.substring(0, 8) + '...'
+        });
+        
         const rule = rules.find(r => r.id === pendingRule.rule_id);
         const contract = contracts.find(c => c.id === pendingRule.contract_id);
         
         if (!rule || !contract) {
+          console.warn(`[BatchExecute] Rule or contract not found:`, {
+            rule_found: !!rule,
+            contract_found: !!contract,
+            pending_rule_id: pendingRule.rule_id,
+            contract_id: pendingRule.contract_id
+          });
           errors.push(`Rule ${pendingRule.rule_name || pendingRule.rule_id} not found`);
           failCount++;
           continue;
@@ -1843,6 +1856,15 @@ const ContractManagement = () => {
           matched_public_key: pendingRule.matched_public_key
         };
 
+        console.log(`[BatchExecute] About to execute rule:`, {
+          rule_id: rule.id,
+          rule_name: rule.rule_name,
+          function_name: rule.function_name,
+          contract_id: contract.id,
+          has_secret_key: !!userSecretKey,
+          has_credential_id: !!credentialId
+        });
+
         setBatchExecutionProgress({
           current: i + 1,
           total: selectedRules.length,
@@ -1851,17 +1873,26 @@ const ContractManagement = () => {
 
         try {
           // Execute the rule - authenticate each one as needed
+          console.log(`[BatchExecute] Calling handleConfirmExecuteBatch for rule ${rule.rule_name}`);
           await handleConfirmExecuteBatch(ruleWithMatchedKey, contract, userSecretKey, credentialId, passkeyPublicKeySPKI);
+          console.log(`[BatchExecute] Successfully executed rule ${rule.rule_name}`);
           successCount++;
           
           // Small delay between executions
           await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (err) {
           console.error(`[BatchExecute] Error executing rule ${rule.rule_name}:`, err);
+          console.error(`[BatchExecute] Error stack:`, err.stack);
           errors.push(`${rule.rule_name}: ${err.message || 'Execution failed'}`);
           failCount++;
         }
       }
+      
+      console.log('[BatchExecute] Execution loop complete:', {
+        successCount,
+        failCount,
+        total: selectedRules.length
+      });
 
       // Show final results
       let resultMessage = `Batch execution complete: ${successCount} succeeded`;
@@ -1900,7 +1931,18 @@ const ContractManagement = () => {
     // This is a simplified version of handleConfirmExecute for batch execution
     // It skips the dialog and executes directly
     
+    console.log('[BatchExecute] handleConfirmExecuteBatch called with:', {
+      rule_id: rule?.id,
+      rule_name: rule?.rule_name,
+      function_name: rule?.function_name,
+      contract_id: contract?.id,
+      has_secret_key: !!userSecretKey,
+      has_credential_id: !!credentialId,
+      has_passkey: !!passkeyPublicKeySPKI
+    });
+    
     const isReadOnly = isReadOnlyFunction(rule.function_name);
+    console.log('[BatchExecute] Function type check:', { function_name: rule.function_name, isReadOnly });
     let functionParams = typeof rule.function_parameters === 'string'
       ? JSON.parse(rule.function_parameters)
       : rule.function_parameters || {};
