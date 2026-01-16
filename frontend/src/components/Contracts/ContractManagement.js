@@ -1957,22 +1957,123 @@ const ContractManagement = () => {
       };
     }
 
-    // Execute the rule
-    const executePayload = {
-      function_parameters: functionParams
-    };
-
-    // Only include secret_key for write operations or if explicitly needed
-    if (!isReadOnly && userSecretKey) {
-      executePayload.secret_key = userSecretKey;
+    // Execute the rule - use contract ID, not rule ID
+    const isPayment = isPaymentFunction(rule.function_name, functionParams);
+    
+    // Check if this should route through smart wallet
+    if (isPayment && paymentSource === 'smart-wallet') {
+      // Handle smart wallet payment execution
+      let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
+      if (!destination && rule.matched_public_key) {
+        destination = rule.matched_public_key;
+      }
+      
+      let amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
+      if (functionParams.signature_payload) {
+        try {
+          const payload = typeof functionParams.signature_payload === 'string' 
+            ? JSON.parse(functionParams.signature_payload) 
+            : functionParams.signature_payload;
+          if (payload.destination && !destination) destination = payload.destination;
+          if (payload.amount && !amount) {
+            const amountNum = parseFloat(payload.amount);
+            amount = amountNum >= 1000000 ? (amountNum / 10000000).toString() : payload.amount;
+          }
+        } catch (e) {
+          console.warn('[BatchExecute] Could not parse signature_payload:', e);
+        }
+      }
+      
+      if (!destination || !amount) {
+        throw new Error('Payment destination and amount are required');
+      }
+      
+      const asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'XLM';
+      const amountInStroops = (parseFloat(amount) * 10000000).toString();
+      
+      // Ensure we have WebAuthn data for smart wallet
+      if (!webauthnData && credentialId && passkeyPublicKeySPKI) {
+        const transactionData = {
+          source: publicKey,
+          destination,
+          amount: amountInStroops,
+          asset: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
+          memo: '',
+          timestamp: Date.now()
+        };
+        const signaturePayload = JSON.stringify(transactionData);
+        const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
+        webauthnData = {
+          passkeyPublicKeySPKI,
+          webauthnSignature: authResult.signature,
+          webauthnAuthenticatorData: authResult.authenticatorData,
+          webauthnClientData: authResult.clientDataJSON,
+          signaturePayload
+        };
+      }
+      
+      if (!userSecretKey) {
+        throw new Error('Secret key is required for smart wallet payments');
+      }
+      
+      // Call smart wallet endpoint
+      const response = await api.post('/smart-wallet/execute-payment', {
+        userPublicKey: publicKey,
+        userSecretKey: userSecretKey,
+        destinationAddress: destination,
+        amount: amountInStroops,
+        assetAddress: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
+        signaturePayload: webauthnData.signaturePayload,
+        passkeyPublicKeySPKI: webauthnData.passkeyPublicKeySPKI,
+        webauthnSignature: webauthnData.webauthnSignature,
+        webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
+        webauthnClientData: webauthnData.webauthnClientData,
+        rule_id: rule.id
+      });
+      
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Smart wallet payment failed');
+      }
+      
+      // Mark as completed
+      if (rule.matched_public_key) {
+        try {
+          await api.post(`/contracts/rules/pending/${rule.id}/complete`, {
+            matched_public_key: rule.matched_public_key,
+            transaction_hash: response.data.hash
+          });
+        } catch (e) {
+          console.warn('[BatchExecute] Could not mark rule as completed:', e);
+        }
+      }
+      
+      return; // Success for smart wallet payment
     }
+    
+    // Regular contract execution
+    const submitToLedger = !isReadOnly || !!userSecretKey;
+
+    const executePayload = {
+      function_name: rule.function_name,
+      parameters: functionParams,
+      user_public_key: publicKey,
+      user_secret_key: userSecretKey,
+      submit_to_ledger: submitToLedger,
+      rule_id: rule.id,
+      payment_source: isPayment ? paymentSource : undefined
+    };
 
     // Include WebAuthn data if available
     if (webauthnData) {
-      Object.assign(executePayload, webauthnData);
+      executePayload.passkeyPublicKeySPKI = webauthnData.passkeyPublicKeySPKI;
+      executePayload.webauthnSignature = webauthnData.webauthnSignature;
+      executePayload.webauthnAuthenticatorData = webauthnData.webauthnAuthenticatorData;
+      executePayload.webauthnClientData = webauthnData.webauthnClientData;
+      executePayload.signaturePayload = webauthnData.signaturePayload;
     }
 
-    const response = await api.post(`/contracts/rules/${rule.id}/execute`, executePayload);
+    // Use contract ID, not rule ID
+    const response = await api.post(`/contracts/${rule.contract_id}/execute`, executePayload);
 
     if (!response.data.success) {
       throw new Error(response.data.error || 'Execution failed');
