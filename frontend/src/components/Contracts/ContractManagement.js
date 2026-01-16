@@ -1724,17 +1724,27 @@ const ContractManagement = () => {
     }
 
     if (!publicKey) {
+      console.log('[BatchExecute] No public key - returning early');
       setError('Please connect your wallet first');
       return;
     }
 
+    console.log('[BatchExecute] Public key check passed, getting selected rules...');
     // Get all selected pending rules
+    console.log('[BatchExecute] Filtering selected rules from', pendingRules.length, 'pending rules');
+    console.log('[BatchExecute] Selected keys:', Array.from(selectedPendingRules));
     const selectedRules = pendingRules.filter((pr, index) => {
       const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${index}`;
-      return selectedPendingRules.has(uniqueKey);
+      const isSelected = selectedPendingRules.has(uniqueKey);
+      if (isSelected) {
+        console.log('[BatchExecute] Found selected rule:', { rule_id: pr.rule_id, uniqueKey, index });
+      }
+      return isSelected;
     });
 
+    console.log('[BatchExecute] Selected rules count:', selectedRules.length);
     if (selectedRules.length === 0) {
+      console.log('[BatchExecute] No rules selected - returning early');
       setError('No rules selected');
       return;
     }
@@ -1749,6 +1759,7 @@ const ContractManagement = () => {
     const errors = [];
 
     try {
+      console.log('[BatchExecute] Starting try block');
       // Get passkeys once for all rules that need WebAuthn
       let passkeys = [];
       let selectedPasskey = null;
@@ -1757,13 +1768,20 @@ const ContractManagement = () => {
 
       // Check if any rule needs WebAuthn (we'll check per rule during execution)
       // Get passkeys upfront if any rule might need them
+      console.log('[BatchExecute] Checking if any rule needs WebAuthn...');
       const mightNeedWebAuthn = selectedRules.some(pr => {
         const rule = rules.find(r => r.id === pr.rule_id);
         const contract = contracts.find(c => c.id === pr.contract_id);
-        return contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
+        const needs = contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
+        if (needs) {
+          console.log('[BatchExecute] Rule needs WebAuthn:', { rule_id: pr.rule_id, contract_id: pr.contract_id });
+        }
+        return needs;
       });
 
+      console.log('[BatchExecute] mightNeedWebAuthn:', mightNeedWebAuthn);
       if (mightNeedWebAuthn) {
+        console.log('[BatchExecute] Fetching passkeys...');
         // Get user's passkeys once
         const passkeysResponse = await api.get('/webauthn/passkeys');
         passkeys = passkeysResponse.data.passkeys || [];
@@ -1791,14 +1809,22 @@ const ContractManagement = () => {
       }
 
       // Get secret key if needed
+      console.log('[BatchExecute] Getting secret key...');
       let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+      console.log('[BatchExecute] Secret key available:', !!userSecretKey);
       
       // Check if any rule requires a secret key (write operations)
+      console.log('[BatchExecute] Checking for write operations...');
       const hasWriteOperations = selectedRules.some(pr => {
         const rule = rules.find(r => r.id === pr.rule_id);
         if (!rule) return false;
-        return !isReadOnlyFunction(rule.function_name);
+        const isWrite = !isReadOnlyFunction(rule.function_name);
+        if (isWrite) {
+          console.log('[BatchExecute] Found write operation:', { rule_id: pr.rule_id, function_name: rule.function_name });
+        }
+        return isWrite;
       });
+      console.log('[BatchExecute] hasWriteOperations:', hasWriteOperations);
 
       // If we have write operations, validate secret key
       if (hasWriteOperations) {
