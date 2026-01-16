@@ -1670,13 +1670,62 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         const publicKey = req.user?.public_key;
         const { limit = 50 } = req.query;
         
+        console.log(`[PendingRules] Extracted values:`, {
+            userId: userId,
+            userId_type: typeof userId,
+            publicKey: publicKey?.substring(0, 8) + '...',
+            publicKey_type: typeof publicKey,
+            req_user_id: req.user?.id,
+            req_userId: req.userId,
+            has_both: !!(publicKey && userId)
+        });
+        
         if (!userId && !publicKey) {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        // Filter by both user_id AND public_key when both available (OR logic for multi-role users)
+        // This ensures we get all records regardless of which role was active when created
         let query, params;
-        if (publicKey) {
+        if (publicKey && userId) {
+            query = `
+                SELECT DISTINCT ON (cer.id, luq.public_key)
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    cc.requires_webauthn,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results
+                FROM location_update_queue luq
+                JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE result->>'skipped' = 'true'
+                        AND result->>'reason' = 'requires_webauthn'
+                        AND (result->>'rule_id')::integer = cer.id
+                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
+                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                    )
+                ORDER BY cer.id, luq.public_key, luq.received_at DESC
+                LIMIT $3
+            `;
+            params = [publicKey, userId, parseInt(limit)];
+        } else if (publicKey) {
             query = `
                 SELECT DISTINCT ON (cer.id, luq.public_key)
                     cer.id as rule_id,
@@ -1757,10 +1806,36 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             params = [userId, parseInt(limit)];
         }
 
+        console.log(`[PendingRules] Executing query with params:`, {
+            params_count: params.length,
+            params: params.map((p, i) => i === 0 && typeof p === 'string' && p.length > 8 ? p.substring(0, 8) + '...' : p),
+            using_or_logic: !!(publicKey && userId),
+            query_preview: query.substring(0, 200) + '...'
+        });
+        
         const result = await pool.query(query, params);
         
-        const identifier = publicKey || userId;
-        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${publicKey ? 'public_key' : 'user_id'} ${identifier}`);
+        const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
+        const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
+        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
+        if (result.rows.length > 0) {
+            console.log(`[PendingRules] Sample row:`, {
+                rule_id: result.rows[0].rule_id,
+                public_key: result.rows[0].public_key?.substring(0, 8) + '...',
+                update_id: result.rows[0].update_id,
+                user_id_from_row: result.rows[0].user_id
+            });
+        } else {
+            // Debug: Check if there are any matching records at all
+            const debugQuery = publicKey && userId 
+                ? `SELECT COUNT(*) as count FROM location_update_queue WHERE (public_key = $1 OR user_id = $2) AND status IN ('matched', 'executed')`
+                : publicKey
+                    ? `SELECT COUNT(*) as count FROM location_update_queue WHERE public_key = $1 AND status IN ('matched', 'executed')`
+                    : `SELECT COUNT(*) as count FROM location_update_queue WHERE user_id = $1 AND status IN ('matched', 'executed')`;
+            const debugParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
+            const debugResult = await pool.query(debugQuery, debugParams);
+            console.log(`[PendingRules] Debug: Found ${debugResult.rows[0]?.count || 0} location_update_queue entries matching criteria`);
+        }
 
         // Process results to extract skipped rules
         // Each public key should have its own pending rule entry
@@ -2326,9 +2401,41 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        // Filter by both user_id AND public_key when both available (OR logic for multi-role users)
+        // This ensures we get all records regardless of which role was active when created
         let query, params;
-        if (publicKey) {
+        if (publicKey && userId) {
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data->>'completed')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $3
+            `;
+            params = [publicKey, userId, limit];
+        } else if (publicKey) {
             query = `
                 SELECT 
                     cer.id as rule_id,
@@ -2535,9 +2642,42 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        // Filter by public_key if available (for multi-role users), otherwise by user_id
+        // Filter by both user_id AND public_key when both available (OR logic for multi-role users)
+        // This ensures we get all records regardless of which role was active when created
         let query, params;
-        if (publicKey) {
+        if (publicKey && userId) {
+            query = `
+                SELECT 
+                    cer.id as rule_id,
+                    cer.rule_name,
+                    cer.function_name,
+                    cer.function_parameters,
+                    cc.function_mappings,
+                    cer.contract_id,
+                    cc.contract_name,
+                    cc.contract_address,
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    luq.execution_results,
+                    result_data->>'rule_id' as execution_rule_id
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND result_data->>'skipped' = 'true'
+                    AND (result_data->>'rejected')::boolean = true
+                ORDER BY luq.received_at DESC
+                LIMIT $3
+            `;
+            params = [publicKey, userId, limit];
+        } else if (publicKey) {
             query = `
                 SELECT 
                     cer.id as rule_id,
