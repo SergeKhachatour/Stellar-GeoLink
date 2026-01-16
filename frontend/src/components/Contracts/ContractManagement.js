@@ -132,7 +132,6 @@ const ContractManagement = () => {
   const [batchSecretKeyDialogOpen, setBatchSecretKeyDialogOpen] = useState(false);
   const [batchSecretKeyInput, setBatchSecretKeyInput] = useState('');
   const [batchSecretKeyShow, setBatchSecretKeyShow] = useState(false);
-  const [pendingBatchExecution, setPendingBatchExecution] = useState(false); // Track if we're waiting for secret key
   const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
   const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -1772,7 +1771,6 @@ const ContractManagement = () => {
     // Only require secret key if we have write operations that don't use WebAuthn
     if (writeOperationsNeedingSecretKey.length > 0 && !userSecretKey) {
       console.log('[BatchExecute] Secret key needed for non-WebAuthn write operations - showing dialog');
-      setPendingBatchExecution(true);
       setBatchSecretKeyDialogOpen(true);
       return;
     }
@@ -2007,7 +2005,6 @@ const ContractManagement = () => {
     // Close dialog and continue execution
     setBatchSecretKeyDialogOpen(false);
     setBatchSecretKeyInput('');
-    setPendingBatchExecution(false);
     
     // Continue with batch execution using the entered secret key
     await performBatchExecution(enteredSecretKey);
@@ -2016,7 +2013,6 @@ const ContractManagement = () => {
   const handleBatchSecretKeyCancel = () => {
     setBatchSecretKeyDialogOpen(false);
     setBatchSecretKeyInput('');
-    setPendingBatchExecution(false);
     setError('');
   };
 
