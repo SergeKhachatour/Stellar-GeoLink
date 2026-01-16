@@ -67,7 +67,9 @@ import {
   QrCodeScanner as QrCodeScannerIcon,
   CameraAlt as CameraAltIcon,
   AccountBalanceWallet as AccountBalanceWalletIcon,
-  ContentCopy as ContentCopyIcon
+  ContentCopy as ContentCopyIcon,
+  CheckBox as CheckBoxIcon,
+  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -124,6 +126,9 @@ const ContractManagement = () => {
   const [loadingRejectedRules, setLoadingRejectedRules] = useState(false);
   const [rejectingRuleId, setRejectingRuleId] = useState(null);
   const [expandedPendingRule, setExpandedPendingRule] = useState(null);
+  const [selectedPendingRules, setSelectedPendingRules] = useState(new Set());
+  const [batchExecuting, setBatchExecuting] = useState(false);
+  const [batchExecutionProgress, setBatchExecutionProgress] = useState({ current: 0, total: 0, currentRule: null });
   const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
   const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -1704,6 +1709,286 @@ const ContractManagement = () => {
     setExecuteConfirmDialog({ open: true, rule });
     // Start execution immediately
     await handleConfirmExecute(rule);
+  };
+
+  const handleBatchExecuteSelected = async () => {
+    if (selectedPendingRules.size === 0 || batchExecuting) {
+      return;
+    }
+
+    if (!publicKey) {
+      setError('Please connect your wallet first');
+      return;
+    }
+
+    // Get all selected pending rules
+    const selectedRules = pendingRules.filter((pr, index) => {
+      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${index}`;
+      return selectedPendingRules.has(uniqueKey);
+    });
+
+    if (selectedRules.length === 0) {
+      setError('No rules selected');
+      return;
+    }
+
+    setBatchExecuting(true);
+    setBatchExecutionProgress({ current: 0, total: selectedRules.length, currentRule: null });
+    setError('');
+    setSuccess('');
+
+    let successCount = 0;
+    let failCount = 0;
+    const errors = [];
+
+    try {
+      // Get passkeys once for all rules that need WebAuthn
+      let passkeys = [];
+      let selectedPasskey = null;
+      let passkeyPublicKeySPKI = null;
+      let credentialId = null;
+
+      // Check if any rule needs WebAuthn (we'll check per rule during execution)
+      // Get passkeys upfront if any rule might need them
+      const mightNeedWebAuthn = selectedRules.some(pr => {
+        const rule = rules.find(r => r.id === pr.rule_id);
+        const contract = contracts.find(c => c.id === pr.contract_id);
+        return contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
+      });
+
+      if (mightNeedWebAuthn) {
+        // Get user's passkeys once
+        const passkeysResponse = await api.get('/webauthn/passkeys');
+        passkeys = passkeysResponse.data.passkeys || [];
+        
+        if (passkeys.length === 0) {
+          setError('No passkey registered. Please register a passkey first.');
+          setBatchExecuting(false);
+          return;
+        }
+
+        // Use the passkey that's registered on the contract
+        selectedPasskey = passkeys.find(p => p.isOnContract === true);
+        if (!selectedPasskey) {
+          selectedPasskey = passkeys[0];
+        }
+
+        credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
+        passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
+
+        if (!credentialId || !passkeyPublicKeySPKI) {
+          setError('Passkey data incomplete. Please ensure your passkey is properly registered.');
+          setBatchExecuting(false);
+          return;
+        }
+      }
+
+      // Get secret key if needed
+      let userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+      if (userSecretKey && publicKey) {
+        try {
+          const StellarSdk = await import('@stellar/stellar-sdk');
+          const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+          if (keypair.publicKey() !== publicKey) {
+            setError('Secret key does not match the connected wallet. Please check your secret key.');
+            setBatchExecuting(false);
+            return;
+          }
+        } catch (err) {
+          setError('Invalid secret key format. Please check your secret key.');
+          setBatchExecuting(false);
+          return;
+        }
+      }
+
+      // Execute each rule sequentially
+      for (let i = 0; i < selectedRules.length; i++) {
+        const pendingRule = selectedRules[i];
+        const rule = rules.find(r => r.id === pendingRule.rule_id);
+        const contract = contracts.find(c => c.id === pendingRule.contract_id);
+        
+        if (!rule || !contract) {
+          errors.push(`Rule ${pendingRule.rule_name || pendingRule.rule_id} not found`);
+          failCount++;
+          continue;
+        }
+
+        // Merge matched_public_key into rule
+        const ruleWithMatchedKey = {
+          ...rule,
+          matched_public_key: pendingRule.matched_public_key
+        };
+
+        setBatchExecutionProgress({
+          current: i + 1,
+          total: selectedRules.length,
+          currentRule: pendingRule
+        });
+
+        try {
+          // Execute the rule - authenticate each one as needed
+          await handleConfirmExecuteBatch(ruleWithMatchedKey, contract, userSecretKey, credentialId, passkeyPublicKeySPKI);
+          successCount++;
+          
+          // Small delay between executions
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (err) {
+          console.error(`[BatchExecute] Error executing rule ${rule.rule_name}:`, err);
+          errors.push(`${rule.rule_name}: ${err.message || 'Execution failed'}`);
+          failCount++;
+        }
+      }
+
+      // Show final results
+      let resultMessage = `Batch execution complete: ${successCount} succeeded`;
+      if (failCount > 0) {
+        resultMessage += `, ${failCount} failed`;
+      }
+      if (errors.length > 0) {
+        resultMessage += `\n\nErrors:\n${errors.join('\n')}`;
+      }
+      
+      if (successCount > 0) {
+        setSuccess(resultMessage);
+        setTimeout(() => setSuccess(''), 10000);
+      } else {
+        setError(resultMessage);
+      }
+
+      // Reload pending and completed rules
+      await Promise.all([
+        loadPendingRules(),
+        loadCompletedRules()
+      ]);
+
+      // Clear selection
+      setSelectedPendingRules(new Set());
+    } catch (err) {
+      console.error('[BatchExecute] Fatal error:', err);
+      setError(`Batch execution failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setBatchExecuting(false);
+      setBatchExecutionProgress({ current: 0, total: 0, currentRule: null });
+    }
+  };
+
+  const handleConfirmExecuteBatch = async (rule, contract, userSecretKey, credentialId, passkeyPublicKeySPKI) => {
+    // This is a simplified version of handleConfirmExecute for batch execution
+    // It skips the dialog and executes directly
+    
+    const isReadOnly = isReadOnlyFunction(rule.function_name);
+    let functionParams = typeof rule.function_parameters === 'string'
+      ? JSON.parse(rule.function_parameters)
+      : rule.function_parameters || {};
+
+    const willRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
+                                       (contract?.use_smart_wallet && 
+                                        isPaymentFunction(rule.function_name, functionParams));
+
+    const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
+
+    let webauthnData = null;
+
+    // Only authenticate if WebAuthn is needed AND we have the credentials
+    if (needsWebAuthn) {
+      if (!credentialId || !passkeyPublicKeySPKI) {
+        throw new Error('WebAuthn required but passkey credentials not available');
+      }
+        // Create signature payload for this specific rule
+        let signaturePayload;
+        const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
+                             rule.function_name.toLowerCase().includes('payment') ||
+                             rule.function_name.toLowerCase().includes('transfer') ||
+                             rule.function_name.toLowerCase().includes('send') ||
+                             rule.function_name.toLowerCase().includes('pay');
+
+        if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
+          let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
+          if (!destination && rule.matched_public_key) {
+            destination = rule.matched_public_key;
+          }
+          let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
+          if (typeof amount === 'number' && amount < 1000000) {
+            amount = Math.floor(amount * 10000000).toString();
+          } else {
+            amount = amount.toString();
+          }
+          let asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'native';
+          if (asset === 'XLM' || asset === 'native' || asset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
+            asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+          }
+
+          const paymentData = {
+            source: publicKey,
+            destination: destination,
+            amount: amount,
+            asset: asset,
+            memo: '',
+            timestamp: Date.now()
+          };
+          signaturePayload = JSON.stringify(paymentData);
+        } else {
+          signaturePayload = functionParams.signature_payload || JSON.stringify({
+            function: rule.function_name,
+            contract_id: rule.contract_id,
+            parameters: functionParams,
+            timestamp: Date.now()
+          });
+        }
+
+        // Authenticate with passkey for this specific rule
+        // Note: User will need to authenticate for each rule, but it's done in sequence
+        const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
+
+      webauthnData = {
+        passkeyPublicKeySPKI,
+        webauthnSignature: authResult.signature,
+        webauthnAuthenticatorData: authResult.authenticatorData,
+        webauthnClientData: authResult.clientDataJSON,
+        signaturePayload
+      };
+
+      functionParams = {
+        ...functionParams,
+        signature_payload: signaturePayload,
+        webauthn_signature: authResult.signature,
+        webauthn_authenticator_data: authResult.authenticatorData,
+        webauthn_client_data: authResult.clientDataJSON
+      };
+    }
+
+    // Execute the rule
+    const executePayload = {
+      function_parameters: functionParams
+    };
+
+    // Only include secret_key for write operations or if explicitly needed
+    if (!isReadOnly && userSecretKey) {
+      executePayload.secret_key = userSecretKey;
+    }
+
+    // Include WebAuthn data if available
+    if (webauthnData) {
+      Object.assign(executePayload, webauthnData);
+    }
+
+    const response = await api.post(`/contracts/rules/${rule.id}/execute`, executePayload);
+
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Execution failed');
+    }
+
+    // Mark as completed if it was a pending rule
+    if (rule.matched_public_key) {
+      try {
+        await api.post(`/contracts/rules/pending/${rule.id}/complete`, {
+          matched_public_key: rule.matched_public_key,
+          transaction_hash: response.data.transaction_hash
+        });
+      } catch (e) {
+        console.warn('[BatchExecute] Could not mark rule as completed:', e);
+      }
+    }
   };
 
   const handleConfirmExecute = async (ruleParam = null) => {
@@ -3646,6 +3931,74 @@ const ContractManagement = () => {
           </Alert>
         ) : (
           <>
+          {/* Batch Selection and Execution Controls */}
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2} flexWrap="wrap" gap={2}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  const currentPageRules = pendingRules.slice(
+                    pendingRulesPage * pendingRulesRowsPerPage,
+                    pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage
+                  );
+                  const allSelected = currentPageRules.every(pr => {
+                    const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pendingRules.indexOf(pr)}`;
+                    return selectedPendingRules.has(uniqueKey);
+                  });
+                  const newSelected = new Set(selectedPendingRules);
+                  if (allSelected) {
+                    currentPageRules.forEach(pr => {
+                      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pendingRules.indexOf(pr)}`;
+                      newSelected.delete(uniqueKey);
+                    });
+                  } else {
+                    currentPageRules.forEach(pr => {
+                      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pendingRules.indexOf(pr)}`;
+                      newSelected.add(uniqueKey);
+                    });
+                  }
+                  setSelectedPendingRules(newSelected);
+                }}
+              >
+                {pendingRules.slice(
+                  pendingRulesPage * pendingRulesRowsPerPage,
+                  pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage
+                ).every(pr => {
+                  const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pendingRules.indexOf(pr)}`;
+                  return selectedPendingRules.has(uniqueKey);
+                }) ? (
+                  <CheckBoxIcon />
+                ) : (
+                  <CheckBoxOutlineBlankIcon />
+                )}
+              </IconButton>
+              <Typography variant="body2" color="text.secondary">
+                Select All ({selectedPendingRules.size} selected)
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={batchExecuting ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+              onClick={handleBatchExecuteSelected}
+              disabled={selectedPendingRules.size === 0 || batchExecuting}
+              sx={{ minWidth: 180 }}
+            >
+              {batchExecuting 
+                ? `Executing ${batchExecutionProgress.current}/${batchExecutionProgress.total}...`
+                : `Execute Selected (${selectedPendingRules.size})`
+              }
+            </Button>
+          </Box>
+          
+          {batchExecuting && batchExecutionProgress.currentRule && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                Executing: <strong>{batchExecutionProgress.currentRule.rule_name}</strong> for wallet {batchExecutionProgress.currentRule.matched_public_key?.substring(0, 8)}...
+              </Typography>
+            </Alert>
+          )}
+          
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {pendingRules
               .slice(pendingRulesPage * pendingRulesRowsPerPage, pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage)
@@ -3681,6 +4034,26 @@ const ContractManagement = () => {
                         '&:hover': { bgcolor: 'action.hover' }
                       }}
                     >
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const newSelected = new Set(selectedPendingRules);
+                          if (newSelected.has(uniqueKey)) {
+                            newSelected.delete(uniqueKey);
+                          } else {
+                            newSelected.add(uniqueKey);
+                          }
+                          setSelectedPendingRules(newSelected);
+                        }}
+                        sx={{ mr: 1 }}
+                      >
+                        {selectedPendingRules.has(uniqueKey) ? (
+                          <CheckBoxIcon color="primary" />
+                        ) : (
+                          <CheckBoxOutlineBlankIcon />
+                        )}
+                      </IconButton>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
                           <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>
