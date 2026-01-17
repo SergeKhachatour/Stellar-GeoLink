@@ -697,11 +697,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       SELECT jsonb_agg(
                         CASE 
                           WHEN (
-                            (result->>'rule_id')::integer = $1::integer OR 
-                            (result->>'rule_id')::text = $1::text
+                            (result->>'rule_id')::integer = $1::integer
                           ) AND (
-                            result->>'skipped' = 'true' OR 
-                            (result->>'skipped')::boolean = true
+                            COALESCE((result->>'skipped')::boolean, false) = true
+                          ) AND (
+                            COALESCE((result->>'completed')::boolean, false) = false
                           ) AND (
                             result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                           )
@@ -715,7 +715,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                           ELSE result
                         END
                       )
-                      FROM jsonb_array_elements(luq.execution_results) AS result
+                      FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, idx)
                     )
                     WHERE luq.user_id = $2
                       AND luq.id = $6::integer
@@ -723,22 +723,14 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       AND EXISTS (
                         SELECT 1
                         FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE (
-                          (result->>'rule_id')::integer = $1::integer OR 
-                          (result->>'rule_id')::text = $1::text
-                        )
-                        AND (
-                          result->>'skipped' = 'true' OR 
-                          (result->>'skipped')::boolean = true
-                        )
-                        AND (
-                          (result->>'completed')::boolean IS DISTINCT FROM true OR
-                          result->>'completed' IS NULL
-                        )
+                        WHERE (result->>'rule_id')::integer = $1::integer
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                         AND (
                           result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                         )
                       )
+                    RETURNING luq.id, luq.execution_results
                   `;
                   markCompletedParams = [
                     parseInt(rule_id), 
@@ -770,11 +762,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       SELECT jsonb_agg(
                         CASE 
                           WHEN (
-                            (result->>'rule_id')::integer = $1::integer OR 
-                            (result->>'rule_id')::text = $1::text
+                            (result->>'rule_id')::integer = $1::integer
                           ) AND (
-                            result->>'skipped' = 'true' OR 
-                            (result->>'skipped')::boolean = true
+                            COALESCE((result->>'skipped')::boolean, false) = true
+                          ) AND (
+                            COALESCE((result->>'completed')::boolean, false) = false
                           ) AND (
                             result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                           )
@@ -795,22 +787,14 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       AND EXISTS (
                         SELECT 1
                         FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE (
-                          (result->>'rule_id')::integer = $1::integer OR 
-                          (result->>'rule_id')::text = $1::text
-                        )
-                        AND (
-                          result->>'skipped' = 'true' OR 
-                          (result->>'skipped')::boolean = true
-                        )
-                        AND (
-                          (result->>'completed')::boolean IS DISTINCT FROM true OR
-                          result->>'completed' IS NULL
-                        )
+                        WHERE (result->>'rule_id')::integer = $1::integer
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                         AND (
                           result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                         )
                       )
+                    RETURNING luq.id, luq.execution_results
                   `;
                   markCompletedParams = [
                     parseInt(rule_id), 
@@ -841,11 +825,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       SELECT jsonb_agg(
                         CASE 
                           WHEN (
-                            (result->>'rule_id')::integer = $1::integer OR 
-                            (result->>'rule_id')::text = $1::text
+                            (result->>'rule_id')::integer = $1::integer
                           ) AND (
-                            result->>'skipped' = 'true' OR 
-                            (result->>'skipped')::boolean = true
+                            COALESCE((result->>'skipped')::boolean, false) = true
+                          ) AND (
+                            COALESCE((result->>'completed')::boolean, false) = false
                           )
                           THEN result || jsonb_build_object(
                             'completed', true, 
@@ -864,19 +848,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       AND EXISTS (
                         SELECT 1
                         FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE (
-                          (result->>'rule_id')::integer = $1::integer OR 
-                          (result->>'rule_id')::text = $1::text
-                        )
-                        AND (
-                          result->>'skipped' = 'true' OR 
-                          (result->>'skipped')::boolean = true
-                        )
-                        AND (
-                          (result->>'completed')::boolean IS DISTINCT FROM true OR
-                          result->>'completed' IS NULL
-                        )
+                        WHERE (result->>'rule_id')::integer = $1::integer
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                       )
+                    RETURNING luq.id, luq.execution_results
                   `;
                   markCompletedParams = [
                     parseInt(rule_id), 
@@ -887,14 +863,102 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   ];
                 }
                 
+                console.log(`[Smart Wallet] 🔍 Executing completion query with params:`, {
+                  rule_id: markCompletedParams[0],
+                  user_id: markCompletedParams[1],
+                  completed_at: markCompletedParams[2],
+                  transaction_hash: markCompletedParams[3],
+                  matched_public_key: markCompletedParams[4] || 'N/A',
+                  update_id: markCompletedParams[5] || 'N/A',
+                  has_execution_params: !!markCompletedParams[markCompletedParams.length - 1]
+                });
+                
                 const updateResult = await pool.query(markCompletedQuery, markCompletedParams);
                 
                 console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed. Rows affected: ${updateResult.rowCount}`);
+                
+                if (updateResult.rows.length > 0) {
+                  console.log(`[Smart Wallet] 📋 Updated execution_results (from RETURNING):`, JSON.stringify(updateResult.rows[0].execution_results, null, 2));
+                  
+                  // Check if the rule is actually marked as completed in the returned data
+                  const execResults = updateResult.rows[0].execution_results || [];
+                  const ruleResult = execResults.find(r => r.rule_id === parseInt(rule_id));
+                  if (ruleResult) {
+                    if (ruleResult.completed) {
+                      console.log(`[Smart Wallet] ✅ Rule ${rule_id} is correctly marked as completed in RETURNING data`);
+                    } else {
+                      console.error(`[Smart Wallet] ❌ Rule ${rule_id} is NOT marked as completed in RETURNING data!`, {
+                        skipped: ruleResult.skipped,
+                        completed: ruleResult.completed,
+                        success: ruleResult.success,
+                        matched_public_key: ruleResult.matched_public_key
+                      });
+                    }
+                  }
+                }
+                
+                if (updateResult.rowCount === 0) {
+                  console.error(`[Smart Wallet] ⚠️ WARNING: No rows were updated! This means the query conditions didn't match.`);
+                  console.error(`[Smart Wallet] 🔍 Query used:`, markCompletedQuery.substring(0, 200) + '...');
+                  console.error(`[Smart Wallet] 🔍 Parameters:`, markCompletedParams);
+                  
+                  // Try to find what's actually in the database
+                  const debugQuery = `
+                    SELECT luq.id, luq.public_key, luq.user_id, luq.execution_results
+                    FROM location_update_queue luq
+                    WHERE luq.user_id = $1
+                      AND luq.execution_results IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE (result->>'rule_id')::integer = $2::integer
+                      )
+                    ORDER BY luq.id DESC
+                    LIMIT 5
+                  `;
+                  const debugResult = await pool.query(debugQuery, [userId, parseInt(rule_id)]);
+                  console.error(`[Smart Wallet] 🔍 Found ${debugResult.rows.length} location_update_queue entries with rule_id ${rule_id}:`);
+                  for (const row of debugResult.rows) {
+                    console.error(`[Smart Wallet] 🔍 Entry ID ${row.id}, public_key: ${row.public_key}, user_id: ${row.user_id}`);
+                    const execResults = row.execution_results || [];
+                    for (const result of execResults) {
+                      if (result.rule_id === parseInt(rule_id)) {
+                        console.error(`[Smart Wallet] 🔍 Rule ${rule_id} in entry ${row.id}:`, {
+                          rule_id: result.rule_id,
+                          skipped: result.skipped,
+                          completed: result.completed,
+                          matched_public_key: result.matched_public_key,
+                          has_update_id: !!update_id,
+                          update_id_from_request: update_id,
+                          matched_public_key_from_request: matched_public_key
+                        });
+                      }
+                    }
+                  }
+                }
                 
                 // Verify the update
                 const verifyResult = await pool.query(checkQuery, [userId, parseInt(rule_id)]);
                 if (verifyResult.rows.length > 0) {
                   console.log(`[Smart Wallet] ✅ Verified execution_results after update:`, JSON.stringify(verifyResult.rows[0].execution_results, null, 2));
+                  
+                  // Check if the rule is actually marked as completed
+                  const execResults = verifyResult.rows[0].execution_results || [];
+                  const ruleResult = execResults.find(r => r.rule_id === parseInt(rule_id));
+                  if (ruleResult) {
+                    if (ruleResult.completed) {
+                      console.log(`[Smart Wallet] ✅ Rule ${rule_id} is correctly marked as completed`);
+                    } else {
+                      console.error(`[Smart Wallet] ❌ Rule ${rule_id} is NOT marked as completed!`, {
+                        skipped: ruleResult.skipped,
+                        completed: ruleResult.completed,
+                        success: ruleResult.success,
+                        matched_public_key: ruleResult.matched_public_key
+                      });
+                    }
+                  } else {
+                    console.error(`[Smart Wallet] ❌ Rule ${rule_id} not found in execution_results after update!`);
+                  }
                 }
               } else {
                 console.warn(`[Smart Wallet] ⚠️ No location_update_queue entry found with rule_id ${rule_id} for user ${userId}`);
