@@ -460,11 +460,20 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     );
 
     // Ensure passkey is registered (auto-register if not)
+    // Don't block on this - if it fails, the contract will handle the error
     const rpId = req.body.rpId || req.headers.host || 'localhost';
-    const isRegistered = await ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
-    if (!isRegistered) {
-      console.warn('[Smart Wallet] ⚠️ Could not auto-register passkey, proceeding anyway (will fail if not registered)');
-    }
+    ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
+      .then(isRegistered => {
+        if (isRegistered) {
+          console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
+        } else {
+          console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
+        }
+      })
+      .catch(err => {
+        console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
+      });
+    // Continue with payment execution - if passkey isn't registered, contract will fail with a clear error
 
     // Call execute_payment
     const contractCallOp = contract.call(
@@ -1320,11 +1329,20 @@ router.post('/deposit', authenticateUser, async (req, res) => {
     );
 
     // Ensure passkey is registered (auto-register if not)
+    // Don't block on this - if it fails, the contract will handle the error
     const rpId = req.body.rpId || req.headers.host || 'localhost';
-    const isRegistered = await ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
-    if (!isRegistered) {
-      console.warn('[Smart Wallet] ⚠️ Could not auto-register passkey, proceeding anyway (will fail if not registered)');
-    }
+    ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
+      .then(isRegistered => {
+        if (isRegistered) {
+          console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
+        } else {
+          console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
+        }
+      })
+      .catch(err => {
+        console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
+      });
+    // Continue with deposit execution - if passkey isn't registered, contract will fail with a clear error
 
     // Build transaction
     console.log(`[Smart Wallet] 🔍 Loading account ${userPublicKey} from Horizon: ${contracts.HORIZON_URL}`);

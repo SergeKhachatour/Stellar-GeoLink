@@ -1813,7 +1813,26 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         //     query_preview: query.substring(0, 200) + '...'
         // });
         
-        const result = await pool.query(query, params);
+        let result;
+        try {
+            // Add query timeout to prevent hanging
+            result = await Promise.race([
+                pool.query(query, params),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
+                )
+            ]);
+        } catch (queryError) {
+            console.error('[PendingRules] ❌ Query error:', {
+                error: queryError.message,
+                stack: queryError.stack,
+                query_preview: query.substring(0, 200)
+            });
+            return res.status(500).json({ 
+                error: 'Failed to fetch pending rules', 
+                details: queryError.message 
+            });
+        }
         
         const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
         const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
@@ -2544,7 +2563,26 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             params = [userId, limit];
         }
 
-        const result = await pool.query(query, params);
+        let result;
+        try {
+            // Add query timeout to prevent hanging
+            result = await Promise.race([
+                pool.query(query, params),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
+                )
+            ]);
+        } catch (queryError) {
+            console.error('[CompletedRules] ❌ Query error:', {
+                error: queryError.message,
+                stack: queryError.stack,
+                query_preview: query.substring(0, 200)
+            });
+            return res.status(500).json({ 
+                error: 'Failed to fetch completed rules', 
+                details: queryError.message 
+            });
+        }
         
         // Get total count of unique completed rules (for pagination)
         // Use the same DISTINCT ON logic as the main query to get accurate count
