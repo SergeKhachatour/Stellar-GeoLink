@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -263,15 +263,15 @@ const ContractManagement = () => {
   // Auto-refresh pending rules count every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (tabValue === 2) {
-        // Only refresh if we're on the pending rules tab
+      if (tabValue === 2 && !batchExecuting) {
+        // Only refresh if we're on the pending rules tab and not executing a batch
         loadPendingRules();
       }
-    }, 5000); // Refresh every 5 seconds
+    }, 10000); // Refresh every 10 seconds (increased from 5 to reduce flickering)
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabValue]);
+  }, [tabValue, batchExecuting]);
   
   // Update stepper orientation on window resize
   useEffect(() => {
@@ -463,11 +463,33 @@ const ContractManagement = () => {
   };
 
   const loadPendingRules = async () => {
-    try {
+    // Don't refresh if batch execution is in progress
+    if (batchExecuting) {
+      return;
+    }
+    
+    // Delay showing loading indicator to reduce flickering for quick refreshes
+    let loadingTimeout = setTimeout(() => {
       setLoadingPendingRules(true);
+    }, 300);
+    
+    try {
       const response = await api.get('/contracts/rules/pending');
       if (response.data.success) {
         const pending = response.data.pending_rules || [];
+        
+        // Preserve selection state by filtering out keys that no longer exist
+        setSelectedPendingRules(prevSelected => {
+          const validKeys = new Set();
+          pending.forEach((pr, index) => {
+            const uniqueKey = getPendingRuleKey(pr, index);
+            if (prevSelected.has(uniqueKey)) {
+              validKeys.add(uniqueKey);
+            }
+          });
+          return validKeys;
+        });
+        
         setPendingRules(pending);
 
         // Auto-finalize any pending rules that we successfully executed on-chain but didn't get marked completed.
@@ -513,6 +535,7 @@ const ContractManagement = () => {
       console.error('Error loading pending rules:', err);
       setError(err.response?.data?.error || 'Failed to load pending rules');
     } finally {
+      clearTimeout(loadingTimeout);
       setLoadingPendingRules(false);
     }
   };
@@ -1621,6 +1644,18 @@ const ContractManagement = () => {
     
     return `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${identifier}`;
   };
+
+  // Calculate valid selection count (only count keys that exist in current pendingRules)
+  const validSelectionCount = useMemo(() => {
+    let count = 0;
+    pendingRules.forEach((pr, index) => {
+      const uniqueKey = getPendingRuleKey(pr, index);
+      if (selectedPendingRules.has(uniqueKey)) {
+        count++;
+      }
+    });
+    return count;
+  }, [pendingRules, selectedPendingRules]);
 
   // Helper function to detect if a function is payment-related
   const isPaymentFunction = (functionName, functionParams) => {
@@ -4352,7 +4387,7 @@ const ContractManagement = () => {
                 )}
               </IconButton>
               <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                Select All ({selectedPendingRules.size} selected)
+                Select All ({validSelectionCount} selected)
               </Typography>
             </Box>
             <Button
@@ -4363,7 +4398,7 @@ const ContractManagement = () => {
                 e.stopPropagation();
                 handleBatchExecuteSelected();
               }}
-              disabled={selectedPendingRules.size === 0 || batchExecuting}
+              disabled={validSelectionCount === 0 || batchExecuting}
               sx={{ 
                 minWidth: { xs: '100%', sm: 180 },
                 flex: { xs: '1 1 100%', sm: '0 1 auto' },
@@ -4373,7 +4408,7 @@ const ContractManagement = () => {
             >
               {batchExecuting 
                 ? `Executing ${batchExecutionProgress.current}/${batchExecutionProgress.total}...`
-                : `Execute Selected (${selectedPendingRules.size})`
+                : `Execute Selected (${validSelectionCount})`
               }
             </Button>
           </Box>
