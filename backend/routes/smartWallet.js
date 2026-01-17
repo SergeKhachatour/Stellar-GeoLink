@@ -698,9 +698,40 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       message: error.message,
       stack: error.stack
     });
+    
+    // Check if this is a WebAuthn signature verification error
+    let errorMessage = error.message;
+    let errorDetails = {};
+    
+    if (error.message && error.message.includes('failed secp256r1 verification')) {
+      errorMessage = 'WebAuthn signature verification failed. This usually means:';
+      errorDetails = {
+        possibleCauses: [
+          'The passkey is not registered in the smart wallet contract. Please register your passkey first.',
+          'The passkey public key does not match the one registered in the contract.',
+          'The signature payload does not match what was signed during authentication.',
+          'The signature format is incorrect or corrupted.'
+        ],
+        suggestion: 'Please ensure your passkey is registered in the smart wallet contract before attempting to execute payments.',
+        originalError: error.message
+      };
+    } else if (error.message && error.message.includes('InvalidInput')) {
+      errorMessage = 'WebAuthn signature verification failed due to invalid input.';
+      errorDetails = {
+        possibleCauses: [
+          'The passkey public key format is incorrect.',
+          'The signature format is invalid.',
+          'The signature payload, authenticator data, or client data is malformed.'
+        ],
+        suggestion: 'Please try re-authenticating with your passkey and ensure all WebAuthn data is correctly formatted.',
+        originalError: error.message
+      };
+    }
+    
     res.status(500).json({ 
       success: false, 
-      error: error.message 
+      error: errorMessage,
+      details: errorDetails
     });
   }
 });
