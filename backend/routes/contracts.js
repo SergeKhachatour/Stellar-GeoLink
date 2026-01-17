@@ -1848,14 +1848,28 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         
         const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
         const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
-        // console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
+        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
         if (result.rows.length > 0) {
-            // console.log(`[PendingRules] Sample row:`, {
-            //     rule_id: result.rows[0].rule_id,
-            //     public_key: result.rows[0].public_key?.substring(0, 8) + '...',
-            //     update_id: result.rows[0].update_id,
-            //     user_id_from_row: result.rows[0].user_id
-            // });
+            console.log(`[PendingRules] Sample rows:`, result.rows.slice(0, 3).map(row => ({
+                rule_id: row.rule_id,
+                public_key: row.public_key?.substring(0, 8) + '...',
+                update_id: row.update_id,
+                has_execution_results: !!row.execution_results
+            })));
+            
+            // Check for rule_id 2 specifically
+            const rule2Rows = result.rows.filter(r => r.rule_id === 2);
+            if (rule2Rows.length > 0) {
+                console.log(`[PendingRules] 🔍 Found ${rule2Rows.length} row(s) with rule_id 2:`, rule2Rows.map(row => ({
+                    update_id: row.update_id,
+                    public_key: row.public_key?.substring(0, 8) + '...',
+                    execution_results_preview: row.execution_results ? JSON.stringify(
+                        (typeof row.execution_results === 'string' ? JSON.parse(row.execution_results) : row.execution_results)
+                            .filter(r => r.rule_id === 2)
+                            .map(r => ({ completed: r.completed, skipped: r.skipped, matched_public_key: r.matched_public_key }))
+                    ) : 'null'
+                })));
+            }
         } else {
             // Debug: Check if there are any matching records at all
             const debugQuery = publicKey && userId 
@@ -1897,6 +1911,31 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 !r.completed &&
                 !r.rejected
             );
+
+            // Debug logging
+            if (row.rule_id === 2) {
+                console.log(`[PendingRules] 🔍 Processing row for rule_id 2:`, {
+                    update_id: row.update_id,
+                    public_key: row.public_key?.substring(0, 8) + '...',
+                    execution_results_count: executionResults.length,
+                    rule_2_results: executionResults.filter(r => r.rule_id === 2).map(r => ({
+                        skipped: r.skipped,
+                        completed: r.completed,
+                        rejected: r.rejected,
+                        matched_public_key: r.matched_public_key
+                    })),
+                    found_skipped_result: !!skippedResult,
+                    skipped_result_completed: skippedResult?.completed
+                });
+            }
+
+            // Skip if no pending result found (all instances are completed or rejected)
+            if (!skippedResult) {
+                if (row.rule_id === 2) {
+                    console.log(`[PendingRules] ⏭️ Skipping row for rule_id 2 (update_id: ${row.update_id}) - no pending result found (all completed or rejected)`);
+                }
+                continue;
+            }
 
             if (skippedResult) {
                 // Parse function_parameters from rule
