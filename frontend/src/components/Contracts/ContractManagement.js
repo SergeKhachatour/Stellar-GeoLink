@@ -2314,7 +2314,10 @@ const ContractManagement = () => {
     const isPayment = isPaymentFunction(rule.function_name, functionParams);
     
     // Check if this should route through smart wallet
-    if (isPayment && paymentSource === 'smart-wallet') {
+    // For batch execution, determine based on contract settings (not user selection)
+    const shouldRouteThroughSmartWallet = contract?.use_smart_wallet && isPayment;
+    
+    if (isPayment && shouldRouteThroughSmartWallet) {
       // Handle smart wallet payment execution
       let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
       if (!destination && rule.matched_public_key) {
@@ -2440,8 +2443,9 @@ const ContractManagement = () => {
     }
 
     // Include payment_source only if it's a payment function
-    if (isPayment && paymentSource) {
-      executePayload.payment_source = paymentSource;
+    // For batch execution, determine based on contract settings
+    if (isPayment) {
+      executePayload.payment_source = shouldRouteThroughSmartWallet ? 'smart-wallet' : 'wallet';
     }
 
     console.log('[BatchExecute] Executing rule:', {
