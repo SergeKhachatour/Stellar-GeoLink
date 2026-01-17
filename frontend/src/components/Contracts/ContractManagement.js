@@ -1945,7 +1945,6 @@ const ContractManagement = () => {
       let selectedPasskey = null;
       let passkeyPublicKeySPKI = null;
       let credentialId = null;
-      let batchWebAuthnData = null; // Store batch authentication
 
       // Check which rules need WebAuthn and prepare their authentication data upfront
       console.log('[BatchExecute] Checking which rules need WebAuthn...');
@@ -2277,10 +2276,6 @@ const ContractManagement = () => {
     let functionParams = typeof rule.function_parameters === 'string'
       ? JSON.parse(rule.function_parameters)
       : rule.function_parameters || {};
-
-    const willRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
-                                       (contract?.use_smart_wallet && 
-                                        isPaymentFunction(rule.function_name, functionParams));
 
     const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
 
