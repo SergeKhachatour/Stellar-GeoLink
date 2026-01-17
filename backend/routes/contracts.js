@@ -3668,6 +3668,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             user_public_key, 
             user_secret_key, 
             rule_id,
+            update_id,
+            matched_public_key,
             // WebAuthn data (if provided separately)
             passkeyPublicKeySPKI,
             webauthnSignature,
@@ -5404,40 +5406,133 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 if (rule_id) {
                     try {
                         // First, try to update existing pending rule entry
-                        const updatePendingQuery = `
-                            UPDATE location_update_queue luq
-                            SET execution_results = (
-                                SELECT jsonb_agg(
-                                    CASE 
-                                        WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
-                                        THEN result || jsonb_build_object(
-                                            'completed', true, 
-                                            'completed_at', $3::text,
-                                            'transaction_hash', $4::text,
-                                            'success', true
-                                        )
-                                        ELSE result
-                                    END
-                                )
-                                FROM jsonb_array_elements(luq.execution_results) AS result
-                            )
-                            WHERE luq.user_id = $2
-                                AND luq.execution_results IS NOT NULL
-                                AND EXISTS (
-                                    SELECT 1
+                        // Filter by update_id and matched_public_key if provided to only mark the specific instance
+                        let updatePendingQuery;
+                        let updateQueryParams;
+                        
+                        if (update_id && matched_public_key) {
+                            // Filter by update_id and matched_public_key for precise matching
+                            updatePendingQuery = `
+                                UPDATE location_update_queue luq
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE 
+                                            WHEN (result->>'rule_id')::integer = $1::integer 
+                                                AND result->>'skipped' = 'true'
+                                                AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                            THEN result || jsonb_build_object(
+                                                'completed', true, 
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true
+                                            )
+                                            ELSE result
+                                        END
+                                    )
                                     FROM jsonb_array_elements(luq.execution_results) AS result
-                                    WHERE (result->>'rule_id')::integer = $1::integer
-                                    AND result->>'skipped' = 'true'
-                                    AND (result->>'completed')::boolean IS DISTINCT FROM true
                                 )
-                            RETURNING luq.id
-                        `;
-                        const updateResult = await pool.query(updatePendingQuery, [
-                            parseInt(rule_id), 
-                            userId, 
-                            new Date().toISOString(),
-                            sendResult.hash
-                        ]);
+                                WHERE luq.user_id = $2
+                                    AND luq.id = $6::integer
+                                    AND luq.public_key = $5
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE (result->>'rule_id')::integer = $1::integer
+                                        AND result->>'skipped' = 'true'
+                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                        AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                    )
+                                RETURNING luq.id
+                            `;
+                            updateQueryParams = [
+                                parseInt(rule_id), 
+                                userId, 
+                                new Date().toISOString(),
+                                sendResult.hash,
+                                matched_public_key,
+                                parseInt(update_id)
+                            ];
+                        } else if (matched_public_key) {
+                            // Filter by matched_public_key only
+                            updatePendingQuery = `
+                                UPDATE location_update_queue luq
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE 
+                                            WHEN (result->>'rule_id')::integer = $1::integer 
+                                                AND result->>'skipped' = 'true'
+                                                AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                            THEN result || jsonb_build_object(
+                                                'completed', true, 
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true
+                                            )
+                                            ELSE result
+                                        END
+                                    )
+                                    FROM jsonb_array_elements(luq.execution_results) AS result
+                                )
+                                WHERE luq.user_id = $2
+                                    AND luq.public_key = $5
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE (result->>'rule_id')::integer = $1::integer
+                                        AND result->>'skipped' = 'true'
+                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                        AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                    )
+                                RETURNING luq.id
+                            `;
+                            updateQueryParams = [
+                                parseInt(rule_id), 
+                                userId, 
+                                new Date().toISOString(),
+                                sendResult.hash,
+                                matched_public_key
+                            ];
+                        } else {
+                            // Fallback: mark all instances (backward compatibility)
+                            updatePendingQuery = `
+                                UPDATE location_update_queue luq
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE 
+                                            WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
+                                            THEN result || jsonb_build_object(
+                                                'completed', true, 
+                                                'completed_at', $3::text,
+                                                'transaction_hash', $4::text,
+                                                'success', true
+                                            )
+                                            ELSE result
+                                        END
+                                    )
+                                    FROM jsonb_array_elements(luq.execution_results) AS result
+                                )
+                                WHERE luq.user_id = $2
+                                    AND luq.execution_results IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS result
+                                        WHERE (result->>'rule_id')::integer = $1::integer
+                                        AND result->>'skipped' = 'true'
+                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                    )
+                                RETURNING luq.id
+                            `;
+                            updateQueryParams = [
+                                parseInt(rule_id), 
+                                userId, 
+                                new Date().toISOString(),
+                                sendResult.hash
+                            ];
+                        }
+                        
+                        const updateResult = await pool.query(updatePendingQuery, updateQueryParams);
                         
                         // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
                         if (updateResult.rows.length === 0) {

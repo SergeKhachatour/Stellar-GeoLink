@@ -2307,7 +2307,9 @@ const ContractManagement = () => {
       parameters: functionParams || {}, // Ensure parameters is always an object
       user_public_key: publicKey,
       submit_to_ledger: submitToLedger,
-      rule_id: rule.id
+      rule_id: rule.id,
+      update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
+      matched_public_key: rule.matched_public_key // Include matched_public_key for additional filtering
     };
 
     // Include secret_key (required for write operations without WebAuthn, optional for read-only)
