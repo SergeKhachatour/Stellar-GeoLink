@@ -4722,6 +4722,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             
                             if (update_id && matched_public_key) {
                                 // Filter by update_id and matched_public_key for precise matching
+                                // Store actual execution parameters (payment params)
+                                const actualParamsJson = JSON.stringify({
+                                    destination: paymentParams.destination,
+                                    amount: paymentParams.amount,
+                                    asset: paymentParams.asset,
+                                    signature_payload: signaturePayload,
+                                    webauthn_signature: '[WebAuthn signature]',
+                                    webauthn_authenticator_data: '[WebAuthn authenticator data]',
+                                    webauthn_client_data: '[WebAuthn client data]'
+                                });
                                 markCompletedQuery = `
                                     UPDATE location_update_queue luq
                                     SET execution_results = (
@@ -4729,12 +4739,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             CASE 
                                                 WHEN (result->>'rule_id')::integer = $1::integer 
                                                     AND result->>'skipped' = 'true'
-                                                    AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                                    AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                                 THEN result || jsonb_build_object(
                                                     'completed', true, 
                                                     'completed_at', $3::text,
                                                     'transaction_hash', $4::text,
-                                                    'success', true
+                                                    'success', true,
+                                                    'execution_parameters', $7::jsonb
                                                 )
                                                 ELSE result
                                             END
@@ -4751,7 +4762,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             WHERE (result->>'rule_id')::integer = $1::integer
                                             AND result->>'skipped' = 'true'
                                             AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                            AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                            AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                         )
                                 `;
                                 markCompletedParams = [
@@ -4760,10 +4771,21 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     new Date().toISOString(),
                                     sendResult.hash,
                                     matched_public_key,
-                                    parseInt(update_id)
+                                    parseInt(update_id),
+                                    actualParamsJson
                                 ];
                             } else if (matched_public_key) {
                                 // Filter by matched_public_key only
+                                // Store actual execution parameters (payment params)
+                                const actualParamsJson = JSON.stringify({
+                                    destination: paymentParams.destination,
+                                    amount: paymentParams.amount,
+                                    asset: paymentParams.asset,
+                                    signature_payload: signaturePayload,
+                                    webauthn_signature: '[WebAuthn signature]',
+                                    webauthn_authenticator_data: '[WebAuthn authenticator data]',
+                                    webauthn_client_data: '[WebAuthn client data]'
+                                });
                                 markCompletedQuery = `
                                     UPDATE location_update_queue luq
                                     SET execution_results = (
@@ -4771,12 +4793,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             CASE 
                                                 WHEN (result->>'rule_id')::integer = $1::integer 
                                                     AND result->>'skipped' = 'true'
-                                                    AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                                    AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                                 THEN result || jsonb_build_object(
                                                     'completed', true, 
                                                     'completed_at', $3::text,
                                                     'transaction_hash', $4::text,
-                                                    'success', true
+                                                    'success', true,
+                                                    'execution_parameters', $6::jsonb
                                                 )
                                                 ELSE result
                                             END
@@ -4792,7 +4815,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             WHERE (result->>'rule_id')::integer = $1::integer
                                             AND result->>'skipped' = 'true'
                                             AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                            AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                            AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                         )
                                 `;
                                 markCompletedParams = [
@@ -4800,7 +4823,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     userId, 
                                     new Date().toISOString(),
                                     sendResult.hash,
-                                    matched_public_key
+                                    matched_public_key,
+                                    actualParamsJson
                                 ];
                             } else {
                                 // Fallback: mark all instances (backward compatibility)
@@ -5680,7 +5704,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         CASE 
                                             WHEN (result->>'rule_id')::integer = $1::integer 
                                                 AND result->>'skipped' = 'true'
-                                                AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                                AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                             THEN result || jsonb_build_object(
                                                 'completed', true, 
                                                 'completed_at', $3::text,
@@ -5703,7 +5727,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         WHERE (result->>'rule_id')::integer = $1::integer
                                         AND result->>'skipped' = 'true'
                                         AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                        AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                        AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                     )
                                 RETURNING luq.id
                             `;
@@ -5727,7 +5751,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         CASE 
                                             WHEN (result->>'rule_id')::integer = $1::integer 
                                                 AND result->>'skipped' = 'true'
-                                                AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                                AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                             THEN result || jsonb_build_object(
                                                 'completed', true, 
                                                 'completed_at', $3::text,
@@ -5749,7 +5773,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         WHERE (result->>'rule_id')::integer = $1::integer
                                         AND result->>'skipped' = 'true'
                                         AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                        AND (result->>'matched_public_key' = $5 OR luq.public_key = $5)
+                                        AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                     )
                                 RETURNING luq.id
                             `;
@@ -5803,10 +5827,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             ];
                         }
                         
+                        console.log(`[Execute] 🔍 Attempting to mark rule ${rule_id} as completed with update_id=${update_id}, matched_public_key=${matched_public_key}`);
                         const updateResult = await pool.query(updatePendingQuery, updateQueryParams);
+                        console.log(`[Execute] 📊 Completion query result: ${updateResult.rows.length} row(s) updated`);
                         
                         // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
                         if (updateResult.rows.length === 0) {
+                            console.log(`[Execute] ⚠️ No pending rule found to update, creating new completion entry`);
                             const actualParamsJson = JSON.stringify(parameters || {});
                             const createCompletionQuery = `
                                 WITH latest_update AS (
