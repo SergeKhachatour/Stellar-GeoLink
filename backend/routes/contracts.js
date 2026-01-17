@@ -1689,7 +1689,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                SELECT DISTINCT ON (cer.id, luq.public_key)
+                SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -1718,10 +1718,10 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         WHERE result->>'skipped' = 'true'
                         AND result->>'reason' = 'requires_webauthn'
                         AND (result->>'rule_id')::integer = cer.id
-                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
-                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                        AND COALESCE((result->>'rejected')::boolean, false) = false
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                     )
-                ORDER BY cer.id, luq.public_key, luq.received_at DESC
+                ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, parseInt(limit)];
@@ -1756,8 +1756,8 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         WHERE result->>'skipped' = 'true'
                         AND result->>'reason' = 'requires_webauthn'
                         AND (result->>'rule_id')::integer = cer.id
-                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
-                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                        AND COALESCE((result->>'rejected')::boolean, false) = false
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                     )
                 ORDER BY cer.id, luq.public_key, luq.received_at DESC
                 LIMIT $2
@@ -1797,8 +1797,8 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         WHERE result->>'skipped' = 'true'
                         AND result->>'reason' = 'requires_webauthn'
                         AND (result->>'rule_id')::integer = cer.id
-                        AND (result->>'rejected')::boolean IS DISTINCT FROM true
-                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                        AND COALESCE((result->>'rejected')::boolean, false) = false
+                        AND COALESCE((result->>'completed')::boolean, false) = false
                     )
                 ORDER BY cer.id, luq.public_key, luq.received_at DESC
                 LIMIT $2
@@ -5830,6 +5830,36 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         console.log(`[Execute] 🔍 Attempting to mark rule ${rule_id} as completed with update_id=${update_id}, matched_public_key=${matched_public_key}`);
                         const updateResult = await pool.query(updatePendingQuery, updateQueryParams);
                         console.log(`[Execute] 📊 Completion query result: ${updateResult.rows.length} row(s) updated`);
+                        
+                        // Verify the update by checking what's in the database
+                        if (updateResult.rows.length > 0 && update_id) {
+                            try {
+                                const verifyQuery = `
+                                    SELECT 
+                                        luq.id,
+                                        jsonb_array_elements(luq.execution_results) as result
+                                    FROM location_update_queue luq
+                                    WHERE luq.id = $1
+                                        AND luq.execution_results IS NOT NULL
+                                `;
+                                const verifyResult = await pool.query(verifyQuery, [parseInt(update_id)]);
+                                console.log(`[Execute] 🔍 Verification: Found ${verifyResult.rows.length} execution result(s) for update_id ${update_id}`);
+                                for (const row of verifyResult.rows) {
+                                    const result = row.result;
+                                    if (result && (result->>'rule_id')::integer === parseInt(rule_id)) {
+                                        console.log(`[Execute] 🔍 Rule ${rule_id} in execution_results:`, {
+                                            rule_id: result->>'rule_id',
+                                            skipped: result->>'skipped',
+                                            completed: result->>'completed',
+                                            rejected: result->>'rejected',
+                                            matched_public_key: result->>'matched_public_key'
+                                        });
+                                    }
+                                }
+                            } catch (verifyError) {
+                                console.error(`[Execute] ⚠️ Error verifying update:`, verifyError.message);
+                            }
+                        }
                         
                         // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
                         if (updateResult.rows.length === 0) {
