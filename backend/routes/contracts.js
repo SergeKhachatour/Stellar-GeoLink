@@ -2410,7 +2410,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         if (publicKey && userId) {
             query = `
                 WITH unique_completions AS (
-                    SELECT 
+                    SELECT DISTINCT ON (
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                    )
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2429,6 +2434,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2453,14 +2464,19 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY uc.received_at DESC
+                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, limit];
         } else if (publicKey) {
             query = `
                 WITH unique_completions AS (
-                    SELECT 
+                    SELECT DISTINCT ON (
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                    )
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2479,6 +2495,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2503,7 +2525,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY uc.received_at DESC
+                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
                 LIMIT $2
             `;
             params = [publicKey, limit];
@@ -2513,7 +2535,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             }
             query = `
                 WITH unique_completions AS (
-                    SELECT 
+                    SELECT DISTINCT ON (
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                    )
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2532,6 +2559,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data.value->>'rule_id')::integer,
+                        COALESCE(result_data.value->>'transaction_hash', ''),
+                        luq.id,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2556,7 +2589,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY uc.received_at DESC
+                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
                 LIMIT $2
             `;
             params = [userId, limit];
