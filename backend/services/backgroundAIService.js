@@ -406,15 +406,47 @@ class BackgroundAIService {
       // Complete processing
       // Pass matchedRuleIds as a PostgreSQL array (not JSON string)
       // pg library will automatically convert JavaScript array to PostgreSQL array format
+      const executionResultsJson = JSON.stringify(executionResults);
+      console.log(`[BackgroundAI] 💾 Saving execution results for update ${update_id}:`, {
+        status: executionResults.some(r => r.success) ? 'executed' : 'matched',
+        matched_rule_ids: matchedRuleIds,
+        execution_results_count: executionResults.length,
+        skipped_rules: executionResults.filter(r => r.skipped).length,
+        requires_webauthn_rules: executionResults.filter(r => r.reason === 'requires_webauthn').length,
+        execution_results_preview: executionResults.map(r => ({
+          rule_id: r.rule_id,
+          skipped: r.skipped,
+          reason: r.reason,
+          matched_public_key: r.matched_public_key
+        }))
+      });
+      
       await pool.query(
-        'SELECT complete_location_update_processing($1, $2, $3, $4)',
+        'SELECT complete_location_update_processing($1, $2, $3, $4::jsonb)',
         [
           update_id,
           executionResults.some(r => r.success) ? 'executed' : 'matched',
           matchedRuleIds.length > 0 ? matchedRuleIds : null, // Pass array directly, or null if empty
-          JSON.stringify(executionResults)
+          executionResultsJson
         ]
       );
+      
+      // Verify the data was saved correctly
+      const verifyResult = await pool.query(
+        'SELECT id, status, matched_rule_ids, execution_results FROM location_update_queue WHERE id = $1',
+        [update_id]
+      );
+      if (verifyResult.rows.length > 0) {
+        const saved = verifyResult.rows[0];
+        console.log(`[BackgroundAI] ✅ Verified save for update ${update_id}:`, {
+          status: saved.status,
+          matched_rule_ids: saved.matched_rule_ids,
+          execution_results_count: Array.isArray(saved.execution_results) ? saved.execution_results.length : 0,
+          execution_results_sample: Array.isArray(saved.execution_results) && saved.execution_results.length > 0 
+            ? saved.execution_results[0] 
+            : null
+        });
+      }
 
       const totalTime = Date.now() - processStartTime;
       console.log(`[BackgroundAI] ✅ Processed location update ${update_id}:`, {
