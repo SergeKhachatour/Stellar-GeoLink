@@ -1692,7 +1692,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 WITH last_completed AS (
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
-                        COALESCE(result->>'matched_public_key', luq.public_key) as matched_public_key,
+                        luq.public_key,
                         MAX((result->>'completed_at')::timestamp) as last_completed_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
@@ -1700,7 +1700,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND COALESCE((result->>'completed')::boolean, false) = true
                         AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, COALESCE(result->>'matched_public_key', luq.public_key)
+                    GROUP BY (result->>'rule_id')::integer, luq.public_key
                 )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
@@ -1723,14 +1723,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND lc.matched_public_key = COALESCE(
-                        (SELECT result->>'matched_public_key' 
-                         FROM jsonb_array_elements(luq.execution_results) AS result
-                         WHERE (result->>'rule_id')::integer = cer.id 
-                         AND result->>'skipped' = 'true'
-                         LIMIT 1),
-                        luq.public_key
-                    )
+                    AND lc.public_key = luq.public_key
                 WHERE (luq.public_key = $1 OR luq.user_id = $2)
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
@@ -1757,7 +1750,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 WITH last_completed AS (
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
-                        COALESCE(result->>'matched_public_key', luq.public_key) as matched_public_key,
+                        luq.public_key,
                         MAX((result->>'completed_at')::timestamp) as last_completed_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
@@ -1765,7 +1758,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND COALESCE((result->>'completed')::boolean, false) = true
                         AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, COALESCE(result->>'matched_public_key', luq.public_key)
+                    GROUP BY (result->>'rule_id')::integer, luq.public_key
                 )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
@@ -1788,16 +1781,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND (
-                        lc.matched_public_key = luq.public_key
-                        OR EXISTS (
-                            SELECT 1 
-                            FROM jsonb_array_elements(luq.execution_results) AS result
-                            WHERE (result->>'rule_id')::integer = cer.id 
-                            AND result->>'skipped' = 'true'
-                            AND lc.matched_public_key = COALESCE(result->>'matched_public_key', luq.public_key)
-                        )
-                    )
+                    AND lc.public_key = luq.public_key
                 WHERE luq.public_key = $1
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
@@ -1827,7 +1811,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 WITH last_completed AS (
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
-                        COALESCE(result->>'matched_public_key', luq.public_key) as matched_public_key,
+                        luq.public_key,
                         MAX((result->>'completed_at')::timestamp) as last_completed_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
@@ -1835,7 +1819,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND COALESCE((result->>'completed')::boolean, false) = true
                         AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, COALESCE(result->>'matched_public_key', luq.public_key)
+                    GROUP BY (result->>'rule_id')::integer, luq.public_key
                 )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
@@ -1858,16 +1842,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND (
-                        lc.matched_public_key = luq.public_key
-                        OR EXISTS (
-                            SELECT 1 
-                            FROM jsonb_array_elements(luq.execution_results) AS result
-                            WHERE (result->>'rule_id')::integer = cer.id 
-                            AND result->>'skipped' = 'true'
-                            AND lc.matched_public_key = COALESCE(result->>'matched_public_key', luq.public_key)
-                        )
-                    )
+                    AND lc.public_key = luq.public_key
                 WHERE luq.user_id = $1
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
