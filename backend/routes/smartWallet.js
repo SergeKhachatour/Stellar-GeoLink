@@ -703,7 +703,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                             result->>'skipped' = 'true' OR 
                             (result->>'skipped')::boolean = true
                           ) AND (
-                            result->>'matched_public_key' = $5 OR luq.public_key = $5
+                            result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                           )
                           THEN result || jsonb_build_object(
                             'completed', true, 
@@ -719,7 +719,6 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     )
                     WHERE luq.user_id = $2
                       AND luq.id = $6::integer
-                      AND luq.public_key = $5
                       AND luq.execution_results IS NOT NULL
                       AND EXISTS (
                         SELECT 1
@@ -737,7 +736,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                           result->>'completed' IS NULL
                         )
                         AND (
-                          result->>'matched_public_key' = $5 OR luq.public_key = $5
+                          result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                         )
                       )
                   `;
@@ -777,7 +776,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                             result->>'skipped' = 'true' OR 
                             (result->>'skipped')::boolean = true
                           ) AND (
-                            result->>'matched_public_key' = $5 OR luq.public_key = $5
+                            result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                           )
                           THEN result || jsonb_build_object(
                             'completed', true, 
@@ -792,7 +791,6 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       FROM jsonb_array_elements(luq.execution_results) AS result
                     )
                     WHERE luq.user_id = $2
-                      AND luq.public_key = $5
                       AND luq.execution_results IS NOT NULL
                       AND EXISTS (
                         SELECT 1
@@ -810,7 +808,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                           result->>'completed' IS NULL
                         )
                         AND (
-                          result->>'matched_public_key' = $5 OR luq.public_key = $5
+                          result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                         )
                       )
                   `;
