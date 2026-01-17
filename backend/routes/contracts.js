@@ -2412,7 +2412,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2434,7 +2434,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality,
+                        result_data.ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2469,7 +2469,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2491,7 +2491,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality,
+                        result_data.ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2529,7 +2529,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2551,7 +2551,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality,
+                        result_data.ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2592,7 +2592,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id
                     FROM location_update_queue luq
@@ -2604,7 +2604,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2615,7 +2615,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id
                     FROM location_update_queue luq
@@ -2627,7 +2627,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2638,7 +2638,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                     )
                         luq.id as update_id
                     FROM location_update_queue luq
@@ -2650,7 +2650,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_ordinality
+                        result_data.ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
