@@ -2409,7 +2409,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                SELECT 
+                SELECT DISTINCT ON (
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2435,13 +2440,23 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
                     AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY luq.received_at DESC
+                ORDER BY 
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                    luq.received_at DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, limit];
         } else if (publicKey) {
             query = `
-                SELECT 
+                SELECT DISTINCT ON (
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2467,7 +2482,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
                     AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY luq.received_at DESC
+                ORDER BY 
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                    luq.received_at DESC
                 LIMIT $2
             `;
             params = [publicKey, limit];
@@ -2476,7 +2496,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                SELECT 
+                SELECT DISTINCT ON (
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2502,7 +2527,12 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
                     AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY luq.received_at DESC
+                ORDER BY 
+                    cer.id,
+                    COALESCE((result_data->>'transaction_hash'), ''),
+                    luq.id,
+                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                    luq.received_at DESC
                 LIMIT $2
             `;
             params = [userId, limit];
