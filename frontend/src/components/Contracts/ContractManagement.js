@@ -1598,10 +1598,25 @@ const ContractManagement = () => {
 
   // Helper function to generate unique key for pending rules
   const getPendingRuleKey = (pendingRule, fallbackIndex = null) => {
-    // Use update_id if available (most reliable), otherwise fall back to index
-    const identifier = pendingRule.update_id !== undefined && pendingRule.update_id !== null 
-      ? pendingRule.update_id 
-      : (fallbackIndex !== null ? fallbackIndex : pendingRules.indexOf(pendingRule));
+    // Use update_id if available (most reliable), otherwise use provided index or find in array
+    let identifier;
+    if (pendingRule.update_id !== undefined && pendingRule.update_id !== null) {
+      identifier = pendingRule.update_id;
+    } else if (fallbackIndex !== null) {
+      identifier = fallbackIndex;
+    } else {
+      // Find absolute index in full array, or use contract_id + matched_at as fallback
+      const absoluteIndex = pendingRules.findIndex(pr => pr === pendingRule);
+      if (absoluteIndex !== -1) {
+        identifier = absoluteIndex;
+      } else {
+        // Last resort: use contract_id + matched_at for uniqueness
+        const contractId = pendingRule.contract_id || 'unknown';
+        const matchedAt = pendingRule.matched_at || 'no-time';
+        identifier = `${contractId}_${matchedAt}`;
+      }
+    }
+    
     return `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${identifier}`;
   };
 
@@ -2250,7 +2265,7 @@ const ContractManagement = () => {
 
     const executePayload = {
       function_name: rule.function_name,
-      parameters: functionParams,
+      parameters: functionParams || {}, // Ensure parameters is always an object
       user_public_key: publicKey,
       submit_to_ledger: submitToLedger,
       rule_id: rule.id
