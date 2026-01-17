@@ -16,6 +16,118 @@ const contracts = require('../config/contracts');
 const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } = require('../utils/webauthnUtils');
 
 /**
+ * Helper function to check if passkey is registered and auto-register if not
+ * Returns true if passkey is registered (or was just registered), false otherwise
+ */
+async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId = null) {
+  const StellarSdk = require('@stellar/stellar-sdk');
+  const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+  const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+    ? StellarSdk.Networks.TESTNET
+    : StellarSdk.Networks.PUBLIC;
+  const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
+  const horizonServer = new StellarSdk.Horizon.Server(contracts.HORIZON_URL);
+
+  try {
+    // Check if passkey is registered
+    const userScAddressForCheck = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+      StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey))
+    );
+    const userScValForCheck = StellarSdk.xdr.ScVal.scvAddress(userScAddressForCheck);
+    
+    const getPasskeyOp = contract.call('get_passkey_pubkey', userScValForCheck);
+    const accountForCheck = await horizonServer.loadAccount(userPublicKey);
+    const checkTx = new StellarSdk.TransactionBuilder(
+      new StellarSdk.Account(userPublicKey, accountForCheck.sequenceNumber()),
+      {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: networkPassphrase
+      }
+    )
+      .addOperation(getPasskeyOp)
+      .setTimeout(30)
+      .build();
+    
+    const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+    const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+    
+    // If we get a result, passkey is registered
+    if (checkResult && checkResult.result && checkResult.result.retval) {
+      console.log('[Smart Wallet] ✅ Passkey is already registered');
+      return true;
+    }
+    
+    // Passkey is not registered, register it automatically
+    console.log('[Smart Wallet] 🔐 Passkey not registered, auto-registering...');
+    
+    // Extract 65-byte public key from SPKI
+    const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
+    let passkeyPubkeyBytes;
+    
+    if (spkiBytes.length === 65 && spkiBytes[0] === 0x04) {
+      passkeyPubkeyBytes = spkiBytes;
+    } else {
+      passkeyPubkeyBytes = extractPublicKeyFromSPKI(spkiBytes);
+    }
+    
+    // Generate RP ID hash
+    const crypto = require('crypto');
+    const rpIdToUse = rpId || 'localhost';
+    const rpIdHash = crypto.createHash('sha256').update(rpIdToUse).digest();
+    
+    // Create ScVals
+    const userAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey);
+    const userScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+      StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(userAddressBytes)
+    );
+    const userScVal = StellarSdk.xdr.ScVal.scvAddress(userScAddress);
+    const passkeyPubkeyScVal = StellarSdk.xdr.ScVal.scvBytes(passkeyPubkeyBytes);
+    const rpIdHashScVal = StellarSdk.xdr.ScVal.scvBytes(rpIdHash);
+    
+    // Call register_signer
+    const registerOp = contract.call('register_signer', userScVal, passkeyPubkeyScVal, rpIdHashScVal);
+    
+    const account = await horizonServer.loadAccount(userPublicKey);
+    const transaction = new StellarSdk.TransactionBuilder(
+      new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
+      {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: networkPassphrase
+      }
+    )
+      .addOperation(registerOp)
+      .setTimeout(30)
+      .build();
+    
+    const preparedTx = await sorobanServer.prepareTransaction(transaction);
+    const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
+    preparedTx.sign(keypair);
+    
+    const sendResult = await sorobanServer.sendTransaction(preparedTx);
+    console.log(`[Smart Wallet] ✅ Auto-registration transaction sent - Hash: ${sendResult.hash}`);
+    
+    // Poll for result
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const txResult = await sorobanServer.getTransaction(sendResult.hash);
+      if (txResult.status === 'SUCCESS') {
+        console.log(`[Smart Wallet] ✅ Passkey auto-registered successfully - Hash: ${sendResult.hash}`);
+        return true;
+      } else if (txResult.status === 'FAILED') {
+        console.error(`[Smart Wallet] ❌ Auto-registration failed - Result: ${txResult.resultXdr || txResult.errorResultXdr}`);
+        return false;
+      }
+    }
+    
+    console.error('[Smart Wallet] ❌ Auto-registration timeout');
+    return false;
+  } catch (error) {
+    console.error('[Smart Wallet] ❌ Error in ensurePasskeyRegistered:', error.message);
+    return false;
+  }
+}
+
+/**
  * GET /api/smart-wallet/balance
  * Get user's balance from smart wallet contract
  * Query params:
@@ -346,6 +458,13 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     const clientDataScVal = StellarSdk.xdr.ScVal.scvBytes(
       Buffer.from(webauthnClientData, 'base64')
     );
+
+    // Ensure passkey is registered (auto-register if not)
+    const rpId = req.body.rpId || req.headers.host || 'localhost';
+    const isRegistered = await ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
+    if (!isRegistered) {
+      console.warn('[Smart Wallet] ⚠️ Could not auto-register passkey, proceeding anyway (will fail if not registered)');
+    }
 
     // Call execute_payment
     const contractCallOp = contract.call(
@@ -1199,6 +1318,13 @@ router.post('/deposit', authenticateUser, async (req, res) => {
       authenticatorDataScVal,
       clientDataScVal
     );
+
+    // Ensure passkey is registered (auto-register if not)
+    const rpId = req.body.rpId || req.headers.host || 'localhost';
+    const isRegistered = await ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
+    if (!isRegistered) {
+      console.warn('[Smart Wallet] ⚠️ Could not auto-register passkey, proceeding anyway (will fail if not registered)');
+    }
 
     // Build transaction
     console.log(`[Smart Wallet] 🔍 Loading account ${userPublicKey} from Horizon: ${contracts.HORIZON_URL}`);
