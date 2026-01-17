@@ -1670,15 +1670,15 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         const publicKey = req.user?.public_key;
         const { limit = 50 } = req.query;
         
-        console.log(`[PendingRules] Extracted values:`, {
-            userId: userId,
-            userId_type: typeof userId,
-            publicKey: publicKey?.substring(0, 8) + '...',
-            publicKey_type: typeof publicKey,
-            req_user_id: req.user?.id,
-            req_userId: req.userId,
-            has_both: !!(publicKey && userId)
-        });
+        // console.log(`[PendingRules] Extracted values:`, {
+        //     userId: userId,
+        //     userId_type: typeof userId,
+        //     publicKey: publicKey?.substring(0, 8) + '...',
+        //     publicKey_type: typeof publicKey,
+        //     req_user_id: req.user?.id,
+        //     req_userId: req.userId,
+        //     has_both: !!(publicKey && userId)
+        // });
         
         if (!userId && !publicKey) {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
@@ -1806,25 +1806,25 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             params = [userId, parseInt(limit)];
         }
 
-        console.log(`[PendingRules] Executing query with params:`, {
-            params_count: params.length,
-            params: params.map((p, i) => i === 0 && typeof p === 'string' && p.length > 8 ? p.substring(0, 8) + '...' : p),
-            using_or_logic: !!(publicKey && userId),
-            query_preview: query.substring(0, 200) + '...'
-        });
+        // console.log(`[PendingRules] Executing query with params:`, {
+        //     params_count: params.length,
+        //     params: params.map((p, i) => i === 0 && typeof p === 'string' && p.length > 8 ? p.substring(0, 8) + '...' : p),
+        //     using_or_logic: !!(publicKey && userId),
+        //     query_preview: query.substring(0, 200) + '...'
+        // });
         
         const result = await pool.query(query, params);
         
         const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
         const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
-        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
+        // console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
         if (result.rows.length > 0) {
-            console.log(`[PendingRules] Sample row:`, {
-                rule_id: result.rows[0].rule_id,
-                public_key: result.rows[0].public_key?.substring(0, 8) + '...',
-                update_id: result.rows[0].update_id,
-                user_id_from_row: result.rows[0].user_id
-            });
+            // console.log(`[PendingRules] Sample row:`, {
+            //     rule_id: result.rows[0].rule_id,
+            //     public_key: result.rows[0].public_key?.substring(0, 8) + '...',
+            //     update_id: result.rows[0].update_id,
+            //     user_id_from_row: result.rows[0].user_id
+            // });
         } else {
             // Debug: Check if there are any matching records at all
             const debugQuery = publicKey && userId 
@@ -3693,17 +3693,20 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         const forceOnChain = submit_to_ledger || (isReadOnly && user_secret_key);
         
         // Debug logging
-        console.log(`[Execute] Execution mode check - isReadOnly: ${isReadOnly}, submit_to_ledger: ${submit_to_ledger}, user_secret_key provided: ${!!user_secret_key}, forceOnChain: ${forceOnChain}`);
+        // console.log(`[Execute] Execution mode check - isReadOnly: ${isReadOnly}, submit_to_ledger: ${submit_to_ledger}, user_secret_key provided: ${!!user_secret_key}, forceOnChain: ${forceOnChain}`);
         
-        // For write functions, secret key is required
-        if (!isReadOnly && !user_secret_key) {
-            return res.status(400).json({ error: 'User secret key is required for write operations' });
+        // Check if WebAuthn data is provided
+        const hasWebAuthnData = !!(passkeyPublicKeySPKI && webauthnSignature && webauthnAuthenticatorData && webauthnClientData);
+        
+        // For write functions, secret key OR WebAuthn data is required
+        if (!isReadOnly && !user_secret_key && !hasWebAuthnData) {
+            return res.status(400).json({ error: 'User secret key or WebAuthn signature is required for write operations' });
         }
         
-        // For read-only functions that should be submitted to ledger, secret key is required
-        if (forceOnChain && isReadOnly && !user_secret_key) {
+        // For read-only functions that should be submitted to ledger, secret key OR WebAuthn data is required
+        if (forceOnChain && isReadOnly && !user_secret_key && !hasWebAuthnData) {
             return res.status(400).json({ 
-                error: 'User secret key is required to submit read-only functions to the ledger',
+                error: 'User secret key or WebAuthn signature is required to submit read-only functions to the ledger',
                 note: 'Read-only functions can be simulated without a secret key, but submitting to the ledger requires signing'
             });
         }
@@ -3757,8 +3760,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             : contract.function_mappings;
         
         // Log contract configuration for debugging
-        console.log(`[Execute] Contract config - Contract ID: ${id}, use_smart_wallet: ${contract.use_smart_wallet}, requires_webauthn: ${contract.requires_webauthn}, smart_wallet_contract_id: ${contract.smart_wallet_contract_id}`);
-        console.log(`[Execute] Contract config - Raw DB value: requires_webauthn = ${contract.requires_webauthn} (type: ${typeof contract.requires_webauthn})`);
+        // console.log(`[Execute] Contract config - Contract ID: ${id}, use_smart_wallet: ${contract.use_smart_wallet}, requires_webauthn: ${contract.requires_webauthn}, smart_wallet_contract_id: ${contract.smart_wallet_contract_id}`);
+        // console.log(`[Execute] Contract config - Raw DB value: requires_webauthn = ${contract.requires_webauthn} (type: ${typeof contract.requires_webauthn})`);
 
         // Helper function to detect if a function is payment-related
         const isPaymentFunction = (funcName, funcParams) => {
@@ -3795,23 +3798,23 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                               hasSmartWalletContractId &&
                                               isPaymentFunction(function_name, parameters));
         
-        console.log('[Execute] 🔄 Smart wallet routing decision:', {
-            paymentSource,
-            use_smart_wallet: contract.use_smart_wallet,
-            smart_wallet_contract_id: contract.smart_wallet_contract_id,
-            config_smart_wallet_id: contractsConfig.SMART_WALLET_CONTRACT_ID,
-            hasSmartWalletContractId,
-            isPaymentFunction: isPaymentFunction(function_name, parameters),
-            shouldRouteThroughSmartWallet,
-            hasPasskeySPKI: !!passkeyPublicKeySPKI,
-            hasWebAuthnSignature: !!webauthnSignature
-        });
+        // console.log('[Execute] 🔄 Smart wallet routing decision:', {
+        //     paymentSource,
+        //     use_smart_wallet: contract.use_smart_wallet,
+        //     smart_wallet_contract_id: contract.smart_wallet_contract_id,
+        //     config_smart_wallet_id: contractsConfig.SMART_WALLET_CONTRACT_ID,
+        //     hasSmartWalletContractId,
+        //     isPaymentFunction: isPaymentFunction(function_name, parameters),
+        //     shouldRouteThroughSmartWallet,
+        //     hasPasskeySPKI: !!passkeyPublicKeySPKI,
+        //     hasWebAuthnSignature: !!webauthnSignature
+        // });
 
         if (shouldRouteThroughSmartWallet) {
-            console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
+            // console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
             
             try {
-            console.log(`[Execute] 📋 Extracting payment parameters from:`, JSON.stringify(parameters));
+            // console.log(`[Execute] 📋 Extracting payment parameters from:`, JSON.stringify(parameters));
             // Extract payment parameters from function parameters
             const extractPaymentParams = (params) => {
                 // Common parameter name mappings
