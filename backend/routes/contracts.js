@@ -2409,38 +2409,11 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
-                    )
-                        luq.id as update_id,
-                        luq.public_key,
-                        luq.latitude,
-                        luq.longitude,
-                        luq.received_at,
-                        luq.processed_at,
-                        luq.execution_results,
-                        (result_data.value->>'rule_id')::integer as rule_id,
-                        result_data.value->>'transaction_hash' as transaction_hash,
-                        result_data.value->>'matched_public_key' as matched_public_key,
-                        result_data.value->>'completed_at' as completed_at,
-                        result_data.ordinality as result_ordinality
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
+                SELECT DISTINCT ON (
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality
                 )
-                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2449,59 +2422,42 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    uc.update_id,
-                    uc.public_key,
-                    uc.latitude,
-                    uc.longitude,
-                    uc.received_at,
-                    uc.processed_at,
-                    uc.execution_results,
-                    uc.rule_id as execution_rule_id,
-                    uc.transaction_hash,
-                    uc.matched_public_key,
-                    uc.completed_at,
-                    uc.result_ordinality
-                FROM unique_completions uc
-                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    result_data.value as execution_result,
+                    (result_data.value->>'rule_id')::integer as execution_rule_id,
+                    result_data.value->>'transaction_hash' as transaction_hash,
+                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                    result_data.value->>'completed_at' as completed_at,
+                    result_data.ordinality as result_ordinality
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
+                WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                ORDER BY 
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality,
+                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, limit];
         } else if (publicKey) {
             query = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
-                    )
-                        luq.id as update_id,
-                        luq.public_key,
-                        luq.latitude,
-                        luq.longitude,
-                        luq.received_at,
-                        luq.processed_at,
-                        luq.execution_results,
-                        (result_data.value->>'rule_id')::integer as rule_id,
-                        result_data.value->>'transaction_hash' as transaction_hash,
-                        result_data.value->>'matched_public_key' as matched_public_key,
-                        result_data.value->>'completed_at' as completed_at,
-                        result_data.ordinality as result_ordinality
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE luq.public_key = $1
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
+                SELECT DISTINCT ON (
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality
                 )
-                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2510,22 +2466,32 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    uc.update_id,
-                    uc.public_key,
-                    uc.latitude,
-                    uc.longitude,
-                    uc.received_at,
-                    uc.processed_at,
-                    uc.execution_results,
-                    uc.rule_id as execution_rule_id,
-                    uc.transaction_hash,
-                    uc.matched_public_key,
-                    uc.completed_at,
-                    uc.result_ordinality
-                FROM unique_completions uc
-                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    result_data.value as execution_result,
+                    (result_data.value->>'rule_id')::integer as execution_rule_id,
+                    result_data.value->>'transaction_hash' as transaction_hash,
+                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                    result_data.value->>'completed_at' as completed_at,
+                    result_data.ordinality as result_ordinality
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
+                WHERE luq.public_key = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                ORDER BY 
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality,
+                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 LIMIT $2
             `;
             params = [publicKey, limit];
@@ -2534,38 +2500,11 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
-                    )
-                        luq.id as update_id,
-                        luq.public_key,
-                        luq.latitude,
-                        luq.longitude,
-                        luq.received_at,
-                        luq.processed_at,
-                        luq.execution_results,
-                        (result_data.value->>'rule_id')::integer as rule_id,
-                        result_data.value->>'transaction_hash' as transaction_hash,
-                        result_data.value->>'matched_public_key' as matched_public_key,
-                        result_data.value->>'completed_at' as completed_at,
-                        result_data.ordinality as result_ordinality
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE luq.user_id = $1
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
+                SELECT DISTINCT ON (
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality
                 )
-                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2574,22 +2513,32 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    uc.update_id,
-                    uc.public_key,
-                    uc.latitude,
-                    uc.longitude,
-                    uc.received_at,
-                    uc.processed_at,
-                    uc.execution_results,
-                    uc.rule_id as execution_rule_id,
-                    uc.transaction_hash,
-                    uc.matched_public_key,
-                    uc.completed_at,
-                    uc.result_ordinality
-                FROM unique_completions uc
-                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
+                    luq.id as update_id,
+                    luq.public_key,
+                    luq.latitude,
+                    luq.longitude,
+                    luq.received_at,
+                    luq.processed_at,
+                    result_data.value as execution_result,
+                    (result_data.value->>'rule_id')::integer as execution_rule_id,
+                    result_data.value->>'transaction_hash' as transaction_hash,
+                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                    result_data.value->>'completed_at' as completed_at,
+                    result_data.ordinality as result_ordinality
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                ORDER BY COALESCE(uc.completed_at::timestamp, uc.received_at) DESC
+                WHERE luq.user_id = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                ORDER BY 
+                    luq.id,
+                    (result_data.value->>'rule_id')::integer,
+                    result_data.ordinality,
+                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 LIMIT $2
             `;
             params = [userId, limit];
@@ -2602,13 +2551,14 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let countQuery, countParams;
         if (publicKey && userId) {
             countQuery = `
-                WITH unique_completions AS (
+                SELECT COUNT(*) as total_count
+                FROM (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
                     )
-                        (result_data.value->>'rule_id')::integer as rule_id
+                        luq.id
                     FROM location_update_queue luq
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE (luq.public_key = $1 OR luq.user_id = $2)
@@ -2618,23 +2568,21 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_data.ordinality,
                         (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
-                )
-                SELECT COUNT(*) as total_count
-                FROM unique_completions
+                        result_data.ordinality
+                ) AS unique_completions
             `;
             countParams = [publicKey, userId];
         } else if (publicKey) {
             countQuery = `
-                WITH unique_completions AS (
+                SELECT COUNT(*) as total_count
+                FROM (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
                     )
-                        (result_data.value->>'rule_id')::integer as rule_id
+                        luq.id
                     FROM location_update_queue luq
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.public_key = $1
@@ -2644,23 +2592,21 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_data.ordinality,
                         (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
-                )
-                SELECT COUNT(*) as total_count
-                FROM unique_completions
+                        result_data.ordinality
+                ) AS unique_completions
             `;
             countParams = [publicKey];
         } else {
             countQuery = `
-                WITH unique_completions AS (
+                SELECT COUNT(*) as total_count
+                FROM (
                     SELECT DISTINCT ON (
                         luq.id,
-                        result_data.ordinality,
-                        (result_data.value->>'rule_id')::integer
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
                     )
-                        (result_data.value->>'rule_id')::integer as rule_id
+                        luq.id
                     FROM location_update_queue luq
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.user_id = $1
@@ -2670,12 +2616,9 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
                         luq.id,
-                        result_data.ordinality,
                         (result_data.value->>'rule_id')::integer,
-                        COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
-                )
-                SELECT COUNT(*) as total_count
-                FROM unique_completions
+                        result_data.ordinality
+                ) AS unique_completions
             `;
             countParams = [userId];
         }
@@ -2683,125 +2626,109 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         const countResult = await pool.query(countQuery, countParams);
         const totalCount = parseInt(countResult.rows[0]?.total_count || 0);
         
-        // Process results to extract completed rules
-        // Show all completed executions, but use unique key to avoid duplicates
+        // Process results - execution_result is already extracted from the query
         const completedRules = [];
-        const seenKeys = new Set(); // Track unique combinations of rule_id + transaction_hash + update_id
+        const seenKeys = new Set(); // Track unique combinations for safety
 
         for (const row of result.rows) {
-            // Parse execution_results to find the completed rule
-            let executionResults = [];
+            // Parse execution_result (already extracted from the array)
+            let completedResult = null;
             try {
-                executionResults = typeof row.execution_results === 'string'
-                    ? JSON.parse(row.execution_results)
-                    : row.execution_results || [];
+                completedResult = typeof row.execution_result === 'string'
+                    ? JSON.parse(row.execution_result)
+                    : row.execution_result || null;
             } catch (e) {
-                console.error('Error parsing execution_results:', e);
+                console.error('Error parsing execution_result:', e);
                 continue;
             }
 
-            const completedResult = executionResults.find(r => 
-                r.rule_id === row.rule_id && 
-                r.completed === true
-            );
+            if (!completedResult || !completedResult.completed) {
+                continue;
+            }
 
-            if (completedResult) {
-                // Use fields directly from row (from CTE) if available, otherwise fall back to execution_results
-                const transactionHash = row.transaction_hash || completedResult.transaction_hash;
-                const matchedPublicKey = row.matched_public_key || completedResult.matched_public_key || row.public_key || 'unknown';
-                const completedAt = row.completed_at || completedResult.completed_at;
-                
-                // Create unique key to avoid duplicates
-                // Use rule_id + transaction_hash + update_id + matched_public_key + ordinality for true uniqueness
-                // This ensures each execution instance is shown separately
-                const ordinality = row.result_ordinality || 0;
-                if (!transactionHash) {
-                    // If no transaction hash, use rule_id + completed_at + update_id + matched_public_key + ordinality as fallback
-                    const uniqueKey = `${row.rule_id}_${completedAt || row.received_at}_${row.update_id}_${matchedPublicKey}_${ordinality}`;
-                    if (seenKeys.has(uniqueKey)) {
-                        continue; // Skip duplicate
-                    }
-                    seenKeys.add(uniqueKey);
-                } else {
-                    // Use rule_id + transaction_hash + update_id + matched_public_key + ordinality for true uniqueness
-                    // This ensures the same transaction executed for different public keys or location updates are shown separately
-                    const uniqueKey = `${row.rule_id}_${transactionHash}_${row.update_id}_${matchedPublicKey}_${ordinality}`;
-                    if (seenKeys.has(uniqueKey)) {
-                        continue; // Skip duplicate - same rule + same transaction + same update + same public key + same ordinality = same execution
-                    }
-                    seenKeys.add(uniqueKey);
-                }
-                // Use actual execution parameters if available, otherwise fall back to rule template
-                let functionParams = {};
-                if (completedResult.execution_parameters) {
-                    // Use actual parameters that were submitted during execution
-                    try {
-                        functionParams = typeof completedResult.execution_parameters === 'string'
-                            ? JSON.parse(completedResult.execution_parameters)
-                            : completedResult.execution_parameters || {};
-                    } catch (e) {
-                        console.error('Error parsing execution_parameters:', e);
-                        // Fall back to rule template if parsing fails
-                        try {
-                            functionParams = typeof row.function_parameters === 'string'
-                                ? JSON.parse(row.function_parameters)
-                                : row.function_parameters || {};
-                        } catch (e2) {
-                            console.error('Error parsing function_parameters:', e2);
-                        }
-                    }
-                } else {
-                    // Fall back to rule template parameters if execution_parameters not available
+            // Use fields directly from row (already extracted in query)
+            const transactionHash = row.transaction_hash || completedResult.transaction_hash;
+            const matchedPublicKey = row.matched_public_key || completedResult.matched_public_key || row.public_key || 'unknown';
+            const completedAt = row.completed_at || completedResult.completed_at;
+            const ordinality = row.result_ordinality || 0;
+            
+            // Create unique key to avoid duplicates (safety check)
+            const uniqueKey = `${row.rule_id}_${transactionHash || 'no-tx'}_${row.update_id}_${matchedPublicKey}_${ordinality}`;
+            if (seenKeys.has(uniqueKey)) {
+                continue; // Skip duplicate
+            }
+            seenKeys.add(uniqueKey);
+            
+            // Use actual execution parameters if available, otherwise fall back to rule template
+            let functionParams = {};
+            if (completedResult.execution_parameters) {
+                // Use actual parameters that were submitted during execution
+                try {
+                    functionParams = typeof completedResult.execution_parameters === 'string'
+                        ? JSON.parse(completedResult.execution_parameters)
+                        : completedResult.execution_parameters || {};
+                } catch (e) {
+                    console.error('Error parsing execution_parameters:', e);
+                    // Fall back to rule template if parsing fails
                     try {
                         functionParams = typeof row.function_parameters === 'string'
                             ? JSON.parse(row.function_parameters)
                             : row.function_parameters || {};
-                    } catch (e) {
-                        console.error('Error parsing function_parameters:', e);
+                    } catch (e2) {
+                        console.error('Error parsing function_parameters:', e2);
                     }
                 }
+            } else {
+                // Fall back to rule template parameters if execution_parameters not available
+                try {
+                    functionParams = typeof row.function_parameters === 'string'
+                        ? JSON.parse(row.function_parameters)
+                        : row.function_parameters || {};
+                } catch (e) {
+                    console.error('Error parsing function_parameters:', e);
+                }
+            }
 
-                // Populate parameters using function_mappings (only if using template parameters)
-                // If we have execution_parameters, they already have the real values
-                const populatedParams = { ...functionParams };
-                if (!completedResult.execution_parameters && row.function_mappings) {
-                    const mappings = typeof row.function_mappings === 'string'
-                        ? JSON.parse(row.function_mappings)
-                        : row.function_mappings;
-                    
-                    if (mappings && mappings[row.function_name]) {
-                        const mapping = mappings[row.function_name];
-                        for (const param of mapping.parameters || []) {
-                            if (param.mapped_from && !populatedParams[param.name]) {
-                                // Try to get value from mapped_from field
-                                const mappedValue = populatedParams[param.mapped_from];
-                                if (mappedValue !== undefined) {
-                                    populatedParams[param.name] = mappedValue;
-                                }
+            // Populate parameters using function_mappings (only if using template parameters)
+            // If we have execution_parameters, they already have the real values
+            const populatedParams = { ...functionParams };
+            if (!completedResult.execution_parameters && row.function_mappings) {
+                const mappings = typeof row.function_mappings === 'string'
+                    ? JSON.parse(row.function_mappings)
+                    : row.function_mappings;
+                
+                if (mappings && mappings[row.function_name]) {
+                    const mapping = mappings[row.function_name];
+                    for (const param of mapping.parameters || []) {
+                        if (param.mapped_from && !populatedParams[param.name]) {
+                            // Try to get value from mapped_from field
+                            const mappedValue = populatedParams[param.mapped_from];
+                            if (mappedValue !== undefined) {
+                                populatedParams[param.name] = mappedValue;
                             }
                         }
                     }
                 }
-
-                completedRules.push({
-                    rule_id: row.rule_id,
-                    rule_name: row.rule_name,
-                    function_name: row.function_name,
-                    function_parameters: populatedParams,
-                    contract_id: row.contract_id,
-                    contract_name: row.contract_name,
-                    contract_address: row.contract_address,
-                    update_id: row.update_id, // Include update_id for unique key generation
-                    matched_at: row.received_at,
-                    completed_at: completedAt, // Use from row or completedResult
-                    transaction_hash: transactionHash, // Use from row or completedResult
-                    matched_public_key: matchedPublicKey, // Use from row or completedResult
-                    location: {
-                        latitude: parseFloat(row.latitude),
-                        longitude: parseFloat(row.longitude)
-                    }
-                });
             }
+
+            completedRules.push({
+                rule_id: row.rule_id,
+                rule_name: row.rule_name,
+                function_name: row.function_name,
+                function_parameters: populatedParams,
+                contract_id: row.contract_id,
+                contract_name: row.contract_name,
+                contract_address: row.contract_address,
+                update_id: row.update_id,
+                matched_at: row.received_at,
+                completed_at: completedAt,
+                transaction_hash: transactionHash,
+                matched_public_key: matchedPublicKey,
+                location: {
+                    latitude: parseFloat(row.latitude),
+                    longitude: parseFloat(row.longitude)
+                }
+            });
         }
 
         res.json({
