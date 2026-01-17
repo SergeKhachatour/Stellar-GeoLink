@@ -1873,11 +1873,89 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         //     query_preview: query.substring(0, 200) + '...'
         // });
         
+        // Debug: Check what last_completed CTE would return
+        try {
+            const debugLastCompletedQuery = `
+                SELECT 
+                    (result->>'rule_id')::integer as rule_id,
+                    luq.public_key,
+                    MAX((result->>'completed_at')::timestamp) as last_completed_at
+                FROM location_update_queue luq
+                CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+                WHERE ${publicKey && userId ? '(luq.public_key = $1 OR luq.user_id = $2)' : publicKey ? 'luq.public_key = $1' : 'luq.user_id = $1'}
+                    AND luq.execution_results IS NOT NULL
+                    AND COALESCE((result->>'completed')::boolean, false) = true
+                    AND result->>'completed_at' IS NOT NULL
+                GROUP BY (result->>'rule_id')::integer, luq.public_key
+                ORDER BY rule_id, public_key
+            `;
+            const debugLastCompletedParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
+            const debugLastCompletedResult = await pool.query(debugLastCompletedQuery, debugLastCompletedParams);
+            console.log(`[PendingRules] 🔍 last_completed CTE would return ${debugLastCompletedResult.rows.length} row(s):`, 
+                debugLastCompletedResult.rows.slice(0, 5).map(r => ({
+                    rule_id: r.rule_id,
+                    public_key: r.public_key?.substring(0, 8) + '...',
+                    last_completed_at: r.last_completed_at
+                }))
+            );
+        } catch (debugError) {
+            console.error('[PendingRules] ⚠️ Error checking last_completed:', debugError.message);
+        }
+
+        // Debug: Check pending rules before timestamp filter
+        try {
+            const debugPendingQuery = `
+                SELECT 
+                    cer.id as rule_id,
+                    luq.public_key,
+                    luq.id as update_id,
+                    luq.received_at,
+                    (SELECT MAX((result->>'completed_at')::timestamp)
+                     FROM location_update_queue luq2
+                     CROSS JOIN jsonb_array_elements(luq2.execution_results) AS result
+                     WHERE luq2.public_key = luq.public_key
+                     AND (result->>'rule_id')::integer = cer.id
+                     AND COALESCE((result->>'completed')::boolean, false) = true
+                     AND result->>'completed_at' IS NOT NULL) as last_completed_at
+                FROM location_update_queue luq
+                JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+                JOIN custom_contracts cc ON cer.contract_id = cc.id
+                WHERE ${publicKey && userId ? '(luq.public_key = $1 OR luq.user_id = $2)' : publicKey ? 'luq.public_key = $1' : 'luq.user_id = $1'}
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1 
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE result->>'skipped' = 'true'
+                        AND result->>'reason' = 'requires_webauthn'
+                        AND (result->>'rule_id')::integer = cer.id
+                        AND COALESCE((result->>'rejected')::boolean, false) = false
+                        AND COALESCE((result->>'completed')::boolean, false) = false
+                    )
+                ORDER BY luq.received_at DESC
+                LIMIT 5
+            `;
+            const debugPendingParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
+            const debugPendingResult = await pool.query(debugPendingQuery, debugPendingParams);
+            console.log(`[PendingRules] 🔍 Pending rules (before timestamp filter) - Found ${debugPendingResult.rows.length} row(s):`, 
+                debugPendingResult.rows.map(r => ({
+                    rule_id: r.rule_id,
+                    public_key: r.public_key?.substring(0, 8) + '...',
+                    update_id: r.update_id,
+                    received_at: r.received_at,
+                    last_completed_at: r.last_completed_at,
+                    would_show: !r.last_completed_at || r.received_at > r.last_completed_at
+                }))
+            );
+        } catch (debugError) {
+            console.error('[PendingRules] ⚠️ Error checking pending rules:', debugError.message);
+        }
+
         let result;
         try {
             // Add query timeout to prevent hanging
             result = await Promise.race([
-                pool.query(query, params),
+                pool.query(query, params, { statement_timeout: 10000 }),
                 new Promise((_, reject) => 
                     setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
                 )
