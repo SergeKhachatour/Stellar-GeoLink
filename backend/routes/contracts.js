@@ -2232,7 +2232,7 @@ router.post('/rules/pending/:ruleId/reject', authenticateContractUser, async (re
 router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (req, res) => {
     try {
         const { ruleId } = req.params;
-        const { matched_public_key, transaction_hash } = req.body || {};
+        const { matched_public_key, transaction_hash, update_id } = req.body || {};
         const userId = req.user?.id || req.userId;
         const publicKey = req.user?.public_key;
 
@@ -2287,6 +2287,7 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
                     WHERE luq.user_id = $2
                         AND luq.public_key = $4
+                        AND ($6::integer IS NULL OR luq.id = $6::integer)
                         AND luq.execution_results IS NOT NULL
                         AND EXISTS (
                             SELECT 1
@@ -2304,7 +2305,7 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                 WHERE luq.id = ur.id
                 RETURNING luq.id
             `;
-            queryParams = [parseInt(ruleId), actualUserId, completedAt, matched_public_key, transaction_hash || null];
+            queryParams = [parseInt(ruleId), actualUserId, completedAt, matched_public_key, transaction_hash || null, update_id || null];
         } else {
             // Complete all instances of this rule for this user (backward compatibility)
             updateQuery = `
@@ -2330,6 +2331,7 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                     FROM location_update_queue luq
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
                     WHERE luq.user_id = $2
+                        AND ($5::integer IS NULL OR luq.id = $5::integer)
                         AND luq.execution_results IS NOT NULL
                         AND EXISTS (
                             SELECT 1
@@ -2346,7 +2348,7 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                 WHERE luq.id = ur.id
                 RETURNING luq.id
             `;
-            queryParams = [parseInt(ruleId), actualUserId, completedAt, transaction_hash || null];
+            queryParams = [parseInt(ruleId), actualUserId, completedAt, transaction_hash || null, update_id || null];
         }
 
         const result = await pool.query(updateQuery, queryParams);

@@ -485,12 +485,14 @@ const ContractManagement = () => {
 
           if (candidates.length > 0) {
             await Promise.all(
-              candidates.map((c) =>
-                api.post(`/contracts/rules/pending/${c.rid}/complete`, {
+              candidates.map((c) => {
+                const pendingRule = pending.find(r => (r.rule_id || r.id) === c.rid && (r.matched_public_key || '') === c.mpk);
+                return api.post(`/contracts/rules/pending/${c.rid}/complete`, {
                   matched_public_key: c.mpk || undefined,
-                  transaction_hash: c.txHash
-                })
-              )
+                  transaction_hash: c.txHash,
+                  update_id: pendingRule?.update_id // Include update_id if available to mark only the specific location update as completed
+                });
+              })
             );
 
             // Clear stored hashes once we've attempted finalization
@@ -1937,10 +1939,11 @@ const ContractManagement = () => {
           continue;
         }
 
-        // Merge matched_public_key into rule
+        // Merge matched_public_key and update_id into rule
         const ruleWithMatchedKey = {
           ...rule,
-          matched_public_key: pendingRule.matched_public_key
+          matched_public_key: pendingRule.matched_public_key,
+          update_id: pendingRule.update_id // Include update_id to mark only the specific location update as completed
         };
 
         console.log(`[BatchExecute] About to execute rule:`, {
@@ -2234,7 +2237,8 @@ const ContractManagement = () => {
         try {
           await api.post(`/contracts/rules/pending/${rule.id}/complete`, {
             matched_public_key: rule.matched_public_key,
-            transaction_hash: response.data.hash
+            transaction_hash: response.data.hash,
+            update_id: rule.update_id // Include update_id to mark only the specific location update as completed
           });
         } catch (e) {
           console.warn('[BatchExecute] Could not mark rule as completed:', e);
@@ -2342,7 +2346,8 @@ const ContractManagement = () => {
       try {
         await api.post(`/contracts/rules/pending/${rule.id}/complete`, {
           matched_public_key: rule.matched_public_key,
-          transaction_hash: response.data.transaction_hash
+          transaction_hash: response.data.transaction_hash,
+          update_id: rule.update_id // Include update_id to mark only the specific location update as completed
         });
       } catch (e) {
         console.warn('[BatchExecute] Could not mark rule as completed:', e);
@@ -2877,7 +2882,8 @@ const ContractManagement = () => {
             try {
               await api.post(`/contracts/rules/pending/${rid}/complete`, {
                 matched_public_key: mpk || undefined,
-                transaction_hash: txHash
+                transaction_hash: txHash,
+                update_id: rule.update_id // Include update_id if available to mark only the specific location update as completed
               });
               localStorage.removeItem(key);
             } catch (e) {
