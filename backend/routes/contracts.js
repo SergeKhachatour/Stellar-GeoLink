@@ -2414,7 +2414,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2439,6 +2440,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
                         COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), ''),
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2475,7 +2477,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2500,6 +2503,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
                         COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), ''),
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2539,7 +2543,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2564,6 +2569,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
                         COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), ''),
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2606,7 +2612,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         (result_data->>'rule_id')::integer as rule_id,
                         COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
@@ -2623,7 +2630,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2636,7 +2644,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         (result_data->>'rule_id')::integer as rule_id,
                         COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
@@ -2653,7 +2662,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2666,7 +2676,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                     )
                         (result_data->>'rule_id')::integer as rule_id,
                         COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
@@ -2683,7 +2694,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data->>'rule_id')::integer,
                         COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        COALESCE((result_data->>'completed_at'), '')
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
