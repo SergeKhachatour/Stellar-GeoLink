@@ -2410,10 +2410,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         if (publicKey && userId) {
             query = `
                 WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
+                    SELECT 
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2432,10 +2429,6 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        luq.received_at DESC
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2467,10 +2460,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         } else if (publicKey) {
             query = `
                 WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
+                    SELECT 
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2489,10 +2479,6 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        luq.received_at DESC
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2527,10 +2513,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             }
             query = `
                 WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
+                    SELECT 
                         luq.id as update_id,
                         luq.public_key,
                         luq.latitude,
@@ -2549,10 +2532,6 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         AND luq.execution_results IS NOT NULL
                         AND (result_data.value->>'completed')::boolean = true
                         AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality,
-                        luq.received_at DESC
                 )
                 SELECT 
                     cer.id as rule_id,
@@ -2589,71 +2568,38 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let countQuery, countParams;
         if (publicKey && userId) {
             countQuery = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
-                        luq.id as update_id
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality
-                )
                 SELECT COUNT(*) as total_count
-                FROM unique_completions
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
             `;
             countParams = [publicKey, userId];
         } else if (publicKey) {
             countQuery = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
-                        luq.id as update_id
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE luq.public_key = $1
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality
-                )
                 SELECT COUNT(*) as total_count
-                FROM unique_completions
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                WHERE luq.public_key = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
             `;
             countParams = [publicKey];
         } else {
             countQuery = `
-                WITH unique_completions AS (
-                    SELECT DISTINCT ON (
-                        luq.id,
-                        result_data.ordinality
-                    )
-                        luq.id as update_id
-                    FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                    WHERE luq.user_id = $1
-                        AND luq.status IN ('matched', 'executed')
-                        AND luq.execution_results IS NOT NULL
-                        AND (result_data.value->>'completed')::boolean = true
-                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                    ORDER BY 
-                        luq.id,
-                        result_data.ordinality
-                )
                 SELECT COUNT(*) as total_count
-                FROM unique_completions
+                FROM location_update_queue luq
+                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                WHERE luq.user_id = $1
+                    AND luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND (result_data.value->>'completed')::boolean = true
+                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
             `;
             countParams = [userId];
         }
