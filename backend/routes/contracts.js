@@ -2409,12 +2409,39 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                SELECT DISTINCT ON (
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        luq.execution_results,
+                        (result_data->>'rule_id')::integer as rule_id,
+                        result_data->>'transaction_hash' as transaction_hash,
+                        result_data->>'matched_public_key' as matched_public_key,
+                        result_data->>'completed_at' as completed_at
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        luq.received_at DESC
                 )
+                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2423,40 +2450,56 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    luq.execution_results,
-                    result_data->>'rule_id' as execution_rule_id
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
-                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                    uc.update_id,
+                    uc.public_key,
+                    uc.latitude,
+                    uc.longitude,
+                    uc.received_at,
+                    uc.processed_at,
+                    uc.execution_results,
+                    uc.rule_id as execution_rule_id
+                FROM unique_completions uc
+                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE (luq.public_key = $1 OR luq.user_id = $2)
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data->>'completed')::boolean = true
-                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                    luq.received_at DESC
+                ORDER BY uc.received_at DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, limit];
         } else if (publicKey) {
             query = `
-                SELECT DISTINCT ON (
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        luq.execution_results,
+                        (result_data->>'rule_id')::integer as rule_id,
+                        result_data->>'transaction_hash' as transaction_hash,
+                        result_data->>'matched_public_key' as matched_public_key,
+                        result_data->>'completed_at' as completed_at
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE luq.public_key = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        luq.received_at DESC
                 )
+                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2465,29 +2508,18 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    luq.execution_results,
-                    result_data->>'rule_id' as execution_rule_id
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
-                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                    uc.update_id,
+                    uc.public_key,
+                    uc.latitude,
+                    uc.longitude,
+                    uc.received_at,
+                    uc.processed_at,
+                    uc.execution_results,
+                    uc.rule_id as execution_rule_id
+                FROM unique_completions uc
+                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE luq.public_key = $1
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data->>'completed')::boolean = true
-                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                    luq.received_at DESC
+                ORDER BY uc.received_at DESC
                 LIMIT $2
             `;
             params = [publicKey, limit];
@@ -2496,12 +2528,39 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                SELECT DISTINCT ON (
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        luq.execution_results,
+                        (result_data->>'rule_id')::integer as rule_id,
+                        result_data->>'transaction_hash' as transaction_hash,
+                        result_data->>'matched_public_key' as matched_public_key,
+                        result_data->>'completed_at' as completed_at
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE luq.user_id = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
+                        luq.received_at DESC
                 )
+                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2510,35 +2569,121 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     cer.contract_id,
                     cc.contract_name,
                     cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    luq.execution_results,
-                    result_data->>'rule_id' as execution_rule_id
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
-                JOIN contract_execution_rules cer ON cer.id = (result_data->>'rule_id')::integer
+                    uc.update_id,
+                    uc.public_key,
+                    uc.latitude,
+                    uc.longitude,
+                    uc.received_at,
+                    uc.processed_at,
+                    uc.execution_results,
+                    uc.rule_id as execution_rule_id
+                FROM unique_completions uc
+                JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE luq.user_id = $1
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data->>'completed')::boolean = true
-                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    cer.id,
-                    COALESCE((result_data->>'transaction_hash'), ''),
-                    luq.id,
-                    COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                    luq.received_at DESC
+                ORDER BY uc.received_at DESC
                 LIMIT $2
             `;
             params = [userId, limit];
         }
 
         const result = await pool.query(query, params);
+        
+        // Get total count of unique completed rules (for pagination)
+        let countQuery, countParams;
+        if (publicKey && userId) {
+            countQuery = `
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        (result_data->>'rule_id')::integer as rule_id,
+                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
+                        luq.id as update_id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
+                SELECT COUNT(*) as total_count
+                FROM unique_completions
+            `;
+            countParams = [publicKey, userId];
+        } else if (publicKey) {
+            countQuery = `
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        (result_data->>'rule_id')::integer as rule_id,
+                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
+                        luq.id as update_id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE luq.public_key = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
+                SELECT COUNT(*) as total_count
+                FROM unique_completions
+            `;
+            countParams = [publicKey];
+        } else {
+            countQuery = `
+                WITH unique_completions AS (
+                    SELECT DISTINCT ON (
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                    )
+                        (result_data->>'rule_id')::integer as rule_id,
+                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
+                        luq.id as update_id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    WHERE luq.user_id = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data->>'completed')::boolean = true
+                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        (result_data->>'rule_id')::integer,
+                        COALESCE((result_data->>'transaction_hash'), ''),
+                        luq.id,
+                        COALESCE((result_data->>'matched_public_key'), luq.public_key)
+                )
+                SELECT COUNT(*) as total_count
+                FROM unique_completions
+            `;
+            countParams = [userId];
+        }
+        
+        const countResult = await pool.query(countQuery, countParams);
+        const totalCount = parseInt(countResult.rows[0]?.total_count || 0);
         
         // Process results to extract completed rules
         // Show all completed executions, but use unique key to avoid duplicates
@@ -2639,7 +2784,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         res.json({
             success: true,
             completed_rules: completedRules,
-            count: completedRules.length
+            count: totalCount // Use total count from separate query, not just returned rows
         });
     } catch (error) {
         console.error('Error fetching completed rules:', error);
