@@ -29,6 +29,7 @@ import {
   useTheme,
   useMediaQuery
 } from '@mui/material';
+import api from '../../utils/api';
 import {
   Close as CloseIcon,
   Fullscreen as FullscreenIcon,
@@ -176,20 +177,19 @@ const RealTimeNodeTracking = () => {
     }
   }, [fetchInProgress]);
 
-  // Fetch XLM price from CoinGecko
+  // Fetch XLM price from CoinGecko via backend proxy
   const fetchXLMPrice = useCallback(async () => {
     setXlmPriceLoading(true);
     try {
-      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd&include_24hr_change=true');
-      if (!response.ok) throw new Error('Failed to fetch XLM price');
-      const data = await response.json();
+      const response = await api.get('/stellar/xlm-price');
+      const data = response.data;
       if (data.stellar) {
         setXlmPrice(data.stellar.usd);
         setXlmPriceChange(data.stellar.usd_24h_change);
       }
     } catch (err) {
       console.error('Error fetching XLM price:', err);
-      // Fallback: try alternative API
+      // Fallback: try alternative API (if backend proxy fails)
       try {
         const altResponse = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=XLM');
         if (altResponse.ok) {

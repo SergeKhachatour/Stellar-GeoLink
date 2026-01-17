@@ -593,5 +593,42 @@ router.post('/call-contract-method', authenticateUser, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/stellar/xlm-price:
+ *   get:
+ *     summary: Get XLM price from CoinGecko
+ *     description: Proxy endpoint to fetch XLM (Stellar) price from CoinGecko API to avoid CORS issues
+ *     tags: [Stellar Network]
+ *     responses:
+ *       200:
+ *         description: XLM price data
+ *       500:
+ *         description: Error fetching price
+ */
+router.get('/xlm-price', async (req, res) => {
+  try {
+    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
+      params: {
+        ids: 'stellar',
+        vs_currencies: 'usd',
+        include_24hr_change: true
+      },
+      timeout: 10000,
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('[Stellar Proxy] Error fetching XLM price from CoinGecko:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch XLM price',
+      message: error.message 
+    });
+  }
+});
+
 module.exports = router;
 
