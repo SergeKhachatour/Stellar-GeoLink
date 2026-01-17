@@ -3813,6 +3813,15 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         if (shouldRouteThroughSmartWallet) {
             // console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
             
+            // For smart wallet payments, we ALWAYS need a secret key to sign the transaction
+            // WebAuthn is used by the contract for authorization, but the transaction must still be signed
+            if (!user_secret_key) {
+                return res.status(400).json({ 
+                    error: 'User secret key is required for smart wallet payments',
+                    message: 'Smart wallet payments require a secret key to sign the transaction, even when using WebAuthn for contract authorization'
+                });
+            }
+            
             try {
             // console.log(`[Execute] 📋 Extracting payment parameters from:`, JSON.stringify(parameters));
             // Extract payment parameters from function parameters
@@ -4597,16 +4606,38 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 message: 'Transaction did not complete within 60 seconds'
             });
             } catch (smartWalletError) {
-                console.error('[Execute] ❌ Error in smart wallet routing:', smartWalletError);
-                console.error('[Execute] ❌ Error stack:', smartWalletError.stack);
+                console.error('[Execute] ❌ Error in smart wallet routing:', {
+                    message: smartWalletError.message,
+                    name: smartWalletError.name,
+                    code: smartWalletError.code,
+                    response: smartWalletError.response?.data,
+                    status: smartWalletError.response?.status,
+                    stack: smartWalletError.stack
+                });
                 const contractsConfig = require('../config/contracts');
+                
+                // Provide more detailed error information
+                let errorDetails = smartWalletError.toString();
+                if (smartWalletError.response?.data) {
+                    errorDetails = JSON.stringify(smartWalletError.response.data);
+                } else if (smartWalletError.message) {
+                    errorDetails = smartWalletError.message;
+                }
+                
                 return res.status(500).json({
                     success: false,
                     error: 'Smart wallet payment execution failed',
-                    message: smartWalletError.message,
-                    details: smartWalletError.toString(),
+                    message: smartWalletError.message || 'Unknown error occurred during smart wallet payment execution',
+                    details: errorDetails,
+                    error_type: smartWalletError.name || 'Error',
                     routed_through_smart_wallet: true,
-                    smart_wallet_contract_id: contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID
+                    smart_wallet_contract_id: contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID,
+                    suggestions: [
+                        'Check that you have sufficient balance in your account',
+                        'Verify that the WebAuthn signature is valid',
+                        'Ensure all payment parameters (destination, amount, asset) are correct',
+                        'Check the backend logs for more detailed error information'
+                    ]
                 });
             }
         }
