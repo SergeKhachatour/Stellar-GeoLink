@@ -2411,11 +2411,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             query = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2424,23 +2421,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         luq.received_at,
                         luq.processed_at,
                         luq.execution_results,
-                        (result_data->>'rule_id')::integer as rule_id,
-                        result_data->>'transaction_hash' as transaction_hash,
-                        result_data->>'matched_public_key' as matched_public_key,
-                        result_data->>'completed_at' as completed_at
+                        (result_data.value->>'rule_id')::integer as rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        result_data.value->>'matched_public_key' as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE (luq.public_key = $1 OR luq.user_id = $2)
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), ''),
+                        result_ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2474,11 +2468,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             query = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2487,23 +2478,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         luq.received_at,
                         luq.processed_at,
                         luq.execution_results,
-                        (result_data->>'rule_id')::integer as rule_id,
-                        result_data->>'transaction_hash' as transaction_hash,
-                        result_data->>'matched_public_key' as matched_public_key,
-                        result_data->>'completed_at' as completed_at
+                        (result_data.value->>'rule_id')::integer as rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        result_data.value->>'matched_public_key' as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.public_key = $1
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), ''),
+                        result_ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2540,11 +2528,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             query = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2553,23 +2538,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         luq.received_at,
                         luq.processed_at,
                         luq.execution_results,
-                        (result_data->>'rule_id')::integer as rule_id,
-                        result_data->>'transaction_hash' as transaction_hash,
-                        result_data->>'matched_public_key' as matched_public_key,
-                        result_data->>'completed_at' as completed_at
+                        (result_data.value->>'rule_id')::integer as rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        result_data.value->>'matched_public_key' as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.user_id = $1
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), ''),
+                        result_ordinality,
                         luq.received_at DESC
                 )
                 SELECT 
@@ -2609,29 +2591,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             countQuery = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
-                        (result_data->>'rule_id')::integer as rule_id,
-                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
-                        luq.id as update_id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                        luq.id as update_id
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE (luq.public_key = $1 OR luq.user_id = $2)
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2641,29 +2614,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             countQuery = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
-                        (result_data->>'rule_id')::integer as rule_id,
-                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
-                        luq.id as update_id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                        luq.id as update_id
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.public_key = $1
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
@@ -2673,29 +2637,20 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             countQuery = `
                 WITH unique_completions AS (
                     SELECT DISTINCT ON (
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                     )
-                        (result_data->>'rule_id')::integer as rule_id,
-                        COALESCE((result_data->>'transaction_hash'), '') as transaction_hash,
-                        luq.id as update_id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key) as matched_public_key
+                        luq.id as update_id
                     FROM location_update_queue luq
-                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result_data
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
                     WHERE luq.user_id = $1
                         AND luq.status IN ('matched', 'executed')
                         AND luq.execution_results IS NOT NULL
-                        AND (result_data->>'completed')::boolean = true
-                        AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
                     ORDER BY 
-                        (result_data->>'rule_id')::integer,
-                        COALESCE((result_data->>'transaction_hash'), ''),
                         luq.id,
-                        COALESCE((result_data->>'matched_public_key'), luq.public_key),
-                        COALESCE((result_data->>'completed_at'), '')
+                        result_ordinality
                 )
                 SELECT COUNT(*) as total_count
                 FROM unique_completions
