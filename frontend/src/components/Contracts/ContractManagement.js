@@ -1596,6 +1596,15 @@ const ContractManagement = () => {
     return false;
   };
 
+  // Helper function to generate unique key for pending rules
+  const getPendingRuleKey = (pendingRule, fallbackIndex = null) => {
+    // Use update_id if available (most reliable), otherwise fall back to index
+    const identifier = pendingRule.update_id !== undefined && pendingRule.update_id !== null 
+      ? pendingRule.update_id 
+      : (fallbackIndex !== null ? fallbackIndex : pendingRules.indexOf(pendingRule));
+    return `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${identifier}`;
+  };
+
   // Helper function to detect if a function is payment-related
   const isPaymentFunction = (functionName, functionParams) => {
     if (!functionName) return false;
@@ -1735,7 +1744,7 @@ const ContractManagement = () => {
     console.log('[BatchExecute] Public key check passed, getting selected rules...');
     // Get all selected pending rules
     const selectedRules = pendingRules.filter((pr, index) => {
-      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || index}`;
+      const uniqueKey = getPendingRuleKey(pr, index);
       return selectedPendingRules.has(uniqueKey);
     });
 
@@ -1797,7 +1806,7 @@ const ContractManagement = () => {
     console.log('[BatchExecute] Filtering selected rules from', pendingRules.length, 'pending rules');
     console.log('[BatchExecute] Selected keys:', Array.from(selectedPendingRules));
     const selectedRules = pendingRules.filter((pr, index) => {
-      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || index}`;
+      const uniqueKey = getPendingRuleKey(pr, index);
       const isSelected = selectedPendingRules.has(uniqueKey);
       if (isSelected) {
         console.log('[BatchExecute] Found selected rule:', { rule_id: pr.rule_id, uniqueKey, index });
@@ -4290,18 +4299,18 @@ const ContractManagement = () => {
                     pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage
                   );
                   const allSelected = currentPageRules.every(pr => {
-                    const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || pendingRules.indexOf(pr)}`;
+                    const uniqueKey = getPendingRuleKey(pr);
                     return selectedPendingRules.has(uniqueKey);
                   });
                   const newSelected = new Set(selectedPendingRules);
                   if (allSelected) {
                     currentPageRules.forEach(pr => {
-                      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || pendingRules.indexOf(pr)}`;
+                      const uniqueKey = getPendingRuleKey(pr);
                       newSelected.delete(uniqueKey);
                     });
                   } else {
                     currentPageRules.forEach(pr => {
-                      const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || pendingRules.indexOf(pr)}`;
+                      const uniqueKey = getPendingRuleKey(pr);
                       newSelected.add(uniqueKey);
                     });
                   }
@@ -4313,7 +4322,7 @@ const ContractManagement = () => {
                   pendingRulesPage * pendingRulesRowsPerPage,
                   pendingRulesPage * pendingRulesRowsPerPage + pendingRulesRowsPerPage
                 ).every(pr => {
-                  const uniqueKey = `${pr.rule_id}_${pr.matched_public_key || 'unknown'}_${pr.update_id || pendingRules.indexOf(pr)}`;
+                  const uniqueKey = getPendingRuleKey(pr);
                   return selectedPendingRules.has(uniqueKey);
                 }) ? (
                   <CheckBoxIcon />
@@ -4368,9 +4377,8 @@ const ContractManagement = () => {
                 ...rule,
                 matched_public_key: pendingRule.matched_public_key
               } : null;
-              // Use rule_id + matched_public_key + update_id for unique key to handle multiple pending rules per rule
-              // update_id is unique per location update, ensuring no duplicate keys
-              const uniqueKey = `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${pendingRule.update_id || index}`;
+              // Use helper function to generate unique key consistently
+              const uniqueKey = getPendingRuleKey(pendingRule, pendingRulesPage * pendingRulesRowsPerPage + index);
               const isExpanded = expandedPendingRule === uniqueKey;
               
               return (

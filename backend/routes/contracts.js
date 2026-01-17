@@ -2033,6 +2033,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     contract_name: row.contract_name,
                     contract_address: row.contract_address,
                     requires_webauthn: row.requires_webauthn,
+                    update_id: row.update_id, // Include update_id for unique key generation
                     matched_at: row.received_at,
                     matched_public_key: row.public_key || skippedResult.matched_public_key, // Include matched public key
                     location: {
