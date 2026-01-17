@@ -545,7 +545,62 @@ const ContractManagement = () => {
       setLoadingCompletedRules(true);
       const response = await api.get('/contracts/rules/completed');
       if (response.data.success) {
-        setCompletedRules(response.data.completed_rules || []);
+        const rawRules = response.data.completed_rules || [];
+        
+        // Deduplicate completed rules using a Set with unique keys
+        // Key format: rule_id + transaction_hash + update_id + matched_public_key
+        const seenKeys = new Set();
+        const deduplicatedRules = [];
+        
+        for (const rule of rawRules) {
+          // Extract transaction_hash from execution_results if not directly available
+          let transactionHash = rule.transaction_hash;
+          let matchedPublicKey = rule.matched_public_key || rule.public_key || 'unknown';
+          let updateId = rule.update_id;
+          let completedAt = rule.completed_at;
+          
+          // If transaction_hash is not directly on the rule, try to extract it from execution_results
+          if (!transactionHash && rule.execution_results) {
+            try {
+              const executionResults = typeof rule.execution_results === 'string'
+                ? JSON.parse(rule.execution_results)
+                : rule.execution_results || [];
+              
+              const completedResult = executionResults.find(r => 
+                r.rule_id === rule.rule_id && 
+                r.completed === true
+              );
+              
+              if (completedResult) {
+                transactionHash = completedResult.transaction_hash || transactionHash;
+                matchedPublicKey = completedResult.matched_public_key || matchedPublicKey;
+                updateId = updateId || completedResult.update_id;
+                completedAt = completedResult.completed_at || completedAt;
+              }
+            } catch (e) {
+              console.error('Error parsing execution_results for deduplication:', e);
+            }
+          }
+          
+          // Create unique key: rule_id + transaction_hash + update_id + matched_public_key
+          // This ensures each unique execution instance appears only once
+          const uniqueKey = `${rule.rule_id}_${transactionHash || 'no-tx'}_${updateId || 'no-update'}_${matchedPublicKey}`;
+          
+          if (!seenKeys.has(uniqueKey)) {
+            seenKeys.add(uniqueKey);
+            // Add the extracted fields to the rule object for easier access
+            deduplicatedRules.push({
+              ...rule,
+              transaction_hash: transactionHash,
+              matched_public_key: matchedPublicKey,
+              update_id: updateId,
+              completed_at: completedAt
+            });
+          }
+        }
+        
+        console.log(`[CompletedRules] Loaded ${rawRules.length} raw rules, deduplicated to ${deduplicatedRules.length} unique rules`);
+        setCompletedRules(deduplicatedRules);
       }
     } catch (err) {
       console.error('Error loading completed rules:', err);
@@ -4719,10 +4774,10 @@ const ContractManagement = () => {
               .map((completedRule, index) => {
               const contract = contracts.find(c => c.id === completedRule.contract_id);
               const rule = rules.find(r => r.id === completedRule.rule_id);
-              // Create unique key using rule_id, update_id, transaction_hash, and completed_at
-              const uniqueKey = completedRule.update_id 
-                ? `${completedRule.rule_id}_${completedRule.update_id}_${completedRule.transaction_hash || 'no-tx'}_${completedRule.completed_at || index}`
-                : `${completedRule.rule_id}_${completedRule.transaction_hash || 'no-tx'}_${completedRule.completed_at || completedRule.matched_at || index}`;
+              // Create unique key using rule_id, transaction_hash, update_id, and matched_public_key
+              // This matches the deduplication logic in loadCompletedRules
+              const matchedPublicKey = completedRule.matched_public_key || completedRule.public_key || 'unknown';
+              const uniqueKey = `${completedRule.rule_id}_${completedRule.transaction_hash || 'no-tx'}_${completedRule.update_id || 'no-update'}_${matchedPublicKey}`;
               const isExpanded = expandedCompletedRule === uniqueKey;
               
               return (

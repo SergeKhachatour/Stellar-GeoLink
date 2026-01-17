@@ -2457,7 +2457,10 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     uc.received_at,
                     uc.processed_at,
                     uc.execution_results,
-                    uc.rule_id as execution_rule_id
+                    uc.rule_id as execution_rule_id,
+                    uc.transaction_hash,
+                    uc.matched_public_key,
+                    uc.completed_at
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
@@ -2515,7 +2518,10 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     uc.received_at,
                     uc.processed_at,
                     uc.execution_results,
-                    uc.rule_id as execution_rule_id
+                    uc.rule_id as execution_rule_id,
+                    uc.transaction_hash,
+                    uc.matched_public_key,
+                    uc.completed_at
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
@@ -2576,7 +2582,10 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     uc.received_at,
                     uc.processed_at,
                     uc.execution_results,
-                    uc.rule_id as execution_rule_id
+                    uc.rule_id as execution_rule_id,
+                    uc.transaction_hash,
+                    uc.matched_public_key,
+                    uc.completed_at
                 FROM unique_completions uc
                 JOIN contract_execution_rules cer ON cer.id = uc.rule_id
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
@@ -2708,14 +2717,17 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
             );
 
             if (completedResult) {
+                // Use fields directly from row (from CTE) if available, otherwise fall back to execution_results
+                const transactionHash = row.transaction_hash || completedResult.transaction_hash;
+                const matchedPublicKey = row.matched_public_key || completedResult.matched_public_key || row.public_key || 'unknown';
+                const completedAt = row.completed_at || completedResult.completed_at;
+                
                 // Create unique key to avoid duplicates
                 // Use rule_id + transaction_hash + update_id + matched_public_key for true uniqueness
                 // This ensures each execution instance is shown separately
-                const transactionHash = completedResult.transaction_hash;
-                const matchedPublicKey = completedResult.matched_public_key || row.public_key || 'unknown';
                 if (!transactionHash) {
                     // If no transaction hash, use rule_id + completed_at + update_id + matched_public_key as fallback
-                    const uniqueKey = `${row.rule_id}_${completedResult.completed_at || row.received_at}_${row.update_id}_${matchedPublicKey}`;
+                    const uniqueKey = `${row.rule_id}_${completedAt || row.received_at}_${row.update_id}_${matchedPublicKey}`;
                     if (seenKeys.has(uniqueKey)) {
                         continue; // Skip duplicate
                     }
@@ -2770,9 +2782,9 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     contract_address: row.contract_address,
                     update_id: row.update_id, // Include update_id for unique key generation
                     matched_at: row.received_at,
-                    completed_at: completedResult.completed_at,
-                    transaction_hash: completedResult.transaction_hash,
-                    matched_public_key: row.public_key || completedResult.matched_public_key,
+                    completed_at: completedAt, // Use from row or completedResult
+                    transaction_hash: transactionHash, // Use from row or completedResult
+                    matched_public_key: matchedPublicKey, // Use from row or completedResult
                     location: {
                         latitude: parseFloat(row.latitude),
                         longitude: parseFloat(row.longitude)
