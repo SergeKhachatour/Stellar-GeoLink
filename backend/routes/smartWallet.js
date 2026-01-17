@@ -485,21 +485,113 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       console.log('[Smart Wallet] 🔍 Checking if passkey is registered...');
       
       try {
-        // Check if passkey is registered with a timeout
-        const registrationPromise = ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Passkey registration timeout after 15 seconds')), 15000)
-        );
+        // Extract passkey public key from SPKI for verification
+        const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
+        let passkeyPubkeyBytes;
         
-        const isRegistered = await Promise.race([registrationPromise, timeoutPromise]);
-        
-        if (isRegistered) {
-          console.log('[Smart Wallet] ✅ Passkey is registered, proceeding with payment');
+        if (spkiBytes.length === 65 && spkiBytes[0] === 0x04) {
+          passkeyPubkeyBytes = spkiBytes;
         } else {
-          console.warn('[Smart Wallet] ⚠️ Passkey registration failed, but proceeding anyway (contract will fail if not registered)');
+          passkeyPubkeyBytes = extractPublicKeyFromSPKI(spkiBytes);
+        }
+        
+        const passkeyPubkeyHex = passkeyPubkeyBytes.toString('hex');
+        console.log(`[Smart Wallet] 🔑 Passkey public key from request (hex): ${passkeyPubkeyHex.substring(0, 32)}...`);
+        
+        // Check what's registered on the contract
+        const userScAddressForCheck = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+          StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey))
+        );
+        const userScValForCheck = StellarSdk.xdr.ScVal.scvAddress(userScAddressForCheck);
+        
+        const getPasskeyOp = contract.call('get_passkey_pubkey', userScValForCheck);
+        const dummyAccount = new StellarSdk.Account(userPublicKey, '0');
+        const checkTx = new StellarSdk.TransactionBuilder(
+          dummyAccount,
+          {
+            fee: StellarSdk.BASE_FEE,
+            networkPassphrase: networkPassphrase
+          }
+        )
+          .addOperation(getPasskeyOp)
+          .setTimeout(30)
+          .build();
+        
+        const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+        const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+        
+        if (checkResult && checkResult.result && checkResult.result.retval) {
+          let registeredPubkeyScVal;
+          const retval = checkResult.result.retval;
+          
+          if (retval && typeof retval === 'object' && typeof retval.switch === 'function') {
+            registeredPubkeyScVal = retval;
+          } else if (typeof retval === 'string') {
+            registeredPubkeyScVal = StellarSdk.xdr.ScVal.fromXDR(retval, 'base64');
+          }
+          
+          if (registeredPubkeyScVal && registeredPubkeyScVal.switch && registeredPubkeyScVal.switch().name === 'scvBytes') {
+            const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
+            const registeredPubkeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
+            
+            console.log(`[Smart Wallet] 🔑 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
+            
+            if (registeredPubkeyHex !== passkeyPubkeyHex) {
+              console.error('[Smart Wallet] ❌ Passkey mismatch detected!');
+              console.error('  The passkey registered on the contract does not match the passkey used for signing.');
+              console.error('  This will cause signature verification to fail.');
+              console.error('[Smart Wallet] 💡 Attempting to re-register the correct passkey...');
+              
+              // Try to register the correct passkey
+              const registrationPromise = ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Passkey registration timeout after 15 seconds')), 15000)
+              );
+              
+              try {
+                const isRegistered = await Promise.race([registrationPromise, timeoutPromise]);
+                if (isRegistered) {
+                  console.log('[Smart Wallet] ✅ Passkey re-registered successfully');
+                } else {
+                  console.warn('[Smart Wallet] ⚠️ Passkey re-registration failed or timed out');
+                  return res.status(400).json({
+                    error: 'Passkey mismatch',
+                    details: 'The passkey used for signing does not match the passkey registered on the contract. Please re-register your passkey or use the correct passkey for signing.',
+                    registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
+                    signingPasskey: passkeyPubkeyHex.substring(0, 32) + '...'
+                  });
+                }
+              } catch (regError) {
+                console.error('[Smart Wallet] ❌ Error re-registering passkey:', regError.message);
+                return res.status(400).json({
+                  error: 'Passkey mismatch and re-registration failed',
+                  details: 'The passkey used for signing does not match the passkey registered on the contract, and automatic re-registration failed.',
+                  registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
+                  signingPasskey: passkeyPubkeyHex.substring(0, 32) + '...'
+                });
+              }
+            } else {
+              console.log('[Smart Wallet] ✅ Passkey matches - proceeding with payment');
+            }
+          }
+        } else {
+          // Passkey not registered, try to register it
+          console.log('[Smart Wallet] 🔐 Passkey not registered, attempting auto-registration...');
+          const registrationPromise = ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Passkey registration timeout after 15 seconds')), 15000)
+          );
+          
+          const isRegistered = await Promise.race([registrationPromise, timeoutPromise]);
+          
+          if (isRegistered) {
+            console.log('[Smart Wallet] ✅ Passkey registered successfully');
+          } else {
+            console.warn('[Smart Wallet] ⚠️ Passkey registration failed or timed out');
+          }
         }
       } catch (regError) {
-        console.error('[Smart Wallet] ❌ Error during passkey registration check:', regError.message);
+        console.error('[Smart Wallet] ❌ Error during passkey verification:', regError.message);
         // Continue anyway - contract will fail with a clear error if passkey isn't registered
         console.warn('[Smart Wallet] ⚠️ Proceeding with payment execution (contract will validate passkey)');
       }
