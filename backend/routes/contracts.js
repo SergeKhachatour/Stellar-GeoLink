@@ -2586,6 +2586,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     contract_id: row.contract_id,
                     contract_name: row.contract_name,
                     contract_address: row.contract_address,
+                    update_id: row.update_id, // Include update_id for unique key generation
                     matched_at: row.received_at,
                     completed_at: completedResult.completed_at,
                     transaction_hash: completedResult.transaction_hash,
@@ -2833,6 +2834,7 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
                     contract_id: row.contract_id,
                     contract_name: row.contract_name,
                     contract_address: row.contract_address,
+                    update_id: row.update_id, // Include update_id for unique key generation
                     matched_at: row.received_at,
                     rejected_at: rejectedResult.rejected_at,
                     matched_public_key: row.public_key || rejectedResult.matched_public_key,

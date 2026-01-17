@@ -4668,13 +4668,17 @@ const ContractManagement = () => {
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {completedRules
               .slice(completedRulesPage * completedRulesRowsPerPage, completedRulesPage * completedRulesRowsPerPage + completedRulesRowsPerPage)
-              .map((completedRule) => {
+              .map((completedRule, index) => {
               const contract = contracts.find(c => c.id === completedRule.contract_id);
               const rule = rules.find(r => r.id === completedRule.rule_id);
-              const isExpanded = expandedCompletedRule === completedRule.rule_id;
+              // Create unique key using rule_id, update_id, transaction_hash, and completed_at
+              const uniqueKey = completedRule.update_id 
+                ? `${completedRule.rule_id}_${completedRule.update_id}_${completedRule.transaction_hash || 'no-tx'}_${completedRule.completed_at || index}`
+                : `${completedRule.rule_id}_${completedRule.transaction_hash || 'no-tx'}_${completedRule.completed_at || completedRule.matched_at || index}`;
+              const isExpanded = expandedCompletedRule === uniqueKey;
               
               return (
-                <React.Fragment key={completedRule.rule_id}>
+                <React.Fragment key={uniqueKey}>
                   <Paper 
                     sx={{ 
                       mb: 1.5, 
@@ -4684,7 +4688,7 @@ const ContractManagement = () => {
                     }}
                   >
                     <ListItemButton
-                      onClick={() => setExpandedCompletedRule(isExpanded ? null : completedRule.rule_id)}
+                      onClick={() => setExpandedCompletedRule(isExpanded ? null : uniqueKey)}
                       sx={{
                         py: 1.5,
                         px: 2,
@@ -4723,7 +4727,7 @@ const ContractManagement = () => {
                         edge="end"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedCompletedRule(isExpanded ? null : completedRule.rule_id);
+                          setExpandedCompletedRule(isExpanded ? null : uniqueKey);
                         }}
                         sx={{ ml: 1 }}
                       >
@@ -4854,13 +4858,17 @@ const ContractManagement = () => {
           <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {rejectedRules
               .slice(rejectedRulesPage * rejectedRulesRowsPerPage, rejectedRulesPage * rejectedRulesRowsPerPage + rejectedRulesRowsPerPage)
-              .map((rejectedRule) => {
+              .map((rejectedRule, index) => {
               const contract = contracts.find(c => c.id === rejectedRule.contract_id);
               const rule = rules.find(r => r.id === rejectedRule.rule_id);
-              const isExpanded = expandedRejectedRule === rejectedRule.rule_id;
+              // Create unique key using rule_id, update_id, rejected_at, and matched_at
+              const uniqueKey = rejectedRule.update_id 
+                ? `${rejectedRule.rule_id}_${rejectedRule.update_id}_${rejectedRule.rejected_at || 'no-reject-time'}_${rejectedRule.matched_at || index}`
+                : `${rejectedRule.rule_id}_${rejectedRule.rejected_at || 'no-reject-time'}_${rejectedRule.matched_at || index}`;
+              const isExpanded = expandedRejectedRule === uniqueKey;
               
               return (
-                <React.Fragment key={rejectedRule.rule_id}>
+                <React.Fragment key={uniqueKey}>
                   <Paper 
                     sx={{ 
                       mb: 1.5, 
@@ -4870,7 +4878,7 @@ const ContractManagement = () => {
                     }}
                   >
                     <ListItemButton
-                      onClick={() => setExpandedRejectedRule(isExpanded ? null : rejectedRule.rule_id)}
+                      onClick={() => setExpandedRejectedRule(isExpanded ? null : uniqueKey)}
                       sx={{
                         py: 1.5,
                         px: 2,
@@ -4909,7 +4917,7 @@ const ContractManagement = () => {
                         edge="end"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedRejectedRule(isExpanded ? null : rejectedRule.rule_id);
+                          setExpandedRejectedRule(isExpanded ? null : uniqueKey);
                         }}
                         sx={{ ml: 1 }}
                       >
