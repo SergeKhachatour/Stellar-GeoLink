@@ -1720,6 +1720,10 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (
+                            result->>'matched_public_key' = luq.public_key 
+                            OR result->>'matched_public_key' IS NULL
+                        )
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $3
@@ -1758,6 +1762,10 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (
+                            result->>'matched_public_key' = luq.public_key 
+                            OR result->>'matched_public_key' IS NULL
+                        )
                     )
                 ORDER BY cer.id, luq.public_key, luq.received_at DESC
                 LIMIT $2
@@ -1799,6 +1807,10 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (
+                            result->>'matched_public_key' = luq.public_key 
+                            OR result->>'matched_public_key' IS NULL
+                        )
                     )
                 ORDER BY cer.id, luq.public_key, luq.received_at DESC
                 LIMIT $2
@@ -1881,7 +1893,9 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             const skippedResult = executionResults.find(r => 
                 r.rule_id === row.rule_id && 
                 r.skipped === true && 
-                r.reason === 'requires_webauthn'
+                r.reason === 'requires_webauthn' &&
+                !r.completed &&
+                !r.rejected
             );
 
             if (skippedResult) {
