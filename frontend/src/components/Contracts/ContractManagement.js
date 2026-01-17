@@ -1622,7 +1622,7 @@ const ContractManagement = () => {
   };
 
   // Helper function to generate unique key for pending rules
-  const getPendingRuleKey = (pendingRule, fallbackIndex = null) => {
+  const getPendingRuleKey = useCallback((pendingRule, fallbackIndex = null) => {
     // Use update_id if available (most reliable), otherwise use provided index or find in array
     let identifier;
     if (pendingRule.update_id !== undefined && pendingRule.update_id !== null) {
@@ -1643,7 +1643,7 @@ const ContractManagement = () => {
     }
     
     return `${pendingRule.rule_id}_${pendingRule.matched_public_key || 'unknown'}_${identifier}`;
-  };
+  }, [pendingRules]);
 
   // Calculate valid selection count (only count keys that exist in current pendingRules)
   const validSelectionCount = useMemo(() => {
@@ -1655,7 +1655,7 @@ const ContractManagement = () => {
       }
     });
     return count;
-  }, [pendingRules, selectedPendingRules]);
+  }, [pendingRules, selectedPendingRules, getPendingRuleKey]);
 
   // Helper function to detect if a function is payment-related
   const isPaymentFunction = (functionName, functionParams) => {
