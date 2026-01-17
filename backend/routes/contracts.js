@@ -3813,12 +3813,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         if (shouldRouteThroughSmartWallet) {
             // console.log(`[Execute] 💳 Routing payment function "${function_name}" through smart wallet: ${contract.smart_wallet_contract_id}`);
             
-            // For smart wallet payments, we ALWAYS need a secret key to sign the transaction
-            // WebAuthn is used by the contract for authorization, but the transaction must still be signed
+            // For smart wallet payments, we need a secret key to sign the transaction
+            // This works the same way as the send payment feature - both WebAuthn and secret key are required
+            // WebAuthn is used for contract authorization, secret key is used to sign the transaction
             if (!user_secret_key) {
                 return res.status(400).json({ 
                     error: 'User secret key is required for smart wallet payments',
-                    message: 'Smart wallet payments require a secret key to sign the transaction, even when using WebAuthn for contract authorization'
+                    message: 'Smart wallet payments require both WebAuthn signature and a secret key, just like the send payment feature. Please provide your secret key in the execution dialog.'
                 });
             }
             

@@ -1744,7 +1744,8 @@ const ContractManagement = () => {
       return;
     }
 
-    // Check if any rule requires a secret key (write operations without WebAuthn)
+    // Check if any rule requires a secret key
+    // Smart wallet payments need secret key even with WebAuthn (same as send payment)
     console.log('[BatchExecute] Checking for write operations...');
     const writeOperationsNeedingSecretKey = selectedRules.filter(pr => {
       const rule = rules.find(r => r.id === pr.rule_id);
@@ -1754,7 +1755,16 @@ const ContractManagement = () => {
       const isReadOnly = isReadOnlyFunction(rule.function_name);
       if (isReadOnly) return false; // Read-only doesn't need secret key
       
-      // If WebAuthn is available, we don't need secret key
+      // Check if this is a smart wallet payment
+      const isPayment = isPaymentFunction(rule.function_name, rule.function_parameters || {});
+      const isSmartWalletPayment = contract?.use_smart_wallet && isPayment;
+      
+      // Smart wallet payments always need secret key (even with WebAuthn) - same as send payment
+      if (isSmartWalletPayment) {
+        return true; // Smart wallet payments need secret key
+      }
+      
+      // For non-smart-wallet payments: If WebAuthn is available, we don't need secret key
       const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
       if (needsWebAuthn) return false; // WebAuthn will handle signing
       
