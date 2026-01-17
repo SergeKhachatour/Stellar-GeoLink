@@ -5846,13 +5846,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 console.log(`[Execute] 🔍 Verification: Found ${verifyResult.rows.length} execution result(s) for update_id ${update_id}`);
                                 for (const row of verifyResult.rows) {
                                     const result = row.result;
-                                    if (result && (result->>'rule_id')::integer === parseInt(rule_id)) {
+                                    if (result && parseInt(result.rule_id) === parseInt(rule_id)) {
                                         console.log(`[Execute] 🔍 Rule ${rule_id} in execution_results:`, {
-                                            rule_id: result->>'rule_id',
-                                            skipped: result->>'skipped',
-                                            completed: result->>'completed',
-                                            rejected: result->>'rejected',
-                                            matched_public_key: result->>'matched_public_key'
+                                            rule_id: result.rule_id,
+                                            skipped: result.skipped,
+                                            completed: result.completed,
+                                            rejected: result.rejected,
+                                            matched_public_key: result.matched_public_key
                                         });
                                     }
                                 }
