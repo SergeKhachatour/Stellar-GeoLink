@@ -608,6 +608,7 @@ router.post('/call-contract-method', authenticateUser, async (req, res) => {
  */
 router.get('/xlm-price', async (req, res) => {
   try {
+    console.log('[Stellar Proxy] Fetching XLM price from CoinGecko...');
     const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
       params: {
         ids: 'stellar',
@@ -616,16 +617,29 @@ router.get('/xlm-price', async (req, res) => {
       },
       timeout: 10000,
       headers: {
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'User-Agent': 'Stellar-GeoLink/1.0'
       }
     });
     
+    console.log('[Stellar Proxy] Successfully fetched XLM price:', response.data);
     res.json(response.data);
   } catch (error) {
-    console.error('[Stellar Proxy] Error fetching XLM price from CoinGecko:', error.message);
-    res.status(500).json({ 
+    console.error('[Stellar Proxy] Error fetching XLM price from CoinGecko:', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      stack: error.stack
+    });
+    
+    // Return more detailed error information
+    const statusCode = error.response?.status || 500;
+    res.status(statusCode).json({ 
       error: 'Failed to fetch XLM price',
-      message: error.message 
+      message: error.message,
+      details: error.response?.data || error.code
     });
   }
 });
