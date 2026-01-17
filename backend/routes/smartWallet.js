@@ -20,6 +20,12 @@ const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } 
  * Returns true if passkey is registered (or was just registered), false otherwise
  */
 async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId = null) {
+  // Validate required parameters
+  if (!userPublicKey || !userSecretKey || !passkeyPublicKeySPKI) {
+    console.warn('[Smart Wallet] ⚠️ Missing required parameters for passkey registration');
+    return false;
+  }
+
   const StellarSdk = require('@stellar/stellar-sdk');
   const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
   const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
@@ -348,6 +354,8 @@ router.get('/balance', authenticateUser, async (req, res) => {
 router.post('/execute-payment', authenticateUser, async (req, res) => {
   console.log('[Smart Wallet] 💳 Execute payment request received');
   try {
+    console.log('[Smart Wallet] 📋 Request body keys:', Object.keys(req.body));
+    console.log('[Smart Wallet] 📋 Has passkeyPublicKeySPKI:', !!req.body.passkeyPublicKeySPKI);
     const {
       userPublicKey,
       userSecretKey,
@@ -461,18 +469,23 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
 
     // Ensure passkey is registered (auto-register if not)
     // Don't block on this - if it fails, the contract will handle the error
-    const rpId = req.body.rpId || req.headers.host || 'localhost';
-    ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
-      .then(isRegistered => {
-        if (isRegistered) {
-          console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
-        } else {
-          console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
-        }
-      })
-      .catch(err => {
-        console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
-      });
+    // Only attempt auto-registration if passkeyPublicKeySPKI is provided
+    if (passkeyPublicKeySPKI) {
+      const rpId = req.body.rpId || req.headers.host || 'localhost';
+      ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
+        .then(isRegistered => {
+          if (isRegistered) {
+            console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
+          } else {
+            console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
+          }
+        })
+        .catch(err => {
+          console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
+        });
+    } else {
+      console.warn('[Smart Wallet] ⚠️ passkeyPublicKeySPKI not provided, skipping auto-registration');
+    }
     // Continue with payment execution - if passkey isn't registered, contract will fail with a clear error
 
     // Call execute_payment
@@ -824,7 +837,9 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     console.error('[Smart Wallet] ❌ Error executing payment:', error);
     console.error('[Smart Wallet] 📋 Error details:', {
       message: error.message,
-      stack: error.stack
+      stack: error.stack,
+      name: error.name,
+      code: error.code
     });
     
     // Check if this is a WebAuthn signature verification error
@@ -1330,18 +1345,23 @@ router.post('/deposit', authenticateUser, async (req, res) => {
 
     // Ensure passkey is registered (auto-register if not)
     // Don't block on this - if it fails, the contract will handle the error
-    const rpId = req.body.rpId || req.headers.host || 'localhost';
-    ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
-      .then(isRegistered => {
-        if (isRegistered) {
-          console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
-        } else {
-          console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
-        }
-      })
-      .catch(err => {
-        console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
-      });
+    // Only attempt auto-registration if passkeyPublicKeySPKI is provided
+    if (passkeyPublicKeySPKI) {
+      const rpId = req.body.rpId || req.headers.host || 'localhost';
+      ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId)
+        .then(isRegistered => {
+          if (isRegistered) {
+            console.log('[Smart Wallet] ✅ Passkey auto-registration completed');
+          } else {
+            console.warn('[Smart Wallet] ⚠️ Passkey auto-registration failed or timed out');
+          }
+        })
+        .catch(err => {
+          console.error('[Smart Wallet] ❌ Error in background passkey registration:', err.message);
+        });
+    } else {
+      console.warn('[Smart Wallet] ⚠️ passkeyPublicKeySPKI not provided, skipping auto-registration');
+    }
     // Continue with deposit execution - if passkey isn't registered, contract will fail with a clear error
 
     // Build transaction
