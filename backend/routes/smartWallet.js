@@ -937,10 +937,26 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   }
                 }
                 
-                // Verify the update
-                const verifyResult = await pool.query(checkQuery, [userId, parseInt(rule_id)]);
+                // Verify the update - use the specific update_id if available
+                let verifyQuery;
+                let verifyParams;
+                if (update_id) {
+                  verifyQuery = `
+                    SELECT luq.id, luq.execution_results
+                    FROM location_update_queue luq
+                    WHERE luq.user_id = $1
+                      AND luq.id = $2::integer
+                      AND luq.execution_results IS NOT NULL
+                  `;
+                  verifyParams = [userId, parseInt(update_id)];
+                } else {
+                  verifyQuery = checkQuery;
+                  verifyParams = [userId, parseInt(rule_id)];
+                }
+                
+                const verifyResult = await pool.query(verifyQuery, verifyParams);
                 if (verifyResult.rows.length > 0) {
-                  console.log(`[Smart Wallet] ✅ Verified execution_results after update:`, JSON.stringify(verifyResult.rows[0].execution_results, null, 2));
+                  console.log(`[Smart Wallet] ✅ Verified execution_results after update (update_id: ${update_id || 'N/A'}):`, JSON.stringify(verifyResult.rows[0].execution_results, null, 2));
                   
                   // Check if the rule is actually marked as completed
                   const execResults = verifyResult.rows[0].execution_results || [];
@@ -959,6 +975,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   } else {
                     console.error(`[Smart Wallet] ❌ Rule ${rule_id} not found in execution_results after update!`);
                   }
+                } else {
+                  console.error(`[Smart Wallet] ❌ Verification query returned no rows! update_id: ${update_id || 'N/A'}`);
                 }
               } else {
                 console.warn(`[Smart Wallet] ⚠️ No location_update_queue entry found with rule_id ${rule_id} for user ${userId}`);
