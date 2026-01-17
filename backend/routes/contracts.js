@@ -2414,7 +2414,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2439,6 +2440,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
@@ -2475,7 +2477,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2500,6 +2503,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
@@ -2539,7 +2543,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         luq.id as update_id,
                         luq.public_key,
@@ -2564,6 +2569,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT 
@@ -2607,7 +2613,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         (result_data.value->>'rule_id')::integer as rule_id
                     FROM location_update_queue luq
@@ -2622,6 +2629,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT COUNT(*) as total_count
@@ -2635,7 +2643,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         (result_data.value->>'rule_id')::integer as rule_id
                     FROM location_update_queue luq
@@ -2650,6 +2659,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT COUNT(*) as total_count
@@ -2663,7 +2673,8 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         (result_data.value->>'rule_id')::integer,
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
-                        COALESCE(result_data.value->>'matched_public_key', luq.public_key)
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at
                     )
                         (result_data.value->>'rule_id')::integer as rule_id
                     FROM location_update_queue luq
@@ -2678,6 +2689,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                         COALESCE(result_data.value->>'transaction_hash', ''),
                         luq.id,
                         COALESCE(result_data.value->>'matched_public_key', luq.public_key),
+                        luq.received_at,
                         COALESCE(result_data.value->>'completed_at', '') DESC NULLS LAST
                 )
                 SELECT COUNT(*) as total_count
