@@ -1693,7 +1693,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
                         luq.public_key,
-                        MAX((result->>'completed_at')::timestamp) as last_completed_at
+                        MAX(luq.received_at) as last_completed_received_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
                     WHERE (luq.public_key = $1 OR luq.user_id = $2)
@@ -1740,7 +1740,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_at IS NULL OR luq.received_at > lc.last_completed_at)
+                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $3
             `;
@@ -1751,7 +1751,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
                         luq.public_key,
-                        MAX((result->>'completed_at')::timestamp) as last_completed_at
+                        MAX(luq.received_at) as last_completed_received_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
                     WHERE luq.public_key = $1
@@ -1798,7 +1798,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_at IS NULL OR luq.received_at > lc.last_completed_at)
+                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
             `;
@@ -1812,7 +1812,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     SELECT 
                         (result->>'rule_id')::integer as rule_id,
                         luq.public_key,
-                        MAX((result->>'completed_at')::timestamp) as last_completed_at
+                        MAX(luq.received_at) as last_completed_received_at
                     FROM location_update_queue luq
                     CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
                     WHERE luq.user_id = $1
@@ -1859,7 +1859,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_at IS NULL OR luq.received_at > lc.last_completed_at)
+                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
             `;
@@ -1879,7 +1879,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 SELECT 
                     (result->>'rule_id')::integer as rule_id,
                     luq.public_key,
-                    MAX((result->>'completed_at')::timestamp) as last_completed_at
+                    MAX(luq.received_at) as last_completed_received_at
                 FROM location_update_queue luq
                 CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
                 WHERE ${publicKey && userId ? '(luq.public_key = $1 OR luq.user_id = $2)' : publicKey ? 'luq.public_key = $1' : 'luq.user_id = $1'}
@@ -1895,7 +1895,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 debugLastCompletedResult.rows.slice(0, 5).map(r => ({
                     rule_id: r.rule_id,
                     public_key: r.public_key?.substring(0, 8) + '...',
-                    last_completed_at: r.last_completed_at
+                    last_completed_received_at: r.last_completed_received_at
                 }))
             );
         } catch (debugError) {
@@ -1910,13 +1910,13 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     luq.public_key,
                     luq.id as update_id,
                     luq.received_at,
-                    (SELECT MAX((result->>'completed_at')::timestamp)
+                    (SELECT MAX(luq2.received_at)
                      FROM location_update_queue luq2
                      CROSS JOIN jsonb_array_elements(luq2.execution_results) AS result
                      WHERE luq2.public_key = luq.public_key
                      AND (result->>'rule_id')::integer = cer.id
                      AND COALESCE((result->>'completed')::boolean, false) = true
-                     AND result->>'completed_at' IS NOT NULL) as last_completed_at
+                     AND result->>'completed_at' IS NOT NULL) as last_completed_received_at
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
@@ -1943,8 +1943,8 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     public_key: r.public_key?.substring(0, 8) + '...',
                     update_id: r.update_id,
                     received_at: r.received_at,
-                    last_completed_at: r.last_completed_at,
-                    would_show: !r.last_completed_at || r.received_at > r.last_completed_at
+                    last_completed_received_at: r.last_completed_received_at,
+                    would_show: !r.last_completed_received_at || r.received_at > r.last_completed_received_at
                 }))
             );
         } catch (debugError) {
@@ -1954,12 +1954,13 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         let result;
         try {
             // Add query timeout to prevent hanging
-            result = await Promise.race([
-                pool.query(query, params, { statement_timeout: 10000 }),
-                new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
-                )
-            ]);
+            const client = await pool.connect();
+            try {
+                await client.query('SET statement_timeout = 10000'); // 10 seconds
+                result = await client.query(query, params);
+            } finally {
+                client.release();
+            }
         } catch (queryError) {
             console.error('[PendingRules] ❌ Query error:', {
                 error: queryError.message,
