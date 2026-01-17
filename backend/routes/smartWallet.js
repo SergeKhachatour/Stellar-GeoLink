@@ -444,6 +444,19 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                 
                 if (update_id && matched_public_key) {
                   // Filter by update_id and matched_public_key for precise matching
+                  // Store actual execution parameters (payment details)
+                  const executionParams = {
+                    destination: destinationAddress,
+                    amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
+                    asset: assetAddress || 'native',
+                    signer_address: userPublicKey,
+                    webauthn_signature: webauthnSignature,
+                    webauthn_authenticator_data: webauthnAuthenticatorData,
+                    webauthn_client_data: webauthnClientData,
+                    signature_payload: signaturePayload
+                  };
+                  const executionParamsJson = JSON.stringify(executionParams);
+                  
                   markCompletedQuery = `
                     UPDATE location_update_queue luq
                     SET execution_results = (
@@ -462,7 +475,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                             'completed', true, 
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
-                            'success', true
+                            'success', true,
+                            'execution_parameters', $7::jsonb
                           )
                           ELSE result
                         END
@@ -499,10 +513,24 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     new Date().toISOString(),
                     sendResult.hash,
                     matched_public_key,
-                    parseInt(update_id)
+                    parseInt(update_id),
+                    executionParamsJson
                   ];
                 } else if (matched_public_key) {
                   // Filter by matched_public_key only
+                  // Store actual execution parameters (payment details)
+                  const executionParams = {
+                    destination: destinationAddress,
+                    amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
+                    asset: assetAddress || 'native',
+                    signer_address: userPublicKey,
+                    webauthn_signature: webauthnSignature,
+                    webauthn_authenticator_data: webauthnAuthenticatorData,
+                    webauthn_client_data: webauthnClientData,
+                    signature_payload: signaturePayload
+                  };
+                  const executionParamsJson = JSON.stringify(executionParams);
+                  
                   markCompletedQuery = `
                     UPDATE location_update_queue luq
                     SET execution_results = (
@@ -521,7 +549,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                             'completed', true, 
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
-                            'success', true
+                            'success', true,
+                            'execution_parameters', $6::jsonb
                           )
                           ELSE result
                         END
@@ -556,10 +585,24 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     userId, 
                     new Date().toISOString(),
                     sendResult.hash,
-                    matched_public_key
+                    matched_public_key,
+                    executionParamsJson
                   ];
                 } else {
                   // Fallback: mark all instances (backward compatibility)
+                  // Store actual execution parameters (payment details)
+                  const executionParams = {
+                    destination: destinationAddress,
+                    amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
+                    asset: assetAddress || 'native',
+                    signer_address: userPublicKey,
+                    webauthn_signature: webauthnSignature,
+                    webauthn_authenticator_data: webauthnAuthenticatorData,
+                    webauthn_client_data: webauthnClientData,
+                    signature_payload: signaturePayload
+                  };
+                  const executionParamsJson = JSON.stringify(executionParams);
+                  
                   markCompletedQuery = `
                     UPDATE location_update_queue luq
                     SET execution_results = (
@@ -576,7 +619,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                             'completed', true, 
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
-                            'success', true
+                            'success', true,
+                            'execution_parameters', $5::jsonb
                           )
                           ELSE result
                         END
@@ -606,7 +650,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     parseInt(rule_id), 
                     userId, 
                     new Date().toISOString(),
-                    sendResult.hash
+                    sendResult.hash,
+                    executionParamsJson
                   ];
                 }
                 

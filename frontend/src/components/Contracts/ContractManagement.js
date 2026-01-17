@@ -4864,6 +4864,13 @@ const ContractManagement = () => {
                               </Typography>
                             </Box>
                           )}
+                          {matchedPublicKey && matchedPublicKey !== 'unknown' && (
+                            <Box display="flex" alignItems="center" gap={1} mb={1}>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                <strong>Matched Public Key:</strong> {matchedPublicKey}
+                              </Typography>
+                            </Box>
+                          )}
                         </Box>
 
                         {completedRule.function_parameters && (

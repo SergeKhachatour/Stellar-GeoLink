@@ -2654,19 +2654,40 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     }
                     seenKeys.add(uniqueKey);
                 }
-                // Parse function_parameters from rule
+                // Use actual execution parameters if available, otherwise fall back to rule template
                 let functionParams = {};
-                try {
-                    functionParams = typeof row.function_parameters === 'string'
-                        ? JSON.parse(row.function_parameters)
-                        : row.function_parameters || {};
-                } catch (e) {
-                    console.error('Error parsing function_parameters:', e);
+                if (completedResult.execution_parameters) {
+                    // Use actual parameters that were submitted during execution
+                    try {
+                        functionParams = typeof completedResult.execution_parameters === 'string'
+                            ? JSON.parse(completedResult.execution_parameters)
+                            : completedResult.execution_parameters || {};
+                    } catch (e) {
+                        console.error('Error parsing execution_parameters:', e);
+                        // Fall back to rule template if parsing fails
+                        try {
+                            functionParams = typeof row.function_parameters === 'string'
+                                ? JSON.parse(row.function_parameters)
+                                : row.function_parameters || {};
+                        } catch (e2) {
+                            console.error('Error parsing function_parameters:', e2);
+                        }
+                    }
+                } else {
+                    // Fall back to rule template parameters if execution_parameters not available
+                    try {
+                        functionParams = typeof row.function_parameters === 'string'
+                            ? JSON.parse(row.function_parameters)
+                            : row.function_parameters || {};
+                    } catch (e) {
+                        console.error('Error parsing function_parameters:', e);
+                    }
                 }
 
-                // Populate parameters using function_mappings
+                // Populate parameters using function_mappings (only if using template parameters)
+                // If we have execution_parameters, they already have the real values
                 const populatedParams = { ...functionParams };
-                if (row.function_mappings) {
+                if (!completedResult.execution_parameters && row.function_mappings) {
                     const mappings = typeof row.function_mappings === 'string'
                         ? JSON.parse(row.function_mappings)
                         : row.function_mappings;
@@ -5608,6 +5629,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         
                         if (update_id && matched_public_key) {
                             // Filter by update_id and matched_public_key for precise matching
+                            // Store actual execution parameters
+                            const actualParamsJson = JSON.stringify(parameters || {});
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
@@ -5620,7 +5643,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 'completed', true, 
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
-                                                'success', true
+                                                'success', true,
+                                                'execution_parameters', $7::jsonb
                                             )
                                             ELSE result
                                         END
@@ -5647,10 +5671,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 new Date().toISOString(),
                                 sendResult.hash,
                                 matched_public_key,
-                                parseInt(update_id)
+                                parseInt(update_id),
+                                actualParamsJson
                             ];
                         } else if (matched_public_key) {
                             // Filter by matched_public_key only
+                            // Store actual execution parameters
+                            const actualParamsJson = JSON.stringify(parameters || {});
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
@@ -5663,7 +5690,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 'completed', true, 
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
-                                                'success', true
+                                                'success', true,
+                                                'execution_parameters', $6::jsonb
                                             )
                                             ELSE result
                                         END
@@ -5688,10 +5716,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 userId, 
                                 new Date().toISOString(),
                                 sendResult.hash,
-                                matched_public_key
+                                matched_public_key,
+                                actualParamsJson
                             ];
                         } else {
                             // Fallback: mark all instances (backward compatibility)
+                            // Store actual execution parameters
+                            const actualParamsJson = JSON.stringify(parameters || {});
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
@@ -5702,7 +5733,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 'completed', true, 
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
-                                                'success', true
+                                                'success', true,
+                                                'execution_parameters', $5::jsonb
                                             )
                                             ELSE result
                                         END
@@ -5724,7 +5756,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 parseInt(rule_id), 
                                 userId, 
                                 new Date().toISOString(),
-                                sendResult.hash
+                                sendResult.hash,
+                                actualParamsJson
                             ];
                         }
                         
@@ -5732,6 +5765,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         
                         // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
                         if (updateResult.rows.length === 0) {
+                            const actualParamsJson = JSON.stringify(parameters || {});
                             const createCompletionQuery = `
                                 WITH latest_update AS (
                                     SELECT id, execution_results
@@ -5752,7 +5786,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         'transaction_hash', $4::text,
                                         'success', true,
                                         'skipped', false,
-                                        'direct_execution', true
+                                        'direct_execution', true,
+                                        'execution_parameters', $5::jsonb
                                     )
                                 )
                                 FROM latest_update lu
@@ -5760,10 +5795,11 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 RETURNING luq.id
                             `;
                             const createResult = await pool.query(createCompletionQuery, [
-                                parseInt(rule_id),
-                                userId,
+                                parseInt(rule_id), 
+                                userId, 
                                 new Date().toISOString(),
-                                sendResult.hash
+                                sendResult.hash,
+                                actualParamsJson
                             ]);
                             
                             if (createResult.rows.length > 0) {
