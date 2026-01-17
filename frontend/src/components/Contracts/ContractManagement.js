@@ -2260,7 +2260,9 @@ const ContractManagement = () => {
         webauthnSignature: webauthnData.webauthnSignature,
         webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
         webauthnClientData: webauthnData.webauthnClientData,
-        rule_id: rule.id
+        rule_id: rule.id,
+        update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
+        matched_public_key: rule.matched_public_key // Include matched_public_key for additional filtering
       });
       
       if (!response.data.success) {

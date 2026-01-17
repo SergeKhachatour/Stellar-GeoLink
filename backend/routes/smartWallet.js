@@ -248,6 +248,8 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       webauthnAuthenticatorData, // Base64
       webauthnClientData, // Base64
       rule_id, // Optional: Rule ID to mark as completed after successful payment
+      update_id, // Optional: Update ID to mark only the specific location update as completed
+      matched_public_key, // Optional: Matched public key for additional filtering
     } = req.body;
 
     console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}, Rule ID: ${rule_id || 'Not provided'}`);
@@ -436,55 +438,179 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                 const executionResults = checkResult.rows[0].execution_results;
                 console.log(`[Smart Wallet] 📋 Current execution_results:`, JSON.stringify(executionResults, null, 2));
                 
-                const markCompletedQuery = `
-                  UPDATE location_update_queue luq
-                  SET execution_results = (
-                    SELECT jsonb_agg(
-                      CASE 
-                        WHEN (
+                // Use update_id and matched_public_key to only mark the specific instance
+                let markCompletedQuery;
+                let markCompletedParams;
+                
+                if (update_id && matched_public_key) {
+                  // Filter by update_id and matched_public_key for precise matching
+                  markCompletedQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                      SELECT jsonb_agg(
+                        CASE 
+                          WHEN (
+                            (result->>'rule_id')::integer = $1::integer OR 
+                            (result->>'rule_id')::text = $1::text
+                          ) AND (
+                            result->>'skipped' = 'true' OR 
+                            (result->>'skipped')::boolean = true
+                          ) AND (
+                            result->>'matched_public_key' = $5 OR luq.public_key = $5
+                          )
+                          THEN result || jsonb_build_object(
+                            'completed', true, 
+                            'completed_at', $3::text,
+                            'transaction_hash', $4::text,
+                            'success', true
+                          )
+                          ELSE result
+                        END
+                      )
+                      FROM jsonb_array_elements(luq.execution_results) AS result
+                    )
+                    WHERE luq.user_id = $2
+                      AND luq.id = $6::integer
+                      AND luq.public_key = $5
+                      AND luq.execution_results IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE (
                           (result->>'rule_id')::integer = $1::integer OR 
                           (result->>'rule_id')::text = $1::text
-                        ) AND (
+                        )
+                        AND (
                           result->>'skipped' = 'true' OR 
                           (result->>'skipped')::boolean = true
                         )
-                        THEN result || jsonb_build_object(
-                          'completed', true, 
-                          'completed_at', $3::text,
-                          'transaction_hash', $4::text,
-                          'success', true
+                        AND (
+                          (result->>'completed')::boolean IS DISTINCT FROM true OR
+                          result->>'completed' IS NULL
                         )
-                        ELSE result
-                      END
-                    )
-                    FROM jsonb_array_elements(luq.execution_results) AS result
-                  )
-                  WHERE luq.user_id = $2
-                    AND luq.execution_results IS NOT NULL
-                    AND EXISTS (
-                      SELECT 1
+                        AND (
+                          result->>'matched_public_key' = $5 OR luq.public_key = $5
+                        )
+                      )
+                  `;
+                  markCompletedParams = [
+                    parseInt(rule_id), 
+                    userId, 
+                    new Date().toISOString(),
+                    sendResult.hash,
+                    matched_public_key,
+                    parseInt(update_id)
+                  ];
+                } else if (matched_public_key) {
+                  // Filter by matched_public_key only
+                  markCompletedQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                      SELECT jsonb_agg(
+                        CASE 
+                          WHEN (
+                            (result->>'rule_id')::integer = $1::integer OR 
+                            (result->>'rule_id')::text = $1::text
+                          ) AND (
+                            result->>'skipped' = 'true' OR 
+                            (result->>'skipped')::boolean = true
+                          ) AND (
+                            result->>'matched_public_key' = $5 OR luq.public_key = $5
+                          )
+                          THEN result || jsonb_build_object(
+                            'completed', true, 
+                            'completed_at', $3::text,
+                            'transaction_hash', $4::text,
+                            'success', true
+                          )
+                          ELSE result
+                        END
+                      )
                       FROM jsonb_array_elements(luq.execution_results) AS result
-                      WHERE (
-                        (result->>'rule_id')::integer = $1::integer OR 
-                        (result->>'rule_id')::text = $1::text
-                      )
-                      AND (
-                        result->>'skipped' = 'true' OR 
-                        (result->>'skipped')::boolean = true
-                      )
-                      AND (
-                        (result->>'completed')::boolean IS DISTINCT FROM true OR
-                        result->>'completed' IS NULL
-                      )
                     )
-                `;
+                    WHERE luq.user_id = $2
+                      AND luq.public_key = $5
+                      AND luq.execution_results IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE (
+                          (result->>'rule_id')::integer = $1::integer OR 
+                          (result->>'rule_id')::text = $1::text
+                        )
+                        AND (
+                          result->>'skipped' = 'true' OR 
+                          (result->>'skipped')::boolean = true
+                        )
+                        AND (
+                          (result->>'completed')::boolean IS DISTINCT FROM true OR
+                          result->>'completed' IS NULL
+                        )
+                        AND (
+                          result->>'matched_public_key' = $5 OR luq.public_key = $5
+                        )
+                      )
+                  `;
+                  markCompletedParams = [
+                    parseInt(rule_id), 
+                    userId, 
+                    new Date().toISOString(),
+                    sendResult.hash,
+                    matched_public_key
+                  ];
+                } else {
+                  // Fallback: mark all instances (backward compatibility)
+                  markCompletedQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                      SELECT jsonb_agg(
+                        CASE 
+                          WHEN (
+                            (result->>'rule_id')::integer = $1::integer OR 
+                            (result->>'rule_id')::text = $1::text
+                          ) AND (
+                            result->>'skipped' = 'true' OR 
+                            (result->>'skipped')::boolean = true
+                          )
+                          THEN result || jsonb_build_object(
+                            'completed', true, 
+                            'completed_at', $3::text,
+                            'transaction_hash', $4::text,
+                            'success', true
+                          )
+                          ELSE result
+                        END
+                      )
+                      FROM jsonb_array_elements(luq.execution_results) AS result
+                    )
+                    WHERE luq.user_id = $2
+                      AND luq.execution_results IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS result
+                        WHERE (
+                          (result->>'rule_id')::integer = $1::integer OR 
+                          (result->>'rule_id')::text = $1::text
+                        )
+                        AND (
+                          result->>'skipped' = 'true' OR 
+                          (result->>'skipped')::boolean = true
+                        )
+                        AND (
+                          (result->>'completed')::boolean IS DISTINCT FROM true OR
+                          result->>'completed' IS NULL
+                        )
+                      )
+                  `;
+                  markCompletedParams = [
+                    parseInt(rule_id), 
+                    userId, 
+                    new Date().toISOString(),
+                    sendResult.hash
+                  ];
+                }
                 
-                const updateResult = await pool.query(markCompletedQuery, [
-                  parseInt(rule_id), 
-                  userId, 
-                  new Date().toISOString(),
-                  sendResult.hash
-                ]);
+                const updateResult = await pool.query(markCompletedQuery, markCompletedParams);
                 
                 console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed. Rows affected: ${updateResult.rowCount}`);
                 
