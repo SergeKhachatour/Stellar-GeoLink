@@ -3020,6 +3020,8 @@ const ContractManagement = () => {
         user_secret_key: userSecretKey,
         submit_to_ledger: submitToLedger, // Only submit to ledger if it's a write function OR if we have a secret key for read-only
         rule_id: rule.id,
+        update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
+        matched_public_key: rule.matched_public_key, // Include matched_public_key for additional filtering
         payment_source: isPayment ? paymentSource : undefined // Pass payment source for payment functions
       };
 
@@ -4435,7 +4437,8 @@ const ContractManagement = () => {
               // This ensures the signature payload uses the correct destination
               const ruleWithMatchedKey = rule ? {
                 ...rule,
-                matched_public_key: pendingRule.matched_public_key
+                matched_public_key: pendingRule.matched_public_key,
+                update_id: pendingRule.update_id // Include update_id to mark only the specific location update as completed
               } : null;
               // Use helper function to generate unique key consistently
               const uniqueKey = getPendingRuleKey(pendingRule, pendingRulesPage * pendingRulesRowsPerPage + index);

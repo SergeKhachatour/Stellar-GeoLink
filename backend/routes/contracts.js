@@ -2434,6 +2434,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
+                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
                 ORDER BY luq.received_at DESC
                 LIMIT $3
             `;
@@ -2465,6 +2466,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
+                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
                 ORDER BY luq.received_at DESC
                 LIMIT $2
             `;
@@ -2499,6 +2501,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND (result_data->>'completed')::boolean = true
+                    AND (result_data->>'matched_public_key' = luq.public_key OR result_data->>'matched_public_key' IS NULL)
                 ORDER BY luq.received_at DESC
                 LIMIT $2
             `;
@@ -2531,21 +2534,23 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
 
             if (completedResult) {
                 // Create unique key to avoid duplicates
-                // Use rule_id + transaction_hash only - same transaction = same execution, regardless of location update
-                // This prevents showing the same transaction multiple times when it appears in multiple location updates
+                // Use rule_id + transaction_hash + update_id + matched_public_key for true uniqueness
+                // This ensures each execution instance is shown separately
                 const transactionHash = completedResult.transaction_hash;
+                const matchedPublicKey = completedResult.matched_public_key || row.public_key || 'unknown';
                 if (!transactionHash) {
-                    // If no transaction hash, use rule_id + completed_at + update_id as fallback
-                    const uniqueKey = `${row.rule_id}_${completedResult.completed_at || row.received_at}_${row.update_id}`;
+                    // If no transaction hash, use rule_id + completed_at + update_id + matched_public_key as fallback
+                    const uniqueKey = `${row.rule_id}_${completedResult.completed_at || row.received_at}_${row.update_id}_${matchedPublicKey}`;
                     if (seenKeys.has(uniqueKey)) {
                         continue; // Skip duplicate
                     }
                     seenKeys.add(uniqueKey);
                 } else {
-                    // Use rule_id + transaction_hash for true uniqueness
-                    const uniqueKey = `${row.rule_id}_${transactionHash}`;
+                    // Use rule_id + transaction_hash + update_id + matched_public_key for true uniqueness
+                    // This ensures the same transaction executed for different public keys or location updates are shown separately
+                    const uniqueKey = `${row.rule_id}_${transactionHash}_${row.update_id}_${matchedPublicKey}`;
                     if (seenKeys.has(uniqueKey)) {
-                        continue; // Skip duplicate - same rule + same transaction = same execution
+                        continue; // Skip duplicate - same rule + same transaction + same update + same public key = same execution
                     }
                     seenKeys.add(uniqueKey);
                 }
