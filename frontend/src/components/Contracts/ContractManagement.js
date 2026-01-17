@@ -2471,6 +2471,20 @@ const ContractManagement = () => {
     // Use contract ID, not rule ID
     let response;
     try {
+      console.log('[BatchExecute] Sending request to backend:', {
+        url: `/contracts/${rule.contract_id}/execute`,
+        payload_keys: Object.keys(executePayload),
+        has_function_name: !!executePayload.function_name,
+        has_user_public_key: !!executePayload.user_public_key,
+        has_user_secret_key: !!executePayload.user_secret_key,
+        has_webauthn: !!webauthnData,
+        has_passkeyPublicKeySPKI: !!executePayload.passkeyPublicKeySPKI,
+        has_webauthnSignature: !!executePayload.webauthnSignature,
+        has_webauthnAuthenticatorData: !!executePayload.webauthnAuthenticatorData,
+        has_webauthnClientData: !!executePayload.webauthnClientData,
+        isReadOnly,
+        needsWebAuthn
+      });
       response = await api.post(`/contracts/${rule.contract_id}/execute`, executePayload);
     } catch (error) {
       const errorMessage = error.response?.data?.error || error.message || 'Execution failed';
@@ -2483,7 +2497,13 @@ const ContractManagement = () => {
           function_name: executePayload.function_name,
           contract_id: rule.contract_id,
           has_secret_key: !!executePayload.user_secret_key,
-          has_webauthn: !!webauthnData
+          has_webauthn: !!webauthnData,
+          has_passkeyPublicKeySPKI: !!executePayload.passkeyPublicKeySPKI,
+          has_webauthnSignature: !!executePayload.webauthnSignature,
+          has_webauthnAuthenticatorData: !!executePayload.webauthnAuthenticatorData,
+          has_webauthnClientData: !!executePayload.webauthnClientData,
+          isReadOnly,
+          needsWebAuthn
         }
       });
       throw new Error(`${errorMessage}${error.response?.status ? ` (Status: ${error.response.status})` : ''}`);
