@@ -715,7 +715,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                           ELSE result
                         END
                       )
-                      FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, idx)
+                      FROM jsonb_array_elements(luq.execution_results) AS result
                     )
                     WHERE luq.user_id = $2
                       AND luq.id = $6::integer
