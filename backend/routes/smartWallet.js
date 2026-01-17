@@ -539,37 +539,19 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
             if (registeredPubkeyHex !== passkeyPubkeyHex) {
               console.error('[Smart Wallet] ❌ Passkey mismatch detected!');
               console.error('  The passkey registered on the contract does not match the passkey used for signing.');
-              console.error('  This will cause signature verification to fail.');
-              console.error('[Smart Wallet] 💡 Attempting to re-register the correct passkey...');
+              console.error('  Registered passkey (hex):', registeredPubkeyHex.substring(0, 32) + '...');
+              console.error('  Signing passkey (hex):', passkeyPubkeyHex.substring(0, 32) + '...');
+              console.error('  The signature was already generated with the wrong passkey, so re-registering will not help.');
+              console.error('[Smart Wallet] 💡 Solution: Use the passkey that matches the registered one, or re-register BEFORE generating the signature.');
               
-              // Try to register the correct passkey
-              const registrationPromise = ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Passkey registration timeout after 15 seconds')), 15000)
-              );
-              
-              try {
-                const isRegistered = await Promise.race([registrationPromise, timeoutPromise]);
-                if (isRegistered) {
-                  console.log('[Smart Wallet] ✅ Passkey re-registered successfully');
-                } else {
-                  console.warn('[Smart Wallet] ⚠️ Passkey re-registration failed or timed out');
-                  return res.status(400).json({
-                    error: 'Passkey mismatch',
-                    details: 'The passkey used for signing does not match the passkey registered on the contract. Please re-register your passkey or use the correct passkey for signing.',
-                    registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
-                    signingPasskey: passkeyPubkeyHex.substring(0, 32) + '...'
-                  });
-                }
-              } catch (regError) {
-                console.error('[Smart Wallet] ❌ Error re-registering passkey:', regError.message);
-                return res.status(400).json({
-                  error: 'Passkey mismatch and re-registration failed',
-                  details: 'The passkey used for signing does not match the passkey registered on the contract, and automatic re-registration failed.',
-                  registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
-                  signingPasskey: passkeyPubkeyHex.substring(0, 32) + '...'
-                });
-              }
+              return res.status(400).json({
+                error: 'Passkey mismatch - signature verification will fail',
+                details: 'The passkey used to generate the signature does not match the passkey registered on the contract. The signature was already created with a different passkey, so it cannot be verified.',
+                message: 'Please use the passkey that matches the one registered on the contract, or re-register your passkey BEFORE generating the signature.',
+                registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
+                signingPasskey: passkeyPubkeyHex.substring(0, 32) + '...',
+                suggestion: 'The frontend should check which passkey is registered on the contract and use that one for signing, or prompt the user to re-register their passkey before signing.'
+              });
             } else {
               console.log('[Smart Wallet] ✅ Passkey matches - proceeding with payment');
             }

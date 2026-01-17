@@ -1975,7 +1975,11 @@ const ContractManagement = () => {
         // Use the passkey that's registered on the contract
         selectedPasskey = passkeys.find(p => p.isOnContract === true);
         if (!selectedPasskey) {
-          selectedPasskey = passkeys[0];
+          const errorMsg = 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.';
+          console.error('[ContractManagement] ❌', errorMsg);
+          setError(errorMsg);
+          setBatchExecuting(false);
+          return;
         }
 
         credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
@@ -2653,17 +2657,22 @@ const ContractManagement = () => {
         // The contract stores only ONE passkey per public_key, so we must use the one that's on the contract
         let selectedPasskey = passkeys.find(p => p.isOnContract === true);
         
-        // If no passkey is marked as on contract, try to find one that matches the contract passkey hex
-        if (!selectedPasskey && passkeysResponse.data.contractPasskeyHex) {
-          // Fallback: use first passkey if we can't determine which is on contract
-          console.warn('[ContractManagement] ⚠️ No passkey marked as on contract, using first passkey');
-          selectedPasskey = passkeys[0];
-        } else if (!selectedPasskey) {
-          // If still no passkey found, use the first one
-          selectedPasskey = passkeys[0];
+        if (!selectedPasskey) {
+          // No passkey matches the contract - this will cause signature verification to fail
+          const errorMsg = passkeysResponse.data.contractPasskeyHex
+            ? 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.'
+            : 'No passkey found that is registered on the contract. Please register a passkey first.';
+          console.error('[ContractManagement] ❌', errorMsg);
+          console.error('[ContractManagement] Available passkeys:', passkeys.map(p => ({
+            credentialId: p.credentialId || p.credential_id,
+            isOnContract: p.isOnContract
+          })));
+          setError(errorMsg);
+          setExecutingRule(false);
+          return;
         }
         
-        console.log('[ContractManagement] Using passkey:', {
+        console.log('[ContractManagement] ✅ Using passkey that matches contract:', {
           credentialId: selectedPasskey.credentialId || selectedPasskey.credential_id,
           isOnContract: selectedPasskey.isOnContract,
           hasPublicKey: !!(selectedPasskey.publicKey || selectedPasskey.public_key_spki)
@@ -2958,9 +2967,11 @@ const ContractManagement = () => {
           // The contract stores only ONE passkey per public_key, so we must use the one that's on the contract
           let selectedPasskey = passkeys.find(p => p.isOnContract === true);
           if (!selectedPasskey) {
-            // Fallback: use first passkey if we can't determine which is on contract
-            console.warn('[ContractManagement] ⚠️ No passkey marked as on contract, using first passkey');
-            selectedPasskey = passkeys[0];
+            const errorMsg = 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.';
+            console.error('[ContractManagement] ❌', errorMsg);
+            setError(errorMsg);
+            setExecutingRule(false);
+            return;
           }
           
           const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
