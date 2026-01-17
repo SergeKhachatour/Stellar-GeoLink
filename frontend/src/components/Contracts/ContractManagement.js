@@ -1939,27 +1939,29 @@ const ContractManagement = () => {
 
     try {
       console.log('[BatchExecute] Starting try block');
+      
       // Get passkeys once for all rules that need WebAuthn
       let passkeys = [];
       let selectedPasskey = null;
       let passkeyPublicKeySPKI = null;
       let credentialId = null;
+      let batchWebAuthnData = null; // Store batch authentication
 
-      // Check if any rule needs WebAuthn (we'll check per rule during execution)
-      // Get passkeys upfront if any rule might need them
-      console.log('[BatchExecute] Checking if any rule needs WebAuthn...');
-      const mightNeedWebAuthn = selectedRules.some(pr => {
+      // Check which rules need WebAuthn and prepare their authentication data upfront
+      console.log('[BatchExecute] Checking which rules need WebAuthn...');
+      const rulesNeedingWebAuthn = selectedRules.filter(pr => {
         const rule = rules.find(r => r.id === pr.rule_id);
         const contract = contracts.find(c => c.id === pr.contract_id);
-        const needs = contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
-        if (needs) {
-          console.log('[BatchExecute] Rule needs WebAuthn:', { rule_id: pr.rule_id, contract_id: pr.contract_id });
-        }
-        return needs;
+        return contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
       });
 
-      console.log('[BatchExecute] mightNeedWebAuthn:', mightNeedWebAuthn);
-      if (mightNeedWebAuthn) {
+      console.log('[BatchExecute] Rules needing WebAuthn:', rulesNeedingWebAuthn.length, 'out of', selectedRules.length);
+
+      // Store authentication data for each rule that needs it (authenticate all upfront)
+      const ruleAuthData = new Map(); // Map of rule_id -> webauthnData
+
+      // If any rules need WebAuthn, authenticate ALL of them upfront (one prompt per rule, but all at once)
+      if (rulesNeedingWebAuthn.length > 0) {
         console.log('[BatchExecute] Fetching passkeys...');
         // Get user's passkeys once
         const passkeysResponse = await api.get('/webauthn/passkeys');
@@ -1985,6 +1987,96 @@ const ContractManagement = () => {
           setBatchExecuting(false);
           return;
         }
+
+        // Show message to user
+        if (rulesNeedingWebAuthn.length > 0) {
+          setSuccess(`You will be asked to authenticate ${rulesNeedingWebAuthn.length} rule(s) with your passkey. Please approve each one to continue...`);
+        }
+        
+        // Authenticate ALL rules upfront (user will see prompts for each, but all at once before execution)
+        console.log('[BatchExecute] Authenticating all rules upfront...');
+        let authProgress = 0;
+        for (const pendingRule of rulesNeedingWebAuthn) {
+          authProgress++;
+          if (rulesNeedingWebAuthn.length > 1) {
+            setSuccess(`Authenticating rule ${authProgress}/${rulesNeedingWebAuthn.length} - please approve with your passkey...`);
+          }
+          const rule = rules.find(r => r.id === pendingRule.rule_id);
+          const contract = contracts.find(c => c.id === pendingRule.contract_id);
+          
+          if (!rule || !contract) continue;
+
+          let functionParams = typeof rule.function_parameters === 'string'
+            ? JSON.parse(rule.function_parameters)
+            : rule.function_parameters || {};
+
+          // Create rule-specific signature payload
+          let signaturePayload;
+          const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams);
+          const willRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
+                                             (contract?.use_smart_wallet && isPaymentFunc);
+
+          if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
+            let destination = functionParams.destination || functionParams.recipient || functionParams.to || 
+                            functionParams.to_address || functionParams.destination_address || '';
+            if (!destination && pendingRule.matched_public_key) {
+              destination = pendingRule.matched_public_key;
+            }
+            let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
+            if (typeof amount === 'number' && amount < 1000000) {
+              amount = Math.floor(amount * 10000000).toString();
+            } else {
+              amount = amount.toString();
+            }
+            let asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'native';
+            if (asset === 'XLM' || asset === 'native' || asset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
+              asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+            }
+
+            const paymentData = {
+              source: publicKey,
+              destination: destination,
+              amount: amount,
+              asset: asset,
+              memo: '',
+              timestamp: Date.now()
+            };
+            signaturePayload = JSON.stringify(paymentData);
+          } else {
+            signaturePayload = functionParams.signature_payload || JSON.stringify({
+              function: rule.function_name,
+              contract_id: rule.contract_id,
+              parameters: functionParams,
+              timestamp: Date.now()
+            });
+          }
+
+          try {
+            console.log(`[BatchExecute] Authenticating rule ${rule.rule_name} upfront...`);
+            const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
+            
+            ruleAuthData.set(pendingRule.rule_id, {
+              passkeyPublicKeySPKI,
+              webauthnSignature: authResult.signature,
+              webauthnAuthenticatorData: authResult.authenticatorData,
+              webauthnClientData: authResult.clientDataJSON,
+              signaturePayload
+            });
+            
+            console.log(`[BatchExecute] Rule ${rule.rule_name} authenticated successfully`);
+          } catch (err) {
+            console.error(`[BatchExecute] Failed to authenticate rule ${rule.rule_name}:`, err);
+            errors.push(`${rule.rule_name}: Authentication failed - ${err.message}`);
+            failCount++;
+          }
+        }
+
+        console.log('[BatchExecute] All authentications complete -', ruleAuthData.size, 'rules authenticated');
+        if (ruleAuthData.size > 0) {
+          setSuccess(`Authentication complete! Executing ${ruleAuthData.size} rule(s)...`);
+          // Clear message after a moment
+          setTimeout(() => setSuccess(''), 2000);
+        }
       }
 
       // Validate secret key if provided
@@ -2004,11 +2096,27 @@ const ContractManagement = () => {
         }
       }
 
-      // Execute each rule sequentially
-      console.log('[BatchExecute] Starting execution loop for', selectedRules.length, 'rules');
-      for (let i = 0; i < selectedRules.length; i++) {
-        const pendingRule = selectedRules[i];
-        console.log(`[BatchExecute] Processing rule ${i + 1}/${selectedRules.length}:`, {
+      // Filter out rules that failed authentication during upfront phase
+      const rulesToExecute = selectedRules.filter(pr => {
+        const rule = rules.find(r => r.id === pr.rule_id);
+        const contract = contracts.find(c => c.id === pr.contract_id);
+        const needsWebAuthn = contract?.requires_webauthn || (rule && requiresWebAuthn(rule, contract));
+        
+        // If rule needs WebAuthn but doesn't have auth data, skip it (already failed)
+        if (needsWebAuthn && !ruleAuthData.has(pr.rule_id)) {
+          console.log(`[BatchExecute] Skipping rule ${pr.rule_id} - authentication failed during upfront phase`);
+          return false;
+        }
+        return true;
+      });
+
+      console.log('[BatchExecute] Rules to execute after filtering:', rulesToExecute.length, 'out of', selectedRules.length);
+
+      // Execute each rule sequentially using pre-authenticated data
+      console.log('[BatchExecute] Starting execution loop for', rulesToExecute.length, 'rules');
+      for (let i = 0; i < rulesToExecute.length; i++) {
+        const pendingRule = rulesToExecute[i];
+        console.log(`[BatchExecute] Processing rule ${i + 1}/${rulesToExecute.length}:`, {
           pending_rule_id: pendingRule.rule_id,
           contract_id: pendingRule.contract_id,
           matched_key: pendingRule.matched_public_key?.substring(0, 8) + '...'
@@ -2042,24 +2150,32 @@ const ContractManagement = () => {
           function_name: rule.function_name,
           contract_id: contract.id,
           has_secret_key: !!userSecretKey,
-          has_credential_id: !!credentialId
+          has_rule_auth: !!ruleAuthData.get(pendingRule.rule_id)
         });
 
         setBatchExecutionProgress({
           current: i + 1,
-          total: selectedRules.length,
+          total: rulesToExecute.length,
           currentRule: pendingRule
         });
 
         try {
-          // Execute the rule - authenticate each one as needed
+          // Get pre-authenticated data for this rule (if it needed WebAuthn)
+          const ruleAuth = ruleAuthData.get(pendingRule.rule_id);
+          
+          // Execute the rule using pre-authenticated data (no authentication needed during execution)
           console.log(`[BatchExecute] Calling handleConfirmExecuteBatch for rule ${rule.rule_name}`);
-          await handleConfirmExecuteBatch(ruleWithMatchedKey, contract, userSecretKey, credentialId, passkeyPublicKeySPKI);
+          await handleConfirmExecuteBatch(
+            ruleWithMatchedKey, 
+            contract, 
+            userSecretKey, 
+            ruleAuth // Pass pre-authenticated data for this specific rule (null if not needed)
+          );
           console.log(`[BatchExecute] Successfully executed rule ${rule.rule_name}`);
           successCount++;
           
           // Small delay between executions
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 500));
         } catch (err) {
           console.error(`[BatchExecute] Error executing rule ${rule.rule_name}:`, err);
           console.error(`[BatchExecute] Error stack:`, err.stack);
@@ -2143,9 +2259,9 @@ const ContractManagement = () => {
     setError('');
   };
 
-  const handleConfirmExecuteBatch = async (rule, contract, userSecretKey, credentialId, passkeyPublicKeySPKI) => {
+  const handleConfirmExecuteBatch = async (rule, contract, userSecretKey, ruleAuth) => {
     // This is a simplified version of handleConfirmExecute for batch execution
-    // It skips the dialog and executes directly
+    // It uses pre-authenticated data that was done upfront, so no authentication needed during execution
     
     console.log('[BatchExecute] handleConfirmExecuteBatch called with:', {
       rule_id: rule?.id,
@@ -2153,8 +2269,7 @@ const ContractManagement = () => {
       function_name: rule?.function_name,
       contract_id: contract?.id,
       has_secret_key: !!userSecretKey,
-      has_credential_id: !!credentialId,
-      has_passkey: !!passkeyPublicKeySPKI
+      has_rule_auth: !!ruleAuth
     });
     
     const isReadOnly = isReadOnlyFunction(rule.function_name);
@@ -2176,71 +2291,27 @@ const ContractManagement = () => {
 
     let webauthnData = null;
 
-    // Only authenticate if WebAuthn is needed AND we have the credentials
+    // Use pre-authenticated data if WebAuthn is needed (already authenticated upfront)
     if (needsWebAuthn) {
-      if (!credentialId || !passkeyPublicKeySPKI) {
-        throw new Error('WebAuthn required but passkey credentials not available');
+      if (!ruleAuth) {
+        throw new Error('WebAuthn required but authentication data not available for this rule');
       }
-        // Create signature payload for this specific rule
-        let signaturePayload;
-        const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
-                             rule.function_name.toLowerCase().includes('payment') ||
-                             rule.function_name.toLowerCase().includes('transfer') ||
-                             rule.function_name.toLowerCase().includes('send') ||
-                             rule.function_name.toLowerCase().includes('pay');
 
-        if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
-          let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
-          if (!destination && rule.matched_public_key) {
-            destination = rule.matched_public_key;
-          }
-          let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
-          if (typeof amount === 'number' && amount < 1000000) {
-            amount = Math.floor(amount * 10000000).toString();
-          } else {
-            amount = amount.toString();
-          }
-          let asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'native';
-          if (asset === 'XLM' || asset === 'native' || asset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
-            asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
-          }
-
-          const paymentData = {
-            source: publicKey,
-            destination: destination,
-            amount: amount,
-            asset: asset,
-            memo: '',
-            timestamp: Date.now()
-          };
-          signaturePayload = JSON.stringify(paymentData);
-        } else {
-          signaturePayload = functionParams.signature_payload || JSON.stringify({
-            function: rule.function_name,
-            contract_id: rule.contract_id,
-            parameters: functionParams,
-            timestamp: Date.now()
-          });
-        }
-
-        // Authenticate with passkey for this specific rule
-        // Note: User will need to authenticate for each rule, but it's done in sequence
-        const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
-
+      // Use the pre-authenticated data (no need to authenticate again)
       webauthnData = {
-        passkeyPublicKeySPKI,
-        webauthnSignature: authResult.signature,
-        webauthnAuthenticatorData: authResult.authenticatorData,
-        webauthnClientData: authResult.clientDataJSON,
-        signaturePayload
+        passkeyPublicKeySPKI: ruleAuth.passkeyPublicKeySPKI,
+        webauthnSignature: ruleAuth.webauthnSignature,
+        webauthnAuthenticatorData: ruleAuth.webauthnAuthenticatorData,
+        webauthnClientData: ruleAuth.webauthnClientData,
+        signaturePayload: ruleAuth.signaturePayload // Use the payload that was signed
       };
 
       functionParams = {
         ...functionParams,
-        signature_payload: signaturePayload,
-        webauthn_signature: authResult.signature,
-        webauthn_authenticator_data: authResult.authenticatorData,
-        webauthn_client_data: authResult.clientDataJSON
+        signature_payload: ruleAuth.signaturePayload,
+        webauthn_signature: ruleAuth.webauthnSignature,
+        webauthn_authenticator_data: ruleAuth.webauthnAuthenticatorData,
+        webauthn_client_data: ruleAuth.webauthnClientData
       };
     }
 
@@ -2278,29 +2349,24 @@ const ContractManagement = () => {
       const asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'XLM';
       const amountInStroops = (parseFloat(amount) * 10000000).toString();
       
-      // Ensure we have WebAuthn data for smart wallet
-      if (!webauthnData && credentialId && passkeyPublicKeySPKI) {
-        const transactionData = {
-          source: publicKey,
-          destination,
-          amount: amountInStroops,
-          asset: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
-          memo: '',
-          timestamp: Date.now()
-        };
-        const signaturePayload = JSON.stringify(transactionData);
-        const authResult = await webauthnService.authenticateWithPasskey(credentialId, signaturePayload);
+      // Use pre-authenticated data for smart wallet (already authenticated upfront)
+      if (!webauthnData && ruleAuth) {
+        // Use the pre-authenticated data (no need to authenticate again)
         webauthnData = {
-          passkeyPublicKeySPKI,
-          webauthnSignature: authResult.signature,
-          webauthnAuthenticatorData: authResult.authenticatorData,
-          webauthnClientData: authResult.clientDataJSON,
-          signaturePayload
+          passkeyPublicKeySPKI: ruleAuth.passkeyPublicKeySPKI,
+          webauthnSignature: ruleAuth.webauthnSignature,
+          webauthnAuthenticatorData: ruleAuth.webauthnAuthenticatorData,
+          webauthnClientData: ruleAuth.webauthnClientData,
+          signaturePayload: ruleAuth.signaturePayload // Use the payload that was signed
         };
       }
       
       if (!userSecretKey) {
         throw new Error('Secret key is required for smart wallet payments');
+      }
+      
+      if (!webauthnData) {
+        throw new Error('WebAuthn authentication is required for smart wallet payments');
       }
       
       // Call smart wallet endpoint
