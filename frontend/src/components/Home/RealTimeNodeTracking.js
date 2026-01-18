@@ -889,11 +889,11 @@ const RealTimeNodeTracking = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Empty dependency array to run only once
 
-  // Auto-refresh XLM price every 60 seconds
+  // Auto-refresh XLM price every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetchXLMPrice();
-    }, 60000); // Update every minute
+    }, 10000); // Update every 10 seconds
 
     return () => clearInterval(interval);
   }, [fetchXLMPrice]);
