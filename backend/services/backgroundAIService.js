@@ -11,6 +11,14 @@ const azureOpenAIService = require('./azureOpenAIService');
 const contractIntrospection = require('./contractIntrospection');
 const { logEvent, fuzzLocation } = require('../utils/eventLogger');
 
+// Optional: Balance check service (may not be available in all deployments)
+let balanceCheckService = null;
+try {
+  balanceCheckService = require('./balanceCheckService');
+} catch (error) {
+  console.warn('[BackgroundAI] ⚠️ balanceCheckService not available:', error.message);
+}
+
 class BackgroundAIService {
   constructor() {
     this.processingInterval = null;
@@ -413,9 +421,8 @@ class BackgroundAIService {
       }
 
       // Check balance thresholds and auto-deactivate rules if needed
-      if (executionResults.some(r => r.success && r.completed)) {
+      if (executionResults.some(r => r.success && r.completed) && balanceCheckService) {
         try {
-          const balanceCheckService = require('./balanceCheckService');
           await balanceCheckService.checkAllRules(public_key);
         } catch (balanceError) {
           console.error(`[BackgroundAI] ⚠️ Error checking balance thresholds:`, balanceError);
