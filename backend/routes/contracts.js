@@ -5653,7 +5653,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             
                             if (isPlaceholder) {
                                 // Try to get matched_public_key from various sources
-                                const matchedKey = matchedPublicKey || 
+                                const matchedKey = matched_public_key || 
                                                   processedParameters.matched_public_key ||
                                                   req.body.matched_public_key;
                                 
