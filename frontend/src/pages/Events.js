@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Container,
     Typography,
@@ -10,7 +10,6 @@ import {
     Chip,
     Grid,
     Paper,
-    Divider,
     Link as MuiLink,
     Pagination,
     Stack
@@ -41,7 +40,7 @@ const Events = () => {
         totalPages: 1
     });
 
-    const fetchEvents = async (pageNum = page) => {
+    const fetchEvents = useCallback(async (pageNum = page) => {
         try {
             setLoading(true);
             const response = await api.get('/events', {
@@ -67,14 +66,19 @@ const Events = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [page, filter]);
 
     useEffect(() => {
         fetchEvents(page);
         // Refresh events every 30 seconds (only refresh current page)
         const interval = setInterval(() => fetchEvents(page), 30000);
         return () => clearInterval(interval);
-    }, [page]);
+    }, [page, fetchEvents]);
+
+    // Refetch when filter changes (reset to page 1)
+    useEffect(() => {
+        setPage(1);
+    }, [filter]);
 
     const handlePageChange = (event, value) => {
         setPage(value);

@@ -1216,6 +1216,128 @@ router.get('/public', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /api/contracts/nearby:
+ *   get:
+ *     summary: Get nearby smart contract execution rules
+ *     description: Returns active contract execution rules within a specified radius of given coordinates. Public endpoint for data consumers (xyz-wallet).
+ *     tags: [Contracts]
+ *     parameters:
+ *       - in: query
+ *         name: latitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Latitude of the center point
+ *         example: 34.0164
+ *       - in: query
+ *         name: longitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Longitude of the center point
+ *         example: -118.4951
+ *       - in: query
+ *         name: radius
+ *         schema:
+ *           type: number
+ *           default: 1000
+ *           minimum: 1
+ *           maximum: 100000
+ *         description: Search radius in meters (default 1000)
+ *         example: 1000
+ *     responses:
+ *       200:
+ *         description: List of nearby contract execution rules
+ */
+// Get nearby smart contract execution rules - Public endpoint (for xyz-wallet data consumers)
+// NOTE: This route MUST be defined BEFORE /:id to avoid route conflicts
+router.get('/nearby', async (req, res) => {
+    try {
+        const { latitude, longitude, radius = 1000 } = req.query;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({ error: 'Latitude and longitude are required' });
+        }
+
+        // Get active contract execution rules within radius using PostGIS
+        const result = await pool.query(`
+            SELECT 
+                cer.id,
+                cer.rule_name,
+                cer.rule_type,
+                cer.center_latitude as latitude,
+                cer.center_longitude as longitude,
+                cer.radius_meters,
+                cer.function_name,
+                cer.trigger_on,
+                cer.auto_execute,
+                cer.is_active,
+                cc.contract_name,
+                cc.contract_address,
+                cc.network,
+                cc.requires_webauthn,
+                cc.use_smart_wallet,
+                cc.function_mappings,
+                cc.discovered_functions,
+                ST_Distance(
+                    ST_Point($2, $1)::geography,
+                    ST_Point(cer.center_longitude, cer.center_latitude)::geography
+                ) as distance
+            FROM contract_execution_rules cer
+            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE cer.rule_type = 'location'
+                AND cer.center_latitude IS NOT NULL 
+                AND cer.center_longitude IS NOT NULL
+                AND cer.is_active = true
+                AND cc.is_active = true
+                AND ST_DWithin(
+                    ST_Point($2, $1)::geography,
+                    ST_Point(cer.center_longitude, cer.center_latitude)::geography,
+                    $3
+                )
+            ORDER BY distance ASC
+        `, [latitude, longitude, radius]);
+
+        const formattedContracts = result.rows.map(rule => ({
+            id: rule.id,
+            rule_name: rule.rule_name,
+            rule_type: rule.rule_type,
+            contract_name: rule.contract_name,
+            contract_address: rule.contract_address,
+            function_name: rule.function_name,
+            latitude: parseFloat(rule.latitude),
+            longitude: parseFloat(rule.longitude),
+            radius_meters: rule.radius_meters ? parseFloat(rule.radius_meters) : null,
+            distance: rule.distance ? parseFloat(rule.distance) : null,
+            network: rule.network,
+            trigger_on: rule.trigger_on,
+            auto_execute: rule.auto_execute,
+            requires_webauthn: rule.requires_webauthn || false,
+            use_smart_wallet: rule.use_smart_wallet || false,
+            function_mappings: typeof rule.function_mappings === 'string' 
+                ? JSON.parse(rule.function_mappings) 
+                : rule.function_mappings,
+            discovered_functions: typeof rule.discovered_functions === 'string'
+                ? JSON.parse(rule.discovered_functions)
+                : rule.discovered_functions
+        }));
+
+        res.json({
+            contracts: formattedContracts,
+            count: formattedContracts.length,
+            search_center: { latitude: parseFloat(latitude), longitude: parseFloat(longitude) },
+            radius: parseInt(radius)
+        });
+    } catch (error) {
+        console.error('Error fetching nearby contracts:', error);
+        res.status(500).json({ error: 'Failed to fetch nearby contracts' });
+    }
+});
+
 // Authenticated endpoint to get user's contracts (for management)
 router.get('/', authenticateContractUser, async (req, res) => {
     try {
@@ -6929,127 +7051,6 @@ router.get('/execution-rules/locations', authenticateContractUser, async (req, r
     } catch (error) {
         console.error('Error fetching contract execution rules locations:', error);
         res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-/**
- * @swagger
- * /api/contracts/nearby:
- *   get:
- *     summary: Get nearby smart contract execution rules
- *     description: Returns active contract execution rules within a specified radius of given coordinates. Public endpoint for data consumers (xyz-wallet).
- *     tags: [Contracts]
- *     parameters:
- *       - in: query
- *         name: latitude
- *         required: true
- *         schema:
- *           type: number
- *           format: float
- *         description: Latitude of the center point
- *         example: 34.0164
- *       - in: query
- *         name: longitude
- *         required: true
- *         schema:
- *           type: number
- *           format: float
- *         description: Longitude of the center point
- *         example: -118.4951
- *       - in: query
- *         name: radius
- *         schema:
- *           type: number
- *           default: 1000
- *           minimum: 1
- *           maximum: 100000
- *         description: Search radius in meters (default 1000)
- *         example: 1000
- *     responses:
- *       200:
- *         description: List of nearby contract execution rules
- */
-// Get nearby smart contract execution rules - Public endpoint (for xyz-wallet data consumers)
-router.get('/nearby', async (req, res) => {
-    try {
-        const { latitude, longitude, radius = 1000 } = req.query;
-
-        if (!latitude || !longitude) {
-            return res.status(400).json({ error: 'Latitude and longitude are required' });
-        }
-
-        // Get active contract execution rules within radius using PostGIS
-        const result = await pool.query(`
-            SELECT 
-                cer.id,
-                cer.rule_name,
-                cer.rule_type,
-                cer.center_latitude as latitude,
-                cer.center_longitude as longitude,
-                cer.radius_meters,
-                cer.function_name,
-                cer.trigger_on,
-                cer.auto_execute,
-                cer.is_active,
-                cc.contract_name,
-                cc.contract_address,
-                cc.network,
-                cc.requires_webauthn,
-                cc.use_smart_wallet,
-                cc.function_mappings,
-                cc.discovered_functions,
-                ST_Distance(
-                    ST_Point($2, $1)::geography,
-                    ST_Point(cer.center_longitude, cer.center_latitude)::geography
-                ) as distance
-            FROM contract_execution_rules cer
-            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
-            WHERE cer.rule_type = 'location'
-                AND cer.center_latitude IS NOT NULL 
-                AND cer.center_longitude IS NOT NULL
-                AND cer.is_active = true
-                AND cc.is_active = true
-                AND ST_DWithin(
-                    ST_Point($2, $1)::geography,
-                    ST_Point(cer.center_longitude, cer.center_latitude)::geography,
-                    $3
-                )
-            ORDER BY distance ASC
-        `, [latitude, longitude, radius]);
-
-        const formattedContracts = result.rows.map(rule => ({
-            id: rule.id,
-            rule_name: rule.rule_name,
-            rule_type: rule.rule_type,
-            contract_name: rule.contract_name,
-            contract_address: rule.contract_address,
-            function_name: rule.function_name,
-            latitude: parseFloat(rule.latitude),
-            longitude: parseFloat(rule.longitude),
-            radius_meters: rule.radius_meters ? parseFloat(rule.radius_meters) : null,
-            distance: rule.distance ? parseFloat(rule.distance) : null,
-            network: rule.network,
-            trigger_on: rule.trigger_on,
-            auto_execute: rule.auto_execute,
-            requires_webauthn: rule.requires_webauthn || false,
-            use_smart_wallet: rule.use_smart_wallet || false,
-            function_mappings: typeof rule.function_mappings === 'string' 
-                ? JSON.parse(rule.function_mappings) 
-                : rule.function_mappings,
-            discovered_functions: typeof rule.discovered_functions === 'string'
-                ? JSON.parse(rule.discovered_functions)
-                : rule.discovered_functions
-        }));
-
-        res.json({
-            contracts: formattedContracts,
-            count: formattedContracts.length,
-            search_center: { latitude: parseFloat(latitude), longitude: parseFloat(longitude) },
-            radius: parseInt(radius)
-        });
-    } catch (error) {
-        console.error('Error fetching nearby contracts:', error);
-        res.status(500).json({ error: 'Failed to fetch nearby contracts' });
     }
 });
 
