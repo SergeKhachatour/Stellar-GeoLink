@@ -1689,19 +1689,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                WITH last_completed AS (
-                    SELECT 
-                        (result->>'rule_id')::integer as rule_id,
-                        luq.public_key,
-                        MAX(luq.received_at) as last_completed_received_at
-                    FROM location_update_queue luq
-                    CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
-                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
-                        AND luq.execution_results IS NOT NULL
-                        AND COALESCE((result->>'completed')::boolean, false) = true
-                        AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, luq.public_key
-                )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
                     cer.rule_name,
@@ -1722,8 +1709,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND lc.public_key = luq.public_key
                 WHERE (luq.public_key = $1 OR luq.user_id = $2)
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
@@ -1740,26 +1725,23 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS completed_result
+                        WHERE (completed_result->>'rule_id')::integer = cer.id
+                        AND COALESCE((completed_result->>'completed')::boolean, false) = true
+                        AND (
+                            completed_result->>'matched_public_key' = luq.public_key
+                            OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
+                            OR completed_result->>'matched_public_key' IS NULL
+                        )
+                    )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, parseInt(limit)];
         } else if (publicKey) {
             query = `
-                WITH last_completed AS (
-                    SELECT 
-                        (result->>'rule_id')::integer as rule_id,
-                        luq.public_key,
-                        MAX(luq.received_at) as last_completed_received_at
-                    FROM location_update_queue luq
-                    CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
-                    WHERE luq.public_key = $1
-                        AND luq.execution_results IS NOT NULL
-                        AND COALESCE((result->>'completed')::boolean, false) = true
-                        AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, luq.public_key
-                )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
                     cer.rule_name,
@@ -1780,8 +1762,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND lc.public_key = luq.public_key
                 WHERE luq.public_key = $1
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
@@ -1798,7 +1778,17 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS completed_result
+                        WHERE (completed_result->>'rule_id')::integer = cer.id
+                        AND COALESCE((completed_result->>'completed')::boolean, false) = true
+                        AND (
+                            completed_result->>'matched_public_key' = luq.public_key
+                            OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
+                            OR completed_result->>'matched_public_key' IS NULL
+                        )
+                    )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
             `;
@@ -1808,19 +1798,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                WITH last_completed AS (
-                    SELECT 
-                        (result->>'rule_id')::integer as rule_id,
-                        luq.public_key,
-                        MAX(luq.received_at) as last_completed_received_at
-                    FROM location_update_queue luq
-                    CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
-                    WHERE luq.user_id = $1
-                        AND luq.execution_results IS NOT NULL
-                        AND COALESCE((result->>'completed')::boolean, false) = true
-                        AND result->>'completed_at' IS NOT NULL
-                    GROUP BY (result->>'rule_id')::integer, luq.public_key
-                )
                 SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
                     cer.id as rule_id,
                     cer.rule_name,
@@ -1841,8 +1818,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
-                LEFT JOIN last_completed lc ON lc.rule_id = cer.id 
-                    AND lc.public_key = luq.public_key
                 WHERE luq.user_id = $1
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
@@ -1859,7 +1834,17 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR result->>'matched_public_key' IS NULL
                         )
                     )
-                    AND (lc.last_completed_received_at IS NULL OR luq.received_at > lc.last_completed_received_at)
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS completed_result
+                        WHERE (completed_result->>'rule_id')::integer = cer.id
+                        AND COALESCE((completed_result->>'completed')::boolean, false) = true
+                        AND (
+                            completed_result->>'matched_public_key' = luq.public_key
+                            OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
+                            OR completed_result->>'matched_public_key' IS NULL
+                        )
+                    )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
             `;
@@ -1873,83 +1858,6 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         //     query_preview: query.substring(0, 200) + '...'
         // });
         
-        // Debug: Check what last_completed CTE would return
-        try {
-            const debugLastCompletedQuery = `
-                SELECT 
-                    (result->>'rule_id')::integer as rule_id,
-                    luq.public_key,
-                    MAX(luq.received_at) as last_completed_received_at
-                FROM location_update_queue luq
-                CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
-                WHERE ${publicKey && userId ? '(luq.public_key = $1 OR luq.user_id = $2)' : publicKey ? 'luq.public_key = $1' : 'luq.user_id = $1'}
-                    AND luq.execution_results IS NOT NULL
-                    AND COALESCE((result->>'completed')::boolean, false) = true
-                    AND result->>'completed_at' IS NOT NULL
-                GROUP BY (result->>'rule_id')::integer, luq.public_key
-                ORDER BY rule_id, public_key
-            `;
-            const debugLastCompletedParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
-            const debugLastCompletedResult = await pool.query(debugLastCompletedQuery, debugLastCompletedParams);
-            console.log(`[PendingRules] 🔍 last_completed CTE would return ${debugLastCompletedResult.rows.length} row(s):`, 
-                debugLastCompletedResult.rows.slice(0, 5).map(r => ({
-                    rule_id: r.rule_id,
-                    public_key: r.public_key?.substring(0, 8) + '...',
-                    last_completed_received_at: r.last_completed_received_at
-                }))
-            );
-        } catch (debugError) {
-            console.error('[PendingRules] ⚠️ Error checking last_completed:', debugError.message);
-        }
-
-        // Debug: Check pending rules before timestamp filter
-        try {
-            const debugPendingQuery = `
-                SELECT 
-                    cer.id as rule_id,
-                    luq.public_key,
-                    luq.id as update_id,
-                    luq.received_at,
-                    (SELECT MAX(luq2.received_at)
-                     FROM location_update_queue luq2
-                     CROSS JOIN jsonb_array_elements(luq2.execution_results) AS result
-                     WHERE luq2.public_key = luq.public_key
-                     AND (result->>'rule_id')::integer = cer.id
-                     AND COALESCE((result->>'completed')::boolean, false) = true
-                     AND result->>'completed_at' IS NOT NULL) as last_completed_received_at
-                FROM location_update_queue luq
-                JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
-                JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE ${publicKey && userId ? '(luq.public_key = $1 OR luq.user_id = $2)' : publicKey ? 'luq.public_key = $1' : 'luq.user_id = $1'}
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND EXISTS (
-                        SELECT 1 
-                        FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE result->>'skipped' = 'true'
-                        AND result->>'reason' = 'requires_webauthn'
-                        AND (result->>'rule_id')::integer = cer.id
-                        AND COALESCE((result->>'rejected')::boolean, false) = false
-                        AND COALESCE((result->>'completed')::boolean, false) = false
-                    )
-                ORDER BY luq.received_at DESC
-                LIMIT 5
-            `;
-            const debugPendingParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
-            const debugPendingResult = await pool.query(debugPendingQuery, debugPendingParams);
-            console.log(`[PendingRules] 🔍 Pending rules (before timestamp filter) - Found ${debugPendingResult.rows.length} row(s):`, 
-                debugPendingResult.rows.map(r => ({
-                    rule_id: r.rule_id,
-                    public_key: r.public_key?.substring(0, 8) + '...',
-                    update_id: r.update_id,
-                    received_at: r.received_at,
-                    last_completed_received_at: r.last_completed_received_at,
-                    would_show: !r.last_completed_received_at || r.received_at > r.last_completed_received_at
-                }))
-            );
-        } catch (debugError) {
-            console.error('[PendingRules] ⚠️ Error checking pending rules:', debugError.message);
-        }
 
         let result;
         try {
@@ -2459,24 +2367,79 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
         let updateQuery;
         let queryParams;
 
-        if (matched_public_key) {
-            // Complete specific rule + public key combination
+        if (update_id) {
+            // Precise recovery: update a specific queue entry by (user_id + update_id), no public_key requirement
+            updateQuery = `
+                UPDATE location_update_queue luq
+                SET execution_results = (
+                    SELECT jsonb_agg(
+                        CASE
+                            WHEN (result.value->>'rule_id')::integer = $1::integer
+                                AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                AND COALESCE((result.value->>'completed')::boolean, false) = false
+                            THEN result.value || jsonb_build_object(
+                                'completed', true,
+                                'completed_at', $3::text,
+                                'transaction_hash', COALESCE($4::text, result.value->>'transaction_hash'),
+                                'success', true,
+                                'skipped', false,
+                                'direct_execution', true,
+                                'matched_public_key', COALESCE(result.value->>'matched_public_key', $5::text)
+                            )
+                            ELSE result.value
+                        END
+                        ORDER BY result.ordinality
+                    )
+                    FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                ),
+                status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                processed_at = NOW()
+                WHERE luq.user_id = $2
+                    AND luq.id = $6::integer
+                    AND luq.execution_results IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS r
+                        WHERE (r->>'rule_id')::integer = $1::integer
+                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((r->>'completed')::boolean, false) = false
+                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                    )
+                RETURNING luq.id
+            `;
+            queryParams = [
+                parseInt(ruleId),
+                actualUserId,
+                completedAt,
+                transaction_hash || null,
+                matched_public_key || null,
+                parseInt(update_id)
+            ];
+        } else if (matched_public_key) {
+            // Best-effort recovery: match by user_id + matched_public_key (without requiring luq.public_key to match)
             updateQuery = `
                 WITH updated_results AS (
-                    SELECT 
+                    SELECT
                         luq.id,
                         jsonb_agg(
-                            CASE 
-                                WHEN (result.value->>'rule_id')::integer = $1::integer 
-                                     AND (result.value->>'skipped' = 'true' OR (result.value->>'skipped')::boolean = true)
-                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
-                                     AND (result.value->>'completed')::boolean IS DISTINCT FROM true
-                                     AND (result.value->>'matched_public_key' = $4 OR luq.public_key = $4)
+                            CASE
+                                WHEN (result.value->>'rule_id')::integer = $1::integer
+                                     AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                     AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                     AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                     AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                     AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $4::text
                                 THEN result.value || jsonb_build_object(
-                                    'completed', true, 
+                                    'completed', true,
                                     'completed_at', $3::text,
                                     'transaction_hash', COALESCE($5::text, result.value->>'transaction_hash'),
-                                    'success', true
+                                    'success', true,
+                                    'skipped', false,
+                                    'direct_execution', true,
+                                    'matched_public_key', COALESCE(result.value->>'matched_public_key', $4::text)
                                 )
                                 ELSE result.value
                             END
@@ -2485,26 +2448,36 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                     FROM location_update_queue luq
                     CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
                     WHERE luq.user_id = $2
-                        AND luq.public_key = $4
                         AND ($6::integer IS NULL OR luq.id = $6::integer)
                         AND luq.execution_results IS NOT NULL
                         AND EXISTS (
                             SELECT 1
                             FROM jsonb_array_elements(luq.execution_results) AS check_result
                             WHERE (check_result->>'rule_id')::integer = $1::integer
-                            AND (check_result->>'skipped' = 'true' OR (check_result->>'skipped')::boolean = true)
-                            AND (check_result->>'completed')::boolean IS DISTINCT FROM true
-                            AND (check_result->>'matched_public_key' = $4 OR luq.public_key = $4)
+                                AND COALESCE((check_result->>'skipped')::boolean, false) = true
+                                AND COALESCE(check_result->>'reason', '') = 'requires_webauthn'
+                                AND COALESCE((check_result->>'completed')::boolean, false) = false
+                                AND COALESCE((check_result->>'rejected')::boolean, false) = false
+                                AND COALESCE(check_result->>'matched_public_key', luq.public_key) = $4::text
                         )
                     GROUP BY luq.id
                 )
                 UPDATE location_update_queue luq
-                SET execution_results = ur.new_execution_results
+                SET execution_results = ur.new_execution_results,
+                    status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                    processed_at = NOW()
                 FROM updated_results ur
                 WHERE luq.id = ur.id
                 RETURNING luq.id
             `;
-            queryParams = [parseInt(ruleId), actualUserId, completedAt, matched_public_key, transaction_hash || null, update_id || null];
+            queryParams = [
+                parseInt(ruleId),
+                actualUserId,
+                completedAt,
+                matched_public_key,
+                transaction_hash || null,
+                update_id || null
+            ];
         } else {
             // Complete all instances of this rule for this user (backward compatibility)
             updateQuery = `
@@ -2513,15 +2486,18 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                         luq.id,
                         jsonb_agg(
                             CASE 
-                                WHEN (result.value->>'rule_id')::integer = $1::integer 
-                                     AND (result.value->>'skipped' = 'true' OR (result.value->>'skipped')::boolean = true)
-                                     AND (result.value->>'rejected')::boolean IS DISTINCT FROM true
-                                     AND (result.value->>'completed')::boolean IS DISTINCT FROM true
+                                WHEN (result.value->>'rule_id')::integer = $1::integer
+                                     AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                     AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                     AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                     AND COALESCE((result.value->>'completed')::boolean, false) = false
                                 THEN result.value || jsonb_build_object(
                                     'completed', true, 
                                     'completed_at', $3::text,
                                     'transaction_hash', COALESCE($4::text, result.value->>'transaction_hash'),
-                                    'success', true
+                                    'success', true,
+                                    'skipped', false,
+                                    'direct_execution', true
                                 )
                                 ELSE result.value
                             END
@@ -2536,13 +2512,17 @@ router.post('/rules/pending/:ruleId/complete', authenticateContractUser, async (
                             SELECT 1
                             FROM jsonb_array_elements(luq.execution_results) AS check_result
                             WHERE (check_result->>'rule_id')::integer = $1::integer
-                            AND (check_result->>'skipped' = 'true' OR (check_result->>'skipped')::boolean = true)
-                            AND (check_result->>'completed')::boolean IS DISTINCT FROM true
+                            AND COALESCE((check_result->>'skipped')::boolean, false) = true
+                            AND COALESCE(check_result->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((check_result->>'completed')::boolean, false) = false
+                            AND COALESCE((check_result->>'rejected')::boolean, false) = false
                         )
                     GROUP BY luq.id
                 )
                 UPDATE location_update_queue luq
-                SET execution_results = ur.new_execution_results
+                SET execution_results = ur.new_execution_results,
+                    status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                    processed_at = NOW()
                 FROM updated_results ur
                 WHERE luq.id = ur.id
                 RETURNING luq.id
@@ -2608,89 +2588,99 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                SELECT DISTINCT ON (
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality
+                WITH completed_rules AS (
+                    SELECT DISTINCT ON (
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
+                    )
+                        cer.id as rule_id,
+                        cer.rule_name,
+                        cer.function_name,
+                        cer.function_parameters,
+                        cc.function_mappings,
+                        cer.contract_id,
+                        cc.contract_name,
+                        cc.contract_address,
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        result_data.value as execution_result,
+                        (result_data.value->>'rule_id')::integer as execution_rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at,
+                        result_data.ordinality as result_ordinality
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                    JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
+                    JOIN custom_contracts cc ON cer.contract_id = cc.id
+                    WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality,
+                        COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 )
-                    cer.id as rule_id,
-                    cer.rule_name,
-                    cer.function_name,
-                    cer.function_parameters,
-                    cc.function_mappings,
-                    cer.contract_id,
-                    cc.contract_name,
-                    cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    result_data.value as execution_result,
-                    (result_data.value->>'rule_id')::integer as execution_rule_id,
-                    result_data.value->>'transaction_hash' as transaction_hash,
-                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
-                    result_data.value->>'completed_at' as completed_at,
-                    result_data.ordinality as result_ordinality
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
-                JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE (luq.public_key = $1 OR luq.user_id = $2)
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data.value->>'completed')::boolean = true
-                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality,
-                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
+                SELECT *
+                FROM completed_rules
+                ORDER BY COALESCE(completed_at::timestamp, received_at) DESC
                 LIMIT $3
             `;
             params = [publicKey, userId, limit];
         } else if (publicKey) {
             query = `
-                SELECT DISTINCT ON (
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality
+                WITH completed_rules AS (
+                    SELECT DISTINCT ON (
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
+                    )
+                        cer.id as rule_id,
+                        cer.rule_name,
+                        cer.function_name,
+                        cer.function_parameters,
+                        cc.function_mappings,
+                        cer.contract_id,
+                        cc.contract_name,
+                        cc.contract_address,
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        result_data.value as execution_result,
+                        (result_data.value->>'rule_id')::integer as execution_rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at,
+                        result_data.ordinality as result_ordinality
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                    JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
+                    JOIN custom_contracts cc ON cer.contract_id = cc.id
+                    WHERE luq.public_key = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality,
+                        COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 )
-                    cer.id as rule_id,
-                    cer.rule_name,
-                    cer.function_name,
-                    cer.function_parameters,
-                    cc.function_mappings,
-                    cer.contract_id,
-                    cc.contract_name,
-                    cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    result_data.value as execution_result,
-                    (result_data.value->>'rule_id')::integer as execution_rule_id,
-                    result_data.value->>'transaction_hash' as transaction_hash,
-                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
-                    result_data.value->>'completed_at' as completed_at,
-                    result_data.ordinality as result_ordinality
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
-                JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE luq.public_key = $1
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data.value->>'completed')::boolean = true
-                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality,
-                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
+                SELECT *
+                FROM completed_rules
+                ORDER BY COALESCE(completed_at::timestamp, received_at) DESC
                 LIMIT $2
             `;
             params = [publicKey, limit];
@@ -2699,45 +2689,50 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                SELECT DISTINCT ON (
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality
+                WITH completed_rules AS (
+                    SELECT DISTINCT ON (
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality
+                    )
+                        cer.id as rule_id,
+                        cer.rule_name,
+                        cer.function_name,
+                        cer.function_parameters,
+                        cc.function_mappings,
+                        cer.contract_id,
+                        cc.contract_name,
+                        cc.contract_address,
+                        luq.id as update_id,
+                        luq.public_key,
+                        luq.latitude,
+                        luq.longitude,
+                        luq.received_at,
+                        luq.processed_at,
+                        result_data.value as execution_result,
+                        (result_data.value->>'rule_id')::integer as execution_rule_id,
+                        result_data.value->>'transaction_hash' as transaction_hash,
+                        COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
+                        result_data.value->>'completed_at' as completed_at,
+                        result_data.ordinality as result_ordinality
+                    FROM location_update_queue luq
+                    CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
+                    JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
+                    JOIN custom_contracts cc ON cer.contract_id = cc.id
+                    WHERE luq.user_id = $1
+                        AND luq.status IN ('matched', 'executed')
+                        AND luq.execution_results IS NOT NULL
+                        AND (result_data.value->>'completed')::boolean = true
+                        AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
+                    ORDER BY 
+                        luq.id,
+                        (result_data.value->>'rule_id')::integer,
+                        result_data.ordinality,
+                        COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
                 )
-                    cer.id as rule_id,
-                    cer.rule_name,
-                    cer.function_name,
-                    cer.function_parameters,
-                    cc.function_mappings,
-                    cer.contract_id,
-                    cc.contract_name,
-                    cc.contract_address,
-                    luq.id as update_id,
-                    luq.public_key,
-                    luq.latitude,
-                    luq.longitude,
-                    luq.received_at,
-                    luq.processed_at,
-                    result_data.value as execution_result,
-                    (result_data.value->>'rule_id')::integer as execution_rule_id,
-                    result_data.value->>'transaction_hash' as transaction_hash,
-                    COALESCE(result_data.value->>'matched_public_key', luq.public_key) as matched_public_key,
-                    result_data.value->>'completed_at' as completed_at,
-                    result_data.ordinality as result_ordinality
-                FROM location_update_queue luq
-                CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result_data(value, ordinality)
-                JOIN contract_execution_rules cer ON cer.id = (result_data.value->>'rule_id')::integer
-                JOIN custom_contracts cc ON cer.contract_id = cc.id
-                WHERE luq.user_id = $1
-                    AND luq.status IN ('matched', 'executed')
-                    AND luq.execution_results IS NOT NULL
-                    AND (result_data.value->>'completed')::boolean = true
-                    AND (result_data.value->>'matched_public_key' = luq.public_key OR result_data.value->>'matched_public_key' IS NULL)
-                ORDER BY 
-                    luq.id,
-                    (result_data.value->>'rule_id')::integer,
-                    result_data.ordinality,
-                    COALESCE((result_data.value->>'completed_at')::timestamp, luq.received_at) DESC
+                SELECT *
+                FROM completed_rules
+                ORDER BY COALESCE(completed_at::timestamp, received_at) DESC
                 LIMIT $2
             `;
             params = [userId, limit];
@@ -4235,7 +4230,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             };
 
             let paymentParams = extractPaymentParams(parameters);
-            console.log(`[Execute] 📋 Extracted payment params:`, JSON.stringify(paymentParams));
+            // console.log(`[Execute] 📋 Extracted payment params:`, JSON.stringify(paymentParams));
             
             // If destination is missing, try to extract it from signature_payload
             if (!paymentParams.destination && parameters.signature_payload) {
@@ -4245,7 +4240,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         : parameters.signature_payload;
                     if (payload.destination) {
                         paymentParams.destination = payload.destination;
-                        console.log(`[Execute] 📋 Extracted destination from signature_payload: ${paymentParams.destination}`);
+                        // console.log(`[Execute] 📋 Extracted destination from signature_payload: ${paymentParams.destination}`);
                     }
                 } catch (e) {
                     console.warn(`[Execute] ⚠️ Could not parse signature_payload:`, e.message);
@@ -4311,7 +4306,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     if (payload.amount) {
                         // Convert from stroops if it's a string
                         paymentParams.amount = payload.amount;
-                        console.log(`[Execute] 📋 Extracted amount from signature_payload: ${paymentParams.amount}`);
+                        // console.log(`[Execute] 📋 Extracted amount from signature_payload: ${paymentParams.amount}`);
                     }
                 } catch (e) {
                     console.warn(`[Execute] ⚠️ Could not parse signature_payload:`, e.message);
@@ -4379,12 +4374,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         memo: parsed.memo || '',
                         timestamp: parsed.timestamp || Date.now()
                     });
-                    console.log(`[Execute] 📋 Using provided signature payload (normalized):`, {
-                        source: (parsed.source || user_public_key).substring(0, 8) + '...',
-                        destination: (parsed.destination || paymentParams.destination).substring(0, 8) + '...',
-                        amount: parsed.amount || amountInStroops,
-                        asset: (parsed.asset || assetForPayload).substring(0, 8) + '...'
-                    });
+                    // console.log(`[Execute] 📋 Using provided signature payload (normalized):`, {
+                    //     source: (parsed.source || user_public_key).substring(0, 8) + '...',
+                    //     destination: (parsed.destination || paymentParams.destination).substring(0, 8) + '...',
+                    //     amount: parsed.amount || amountInStroops,
+                    //     asset: (parsed.asset || assetForPayload).substring(0, 8) + '...'
+                    // });
                 } catch (e) {
                     console.warn(`[Execute] ⚠️ Could not parse signature payload, creating new one:`, e.message);
                     finalSignaturePayload = JSON.stringify({
@@ -4405,12 +4400,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                     memo: '',
                     timestamp: Date.now()
                 });
-                console.log(`[Execute] 📋 Created new signature payload:`, {
-                    source: user_public_key.substring(0, 8) + '...',
-                    destination: paymentParams.destination.substring(0, 8) + '...',
-                    amount: amountInStroops,
-                    asset: assetForPayload.substring(0, 8) + '...'
-                });
+                // console.log(`[Execute] 📋 Created new signature payload:`, {
+                //     source: user_public_key.substring(0, 8) + '...',
+                //     destination: paymentParams.destination.substring(0, 8) + '...',
+                //     amount: amountInStroops,
+                //     asset: assetForPayload.substring(0, 8) + '...'
+                // });
             }
 
             // Process WebAuthn signature if provided
@@ -4534,14 +4529,14 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             // The contract stores passkeys by Stellar public_key (address), not by user_id
             // If multiple roles share the same public_key, only the LAST registered passkey exists on the contract
             // We must use the passkey that's actually registered on the contract, not the one from the database
-            console.log('[Execute] 🔍 Passkey verification check:', {
-                needsWebAuthn,
-                hasPasskeySPKI: !!passkeyPublicKeySPKI,
-                passkeySPKILength: passkeyPublicKeySPKI ? passkeyPublicKeySPKI.length : 0
-            });
+            // console.log('[Execute] 🔍 Passkey verification check:', {
+            //     needsWebAuthn,
+            //     hasPasskeySPKI: !!passkeyPublicKeySPKI,
+            //     passkeySPKILength: passkeyPublicKeySPKI ? passkeyPublicKeySPKI.length : 0
+            // });
             
             if (needsWebAuthn && passkeyPublicKeySPKI) {
-                console.log('[Execute] 🔍 Verifying registered passkey matches extracted passkey...');
+                // console.log('[Execute] 🔍 Verifying registered passkey matches extracted passkey...');
                 console.log('[Execute] ⚠️ Note: Contract stores passkeys by public_key, not user_id. If multiple roles share the same public_key, only the last registered passkey exists on the contract.');
                 
                 try {
@@ -4594,8 +4589,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             const registeredPubkeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
                             const extractedPubkeyHex = passkeyPubkey65.toString('hex');
                             
-                            console.log(`[Execute] 📋 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
-                            console.log(`[Execute] 📋 Extracted passkey from request (hex): ${extractedPubkeyHex.substring(0, 32)}...`);
+                            // console.log(`[Execute] 📋 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
+                            // console.log(`[Execute] 📋 Extracted passkey from request (hex): ${extractedPubkeyHex.substring(0, 32)}...`);
                             
                             if (registeredPubkeyHex !== extractedPubkeyHex) {
                                 console.error('[Execute] ❌ Passkey mismatch detected!');
@@ -4919,12 +4914,17 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             CASE 
                                                 WHEN (result->>'rule_id')::integer = $1::integer 
                                                     AND result->>'skipped' = 'true'
-                                                    AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
-                                                THEN result || jsonb_build_object(
+                                                    AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                                    AND COALESCE((result->>'rejected')::boolean, false) = false
+                                                    AND COALESCE((result->>'completed')::boolean, false) = false
+                                                    AND (COALESCE(result->>'matched_public_key', luq.public_key) = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                                THEN (result - 'reason') || jsonb_build_object(
                                                     'completed', true, 
                                                     'completed_at', $3::text,
                                                     'transaction_hash', $4::text,
                                                     'success', true,
+                                                    'skipped', false,
+                                                    'matched_public_key', COALESCE(result->>'matched_public_key', $5::text),
                                                     'execution_parameters', $7::jsonb
                                                 )
                                                 ELSE result
@@ -4934,15 +4934,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     )
                                     WHERE luq.user_id = $2
                                         AND luq.id = $6::integer
-                                        AND luq.public_key = $5
                                         AND luq.execution_results IS NOT NULL
                                         AND EXISTS (
                                             SELECT 1
                                             FROM jsonb_array_elements(luq.execution_results) AS result
                                             WHERE (result->>'rule_id')::integer = $1::integer
                                             AND result->>'skipped' = 'true'
-                                            AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                            AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                            AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((result->>'rejected')::boolean, false) = false
+                                            AND COALESCE((result->>'completed')::boolean, false) = false
+                                            AND (COALESCE(result->>'matched_public_key', luq.public_key) = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                         )
                                 `;
                                 markCompletedParams = [
@@ -4973,12 +4974,17 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             CASE 
                                                 WHEN (result->>'rule_id')::integer = $1::integer 
                                                     AND result->>'skipped' = 'true'
-                                                    AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
-                                                THEN result || jsonb_build_object(
+                                                    AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                                    AND COALESCE((result->>'rejected')::boolean, false) = false
+                                                    AND COALESCE((result->>'completed')::boolean, false) = false
+                                                    AND (COALESCE(result->>'matched_public_key', luq.public_key) = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                                THEN (result - 'reason') || jsonb_build_object(
                                                     'completed', true, 
                                                     'completed_at', $3::text,
                                                     'transaction_hash', $4::text,
                                                     'success', true,
+                                                    'skipped', false,
+                                                    'matched_public_key', COALESCE(result->>'matched_public_key', $5::text),
                                                     'execution_parameters', $6::jsonb
                                                 )
                                                 ELSE result
@@ -4987,15 +4993,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                         FROM jsonb_array_elements(luq.execution_results) AS result
                                     )
                                     WHERE luq.user_id = $2
-                                        AND luq.public_key = $5
                                         AND luq.execution_results IS NOT NULL
                                         AND EXISTS (
                                             SELECT 1
                                             FROM jsonb_array_elements(luq.execution_results) AS result
                                             WHERE (result->>'rule_id')::integer = $1::integer
                                             AND result->>'skipped' = 'true'
-                                            AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                            AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                            AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((result->>'rejected')::boolean, false) = false
+                                            AND COALESCE((result->>'completed')::boolean, false) = false
+                                            AND (COALESCE(result->>'matched_public_key', luq.public_key) = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
                                         )
                                 `;
                                 markCompletedParams = [
@@ -5013,8 +5020,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     SET execution_results = (
                                         SELECT jsonb_agg(
                                             CASE 
-                                                WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
-                                                THEN result || jsonb_build_object(
+                                                WHEN (result->>'rule_id')::integer = $1::integer
+                                                    AND result->>'skipped' = 'true'
+                                                    AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                                    AND COALESCE((result->>'rejected')::boolean, false) = false
+                                                    AND COALESCE((result->>'completed')::boolean, false) = false
+                                                THEN (result - 'reason') || jsonb_build_object(
                                                     'completed', true, 
                                                     'completed_at', $3::text,
                                                     'transaction_hash', $4::text,
@@ -5032,7 +5043,9 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             FROM jsonb_array_elements(luq.execution_results) AS result
                                             WHERE (result->>'rule_id')::integer = $1::integer
                                             AND result->>'skipped' = 'true'
-                                            AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                            AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((result->>'rejected')::boolean, false) = false
+                                            AND COALESCE((result->>'completed')::boolean, false) = false
                                         )
                                 `;
                                 markCompletedParams = [
@@ -5044,7 +5057,9 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             }
                             
                             await pool.query(markCompletedQuery, markCompletedParams);
-                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (smart wallet routing)`);
+                            // PUBLIC-FRIENDLY LOG: Rule completed via smart wallet (for GeoLink Events feed)
+                            console.log(`[GeoLink Events] ✅ Rule ${rule_id} completed via smart wallet - Transaction: ${sendResult.hash}`);
+                            // console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (smart wallet routing)`);
                         } catch (updateError) {
                             // Don't fail the response if we can't update the status
                             console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
@@ -5158,7 +5173,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // This ensures all required parameters are present when executing from pending rules
         if (rule_id && mapping && mapping.parameters) {
             console.log(`[Execute] 🔄 Auto-populating parameters for pending rule execution`);
-            console.log(`[Execute] 📋 Current parameters:`, Object.keys(processedParameters).join(', '));
+            // console.log(`[Execute] 📋 Current parameters:`, Object.keys(processedParameters).join(', '));
             
             // Fetch matched_public_key from location_update_queue if not provided in request
             // Only use it if destination is not already set or is the user's own address
@@ -5279,7 +5294,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 }
             });
             
-            console.log(`[Execute] 📋 Final parameters after auto-population:`, Object.keys(processedParameters).join(', '));
+            // console.log(`[Execute] 📋 Final parameters after auto-population:`, Object.keys(processedParameters).join(', '));
         }
         
         if (webauthnSignature && webauthnAuthenticatorData && webauthnClientData) {
@@ -5317,8 +5332,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 // Prioritize signaturePayload from req.body (set by frontend) over processedParameters.signature_payload
                 // The frontend regenerates the payload and sets it in req.body.signaturePayload
                 // If signaturePayload from req.body exists, use it; otherwise fall back to processedParameters.signature_payload
-                console.log(`[Execute] 🔍 Checking signature payload - signaturePayload from req.body: ${signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined'}`);
-                console.log(`[Execute] 🔍 Checking signature payload - processedParameters.signature_payload: ${processedParameters.signature_payload ? (processedParameters.signature_payload.length > 100 ? processedParameters.signature_payload.substring(0, 100) + '...' : processedParameters.signature_payload) : 'undefined'}`);
+                // console.log(`[Execute] 🔍 Checking signature payload - signaturePayload from req.body: ${signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined'}`);
+                // console.log(`[Execute] 🔍 Checking signature payload - processedParameters.signature_payload: ${processedParameters.signature_payload ? (processedParameters.signature_payload.length > 100 ? processedParameters.signature_payload.substring(0, 100) + '...' : processedParameters.signature_payload) : 'undefined'}`);
                 
                 // Always prioritize signaturePayload from req.body if it exists
                 const payloadToCheck = signaturePayload || processedParameters.signature_payload;
@@ -5452,9 +5467,9 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         const mappedParams = contractIntrospection.mapFieldsToContract(processedParameters, mapping);
         
         // Log mapped parameters for debugging
-        console.log(`[Execute] 📋 Mapped parameters (${mappedParams.length} total):`, 
-            mappedParams.map(p => `${p.name}(${p.type})=${p.value !== undefined && p.value !== null ? (typeof p.value === 'string' && p.value.length > 50 ? p.value.substring(0, 50) + '...' : p.value) : 'undefined/null'}`).join(', ')
-        );
+        // console.log(`[Execute] 📋 Mapped parameters (${mappedParams.length} total):`, 
+        //     mappedParams.map(p => `${p.name}(${p.type})=${p.value !== undefined && p.value !== null ? (typeof p.value === 'string' && p.value.length > 50 ? p.value.substring(0, 50) + '...' : p.value) : 'undefined/null'}`).join(', ')
+        // );
         
         // If mapping didn't find all parameters, try direct lookup as fallback
         // Also convert values that need conversion (XLM -> contract address, etc.)
@@ -5645,7 +5660,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             const keypair = StellarSdk.Keypair.fromSecret(user_secret_key);
             const account = await sorobanServer.getAccount(keypair.publicKey());
             
-            console.log(`[Execute] 🔨 Building transaction for function: ${function_name}`);
+            // PUBLIC-FRIENDLY LOG: Rule execution started (for GeoLink Events feed)
+            if (rule_id) {
+                console.log(`[GeoLink Events] ⚡ Rule ${rule_id} execution started: ${function_name}() for ${user_public_key.substring(0, 8)}...`);
+            }
+            
+            // console.log(`[Execute] 🔨 Building transaction for function: ${function_name}`);
             const transaction = new StellarSdk.TransactionBuilder(account, {
                 fee: StellarSdk.BASE_FEE,
                 networkPassphrase: networkPassphrase
@@ -5656,31 +5676,44 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             
             try {
                 // Prepare transaction (required for Soroban contracts)
-                console.log(`[Execute] 🔄 Preparing transaction for function: ${function_name}`);
+                // console.log(`[Execute] 🔄 Preparing transaction for function: ${function_name}`);
                 const preparedTx = await sorobanServer.prepareTransaction(transaction);
-                console.log(`[Execute] ✅ Transaction prepared`);
+                // console.log(`[Execute] ✅ Transaction prepared`);
                 
                 // Sign the prepared transaction
-                console.log(`[Execute] ✍️ Signing transaction...`);
+                // console.log(`[Execute] ✍️ Signing transaction...`);
                 preparedTx.sign(keypair);
-                console.log(`[Execute] ✅ Transaction signed`);
+                // console.log(`[Execute] ✅ Transaction signed`);
                 
                 // Submit transaction
-                console.log(`[Execute] 📤 Submitting transaction to ledger for function: ${function_name} (read-only: ${isReadOnly}, forceOnChain: ${forceOnChain})`);
+                // console.log(`[Execute] 📤 Submitting transaction to ledger for function: ${function_name} (read-only: ${isReadOnly}, forceOnChain: ${forceOnChain})`);
                 const sendResult = await sorobanServer.sendTransaction(preparedTx);
-                console.log(`[Execute] ✅ Transaction sent - Hash: ${sendResult.hash}`);
+                
+                // PUBLIC-FRIENDLY LOG: Transaction submitted (for GeoLink Events feed)
+                // Transaction hash is public blockchain data - safe to log
+                if (rule_id) {
+                    console.log(`[GeoLink Events] ✅ Rule ${rule_id} transaction submitted: ${sendResult.hash}`);
+                } else {
+                    console.log(`[GeoLink Events] ✅ Contract function ${function_name}() transaction submitted: ${sendResult.hash}`);
+                }
                 
                 // Wait for transaction to be included in a ledger
-                console.log(`[Execute] ⏳ Waiting for transaction to be included in ledger...`);
+                // console.log(`[Execute] ⏳ Waiting for transaction to be included in ledger...`);
                 let txResult = null;
                 for (let i = 0; i < 30; i++) {
                     await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds between polls
                     try {
                         txResult = await sorobanServer.getTransaction(sendResult.hash);
-                        console.log(`[Execute] 📊 Poll attempt ${i + 1}/30 - Status: ${txResult.status}`);
+                        // console.log(`[Execute] 📊 Poll attempt ${i + 1}/30 - Status: ${txResult.status}`);
                         
                         if (txResult.status === 'SUCCESS') {
-                            console.log(`[Execute] ✅ Transaction successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+                            // PUBLIC-FRIENDLY LOG: Transaction confirmed (for GeoLink Events feed)
+                            if (rule_id) {
+                                console.log(`[GeoLink Events] ✅ Rule ${rule_id} transaction confirmed on ledger ${txResult.ledger}: ${sendResult.hash}`);
+                            } else {
+                                console.log(`[GeoLink Events] ✅ Contract function ${function_name}() transaction confirmed on ledger ${txResult.ledger}: ${sendResult.hash}`);
+                            }
+                            // console.log(`[Execute] ✅ Transaction successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
                             
                             // Check the contract's return value
                             let contractReturnValue = null;
@@ -5706,7 +5739,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 sorobanMeta = v3Meta.sorobanMeta();
                                             }
                                         } catch (v3Error) {
-                                            console.log(`[Execute] ℹ️  Transaction meta v3() method failed:`, v3Error.message);
+                                            // console.log(`[Execute] ℹ️  Transaction meta v3() method failed:`, v3Error.message);
                                         }
                                     }
                                     
@@ -5718,7 +5751,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 sorobanMeta = transactionMeta.sorobanMeta();
                                             }
                                         } catch (directError) {
-                                            console.log(`[Execute] ℹ️  Direct sorobanMeta access failed:`, directError.message);
+                                            // console.log(`[Execute] ℹ️  Direct sorobanMeta access failed:`, directError.message);
                                         }
                                     }
                                     
@@ -5729,7 +5762,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             if (returnValueScVal) {
                                                 // Convert ScVal to native JavaScript value
                                                 contractReturnValue = StellarSdk.scValToNative(returnValueScVal);
-                                                console.log(`[Execute] 📋 Contract function returned:`, contractReturnValue);
+                                                // console.log(`[Execute] 📋 Contract function returned:`, contractReturnValue);
                                                 
                                                 // Check if return value is false (for boolean return types)
                                                 if (contractReturnValue === false) {
@@ -5751,17 +5784,18 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                                 }
                                             }
                                         } catch (returnValueError) {
-                                            console.warn(`[Execute] ⚠️  Could not extract return value from sorobanMeta:`, returnValueError.message);
+                                            // console.warn(`[Execute] ⚠️  Could not extract return value from sorobanMeta:`, returnValueError.message);
                                         }
-                                    } else {
-                                        console.log(`[Execute] ℹ️  Transaction meta is not v3 format or sorobanMeta not available, skipping return value extraction`);
-                                        console.log(`[Execute] 📋 TransactionMeta type:`, transactionMeta ? transactionMeta.constructor?.name : 'null');
-                                        console.log(`[Execute] 📋 TransactionMeta has v3:`, transactionMeta && typeof transactionMeta.v3 === 'function');
-                                        console.log(`[Execute] 📋 TransactionMeta has sorobanMeta:`, transactionMeta && typeof transactionMeta.sorobanMeta === 'function');
                                     }
+                                    // else {
+                                    //     console.log(`[Execute] ℹ️  Transaction meta is not v3 format or sorobanMeta not available, skipping return value extraction`);
+                                    //     console.log(`[Execute] 📋 TransactionMeta type:`, transactionMeta ? transactionMeta.constructor?.name : 'null');
+                                    //     console.log(`[Execute] 📋 TransactionMeta has v3:`, transactionMeta && typeof transactionMeta.v3 === 'function');
+                                    //     console.log(`[Execute] 📋 TransactionMeta has sorobanMeta:`, transactionMeta && typeof transactionMeta.sorobanMeta === 'function');
+                                    // }
                                 }
                             } catch (returnValueError) {
-                                console.warn(`[Execute] ⚠️  Could not extract return value:`, returnValueError.message);
+                                // console.warn(`[Execute] ⚠️  Could not extract return value:`, returnValueError.message);
                                 // Continue anyway - transaction was successful
                             }
                             
@@ -5772,7 +5806,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             
                             break;
                         } else if (txResult.status === 'FAILED') {
-                            console.log(`[Execute] ❌ Transaction failed - Hash: ${sendResult.hash}`);
+                            // PUBLIC-FRIENDLY LOG: Transaction failed (for GeoLink Events feed)
+                            if (rule_id) {
+                                console.log(`[GeoLink Events] ❌ Rule ${rule_id} transaction failed: ${sendResult.hash}`);
+                            } else {
+                                console.log(`[GeoLink Events] ❌ Contract function ${function_name}() transaction failed: ${sendResult.hash}`);
+                            }
+                            // console.log(`[Execute] ❌ Transaction failed - Hash: ${sendResult.hash}`);
                             return res.status(400).json({
                                 error: 'Transaction failed',
                                 message: txResult.resultXdr ? 'Transaction was included in ledger but failed' : 'Transaction failed',
@@ -5787,7 +5827,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         }
                     } catch (pollError) {
                         // If getTransaction fails, continue polling
-                        console.log(`[Execute] ⚠️ Poll attempt ${i + 1} failed: ${pollError.message}`);
+                        // console.log(`[Execute] ⚠️ Poll attempt ${i + 1} failed: ${pollError.message}`);
                         continue;
                     }
                 }
@@ -5795,7 +5835,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 if (!txResult || txResult.status !== 'SUCCESS') {
                     // Transaction was sent but we couldn't confirm it was included
                     // Still return success with the hash so user can check manually
-                    console.log(`[Execute] ⚠️ Could not confirm transaction inclusion, but it was sent. Hash: ${sendResult.hash}`);
+                    // console.log(`[Execute] ⚠️ Could not confirm transaction inclusion, but it was sent. Hash: ${sendResult.hash}`);
                     const network = contract.network === 'mainnet' ? 'mainnet' : 'testnet';
                     const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${sendResult.hash}`;
                     
@@ -5836,9 +5876,9 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 new Date().toISOString(),
                                 sendResult.hash
                             ]);
-                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (pending confirmation)`);
+                            // console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed (pending confirmation)`);
                         } catch (updateError) {
-                            console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError);
+                            console.error(`[Execute] ⚠️ Error marking rule ${rule_id} as completed:`, updateError.message);
                         }
                     }
                     
@@ -5868,148 +5908,252 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 // This handles both pending rules (skipped = true) and direct executions
                 if (rule_id) {
                     try {
-                        // First, try to update existing pending rule entry
-                        // Filter by update_id and matched_public_key if provided to only mark the specific instance
+                        // First, try to update an existing pending (requires_webauthn) placeholder entry.
+                        // IMPORTANT: When update_id is provided, we key the update off (user_id + update_id) and do NOT require luq.public_key to match,
+                        // because multi-role users can see pending entries whose luq.public_key differs from req.user.public_key.
                         let updatePendingQuery;
                         let updateQueryParams;
-                        
-                        if (update_id && matched_public_key) {
-                            // Filter by update_id and matched_public_key for precise matching
-                            // Store actual execution parameters
-                            const actualParamsJson = JSON.stringify(parameters || {});
+                        const completedAt = new Date().toISOString();
+                        const executionParamsJson = JSON.stringify(parameters || {});
+
+                        if (update_id) {
+                            // Precise: update the specific queue record and convert the placeholder into a completed record
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
                                     SELECT jsonb_agg(
-                                        CASE 
-                                            WHEN (result->>'rule_id')::integer = $1::integer 
-                                                AND result->>'skipped' = 'true'
-                                                AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
-                                            THEN result || jsonb_build_object(
-                                                'completed', true, 
+                                        CASE
+                                            WHEN (result.value->>'rule_id')::integer = $1::integer
+                                                AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                                AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                                AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                                AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                            THEN (result.value - 'reason') || jsonb_build_object(
+                                                'completed', true,
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
                                                 'success', true,
-                                                'execution_parameters', $7::jsonb
+                                                'skipped', false,
+                                                'direct_execution', true,
+                                                'execution_parameters', $5::jsonb,
+                                                'matched_public_key', COALESCE(result.value->>'matched_public_key', $6::text)
                                             )
-                                            ELSE result
+                                            ELSE result.value
                                         END
+                                        ORDER BY result.ordinality
                                     )
-                                    FROM jsonb_array_elements(luq.execution_results) AS result
-                                )
+                                    FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                                ),
+                                status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                                processed_at = NOW()
                                 WHERE luq.user_id = $2
-                                    AND luq.id = $6::integer
-                                    AND luq.public_key = $5
+                                    AND luq.id = $7::integer
                                     AND luq.execution_results IS NOT NULL
                                     AND EXISTS (
                                         SELECT 1
-                                        FROM jsonb_array_elements(luq.execution_results) AS result
-                                        WHERE (result->>'rule_id')::integer = $1::integer
-                                        AND result->>'skipped' = 'true'
-                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                        AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                        FROM jsonb_array_elements(luq.execution_results) AS r
+                                        WHERE (r->>'rule_id')::integer = $1::integer
+                                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                                            AND COALESCE((r->>'completed')::boolean, false) = false
                                     )
-                                RETURNING luq.id
+                                RETURNING luq.id, luq.received_at, luq.public_key
                             `;
                             updateQueryParams = [
-                                parseInt(rule_id), 
-                                userId, 
-                                new Date().toISOString(),
+                                parseInt(rule_id),
+                                userId,
+                                completedAt,
                                 sendResult.hash,
-                                matched_public_key,
-                                parseInt(update_id),
-                                actualParamsJson
+                                executionParamsJson,
+                                matched_public_key || null,
+                                parseInt(update_id)
                             ];
                         } else if (matched_public_key) {
-                            // Filter by matched_public_key only
-                            // Store actual execution parameters
-                            const actualParamsJson = JSON.stringify(parameters || {});
+                            // Best-effort: match by user_id + matched_public_key when update_id isn't provided
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
                                     SELECT jsonb_agg(
-                                        CASE 
-                                            WHEN (result->>'rule_id')::integer = $1::integer 
-                                                AND result->>'skipped' = 'true'
-                                                AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
-                                            THEN result || jsonb_build_object(
-                                                'completed', true, 
+                                        CASE
+                                            WHEN (result.value->>'rule_id')::integer = $1::integer
+                                                AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                                AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                                AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                                AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                                AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $6::text
+                                            THEN (result.value - 'reason') || jsonb_build_object(
+                                                'completed', true,
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
                                                 'success', true,
-                                                'execution_parameters', $6::jsonb
+                                                'skipped', false,
+                                                'direct_execution', true,
+                                                'execution_parameters', $5::jsonb,
+                                                'matched_public_key', COALESCE(result.value->>'matched_public_key', $6::text)
                                             )
-                                            ELSE result
+                                            ELSE result.value
                                         END
+                                        ORDER BY result.ordinality
                                     )
-                                    FROM jsonb_array_elements(luq.execution_results) AS result
-                                )
+                                    FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                                ),
+                                status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                                processed_at = NOW()
                                 WHERE luq.user_id = $2
-                                    AND luq.public_key = $5
                                     AND luq.execution_results IS NOT NULL
                                     AND EXISTS (
                                         SELECT 1
-                                        FROM jsonb_array_elements(luq.execution_results) AS result
-                                        WHERE (result->>'rule_id')::integer = $1::integer
-                                        AND result->>'skipped' = 'true'
-                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
-                                        AND (result->>'matched_public_key' = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                                        FROM jsonb_array_elements(luq.execution_results) AS r
+                                        WHERE (r->>'rule_id')::integer = $1::integer
+                                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                                            AND COALESCE((r->>'completed')::boolean, false) = false
+                                            AND COALESCE(r->>'matched_public_key', luq.public_key) = $6::text
                                     )
-                                RETURNING luq.id
+                                RETURNING luq.id, luq.received_at, luq.public_key
                             `;
                             updateQueryParams = [
-                                parseInt(rule_id), 
-                                userId, 
-                                new Date().toISOString(),
+                                parseInt(rule_id),
+                                userId,
+                                completedAt,
                                 sendResult.hash,
-                                matched_public_key,
-                                actualParamsJson
+                                executionParamsJson,
+                                matched_public_key
                             ];
                         } else {
-                            // Fallback: mark all instances (backward compatibility)
-                            // Store actual execution parameters
-                            const actualParamsJson = JSON.stringify(parameters || {});
+                            // Fallback: match by user_id + rule_id only (backward compatibility)
                             updatePendingQuery = `
                                 UPDATE location_update_queue luq
                                 SET execution_results = (
                                     SELECT jsonb_agg(
-                                        CASE 
-                                            WHEN (result->>'rule_id')::integer = $1::integer AND result->>'skipped' = 'true'
-                                            THEN result || jsonb_build_object(
-                                                'completed', true, 
+                                        CASE
+                                            WHEN (result.value->>'rule_id')::integer = $1::integer
+                                                AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                                AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                                AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                                AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                            THEN (result.value - 'reason') || jsonb_build_object(
+                                                'completed', true,
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
                                                 'success', true,
+                                                'skipped', false,
+                                                'direct_execution', true,
                                                 'execution_parameters', $5::jsonb
                                             )
-                                            ELSE result
+                                            ELSE result.value
                                         END
+                                        ORDER BY result.ordinality
                                     )
-                                    FROM jsonb_array_elements(luq.execution_results) AS result
-                                )
+                                    FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                                ),
+                                status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                                processed_at = NOW()
                                 WHERE luq.user_id = $2
                                     AND luq.execution_results IS NOT NULL
                                     AND EXISTS (
                                         SELECT 1
-                                        FROM jsonb_array_elements(luq.execution_results) AS result
-                                        WHERE (result->>'rule_id')::integer = $1::integer
-                                        AND result->>'skipped' = 'true'
-                                        AND (result->>'completed')::boolean IS DISTINCT FROM true
+                                        FROM jsonb_array_elements(luq.execution_results) AS r
+                                        WHERE (r->>'rule_id')::integer = $1::integer
+                                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                                            AND COALESCE((r->>'completed')::boolean, false) = false
                                     )
-                                RETURNING luq.id
+                                RETURNING luq.id, luq.received_at, luq.public_key
                             `;
                             updateQueryParams = [
-                                parseInt(rule_id), 
-                                userId, 
-                                new Date().toISOString(),
+                                parseInt(rule_id),
+                                userId,
+                                completedAt,
                                 sendResult.hash,
-                                actualParamsJson
+                                executionParamsJson
                             ];
                         }
                         
-                        console.log(`[Execute] 🔍 Attempting to mark rule ${rule_id} as completed with update_id=${update_id}, matched_public_key=${matched_public_key}`);
+                        // console.log(`[Execute] 🔍 Attempting to mark rule ${rule_id} as completed with update_id=${update_id}, matched_public_key=${matched_public_key}`);
                         const updateResult = await pool.query(updatePendingQuery, updateQueryParams);
-                        console.log(`[Execute] 📊 Completion query result: ${updateResult.rows.length} row(s) updated`);
+                        // console.log(`[Execute] 📊 Completion query result: ${updateResult.rows.length} row(s) updated`);
+                        
+                        // Clean up older queue entries for the same rule_id + public_key combination
+                        if (updateResult.rows.length > 0) {
+                            try {
+                                const receivedAt = updateResult.rows[0].received_at;
+                                const completedPublicKey = updateResult.rows[0].public_key || matched_public_key;
+                                const cleanupQuery = `
+                                    DELETE FROM location_update_queue luq2
+                                    WHERE luq2.user_id = $1
+                                        AND ($2::text IS NULL OR luq2.public_key = $2)
+                                        AND luq2.id != COALESCE($3::integer, 0)
+                                        AND luq2.status <> 'processing'
+                                        AND luq2.execution_results IS NOT NULL
+                                        -- CRITICAL: Only delete entries that are OLDER than the executed one (received_at <= executed entry's received_at)
+                                        AND luq2.received_at <= $6::timestamp
+                                        -- Only delete entries that have the EXACT matching rule_id and matched_public_key
+                                        -- AND only if they have pending/skipped rules (not completed ones)
+                                        AND EXISTS (
+                                            SELECT 1
+                                            FROM jsonb_array_elements(luq2.execution_results) AS result2
+                                            WHERE (result2->>'rule_id')::integer = $5::integer
+                                            AND COALESCE((result2->>'skipped')::boolean, false) = true
+                                            AND COALESCE((result2->>'completed')::boolean, false) = false
+                                            AND (
+                                                -- Exact match: matched_public_key must match exactly
+                                                ($4::text IS NOT NULL AND result2->>'matched_public_key' = $4::text)
+                                                OR ($4::text IS NULL AND (result2->>'matched_public_key' IS NULL OR result2->>'matched_public_key' = luq2.public_key))
+                                            )
+                                        )
+                                        -- CRITICAL: Only delete entries that have NO completed rules (preserve entries with completed rules)
+                                        AND NOT EXISTS (
+                                            SELECT 1
+                                            FROM jsonb_array_elements(luq2.execution_results) AS result3
+                                            WHERE COALESCE((result3->>'completed')::boolean, false) = true
+                                        )
+                                `;
+                                const cleanupParams = [
+                                    userId,
+                                    completedPublicKey,
+                                    update_id ? parseInt(update_id) : null,
+                                    matched_public_key || completedPublicKey,
+                                    parseInt(rule_id),
+                                    receivedAt
+                                ];
+                                    const cleanupResult = await pool.query(cleanupQuery, cleanupParams);
+                                    // console.log(`[Execute] 🧹 Cleaned up ${cleanupResult.rowCount} older queue entry/entries for rule ${rule_id}`);
+                            } catch (cleanupError) {
+                                console.error(`[Execute] ⚠️ Error cleaning up older queue entries:`, cleanupError.message);
+                                // Don't fail the request if cleanup fails
+                            }
+                        }
+                        
+                        // Record execution in rate limiting history (for rate limit enforcement)
+                        if (rule_id && updateResult.rows.length > 0) {
+                            try {
+                                const executedPublicKey = updateResult.rows[0].public_key || matched_public_key || user_public_key;
+                                await pool.query(
+                                    'SELECT record_rule_execution($1, $2, $3, $4)',
+                                    [
+                                        parseInt(rule_id),
+                                        executedPublicKey,
+                                        sendResult.hash,
+                                        JSON.stringify({
+                                            success: true,
+                                            completed: true,
+                                            transaction_hash: sendResult.hash,
+                                            completed_at: completedAt,
+                                            execution_type: 'manual',
+                                            matched_public_key: matched_public_key || executedPublicKey
+                                        })
+                                    ]
+                                );
+                                // console.log(`[Execute] ✅ Recorded rule ${rule_id} execution in rate limit history for public key ${executedPublicKey.substring(0, 8)}...`);
+                            } catch (rateLimitError) {
+                                console.error(`[Execute] ⚠️ Error recording rule execution for rate limiting:`, rateLimitError.message);
+                                // Don't fail the request if rate limit recording fails
+                            }
+                        }
                         
                         // Verify the update by checking what's in the database
                         if (updateResult.rows.length > 0 && update_id) {
@@ -6017,107 +6161,220 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                 const verifyQuery = `
                                     SELECT 
                                         luq.id,
-                                        jsonb_array_elements(luq.execution_results) as result
+                                        luq.execution_results
                                     FROM location_update_queue luq
                                     WHERE luq.id = $1
-                                        AND luq.execution_results IS NOT NULL
                                 `;
                                 const verifyResult = await pool.query(verifyQuery, [parseInt(update_id)]);
-                                console.log(`[Execute] 🔍 Verification: Found ${verifyResult.rows.length} execution result(s) for update_id ${update_id}`);
-                                for (const row of verifyResult.rows) {
-                                    const result = row.result;
-                                    if (result && parseInt(result.rule_id) === parseInt(rule_id)) {
-                                        console.log(`[Execute] 🔍 Rule ${rule_id} in execution_results:`, {
-                                            rule_id: result.rule_id,
-                                            skipped: result.skipped,
-                                            completed: result.completed,
-                                            rejected: result.rejected,
-                                            matched_public_key: result.matched_public_key
-                                        });
-                                    }
+                                if (verifyResult.rows.length > 0) {
+                                    const execResults = verifyResult.rows[0].execution_results;
+                                    console.log(`[Execute] ✅ Verification: Entry ${update_id} updated. Remaining execution results:`, 
+                                        execResults ? `${execResults.length} entry/entries` : 'NULL (all entries removed)');
+                                } else {
+                                    console.log(`[Execute] ✅ Verification: Entry ${update_id} was deleted (all entries processed)`);
                                 }
                             } catch (verifyError) {
                                 console.error(`[Execute] ⚠️ Error verifying update:`, verifyError.message);
                             }
                         }
                         
-                        // If no pending rule was updated, create a new completion entry in the most recent location_update_queue entry
+                        // If the primary completion update did not match, do NOT immediately append a new completed record.
+                        // Appending causes the exact bug: the original pending placeholder remains, so the rule shows in BOTH lists.
+                        // Instead, do a fallback match: find the latest queue row that still contains the pending placeholder and convert it in-place.
                         if (updateResult.rows.length === 0) {
-                            console.log(`[Execute] ⚠️ No pending rule found to update, creating new completion entry`);
-                            const actualParamsJson = JSON.stringify(parameters || {});
-                            const createCompletionQuery = `
-                                WITH latest_update AS (
-                                    SELECT id, execution_results
-                                    FROM location_update_queue
-                                    WHERE user_id = $2
-                                    ORDER BY received_at DESC
+                            console.warn(`[Execute] ⚠️ No pending rule matched the primary completion update. Attempting fallback completion update...`);
+
+                            const fallbackUpdateQuery = `
+                                WITH target AS (
+                                    SELECT luq.id
+                                    FROM location_update_queue luq
+                                    WHERE luq.user_id = $2
+                                      AND luq.execution_results IS NOT NULL
+                                      AND EXISTS (
+                                        SELECT 1
+                                        FROM jsonb_array_elements(luq.execution_results) AS r
+                                        WHERE (r->>'rule_id')::integer = $1::integer
+                                          AND COALESCE((r->>'skipped')::boolean, false) = true
+                                          AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                                          AND COALESCE((r->>'rejected')::boolean, false) = false
+                                          AND COALESCE((r->>'completed')::boolean, false) = false
+                                          AND (
+                                            $6::text IS NULL
+                                            OR COALESCE(r->>'matched_public_key', luq.public_key) = $6::text
+                                          )
+                                      )
+                                    ORDER BY luq.received_at DESC
                                     LIMIT 1
                                 )
                                 UPDATE location_update_queue luq
-                                SET execution_results = COALESCE(
-                                    luq.execution_results || '[]'::jsonb,
-                                    '[]'::jsonb
-                                ) || jsonb_build_array(
-                                    jsonb_build_object(
-                                        'rule_id', $1::integer,
-                                        'completed', true,
-                                        'completed_at', $3::text,
-                                        'transaction_hash', $4::text,
-                                        'success', true,
-                                        'skipped', false,
-                                        'direct_execution', true,
-                                        'execution_parameters', $5::jsonb
-                                    )
-                                )
-                                FROM latest_update lu
-                                WHERE luq.id = lu.id
-                                RETURNING luq.id
-                            `;
-                            const createResult = await pool.query(createCompletionQuery, [
-                                parseInt(rule_id), 
-                                userId, 
-                                new Date().toISOString(),
-                                sendResult.hash,
-                                actualParamsJson
-                            ]);
-                            
-                            if (createResult.rows.length > 0) {
-                                console.log(`[Execute] ✅ Created completion entry for direct execution of rule ${rule_id}`);
-                            } else {
-                                // If no location_update_queue entry exists, create one
-                                const createNewEntryQuery = `
-                                    INSERT INTO location_update_queue (
-                                        user_id, public_key, latitude, longitude, 
-                                        status, execution_results, received_at, processed_at
-                                    )
-                                    VALUES (
-                                        $2, $5, 0, 0, 'executed',
-                                        jsonb_build_array(
-                                            jsonb_build_object(
-                                                'rule_id', $1::integer,
+                                SET execution_results = (
+                                    SELECT jsonb_agg(
+                                        CASE
+                                            WHEN (result.value->>'rule_id')::integer = $1::integer
+                                              AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                              AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                              AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                              AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                              AND (
+                                                $6::text IS NULL
+                                                OR COALESCE(result.value->>'matched_public_key', luq.public_key) = $6::text
+                                              )
+                                            THEN (result.value - 'reason') || jsonb_build_object(
                                                 'completed', true,
                                                 'completed_at', $3::text,
                                                 'transaction_hash', $4::text,
                                                 'success', true,
                                                 'skipped', false,
-                                                'direct_execution', true
+                                                'direct_execution', true,
+                                                'matched_public_key', COALESCE(result.value->>'matched_public_key', $6::text),
+                                                'execution_parameters', $5::jsonb
                                             )
-                                        ),
-                                        NOW(), NOW()
+                                            ELSE result.value
+                                        END
+                                        ORDER BY result.ordinality
                                     )
-                                    RETURNING id
+                                    FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                                ),
+                                status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                                processed_at = NOW()
+                                FROM target t
+                                WHERE luq.id = t.id
+                                RETURNING luq.id, luq.received_at, luq.public_key;
+                            `;
+
+                            const fallbackResult = await pool.query(fallbackUpdateQuery, [
+                                parseInt(rule_id),
+                                userId,
+                                completedAt,
+                                sendResult.hash,
+                                executionParamsJson,
+                                matched_public_key || null
+                            ]);
+
+                            if (fallbackResult.rows.length > 0) {
+                                console.log(`[Execute] ✅ Fallback completion succeeded for rule ${rule_id} (update_id=${fallbackResult.rows[0].id}).`);
+
+                                // Ensure cleanup runs even when we needed the fallback path
+                                try {
+                                    const receivedAt = fallbackResult.rows[0].received_at;
+                                    const completedPublicKey = fallbackResult.rows[0].public_key || matched_public_key;
+                                    const cleanupQuery = `
+                                        DELETE FROM location_update_queue luq2
+                                        WHERE luq2.user_id = $1
+                                            AND luq2.public_key = $2
+                                            AND luq2.id != COALESCE($3::integer, 0)
+                                            AND luq2.received_at <= $4::timestamp
+                                            AND luq2.status <> 'processing'
+                                            AND (
+                                                ($5::integer = ANY(luq2.matched_rule_ids))
+                                                OR (
+                                                    luq2.execution_results IS NOT NULL
+                                                    AND EXISTS (
+                                                        SELECT 1
+                                                        FROM jsonb_array_elements(luq2.execution_results) AS result2
+                                                        WHERE (result2->>'rule_id')::integer = $5::integer
+                                                    )
+                                                )
+                                            )
+                                            -- CRITICAL: Only delete entries that have NO completed rules (preserve entries with completed rules)
+                                            AND NOT EXISTS (
+                                                SELECT 1
+                                                FROM jsonb_array_elements(luq2.execution_results) AS result3
+                                                WHERE COALESCE((result3->>'completed')::boolean, false) = true
+                                            )
+                                    `;
+                                    const cleanupParams = [
+                                        userId,
+                                        completedPublicKey,
+                                        update_id ? parseInt(update_id) : null,
+                                        receivedAt,
+                                        parseInt(rule_id)
+                                    ];
+                                    const cleanupResult = await pool.query(cleanupQuery, cleanupParams);
+                                    // console.log(`[Execute] 🧹 (fallback) Cleaned up ${cleanupResult.rowCount} older queue entry/entries for rule ${rule_id}`);
+                                } catch (cleanupError) {
+                                    console.error(`[Execute] ⚠️ (fallback) Error cleaning up older queue entries:`, cleanupError.message);
+                                }
+                                
+                                // Record execution in rate limiting history (for rate limit enforcement)
+                                if (rule_id && fallbackResult.rows.length > 0) {
+                                    try {
+                                        const executedPublicKey = fallbackResult.rows[0].public_key || matched_public_key || user_public_key;
+                                        await pool.query(
+                                            'SELECT record_rule_execution($1, $2, $3, $4)',
+                                            [
+                                                parseInt(rule_id),
+                                                executedPublicKey,
+                                                sendResult.hash,
+                                                JSON.stringify({
+                                                    success: true,
+                                                    completed: true,
+                                                    transaction_hash: sendResult.hash,
+                                                    completed_at: completedAt,
+                                                    execution_type: 'manual_fallback',
+                                                    matched_public_key: matched_public_key || executedPublicKey
+                                                })
+                                            ]
+                                        );
+                                        // console.log(`[Execute] ✅ (fallback) Recorded rule ${rule_id} execution in rate limit history for public key ${executedPublicKey.substring(0, 8)}...`);
+                                    } catch (rateLimitError) {
+                                        console.error(`[Execute] ⚠️ (fallback) Error recording rule execution for rate limiting:`, rateLimitError.message);
+                                        // Don't fail the request if rate limit recording fails
+                                    }
+                                }
+                            } else {
+                                // If there truly is no pending placeholder, we allow a completion record to be appended (direct execution use-case).
+                                console.warn(`[Execute] ⚠️ Fallback completion found no pending placeholder. Appending a completion record to the latest queue entry (direct execution path).`);
+                                const actualParamsJson = JSON.stringify(parameters || {});
+                                const createCompletionQuery = `
+                                    WITH latest_update AS (
+                                        SELECT id
+                                        FROM location_update_queue
+                                        WHERE user_id = $2
+                                        ORDER BY received_at DESC
+                                        LIMIT 1
+                                    )
+                                    UPDATE location_update_queue luq
+                                    SET execution_results = COALESCE(
+                                        luq.execution_results || '[]'::jsonb,
+                                        '[]'::jsonb
+                                    ) || jsonb_build_array(
+                                        jsonb_build_object(
+                                            'rule_id', $1::integer,
+                                            'completed', true,
+                                            'completed_at', $3::text,
+                                            'transaction_hash', $4::text,
+                                            'success', true,
+                                            'skipped', false,
+                                            'direct_execution', true,
+                                            'matched_public_key', $6::text,
+                                            'execution_parameters', $5::jsonb
+                                        )
+                                    )
+                                    FROM latest_update lu
+                                    WHERE luq.id = lu.id
+                                    RETURNING luq.id
                                 `;
-                                const newEntryResult = await pool.query(createNewEntryQuery, [
+
+                                const createResult = await pool.query(createCompletionQuery, [
                                     parseInt(rule_id),
                                     userId,
-                                    new Date().toISOString(),
+                                    completedAt,
                                     sendResult.hash,
-                                    user_public_key || 'G000000000000000000000000000000000000000000000000000000000000000'
+                                    actualParamsJson,
+                                    matched_public_key || null
                                 ]);
-                                console.log(`[Execute] ✅ Created new location_update_queue entry for direct execution of rule ${rule_id}`);
+
+                                if (createResult.rows.length > 0) {
+                                    console.log(`[Execute] ✅ Appended completion entry for direct execution of rule ${rule_id}`);
+                                } else {
+                                    console.warn(`[Execute] ⚠️ Could not append completion entry (no latest queue row).`);
+                                }
                             }
                         } else {
-                            console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed`);
+                            // PUBLIC-FRIENDLY LOG: Rule completed (for GeoLink Events feed)
+                            console.log(`[GeoLink Events] ✅ Rule ${rule_id} completed - Transaction: ${sendResult.hash}`);
+                            // console.log(`[Execute] ✅ Marked pending rule ${rule_id} as completed`);
                         }
                     } catch (updateError) {
                         // Don't fail the execution if we can't update the status
@@ -6675,5 +6932,125 @@ router.get('/execution-rules/locations', authenticateContractUser, async (req, r
     }
 });
 
+/**
+ * @swagger
+ * /api/contracts/nearby:
+ *   get:
+ *     summary: Get nearby smart contract execution rules
+ *     description: Returns active contract execution rules within a specified radius of given coordinates. Public endpoint for data consumers (xyz-wallet).
+ *     tags: [Contracts]
+ *     parameters:
+ *       - in: query
+ *         name: latitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Latitude of the center point
+ *         example: 34.0164
+ *       - in: query
+ *         name: longitude
+ *         required: true
+ *         schema:
+ *           type: number
+ *           format: float
+ *         description: Longitude of the center point
+ *         example: -118.4951
+ *       - in: query
+ *         name: radius
+ *         schema:
+ *           type: number
+ *           default: 1000
+ *           minimum: 1
+ *           maximum: 100000
+ *         description: Search radius in meters (default 1000)
+ *         example: 1000
+ *     responses:
+ *       200:
+ *         description: List of nearby contract execution rules
+ */
+// Get nearby smart contract execution rules - Public endpoint (for xyz-wallet data consumers)
+router.get('/nearby', async (req, res) => {
+    try {
+        const { latitude, longitude, radius = 1000 } = req.query;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({ error: 'Latitude and longitude are required' });
+        }
+
+        // Get active contract execution rules within radius using PostGIS
+        const result = await pool.query(`
+            SELECT 
+                cer.id,
+                cer.rule_name,
+                cer.rule_type,
+                cer.center_latitude as latitude,
+                cer.center_longitude as longitude,
+                cer.radius_meters,
+                cer.function_name,
+                cer.trigger_on,
+                cer.auto_execute,
+                cer.is_active,
+                cc.contract_name,
+                cc.contract_address,
+                cc.network,
+                cc.requires_webauthn,
+                cc.use_smart_wallet,
+                cc.function_mappings,
+                cc.discovered_functions,
+                ST_Distance(
+                    ST_Point($2, $1)::geography,
+                    ST_Point(cer.center_longitude, cer.center_latitude)::geography
+                ) as distance
+            FROM contract_execution_rules cer
+            LEFT JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE cer.rule_type = 'location'
+                AND cer.center_latitude IS NOT NULL 
+                AND cer.center_longitude IS NOT NULL
+                AND cer.is_active = true
+                AND cc.is_active = true
+                AND ST_DWithin(
+                    ST_Point($2, $1)::geography,
+                    ST_Point(cer.center_longitude, cer.center_latitude)::geography,
+                    $3
+                )
+            ORDER BY distance ASC
+        `, [latitude, longitude, radius]);
+
+        const formattedContracts = result.rows.map(rule => ({
+            id: rule.id,
+            rule_name: rule.rule_name,
+            rule_type: rule.rule_type,
+            contract_name: rule.contract_name,
+            contract_address: rule.contract_address,
+            function_name: rule.function_name,
+            latitude: parseFloat(rule.latitude),
+            longitude: parseFloat(rule.longitude),
+            radius_meters: rule.radius_meters ? parseFloat(rule.radius_meters) : null,
+            distance: rule.distance ? parseFloat(rule.distance) : null,
+            network: rule.network,
+            trigger_on: rule.trigger_on,
+            auto_execute: rule.auto_execute,
+            requires_webauthn: rule.requires_webauthn || false,
+            use_smart_wallet: rule.use_smart_wallet || false,
+            function_mappings: typeof rule.function_mappings === 'string' 
+                ? JSON.parse(rule.function_mappings) 
+                : rule.function_mappings,
+            discovered_functions: typeof rule.discovered_functions === 'string'
+                ? JSON.parse(rule.discovered_functions)
+                : rule.discovered_functions
+        }));
+
+        res.json({
+            contracts: formattedContracts,
+            count: formattedContracts.length,
+            search_center: { latitude: parseFloat(latitude), longitude: parseFloat(longitude) },
+            radius: parseInt(radius)
+        });
+    } catch (error) {
+        console.error('Error fetching nearby contracts:', error);
+        res.status(500).json({ error: 'Failed to fetch nearby contracts' });
+    }
+});
 
 module.exports = router;

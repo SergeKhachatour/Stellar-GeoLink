@@ -128,11 +128,23 @@ const AdminDashboard = () => {
 
     const fetchContractRules = async () => {
         try {
-            const rulesRes = await api.get('/contracts/execution-rules/locations');
-            setContractRules(rulesRes.data?.rules || []);
+            // Try authenticated endpoint first, fallback to public if it fails
+            let rulesRes = await api.get('/contracts/execution-rules/locations').catch(() => null);
+            if (!rulesRes || !rulesRes.data?.success) {
+                // Fallback to public endpoint
+                rulesRes = await api.get('/contracts/execution-rules/locations/public').catch(() => ({ data: { success: false, rules: [] } }));
+            }
+            setContractRules(rulesRes?.data?.rules || []);
         } catch (rulesErr) {
             console.warn('Contract rules not available:', rulesErr);
-            setContractRules([]);
+            // Try public endpoint as last resort
+            try {
+                const publicRes = await api.get('/contracts/execution-rules/locations/public');
+                setContractRules(publicRes.data?.rules || []);
+            } catch (publicErr) {
+                console.warn('Failed to fetch public contract rules:', publicErr);
+                setContractRules([]);
+            }
         }
     };
 

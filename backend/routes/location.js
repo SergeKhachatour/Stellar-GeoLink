@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
+const { logEvent, fuzzLocation } = require('../utils/eventLogger');
 
 // Basic API key authentication middleware
 const authenticateApiKey = async (req, res, next) => {
@@ -293,13 +294,14 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             walletTypeId = defaultType.rows[0]?.id || 1;
         }
 
-        console.log('📍 Updating location for:', {
-            public_key: public_key.substring(0, 10) + '...',
-            blockchain,
-            latitude,
-            longitude,
-            wallet_type_id: walletTypeId,
-            wallet_provider_id: req.providerId
+        // PUBLIC-FRIENDLY LOG: Location update received (for GeoLink Events feed)
+        const eventMessage = `📍 Location update received: ${public_key.substring(0, 8)}... at (${latitude}, ${longitude})`;
+        console.log(`[GeoLink Events] ${eventMessage}`);
+        // Also log to database for public events feed
+        await logEvent('location_update', eventMessage, {
+            truncated_public_key: `${public_key.substring(0, 8)}...`,
+            latitude: parseFloat(latitude),
+            longitude: parseFloat(longitude)
         });
 
         // Update wallet location (trigger will automatically populate history table)
@@ -324,7 +326,7 @@ router.post('/update', authenticateApiKey, async (req, res) => {
         // Note: wallet_location_history is automatically populated by database trigger
         // No need to manually insert into history table
 
-        console.log('✅ Location updated successfully');
+        // console.log('✅ Location updated successfully');
 
         // Queue location update for background AI processing
         // Get user_id from wallet_providers table using providerId
@@ -359,11 +361,11 @@ router.post('/update', authenticateApiKey, async (req, res) => {
                         })
                     ]
                 );
-                console.log('📍 Location update queued for AI processing');
+                // console.log('📍 Location update queued for AI processing');
             }
         } catch (queueError) {
             // Don't fail the location update if queueing fails
-            console.error('⚠️  Error queueing location update for AI processing:', queueError);
+            console.error('⚠️  Error queueing location update for AI processing:', queueError.message);
         }
 
         res.json({ 
@@ -372,12 +374,12 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             data: result.rows[0]
         });
     } catch (error) {
-        console.error('❌ Error updating location:', error);
-        console.error('Error details:', {
-            message: error.message,
-            code: error.code,
-            detail: error.detail
-        });
+        console.error('❌ Error updating location:', error.message);
+        // console.error('Error details:', {
+        //     message: error.message,
+        //     code: error.code,
+        //     detail: error.detail
+        // });
         res.status(500).json({ 
             error: 'Internal server error',
             details: process.env.NODE_ENV === 'development' ? error.message : undefined

@@ -308,6 +308,52 @@ const PasskeyManager = () => {
                             Active on Contract
                           </Box>
                         )}
+                        {passkey.isDefault && (
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              px: 1,
+                              py: 0.25,
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText',
+                              borderRadius: 1,
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              ml: 1
+                            }}
+                          >
+                            ⭐ Default
+                          </Box>
+                        )}
+                        {!passkey.isDefault && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={async () => {
+                              try {
+                                setLoading(true);
+                                setError('');
+                                const encodedCredentialId = encodeURIComponent(passkey.credentialId);
+                                await api.put(`/webauthn/passkeys/${encodedCredentialId}`, {
+                                  is_default: true
+                                });
+                                setSuccess('Default passkey updated successfully');
+                                await fetchPasskeys();
+                              } catch (err) {
+                                console.error('Error setting default passkey:', err);
+                                setError(err.response?.data?.details || 'Failed to set default passkey');
+                              } finally {
+                                setLoading(false);
+                              }
+                            }}
+                            disabled={loading}
+                            sx={{ ml: 1, fontSize: '0.7rem', py: 0.25 }}
+                          >
+                            Set as Default
+                          </Button>
+                        )}
                       </Box>
                     )
                   }

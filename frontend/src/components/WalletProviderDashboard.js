@@ -207,10 +207,23 @@ const WalletProviderDashboard = () => {
 
     const fetchContractRules = async () => {
         try {
-            const res = await api.get('/contracts/execution-rules/locations').catch(() => ({ data: { success: false, rules: [] } }));
-            setContractRules(res.data?.rules || []);
+            // Try authenticated endpoint first, fallback to public if it fails
+            let res = await api.get('/contracts/execution-rules/locations').catch(() => null);
+            if (!res || !res.data?.success) {
+                // Fallback to public endpoint
+                res = await api.get('/contracts/execution-rules/locations/public').catch(() => ({ data: { success: false, rules: [] } }));
+            }
+            setContractRules(res?.data?.rules || []);
         } catch (err) {
             console.warn('Failed to fetch contract rules:', err);
+            // Try public endpoint as last resort
+            try {
+                const publicRes = await api.get('/contracts/execution-rules/locations/public');
+                setContractRules(publicRes.data?.rules || []);
+            } catch (publicErr) {
+                console.warn('Failed to fetch public contract rules:', publicErr);
+                setContractRules([]);
+            }
         }
     };
 

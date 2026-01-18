@@ -412,21 +412,21 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
       if (hasNameColumn) {
         result = await pool.query(
           `SELECT up.credential_id, up.public_key_spki, up.name, 
-                  up.registered_at, u.id as user_id, u.role
+                  up.registered_at, up.is_default, u.id as user_id, u.role
            FROM user_passkeys up
            JOIN users u ON up.user_id = u.id
            WHERE u.public_key = $1 
-           ORDER BY up.registered_at DESC`,
+           ORDER BY up.is_default DESC, up.registered_at DESC`,
           [userPublicKey]
         );
       } else {
         result = await pool.query(
           `SELECT up.credential_id, up.public_key_spki, 
-                  up.registered_at, u.id as user_id, u.role
+                  up.registered_at, up.is_default, u.id as user_id, u.role
            FROM user_passkeys up
            JOIN users u ON up.user_id = u.id
            WHERE u.public_key = $1 
-           ORDER BY up.registered_at DESC`,
+           ORDER BY up.is_default DESC, up.registered_at DESC`,
           [userPublicKey]
         );
       }
@@ -443,10 +443,10 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
         );
       } else {
         result = await pool.query(
-          `SELECT credential_id, public_key_spki, registered_at 
+          `SELECT credential_id, public_key_spki, registered_at, is_default
            FROM user_passkeys 
            WHERE user_id = $1 
-           ORDER BY registered_at DESC`,
+           ORDER BY is_default DESC, registered_at DESC`,
           [req.user.id]
         );
       }
@@ -541,7 +541,8 @@ router.get('/passkeys', authenticateUser, async (req, res) => {
           name: (hasNameColumn && row.name) ? row.name : `Passkey ${result.rows.indexOf(row) + 1}`, // Use name or default
           userId: row.user_id || req.user.id, // Include user_id for reference
           role: row.role || req.user.role, // Include role for reference
-          isOnContract: isOnContract // Indicate if this passkey is registered on contract
+          isOnContract: isOnContract, // Indicate if this passkey is registered on contract
+          isDefault: row.is_default || false // Indicate if this is the default passkey
         };
       }),
       contractPasskeyHex: contractPasskeyHex ? contractPasskeyHex.substring(0, 32) + '...' : null, // For debugging
@@ -614,13 +615,14 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
   try {
     const { credentialId } = req.params;
     const decodedCredentialId = decodeURIComponent(credentialId);
-    const { name } = req.body;
+    const { name, is_default } = req.body;
     
     console.log(`[WebAuthn] 🔄 Renaming passkey - credentialId: ${decodedCredentialId.substring(0, 20)}..., name: ${name}`);
     
-    if (!name || !name.trim()) {
+    // Validate inputs
+    if (name !== undefined && (!name || !name.trim())) {
       return res.status(400).json({ 
-        error: 'Name is required' 
+        error: 'Name cannot be empty' 
       });
     }
 
@@ -638,12 +640,41 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
       });
     }
 
+    // Build update query dynamically
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      updates.push(`name = $${paramIndex}`);
+      params.push(name.trim());
+      paramIndex++;
+    }
+
+    if (is_default !== undefined) {
+      if (is_default === true) {
+        // Set this passkey as default and unset others
+        await pool.query('SELECT set_default_passkey($1, $2)', [req.user.id, decodedCredentialId]);
+      } else {
+        updates.push(`is_default = $${paramIndex}`);
+        params.push(false);
+        paramIndex++;
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ 
+        error: 'No fields to update' 
+      });
+    }
+
+    params.push(req.user.id, decodedCredentialId);
     const result = await pool.query(
       `UPDATE user_passkeys 
-       SET name = $1 
-       WHERE user_id = $2 AND credential_id = $3
+       SET ${updates.join(', ')}
+       WHERE user_id = $${paramIndex} AND credential_id = $${paramIndex + 1}
        RETURNING *`,
-      [name.trim(), req.user.id, decodedCredentialId]
+      params
     );
 
     if (result.rows.length === 0) {
@@ -654,10 +685,11 @@ router.put('/passkeys/:credentialId', authenticateUser, async (req, res) => {
 
     res.json({ 
       success: true, 
-      message: 'Passkey name updated successfully',
+      message: 'Passkey updated successfully',
       passkey: {
         credentialId: result.rows[0].credential_id,
-        name: result.rows[0].name
+        name: result.rows[0].name,
+        isDefault: result.rows[0].is_default || false
       }
     });
   } catch (error) {

@@ -3,6 +3,8 @@
  * Centralized contract addresses for the application
  */
 
+const StellarSdk = require('@stellar/stellar-sdk');
+
 module.exports = {
   // Smart Wallet Contract (XYZ-Wallet)
   SMART_WALLET_CONTRACT_ID: process.env.SMART_WALLET_CONTRACT_ID || 
@@ -23,6 +25,8 @@ module.exports = {
     : 'https://soroban-testnet.stellar.org',
   HORIZON_URL: process.env.STELLAR_NETWORK === 'mainnet'
     ? 'https://horizon.stellar.org'
-    : 'https://horizon-testnet.stellar.org'
+    : 'https://horizon-testnet.stellar.org',
+  NETWORK_PASSPHRASE: process.env.STELLAR_NETWORK === 'mainnet'
+    ? StellarSdk.Networks.PUBLIC
+    : StellarSdk.Networks.TESTNET
 };
-

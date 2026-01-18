@@ -24,6 +24,7 @@ const aiRoutes = require('./routes/ai');
 const zkProofRoutes = require('./routes/zkProof');
 const smartWalletRoutes = require('./routes/smartWallet');
 const webauthnRoutes = require('./routes/webauthn');
+const eventsRoutes = require('./routes/events');
 // const configRoutes = require('./routes/config');
 const { rateLimiter } = require('./middleware/rateLimiter');
 const { authenticateUser } = require('./middleware/authUser');
@@ -77,6 +78,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/zk-proof', zkProofRoutes);
 app.use('/api/smart-wallet', smartWalletRoutes);
 app.use('/api/webauthn', webauthnRoutes);
+app.use('/api/events', eventsRoutes);
 // app.use('/api/config', configRoutes);
 
 // Debug endpoint to check environment variables and database connection

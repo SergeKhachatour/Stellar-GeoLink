@@ -9,6 +9,7 @@
 const pool = require('../config/database');
 const azureOpenAIService = require('./azureOpenAIService');
 const contractIntrospection = require('./contractIntrospection');
+const { logEvent, fuzzLocation } = require('../utils/eventLogger');
 
 class BackgroundAIService {
   constructor() {
@@ -22,11 +23,11 @@ class BackgroundAIService {
    */
   start(intervalMs = 5000) {
     if (this.processingInterval) {
-      console.log('[BackgroundAI] ⚠️  Worker already running');
+      // console.log('[BackgroundAI] ⚠️  Worker already running');
       return;
     }
 
-    console.log(`[BackgroundAI] 🚀 Starting background AI worker (interval: ${intervalMs}ms)`);
+    // console.log(`[BackgroundAI] 🚀 Starting background AI worker (interval: ${intervalMs}ms)`);
     
     this.processingInterval = setInterval(async () => {
       if (!this.isProcessing) {
@@ -42,7 +43,7 @@ class BackgroundAIService {
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
-      console.log('[BackgroundAI] ⏹️  Background AI worker stopped');
+      // console.log('[BackgroundAI] ⏹️  Background AI worker stopped');
     }
   }
 
@@ -53,15 +54,15 @@ class BackgroundAIService {
     const startTime = Date.now();
     try {
       this.isProcessing = true;
-      console.log(`[BackgroundAI] 🔄 Starting queue processing cycle at ${new Date().toISOString()}`);
+      // console.log(`[BackgroundAI] 🔄 Starting queue processing cycle at ${new Date().toISOString()}`);
 
       // First, mark superseded updates (older updates for same public_key)
       // Since updates come every 5 seconds, we only want to process the latest
       const supersededResult = await pool.query('SELECT mark_superseded_location_updates()');
       const supersededCount = supersededResult.rows[0]?.mark_superseded_location_updates || 0;
-      if (supersededCount > 0) {
-        console.log(`[BackgroundAI] ⏭️  Marked ${supersededCount} superseded location update(s) as skipped`);
-      }
+      // if (supersededCount > 0) {
+      //   console.log(`[BackgroundAI] ⏭️  Marked ${supersededCount} superseded location update(s) as skipped`);
+      // }
 
       // Get pending location updates (only latest per public_key)
       const result = await pool.query(
@@ -69,30 +70,30 @@ class BackgroundAIService {
       );
 
       if (result.rows.length === 0) {
-        console.log(`[BackgroundAI] ✅ Queue processing complete - No pending updates (took ${Date.now() - startTime}ms)`);
+        // console.log(`[BackgroundAI] ✅ Queue processing complete - No pending updates (took ${Date.now() - startTime}ms)`);
         return; // No pending updates
       }
 
-      console.log(`[BackgroundAI] 📍 Processing ${result.rows.length} location update(s) (latest per public_key)`);
-      console.log(`[BackgroundAI] 📋 Update details:`, result.rows.map(u => ({
-        update_id: u.update_id,
-        public_key: u.public_key?.substring(0, 8) + '...',
-        location: `(${u.latitude}, ${u.longitude})`,
-        user_id: u.user_id
-      })));
+      // console.log(`[BackgroundAI] 📍 Processing ${result.rows.length} location update(s) (latest per public_key)`);
+      // console.log(`[BackgroundAI] 📋 Update details:`, result.rows.map(u => ({
+      //   update_id: u.update_id,
+      //   public_key: u.public_key?.substring(0, 8) + '...',
+      //   location: `(${u.latitude}, ${u.longitude})`,
+      //   user_id: u.user_id
+      // })));
 
       for (const update of result.rows) {
         const updateStartTime = Date.now();
-        console.log(`[BackgroundAI] 🔍 Processing update ${update.update_id} for public_key ${update.public_key?.substring(0, 8)}...`);
+        // console.log(`[BackgroundAI] 🔍 Processing update ${update.update_id} for public_key ${update.public_key?.substring(0, 8)}...`);
         await this.processLocationUpdate(update);
-        console.log(`[BackgroundAI] ✅ Completed update ${update.update_id} (took ${Date.now() - updateStartTime}ms)`);
+        // console.log(`[BackgroundAI] ✅ Completed update ${update.update_id} (took ${Date.now() - updateStartTime}ms)`);
       }
 
-      const totalTime = Date.now() - startTime;
-      console.log(`[BackgroundAI] ✅ Queue processing complete - Processed ${result.rows.length} update(s) in ${totalTime}ms`);
+      // const totalTime = Date.now() - startTime;
+      // console.log(`[BackgroundAI] ✅ Queue processing complete - Processed ${result.rows.length} update(s) in ${totalTime}ms`);
     } catch (error) {
       console.error('[BackgroundAI] ❌ Error processing location update queue:', error);
-      console.error('[BackgroundAI] ❌ Error stack:', error.stack);
+      // console.error('[BackgroundAI] ❌ Error stack:', error.stack);
     } finally {
       this.isProcessing = false;
     }
@@ -106,16 +107,12 @@ class BackgroundAIService {
     const processStartTime = Date.now();
 
     try {
-      console.log(`[BackgroundAI] 📥 Processing location update ${update_id}:`, {
-        user_id,
-        public_key: public_key?.substring(0, 8) + '...',
-        queue_location: `(${latitude}, ${longitude})`,
-        received_at: update.received_at
-      });
+      // ESSENTIAL: Log location update being processed
+      console.log(`[BackgroundAI] 📍 Processing location update ${update_id} for public_key ${public_key?.substring(0, 8)}... at (${latitude}, ${longitude})`);
 
       // Mark as processing
       await pool.query('SELECT mark_location_update_processing($1)', [update_id]);
-      console.log(`[BackgroundAI] ✅ Marked update ${update_id} as processing`);
+      // console.log(`[BackgroundAI] ✅ Marked update ${update_id} as processing`);
 
       // Get latest location directly from wallet_locations table (avoiding function call issue)
       const locationFetchStartTime = Date.now();
@@ -135,27 +132,26 @@ class BackgroundAIService {
       const actualLongitude = latestLocation.rows[0]?.longitude || longitude;
       const isUsingLatest = !!latestLocation.rows[0];
       
-      console.log(`[BackgroundAI] 📍 Location data:`, {
-        queue_location: `(${latitude}, ${longitude})`,
-        latest_location: latestLocation.rows[0] ? `(${latestLocation.rows[0].latitude}, ${latestLocation.rows[0].longitude})` : 'N/A',
-        using: isUsingLatest ? 'latest from wallet_locations' : 'queue data',
-        final_location: `(${actualLatitude}, ${actualLongitude})`,
-        fetch_took: `${Date.now() - locationFetchStartTime}ms`
-      });
+      // console.log(`[BackgroundAI] 📍 Location data:`, {
+      //   queue_location: `(${latitude}, ${longitude})`,
+      //   latest_location: latestLocation.rows[0] ? `(${latestLocation.rows[0].latitude}, ${latestLocation.rows[0].longitude})` : 'N/A',
+      //   using: isUsingLatest ? 'latest from wallet_locations' : 'queue data',
+      //   final_location: `(${actualLatitude}, ${actualLongitude})`,
+      //   fetch_took: `${Date.now() - locationFetchStartTime}ms`
+      // });
       
       // Get all active contract execution rules for this user using latest location
       // Rules are already filtered by location/proximity in the query
       const rulesFetchStartTime = Date.now();
       const rules = await this.getActiveRulesForLocation(user_id, actualLatitude, actualLongitude, public_key);
-      console.log(`[BackgroundAI] 📋 Rules query:`, {
-        found_rules: rules.length,
-        rule_ids: rules.map(r => r.id),
-        rule_names: rules.map(r => r.rule_name),
-        took: `${Date.now() - rulesFetchStartTime}ms`
-      });
+      
+      // ESSENTIAL: Log rules found for this location update
+      if (rules.length > 0) {
+        console.log(`[BackgroundAI] 🔍 Evaluating ${rules.length} rule(s) for location update ${update_id}:`, rules.map(r => `Rule ${r.id} (${r.rule_name})`).join(', '));
+      }
 
       if (rules.length === 0) {
-        console.log(`[BackgroundAI] ℹ️  No active rules found for location update ${update_id} - Skipping`);
+        // console.log(`[BackgroundAI] ℹ️  No active rules found for location update ${update_id} - Skipping`);
         
         // Update location tracking for all rules this public key might have been tracking
         // Mark as out of range if they were previously in range
@@ -177,7 +173,7 @@ class BackgroundAIService {
 
       // Direct rule execution without AI analysis
       // Since rules are already filtered by location/proximity, we can execute them directly
-      console.log(`[BackgroundAI] ⚡ Executing ${rules.length} contract rule(s) directly (no AI analysis)...`);
+      // console.log(`[BackgroundAI] ⚡ Executing ${rules.length} contract rule(s) directly (no AI analysis)...`);
       const executionResults = [];
       const matchedRuleIds = [];
       
@@ -217,14 +213,14 @@ class BackgroundAIService {
                                          rule.requires_webauthn === 1;
         const requiresWebAuthn = contractRequiresWebAuthn || hasWebAuthnParams;
         
-        console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id}:`, {
-          contract_requires_webauthn: rule.requires_webauthn,
-          contract_requires_webauthn_type: typeof rule.requires_webauthn,
-          contract_requires_webauthn_parsed: contractRequiresWebAuthn,
-          has_webauthn_params: hasWebAuthnParams,
-          requires_webauthn: requiresWebAuthn,
-          function_params_keys: Object.keys(functionParams)
-        });
+        // console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id}:`, {
+        //   contract_requires_webauthn: rule.requires_webauthn,
+        //   contract_requires_webauthn_type: typeof rule.requires_webauthn,
+        //   contract_requires_webauthn_parsed: contractRequiresWebAuthn,
+        //   has_webauthn_params: hasWebAuthnParams,
+        //   requires_webauthn: requiresWebAuthn,
+        //   function_params_keys: Object.keys(functionParams)
+        // });
         
         // Check advanced settings FIRST (rate limiting, time-based triggers)
         // These checks apply regardless of whether WebAuthn is required
@@ -239,7 +235,8 @@ class BackgroundAIService {
           );
           
           if (!canExecute.rows[0]?.can_execute) {
-            console.log(`[BackgroundAI] ⚠️ Rate limit exceeded for rule ${rule.id} (${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s) and public key ${public_key?.substring(0, 8)}...`);
+            // ESSENTIAL: Log when rate limit blocks a rule
+            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Rate limit exceeded: ${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s`);
             executionResults.push({
               rule_id: rule.id,
               success: false,
@@ -250,12 +247,14 @@ class BackgroundAIService {
             });
             matchedRuleIds.push(rule.id);
             continue;
-          } else {
-            console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s)`);
           }
-        } else {
-          console.log(`[BackgroundAI] ✅ No rate limiting configured for rule ${rule.id} (max_executions: ${rule.max_executions_per_public_key ?? 'NULL'}, time_window: ${rule.execution_time_window_seconds ?? 'NULL'})`);
+          // else {
+          //   console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s)`);
+          // }
         }
+        // else {
+        //   console.log(`[BackgroundAI] ✅ No rate limiting configured for rule ${rule.id} (max_executions: ${rule.max_executions_per_public_key ?? 'NULL'}, time_window: ${rule.execution_time_window_seconds ?? 'NULL'})`);
+        // }
         
         // Check location duration requirement (only if rule has a duration requirement set)
         // Skip check if min_location_duration_seconds is NULL or 0
@@ -266,7 +265,8 @@ class BackgroundAIService {
           );
           
           if (!hasMinDuration.rows[0]?.has_duration) {
-            console.log(`[BackgroundAI] ⚠️ Minimum location duration not met for rule ${rule.id} (requires ${rule.min_location_duration_seconds}s) and public key ${public_key?.substring(0, 8)}...`);
+            // ESSENTIAL: Log when location duration requirement blocks a rule
+            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Location duration not met: requires ${rule.min_location_duration_seconds}s at location`);
             executionResults.push({
               rule_id: rule.id,
               success: false,
@@ -278,9 +278,10 @@ class BackgroundAIService {
             matchedRuleIds.push(rule.id);
             continue;
           }
-        } else {
-          console.log(`[BackgroundAI] ✅ No minimum location duration requirement for rule ${rule.id} (min_location_duration_seconds: ${rule.min_location_duration_seconds || 'NULL'})`);
         }
+        // else {
+        //   console.log(`[BackgroundAI] ✅ No minimum location duration requirement for rule ${rule.id} (min_location_duration_seconds: ${rule.min_location_duration_seconds || 'NULL'})`);
+        // }
         
         // Update location tracking BEFORE checking WebAuthn
         // This ensures time-based triggers can accumulate duration even when WebAuthn is required
@@ -291,8 +292,17 @@ class BackgroundAIService {
         
         // NOW check WebAuthn requirement (after advanced settings checks pass)
         if (requiresWebAuthn) {
-          console.log(`[BackgroundAI] ⚠️  Rule ${rule.id} (${rule.rule_name}) requires WebAuthn authentication - Skipping automatic execution`);
-          console.log(`[BackgroundAI] ℹ️  This rule matched the location and passed advanced settings checks, but requires manual execution via browser UI`);
+          // ESSENTIAL: Log when a rule matches and is added to pending rules
+          const eventMessage = `✅ Rule ${rule.id} (${rule.rule_name}) MATCHED - Added to pending rules (passed advanced settings, requires WebAuthn)`;
+          console.log(`[BackgroundAI] ${eventMessage}`);
+          // Also log to database for public events feed
+          await logEvent('rule_matched', eventMessage, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            update_id: update_id,
+            latitude: actualLatitude,
+            longitude: actualLongitude
+          });
           
           // Store the matched public key so it can be used as destination in pending rules
           // Mark as matched but not executed (requires manual execution)
@@ -311,7 +321,7 @@ class BackgroundAIService {
         }
         
         try {
-          console.log(`[BackgroundAI] ⚡ Executing rule ${rule.id} (${rule.rule_name})...`);
+          // console.log(`[BackgroundAI] ⚡ Executing rule ${rule.id} (${rule.rule_name})...`);
           
           // Location tracking already updated above (before WebAuthn check)
           // Build parameters from rule configuration
@@ -370,19 +380,29 @@ class BackgroundAIService {
                 JSON.stringify(executionResult)
               ]
             );
+            // ESSENTIAL: Log when a rule is executed successfully (read-only functions)
+            const eventMessage = `✅ Rule ${rule.id} (${rule.rule_name}) EXECUTED - Transaction: ${executionResult.transaction_hash?.substring(0, 16)}...`;
+            console.log(`[BackgroundAI] ${eventMessage}`);
+            // Also log to database for public events feed
+            await logEvent('rule_executed', eventMessage, {
+              rule_id: rule.id,
+              rule_name: rule.rule_name,
+              transaction_hash: executionResult.transaction_hash,
+              update_id: update_id,
+              latitude: actualLatitude,
+              longitude: actualLongitude
+            });
           }
-          
-          console.log(`[BackgroundAI] ✅ Rule ${rule.id} executed successfully (took ${Date.now() - executionStartTime}ms)`, {
-            success: executionResult.success,
-            completed: executionResult.completed,
-            transaction_hash: executionResult.transaction_hash?.substring(0, 16) + '...'
-          });
+          // else {
+          //   console.log(`[BackgroundAI] ✅ Rule ${rule.id} executed successfully (took ${Date.now() - executionStartTime}ms)`, {
+          //     success: executionResult.success,
+          //     completed: executionResult.completed,
+          //     transaction_hash: executionResult.transaction_hash?.substring(0, 16) + '...'
+          //   });
+          // }
         } catch (error) {
-          console.error(`[BackgroundAI] ❌ Error executing rule ${rule.id}:`, {
-            error: error.message,
-            stack: error.stack,
-            took: `${Date.now() - executionStartTime}ms`
-          });
+          console.error(`[BackgroundAI] ❌ Error executing rule ${rule.id}:`, error.message);
+          // console.error(`[BackgroundAI] ❌ Error stack:`, error.stack);
           executionResults.push({
             rule_id: rule.id,
             success: false,
@@ -407,19 +427,27 @@ class BackgroundAIService {
       // Pass matchedRuleIds as a PostgreSQL array (not JSON string)
       // pg library will automatically convert JavaScript array to PostgreSQL array format
       const executionResultsJson = JSON.stringify(executionResults);
-      console.log(`[BackgroundAI] 💾 Saving execution results for update ${update_id}:`, {
-        status: executionResults.some(r => r.success) ? 'executed' : 'matched',
-        matched_rule_ids: matchedRuleIds,
-        execution_results_count: executionResults.length,
-        skipped_rules: executionResults.filter(r => r.skipped).length,
-        requires_webauthn_rules: executionResults.filter(r => r.reason === 'requires_webauthn').length,
-        execution_results_preview: executionResults.map(r => ({
-          rule_id: r.rule_id,
-          skipped: r.skipped,
-          reason: r.reason,
-          matched_public_key: r.matched_public_key
-        }))
-      });
+      
+      // ESSENTIAL: Log summary of what was processed
+      const pendingCount = executionResults.filter(r => r.reason === 'requires_webauthn').length;
+      const executedCount = executionResults.filter(r => r.success && r.completed).length;
+      if (pendingCount > 0 || executedCount > 0) {
+        console.log(`[BackgroundAI] 📊 Location update ${update_id} processed: ${pendingCount} added to pending, ${executedCount} executed`);
+      }
+      
+      // console.log(`[BackgroundAI] 💾 Saving execution results for update ${update_id}:`, {
+      //   status: executionResults.some(r => r.success) ? 'executed' : 'matched',
+      //   matched_rule_ids: matchedRuleIds,
+      //   execution_results_count: executionResults.length,
+      //   skipped_rules: executionResults.filter(r => r.skipped).length,
+      //   requires_webauthn_rules: executionResults.filter(r => r.reason === 'requires_webauthn').length,
+      //   execution_results_preview: executionResults.map(r => ({
+      //     rule_id: r.rule_id,
+      //     skipped: r.skipped,
+      //     reason: r.reason,
+      //     matched_public_key: r.matched_public_key
+      //   }))
+      // });
       
       await pool.query(
         'SELECT complete_location_update_processing($1, $2, $3, $4::jsonb)',
@@ -432,39 +460,36 @@ class BackgroundAIService {
       );
       
       // Verify the data was saved correctly
-      const verifyResult = await pool.query(
-        'SELECT id, status, matched_rule_ids, execution_results FROM location_update_queue WHERE id = $1',
-        [update_id]
-      );
-      if (verifyResult.rows.length > 0) {
-        const saved = verifyResult.rows[0];
-        console.log(`[BackgroundAI] ✅ Verified save for update ${update_id}:`, {
-          status: saved.status,
-          matched_rule_ids: saved.matched_rule_ids,
-          execution_results_count: Array.isArray(saved.execution_results) ? saved.execution_results.length : 0,
-          execution_results_sample: Array.isArray(saved.execution_results) && saved.execution_results.length > 0 
-            ? saved.execution_results[0] 
-            : null
-        });
-      }
+      // const verifyResult = await pool.query(
+      //   'SELECT id, status, matched_rule_ids, execution_results FROM location_update_queue WHERE id = $1',
+      //   [update_id]
+      // );
+      // if (verifyResult.rows.length > 0) {
+      //   const saved = verifyResult.rows[0];
+      //   console.log(`[BackgroundAI] ✅ Verified save for update ${update_id}:`, {
+      //     status: saved.status,
+      //     matched_rule_ids: saved.matched_rule_ids,
+      //     execution_results_count: Array.isArray(saved.execution_results) ? saved.execution_results.length : 0,
+      //     execution_results_sample: Array.isArray(saved.execution_results) && saved.execution_results.length > 0 
+      //       ? saved.execution_results[0] 
+      //       : null
+      //   });
+      // }
 
-      const totalTime = Date.now() - processStartTime;
-      console.log(`[BackgroundAI] ✅ Processed location update ${update_id}:`, {
-        rules_analyzed: rules.length,
-        rules_executed: executionResults.length,
-        rules_successful: executionResults.filter(r => r.success).length,
-        execution_results: executionResults.map(r => ({
-          rule_id: r.rule_id,
-          success: r.success
-        })),
-        total_time: `${totalTime}ms`
-      });
+      // const totalTime = Date.now() - processStartTime;
+      // console.log(`[BackgroundAI] ✅ Processed location update ${update_id}:`, {
+      //   rules_analyzed: rules.length,
+      //   rules_executed: executionResults.length,
+      //   rules_successful: executionResults.filter(r => r.success).length,
+      //   execution_results: executionResults.map(r => ({
+      //     rule_id: r.rule_id,
+      //     success: r.success
+      //   })),
+      //   total_time: `${totalTime}ms`
+      // });
     } catch (error) {
-      console.error(`[BackgroundAI] ❌ Error processing location update ${update_id}:`, {
-        error: error.message,
-        stack: error.stack,
-        took: `${Date.now() - processStartTime}ms`
-      });
+      console.error(`[BackgroundAI] ❌ Error processing location update ${update_id}:`, error.message);
+      // console.error(`[BackgroundAI] ❌ Error stack:`, error.stack);
       await pool.query(
         'SELECT complete_location_update_processing($1, $2)',
         [update_id, 'failed']
@@ -832,7 +857,7 @@ Return JSON array with one object per rule:
    */
   async executeContractRuleDirectly(rule, parameters, publicKey) {
     try {
-      console.log(`[BackgroundAI] 🔨 Executing contract rule ${rule.id} (${rule.function_name}) for public key ${publicKey?.substring(0, 8)}...`);
+      // console.log(`[BackgroundAI] 🔨 Executing contract rule ${rule.id} (${rule.function_name}) for public key ${publicKey?.substring(0, 8)}...`);
       
       // For read-only functions, we can simulate without secret key
       // For write functions, we need secret key - but we don't have it in background service
@@ -842,32 +867,33 @@ Return JSON array with one object per rule:
       
       if (isReadOnly) {
         // Check if rule has submit_readonly_to_ledger enabled
-        console.log(`[BackgroundAI] 🔍 Read-only function check for rule ${rule.id}:`, {
-          submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
-          submit_readonly_to_ledger_type: typeof rule.submit_readonly_to_ledger,
-          submit_readonly_to_ledger_truthy: !!rule.submit_readonly_to_ledger
-        });
+        // console.log(`[BackgroundAI] 🔍 Read-only function check for rule ${rule.id}:`, {
+        //   submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
+        //   submit_readonly_to_ledger_type: typeof rule.submit_readonly_to_ledger,
+        //   submit_readonly_to_ledger_truthy: !!rule.submit_readonly_to_ledger
+        // });
         
         if (rule.submit_readonly_to_ledger) {
           // Submit read-only function to ledger using service account
-          console.log(`[BackgroundAI] 📤 Rule ${rule.id} has submit_readonly_to_ledger enabled - submitting to ledger`);
+          // console.log(`[BackgroundAI] 📤 Rule ${rule.id} has submit_readonly_to_ledger enabled - submitting to ledger`);
           try {
             const result = await this.submitReadOnlyToLedger(rule, parameters, publicKey);
             return result;
           } catch (error) {
-            console.error(`[BackgroundAI] ❌ Error submitting read-only function to ledger:`, error);
+            console.error(`[BackgroundAI] ❌ Error submitting read-only function to ledger:`, error.message);
             // Fall back to simulation if submission fails
-            console.log(`[BackgroundAI] ⚠️ Falling back to simulation for rule ${rule.id}`);
+            // console.log(`[BackgroundAI] ⚠️ Falling back to simulation for rule ${rule.id}`);
           }
-        } else {
-          console.log(`[BackgroundAI] ℹ️ Rule ${rule.id} does not have submit_readonly_to_ledger enabled - using simulation`);
         }
+        // else {
+        //   console.log(`[BackgroundAI] ℹ️ Rule ${rule.id} does not have submit_readonly_to_ledger enabled - using simulation`);
+        // }
         
         // For read-only functions, we can simulate the call
         // Generate a mock transaction hash for tracking
         const mockTxHash = `sim_${Date.now()}_${rule.id}_${Math.random().toString(36).substring(7)}`;
         
-        console.log(`[BackgroundAI] ✅ Read-only function executed (simulated) - Rule ${rule.id}`);
+        // console.log(`[BackgroundAI] ✅ Read-only function executed (simulated) - Rule ${rule.id}`);
         
         return {
           rule_id: rule.id,
@@ -884,7 +910,7 @@ Return JSON array with one object per rule:
       } else {
         // For write functions, we can't execute without secret key
         // But we'll mark it as attempted so it shows in logs
-        console.log(`[BackgroundAI] ⚠️ Write function requires secret key - Rule ${rule.id} cannot be executed automatically`);
+        // console.log(`[BackgroundAI] ⚠️ Write function requires secret key - Rule ${rule.id} cannot be executed automatically`);
         
         return {
           rule_id: rule.id,
@@ -899,7 +925,7 @@ Return JSON array with one object per rule:
         };
       }
     } catch (error) {
-      console.error(`[BackgroundAI] ❌ Error executing contract rule ${rule.id}:`, error);
+      console.error(`[BackgroundAI] ❌ Error executing contract rule ${rule.id}:`, error.message);
       throw error;
     }
   }
@@ -975,17 +1001,17 @@ Return JSON array with one object per rule:
         .build();
       
       // Prepare transaction (required for Soroban contracts)
-      console.log(`[BackgroundAI] 🔄 Preparing transaction for read-only function: ${rule.function_name}`);
+      // console.log(`[BackgroundAI] 🔄 Preparing transaction for read-only function: ${rule.function_name}`);
       const preparedTx = await sorobanServer.prepareTransaction(transaction);
       
       // Sign the prepared transaction
-      console.log(`[BackgroundAI] ✍️ Signing transaction...`);
+      // console.log(`[BackgroundAI] ✍️ Signing transaction...`);
       preparedTx.sign(keypair);
       
       // Submit transaction
-      console.log(`[BackgroundAI] 📤 Submitting read-only function to ledger: ${rule.function_name}`);
+      // console.log(`[BackgroundAI] 📤 Submitting read-only function to ledger: ${rule.function_name}`);
       const sendResult = await sorobanServer.sendTransaction(preparedTx);
-      console.log(`[BackgroundAI] ✅ Transaction submitted - Hash: ${sendResult.hash}`);
+      // console.log(`[BackgroundAI] ✅ Transaction submitted - Hash: ${sendResult.hash}`);
       
       // Poll for result
       let txResult = null;
@@ -998,7 +1024,7 @@ Return JSON array with one object per rule:
       }
       
       if (txResult && txResult.status === 'SUCCESS') {
-        console.log(`[BackgroundAI] ✅ Transaction confirmed on ledger - Hash: ${sendResult.hash}`);
+        // console.log(`[BackgroundAI] ✅ Transaction confirmed on ledger - Hash: ${sendResult.hash}`);
         return {
           rule_id: rule.id,
           function_name: rule.function_name,
@@ -1015,7 +1041,7 @@ Return JSON array with one object per rule:
         throw new Error(`Transaction not confirmed: ${txResult?.status || 'NOT_FOUND'}`);
       }
     } catch (error) {
-      console.error(`[BackgroundAI] ❌ Error submitting read-only function to ledger:`, error);
+      console.error(`[BackgroundAI] ❌ Error submitting read-only function to ledger:`, error.message);
       throw error;
     }
   }

@@ -64,7 +64,7 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
     }
     
     // Passkey is not registered, register it automatically
-    console.log('[Smart Wallet] 🔐 Passkey not registered, auto-registering...');
+    // console.log('[Smart Wallet] 🔐 Passkey not registered, auto-registering...');
     
     // Extract 65-byte public key from SPKI
     const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
@@ -127,7 +127,7 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
         // Still return true - transaction was sent, might be processing
         return true;
       } else {
-        console.log(`[Smart Wallet] ⏳ Auto-registration transaction pending - Hash: ${sendResult.hash}`);
+        // console.log(`[Smart Wallet] ⏳ Auto-registration transaction pending - Hash: ${sendResult.hash}`);
         // Transaction is pending, return true to proceed with payment
         // Contract will handle if passkey isn't registered yet
         return true;
@@ -152,11 +152,11 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
  *   - assetAddress: Asset contract address (optional, defaults to native XLM)
  */
 router.get('/balance', authenticateUser, async (req, res) => {
-  console.log('[Smart Wallet] 💰 Balance check request received');
+  // console.log('[Smart Wallet] 💰 Balance check request received');
   try {
     const { userPublicKey, contractId, assetAddress } = req.query; // Fixed: was req instead of req.query
 
-    console.log(`[Smart Wallet] 📋 Request params - userPublicKey: ${userPublicKey}, contractId: ${contractId || 'default'}, assetAddress: ${assetAddress || 'native'}`);
+    // console.log(`[Smart Wallet] 📋 Request params - userPublicKey: ${userPublicKey}, contractId: ${contractId || 'default'}, assetAddress: ${assetAddress || 'native'}`);
 
     if (!userPublicKey) {
       console.error('[Smart Wallet] ❌ Missing userPublicKey parameter');
@@ -167,7 +167,7 @@ router.get('/balance', authenticateUser, async (req, res) => {
 
     // Get smart wallet contract ID from query, env var, or use default from config
     const smartWalletContractId = contractId || contracts.SMART_WALLET_CONTRACT_ID;
-    console.log(`[Smart Wallet] 📝 Using contract ID: ${smartWalletContractId}`);
+    // console.log(`[Smart Wallet] 📝 Using contract ID: ${smartWalletContractId}`);
 
     if (!smartWalletContractId) {
       console.error('[Smart Wallet] ❌ Smart wallet contract ID not configured');
@@ -238,7 +238,7 @@ router.get('/balance', authenticateUser, async (req, res) => {
       .build();
 
     // Simulate transaction (read-only, no signing needed)
-    console.log(`[Smart Wallet] 🔄 Simulating get_balance transaction for user ${userPublicKey}...`);
+    // console.log(`[Smart Wallet] 🔄 Simulating get_balance transaction for user ${userPublicKey}...`);
     let simulation;
     try {
       simulation = await sorobanServer.simulateTransaction(transaction);
@@ -330,7 +330,7 @@ router.get('/balance', authenticateUser, async (req, res) => {
     const balanceInXLM = (BigInt(balance) / 10000000n).toString();
     const balanceInStroops = balance;
 
-    console.log(`[Smart Wallet] ✅ Balance retrieved - User: ${userPublicKey}, Balance: ${balanceInXLM} XLM (${balanceInStroops} stroops)`);
+    // console.log(`[Smart Wallet] ✅ Balance retrieved - User: ${userPublicKey}, Balance: ${balanceInXLM} XLM (${balanceInStroops} stroops)`);
 
     res.json({
       balance: balanceInStroops,
@@ -364,8 +364,8 @@ router.get('/balance', authenticateUser, async (req, res) => {
 router.post('/execute-payment', authenticateUser, async (req, res) => {
   console.log('[Smart Wallet] 💳 Execute payment request received');
   try {
-    console.log('[Smart Wallet] 📋 Request body keys:', Object.keys(req.body));
-    console.log('[Smart Wallet] 📋 Has passkeyPublicKeySPKI:', !!req.body.passkeyPublicKeySPKI);
+    // console.log('[Smart Wallet] 📋 Request body keys:', Object.keys(req.body));
+    // console.log('[Smart Wallet] 📋 Has passkeyPublicKeySPKI:', !!req.body.passkeyPublicKeySPKI);
     const {
       userPublicKey,
       userSecretKey,
@@ -382,7 +382,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       matched_public_key, // Optional: Matched public key for additional filtering
     } = req.body;
 
-    console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}, Rule ID: ${rule_id || 'Not provided'}`);
+    // console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}, Rule ID: ${rule_id || 'Not provided'}`);
 
     if (!userPublicKey || !userSecretKey || !destinationAddress || !amount) {
       console.error('[Smart Wallet] ❌ Missing required parameters');
@@ -399,7 +399,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
+    // console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
     const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
       ? StellarSdk.Networks.TESTNET
@@ -496,7 +496,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
         }
         
         const passkeyPubkeyHex = passkeyPubkeyBytes.toString('hex');
-        console.log(`[Smart Wallet] 🔑 Passkey public key from request (hex): ${passkeyPubkeyHex.substring(0, 32)}...`);
+        // console.log(`[Smart Wallet] 🔑 Passkey public key from request (hex): ${passkeyPubkeyHex.substring(0, 32)}...`);
         
         // Check what's registered on the contract
         const userScAddressForCheck = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
@@ -534,7 +534,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
             const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
             const registeredPubkeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
             
-            console.log(`[Smart Wallet] 🔑 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
+            // console.log(`[Smart Wallet] 🔑 Registered passkey on contract (hex): ${registeredPubkeyHex.substring(0, 32)}...`);
             
             if (registeredPubkeyHex !== passkeyPubkeyHex) {
               console.error('[Smart Wallet] ❌ Passkey mismatch detected!');
@@ -558,7 +558,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
           }
         } else {
           // Passkey not registered, try to register it
-          console.log('[Smart Wallet] 🔐 Passkey not registered, attempting auto-registration...');
+          // console.log('[Smart Wallet] 🔐 Passkey not registered, attempting auto-registration...');
           const registrationPromise = ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId);
           const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('Passkey registration timeout after 15 seconds')), 15000)
@@ -597,9 +597,9 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     // Build transaction
     console.log(`[Smart Wallet] 🔍 Loading account ${userPublicKey}...`);
     const account = await sorobanServer.getAccount(userPublicKey);
-    console.log(`[Smart Wallet] ✅ Account loaded - Sequence: ${account.sequenceNumber()}`);
+    // console.log(`[Smart Wallet] ✅ Account loaded - Sequence: ${account.sequenceNumber()}`);
     
-    console.log('[Smart Wallet] 🔨 Building execute_payment transaction...');
+    // console.log('[Smart Wallet] 🔨 Building execute_payment transaction...');
     const transaction = new StellarSdk.TransactionBuilder(
       new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
       {
@@ -610,36 +610,48 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       .addOperation(contractCallOp)
       .setTimeout(30)
       .build();
-    console.log('[Smart Wallet] ✅ Transaction built');
+    // console.log('[Smart Wallet] ✅ Transaction built');
 
     // Prepare transaction (adds authorization entries)
-    console.log('[Smart Wallet] 🔄 Preparing transaction...');
+    // console.log('[Smart Wallet] 🔄 Preparing transaction...');
     const preparedTx = await sorobanServer.prepareTransaction(transaction);
-    console.log('[Smart Wallet] ✅ Transaction prepared');
+    // console.log('[Smart Wallet] ✅ Transaction prepared');
 
     // Sign transaction
-    console.log('[Smart Wallet] ✍️ Signing transaction...');
+    // console.log('[Smart Wallet] ✍️ Signing transaction...');
     const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
     preparedTx.sign(keypair);
-    console.log('[Smart Wallet] ✅ Transaction signed');
+    // console.log('[Smart Wallet] ✅ Transaction signed');
 
     // Send transaction
-    console.log('[Smart Wallet] 📤 Sending transaction to network...');
+    // console.log('[Smart Wallet] 📤 Sending transaction to network...');
     const sendResult = await sorobanServer.sendTransaction(preparedTx);
-    console.log(`[Smart Wallet] ✅ Transaction sent - Hash: ${sendResult.hash}`);
+    
+    // PUBLIC-FRIENDLY LOG: Payment transaction submitted (for GeoLink Events feed)
+    if (rule_id) {
+      console.log(`[GeoLink Events] ✅ Payment transaction submitted for Rule ${rule_id}: ${sendResult.hash}`);
+    } else {
+      console.log(`[GeoLink Events] ✅ Payment transaction submitted: ${sendResult.hash}`);
+    }
 
     // Poll for result
-    console.log('[Smart Wallet] ⏳ Polling for transaction result...');
+    // console.log('[Smart Wallet] ⏳ Polling for transaction result...');
     let txResult = null;
     for (let i = 0; i < 10; i++) {
       await new Promise(r => setTimeout(r, 2000));
       txResult = await sorobanServer.getTransaction(sendResult.hash);
-      console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
+      // console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
       if (txResult.status === 'SUCCESS') {
-        console.log(`[Smart Wallet] ✅ Payment successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+        // PUBLIC-FRIENDLY LOG: Payment confirmed (for GeoLink Events feed)
+        if (rule_id) {
+          console.log(`[GeoLink Events] ✅ Payment confirmed for Rule ${rule_id} on ledger ${txResult.ledger}: ${sendResult.hash}`);
+        } else {
+          console.log(`[GeoLink Events] ✅ Payment confirmed on ledger ${txResult.ledger}: ${sendResult.hash}`);
+        }
+        // console.log(`[Smart Wallet] ✅ Payment successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
         
         // If rule_id is provided, mark the pending rule as completed in execution_results
-        console.log(`[Smart Wallet] 🔍 Checking if rule_id is provided: ${rule_id ? `Yes (${rule_id})` : 'No'}`);
+        // console.log(`[Smart Wallet] 🔍 Checking if rule_id is provided: ${rule_id ? `Yes (${rule_id})` : 'No'}`);
         if (rule_id) {
           try {
             // backend/config/database.js exports the Pool instance directly (module.exports = pool)
@@ -647,7 +659,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
             const pool = require('../config/database');
             const userId = req.user?.id || req.userId;
             
-            console.log(`[Smart Wallet] 📝 Attempting to mark rule ${rule_id} as completed for user ${userId}`);
+            // console.log(`[Smart Wallet] 📝 Attempting to mark rule ${rule_id} as completed for user ${userId}`);
             
             if (userId) {
               // First, check if the rule exists in execution_results
@@ -666,11 +678,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
               `;
               
               const checkResult = await pool.query(checkQuery, [userId, parseInt(rule_id)]);
-              console.log(`[Smart Wallet] 🔍 Found ${checkResult.rows.length} location_update_queue entry(ies) with rule_id ${rule_id}`);
+              // console.log(`[Smart Wallet] 🔍 Found ${checkResult.rows.length} location_update_queue entry(ies) with rule_id ${rule_id}`);
               
               if (checkResult.rows.length > 0) {
                 const executionResults = checkResult.rows[0].execution_results;
-                console.log(`[Smart Wallet] 📋 Current execution_results:`, JSON.stringify(executionResults, null, 2));
+                // console.log(`[Smart Wallet] 📋 Current execution_results:`, JSON.stringify(executionResults, null, 2));
                 
                 // Use update_id and matched_public_key to only mark the specific instance
                 let markCompletedQuery;
@@ -701,15 +713,21 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                           ) AND (
                             COALESCE((result->>'skipped')::boolean, false) = true
                           ) AND (
+                            COALESCE(result->>'reason', '') = 'requires_webauthn'
+                          ) AND (
+                            COALESCE((result->>'rejected')::boolean, false) = false
+                          ) AND (
                             COALESCE((result->>'completed')::boolean, false) = false
                           ) AND (
                             result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                           )
-                          THEN result || jsonb_build_object(
+                          THEN (result - 'reason') || jsonb_build_object(
                             'completed', true, 
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
                             'success', true,
+                            'skipped', false,
+                            'matched_public_key', COALESCE(result->>'matched_public_key', $5::text),
                             'execution_parameters', $7::jsonb
                           )
                           ELSE result
@@ -725,12 +743,14 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                         FROM jsonb_array_elements(luq.execution_results) AS result
                         WHERE (result->>'rule_id')::integer = $1::integer
                         AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                        AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
                         AND (
                           result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
                         )
                       )
-                    RETURNING luq.id, luq.execution_results
+                    RETURNING luq.id, luq.execution_results, luq.received_at, luq.public_key
                   `;
                   markCompletedParams = [
                     parseInt(rule_id), 
@@ -756,25 +776,43 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   };
                   const executionParamsJson = JSON.stringify(executionParams);
                   
+                  // Mark the latest pending placeholder for this matched_public_key as completed (do not delete it)
                   markCompletedQuery = `
+                    WITH target AS (
+                      SELECT luq.id
+                      FROM location_update_queue luq
+                      WHERE luq.user_id = $2
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(luq.execution_results) AS r
+                          WHERE (r->>'rule_id')::integer = $1::integer
+                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                            AND COALESCE((r->>'completed')::boolean, false) = false
+                            AND (COALESCE(r->>'matched_public_key', luq.public_key) = $5 OR r->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                        )
+                      ORDER BY luq.received_at DESC
+                      LIMIT 1
+                    )
                     UPDATE location_update_queue luq
                     SET execution_results = (
                       SELECT jsonb_agg(
-                        CASE 
-                          WHEN (
-                            (result->>'rule_id')::integer = $1::integer
-                          ) AND (
-                            COALESCE((result->>'skipped')::boolean, false) = true
-                          ) AND (
-                            COALESCE((result->>'completed')::boolean, false) = false
-                          ) AND (
-                            result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
-                          )
-                          THEN result || jsonb_build_object(
-                            'completed', true, 
+                        CASE
+                          WHEN (result->>'rule_id')::integer = $1::integer
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                            AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((result->>'rejected')::boolean, false) = false
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                            AND (COALESCE(result->>'matched_public_key', luq.public_key) = $5 OR result->>'matched_public_key' IS NULL OR luq.public_key = $5)
+                          THEN (result - 'reason') || jsonb_build_object(
+                            'completed', true,
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
                             'success', true,
+                            'skipped', false,
+                            'matched_public_key', COALESCE(result->>'matched_public_key', $5::text),
                             'execution_parameters', $6::jsonb
                           )
                           ELSE result
@@ -782,23 +820,13 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       )
                       FROM jsonb_array_elements(luq.execution_results) AS result
                     )
-                    WHERE luq.user_id = $2
-                      AND luq.execution_results IS NOT NULL
-                      AND EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE (result->>'rule_id')::integer = $1::integer
-                        AND COALESCE((result->>'skipped')::boolean, false) = true
-                        AND COALESCE((result->>'completed')::boolean, false) = false
-                        AND (
-                          result->>'matched_public_key' = $5 OR luq.public_key = $5 OR result->>'matched_public_key' IS NULL
-                        )
-                      )
-                    RETURNING luq.id, luq.execution_results
+                    FROM target t
+                    WHERE luq.id = t.id
+                    RETURNING luq.id, luq.execution_results, luq.received_at, luq.public_key
                   `;
                   markCompletedParams = [
-                    parseInt(rule_id), 
-                    userId, 
+                    parseInt(rule_id),
+                    userId,
                     new Date().toISOString(),
                     sendResult.hash,
                     matched_public_key,
@@ -819,23 +847,40 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   };
                   const executionParamsJson = JSON.stringify(executionParams);
                   
+                  // Mark the latest pending placeholder for this rule as completed (do not delete it)
                   markCompletedQuery = `
+                    WITH target AS (
+                      SELECT luq.id
+                      FROM location_update_queue luq
+                      WHERE luq.user_id = $2
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(luq.execution_results) AS r
+                          WHERE (r->>'rule_id')::integer = $1::integer
+                            AND COALESCE((r->>'skipped')::boolean, false) = true
+                            AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((r->>'rejected')::boolean, false) = false
+                            AND COALESCE((r->>'completed')::boolean, false) = false
+                        )
+                      ORDER BY luq.received_at DESC
+                      LIMIT 1
+                    )
                     UPDATE location_update_queue luq
                     SET execution_results = (
                       SELECT jsonb_agg(
-                        CASE 
-                          WHEN (
-                            (result->>'rule_id')::integer = $1::integer
-                          ) AND (
-                            COALESCE((result->>'skipped')::boolean, false) = true
-                          ) AND (
-                            COALESCE((result->>'completed')::boolean, false) = false
-                          )
-                          THEN result || jsonb_build_object(
-                            'completed', true, 
+                        CASE
+                          WHEN (result->>'rule_id')::integer = $1::integer
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                            AND COALESCE(result->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((result->>'rejected')::boolean, false) = false
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                          THEN (result - 'reason') || jsonb_build_object(
+                            'completed', true,
                             'completed_at', $3::text,
                             'transaction_hash', $4::text,
                             'success', true,
+                            'skipped', false,
                             'execution_parameters', $5::jsonb
                           )
                           ELSE result
@@ -843,64 +888,120 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       )
                       FROM jsonb_array_elements(luq.execution_results) AS result
                     )
-                    WHERE luq.user_id = $2
-                      AND luq.execution_results IS NOT NULL
-                      AND EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(luq.execution_results) AS result
-                        WHERE (result->>'rule_id')::integer = $1::integer
-                        AND COALESCE((result->>'skipped')::boolean, false) = true
-                        AND COALESCE((result->>'completed')::boolean, false) = false
-                      )
-                    RETURNING luq.id, luq.execution_results
+                    FROM target t
+                    WHERE luq.id = t.id
+                    RETURNING luq.id, luq.execution_results, luq.received_at, luq.public_key
                   `;
                   markCompletedParams = [
-                    parseInt(rule_id), 
-                    userId, 
+                    parseInt(rule_id),
+                    userId,
                     new Date().toISOString(),
                     sendResult.hash,
                     executionParamsJson
                   ];
                 }
                 
-                console.log(`[Smart Wallet] 🔍 Executing completion query with params:`, {
-                  rule_id: markCompletedParams[0],
-                  user_id: markCompletedParams[1],
-                  completed_at: markCompletedParams[2],
-                  transaction_hash: markCompletedParams[3],
-                  matched_public_key: markCompletedParams[4] || 'N/A',
-                  update_id: markCompletedParams[5] || 'N/A',
-                  has_execution_params: !!markCompletedParams[markCompletedParams.length - 1]
-                });
+                // console.log(`[Smart Wallet] 🔍 Executing completion query with params:`, {
+                //   rule_id: parseInt(rule_id),
+                //   user_id: userId,
+                //   matched_public_key: matched_public_key || 'N/A',
+                //   update_id: update_id || 'N/A',
+                //   transaction_hash: sendResult.hash,
+                //   has_execution_params: true
+                // });
                 
                 const updateResult = await pool.query(markCompletedQuery, markCompletedParams);
                 
-                console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed. Rows affected: ${updateResult.rowCount}`);
+                // PUBLIC-FRIENDLY LOG: Rule completed via smart wallet payment (for GeoLink Events feed)
+                console.log(`[GeoLink Events] ✅ Rule ${rule_id} completed via smart wallet payment - Transaction: ${sendResult.hash}`);
+                // console.log(`[Smart Wallet] ✅ Marked pending rule ${rule_id} as completed. Rows affected: ${updateResult.rowCount}`);
                 
+                // Clean up older queue entries for the same rule_id + public_key combination
                 if (updateResult.rows.length > 0) {
-                  console.log(`[Smart Wallet] 📋 Updated execution_results (from RETURNING):`, JSON.stringify(updateResult.rows[0].execution_results, null, 2));
-                  
-                  // Check if the rule is actually marked as completed in the returned data
-                  const execResults = updateResult.rows[0].execution_results || [];
-                  const ruleResult = execResults.find(r => r.rule_id === parseInt(rule_id));
-                  if (ruleResult) {
-                    if (ruleResult.completed) {
-                      console.log(`[Smart Wallet] ✅ Rule ${rule_id} is correctly marked as completed in RETURNING data`);
-                    } else {
-                      console.error(`[Smart Wallet] ❌ Rule ${rule_id} is NOT marked as completed in RETURNING data!`, {
-                        skipped: ruleResult.skipped,
-                        completed: ruleResult.completed,
-                        success: ruleResult.success,
-                        matched_public_key: ruleResult.matched_public_key
-                      });
-                    }
+                  try {
+                    const receivedAt = updateResult.rows[0].received_at;
+                    const publicKey = updateResult.rows[0].public_key || matched_public_key;
+                    const cleanupQuery = `
+                      DELETE FROM location_update_queue luq2
+                      WHERE luq2.user_id = $1
+                        AND ($2::text IS NULL OR luq2.public_key = $2)
+                        AND luq2.id != COALESCE($3::integer, 0)
+                        AND luq2.execution_results IS NOT NULL
+                        -- CRITICAL: Only delete entries that are OLDER than the executed one (received_at <= executed entry's received_at)
+                        AND luq2.received_at <= $6::timestamp
+                        -- Only delete entries that have the EXACT matching rule_id and matched_public_key
+                        -- AND only if they have pending/skipped rules (not completed ones)
+                        AND EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(luq2.execution_results) AS result2
+                          WHERE (result2->>'rule_id')::integer = $5::integer
+                          AND COALESCE((result2->>'skipped')::boolean, false) = true
+                          AND COALESCE((result2->>'completed')::boolean, false) = false
+                          AND (
+                            -- Exact match: matched_public_key must match exactly
+                            ($4::text IS NOT NULL AND result2->>'matched_public_key' = $4::text)
+                            OR ($4::text IS NULL AND (result2->>'matched_public_key' IS NULL OR result2->>'matched_public_key' = luq2.public_key))
+                          )
+                        )
+                        -- CRITICAL: Only delete entries that have NO completed rules (preserve entries with completed rules)
+                        AND NOT EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(luq2.execution_results) AS result3
+                          WHERE COALESCE((result3->>'completed')::boolean, false) = true
+                        )
+                    `;
+                    const cleanupParams = [
+                      userId,
+                      publicKey,
+                      update_id ? parseInt(update_id) : null,
+                      matched_public_key || publicKey,
+                      parseInt(rule_id),
+                      receivedAt
+                    ];
+                    const cleanupResult = await pool.query(cleanupQuery, cleanupParams);
+                    // console.log(`[Smart Wallet] 🧹 Cleaned up ${cleanupResult.rowCount} older queue entry/entries for rule ${rule_id}`);
+                  } catch (cleanupError) {
+                    console.error(`[Smart Wallet] ⚠️ Error cleaning up older queue entries:`, cleanupError.message);
+                    // Don't fail the request if cleanup fails
                   }
                 }
                 
+                // Record execution in rate limiting history (for rate limit enforcement)
+                if (rule_id && updateResult.rows.length > 0) {
+                  try {
+                    const executedPublicKey = updateResult.rows[0].public_key || matched_public_key || userPublicKey;
+                    await pool.query(
+                      'SELECT record_rule_execution($1, $2, $3, $4)',
+                      [
+                        parseInt(rule_id),
+                        executedPublicKey,
+                        sendResult.hash,
+                        JSON.stringify({
+                          success: true,
+                          completed: true,
+                          transaction_hash: sendResult.hash,
+                          completed_at: new Date().toISOString(),
+                          execution_type: 'smart_wallet_payment',
+                          matched_public_key: matched_public_key || executedPublicKey
+                        })
+                      ]
+                    );
+                    // console.log(`[Smart Wallet] ✅ Recorded rule ${rule_id} execution in rate limit history for public key ${executedPublicKey.substring(0, 8)}...`);
+                  } catch (rateLimitError) {
+                    console.error(`[Smart Wallet] ⚠️ Error recording rule execution for rate limiting:`, rateLimitError.message);
+                    // Don't fail the request if rate limit recording fails
+                  }
+                }
+                
+                // if (updateResult.rows.length > 0) {
+                //   console.log(`[Smart Wallet] ✅ Rule ${rule_id} entry removed from execution_results. Remaining results:`, 
+                //     updateResult.rows[0].execution_results ? JSON.stringify(updateResult.rows[0].execution_results, null, 2) : 'NULL (all entries removed)');
+                // }
+                
                 if (updateResult.rowCount === 0) {
                   console.error(`[Smart Wallet] ⚠️ WARNING: No rows were updated! This means the query conditions didn't match.`);
-                  console.error(`[Smart Wallet] 🔍 Query used:`, markCompletedQuery.substring(0, 200) + '...');
-                  console.error(`[Smart Wallet] 🔍 Parameters:`, markCompletedParams);
+                  // console.error(`[Smart Wallet] 🔍 Query used:`, markCompletedQuery.substring(0, 200) + '...');
+                  // console.error(`[Smart Wallet] 🔍 Parameters:`, markCompletedParams);
                   
                   // Try to find what's actually in the database
                   const debugQuery = `
@@ -1072,7 +1173,7 @@ router.post('/register-signer', authenticateUser, async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
+    // console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
     const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
       ? StellarSdk.Networks.TESTNET
@@ -1623,14 +1724,14 @@ router.post('/deposit', authenticateUser, async (req, res) => {
  *   - assetAddress: Asset contract address (optional, defaults to native XLM)
  */
 router.get('/vault-balance', async (req, res) => {
-  console.log('[Smart Wallet] 🏦 Vault balance check request received');
+  // console.log('[Smart Wallet] 🏦 Vault balance check request received');
   try {
     const { contractId, assetAddress } = req.query;
 
-    console.log(`[Smart Wallet] 📋 Request params - contractId: ${contractId || 'default'}, assetAddress: ${assetAddress || 'native'}`);
+    // console.log(`[Smart Wallet] 📋 Request params - contractId: ${contractId || 'default'}, assetAddress: ${assetAddress || 'native'}`);
 
     const smartWalletContractId = contractId || contracts.SMART_WALLET_CONTRACT_ID;
-    console.log(`[Smart Wallet] 📝 Using contract ID: ${smartWalletContractId}`);
+    // console.log(`[Smart Wallet] 📝 Using contract ID: ${smartWalletContractId}`);
 
     if (!smartWalletContractId) {
       console.error('[Smart Wallet] ❌ Smart wallet contract ID not configured');
@@ -1640,7 +1741,7 @@ router.get('/vault-balance', async (req, res) => {
     }
 
     const StellarSdk = require('@stellar/stellar-sdk');
-    console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
+    // console.log(`[Smart Wallet] 🌐 Connecting to Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
     const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
       ? StellarSdk.Networks.TESTNET

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Card, 
   CardContent, 
@@ -38,15 +38,8 @@ const SmartWalletBalance = ({ compact = false }) => {
   // Determine which public key to use: connected wallet takes priority, then user's public_key
   const effectivePublicKey = publicKey || (user && user.public_key);
 
-  useEffect(() => {
-    if (effectivePublicKey) {
-      fetchBalance();
-    }
-    fetchVaultBalance(); // Vault balance doesn't need a user public key
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectivePublicKey, user]);
-
-  const fetchBalance = async () => {
+  // Define fetch functions first (before useEffect hooks that use them)
+  const fetchBalance = useCallback(async () => {
     if (!effectivePublicKey) {
       return;
     }
@@ -73,9 +66,9 @@ const SmartWalletBalance = ({ compact = false }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [effectivePublicKey]);
 
-  const fetchVaultBalance = async () => {
+  const fetchVaultBalance = useCallback(async () => {
     try {
       const response = await api.get('/smart-wallet/vault-balance');
       setVaultBalance(response.data.balance);
@@ -86,7 +79,34 @@ const SmartWalletBalance = ({ compact = false }) => {
       setVaultBalance(null);
       setVaultBalanceInXLM(null);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (effectivePublicKey) {
+      fetchBalance();
+    }
+    fetchVaultBalance(); // Vault balance doesn't need a user public key
+  }, [effectivePublicKey, user, fetchBalance, fetchVaultBalance]);
+
+  // Listen for payment success events to refresh vault balance
+  useEffect(() => {
+    const handlePaymentSuccess = (event) => {
+      console.log('[SmartWalletBalance] Payment success event received, refreshing vault balance...', event.detail);
+      // Wait a moment for the transaction to propagate, then refresh
+      setTimeout(() => {
+        fetchVaultBalance();
+        if (effectivePublicKey) {
+          fetchBalance();
+        }
+      }, 1000);
+    };
+
+    window.addEventListener('smartWalletPaymentSuccess', handlePaymentSuccess);
+
+    return () => {
+      window.removeEventListener('smartWalletPaymentSuccess', handlePaymentSuccess);
+    };
+  }, [effectivePublicKey, fetchBalance, fetchVaultBalance]);
 
   const handleDepositSuccess = async () => {
     // Wait for the transaction to propagate on the network

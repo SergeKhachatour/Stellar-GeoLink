@@ -165,6 +165,13 @@ const Navbar = () => {
                             <ListItemText primary="📋 Contracts" />
                         </ListItemButton>
                         <ListItemButton 
+                            component={RouterLink} 
+                            to="/events" 
+                            onClick={handleDrawerToggle}
+                        >
+                            <ListItemText primary="📊 Events" />
+                        </ListItemButton>
+                        <ListItemButton 
                             component="a" 
                             href={(() => {
                               const getApiBaseURL = () => {
@@ -205,6 +212,9 @@ const Navbar = () => {
                         </ListItemButton>
                         <ListItemButton component={RouterLink} to="/contracts" onClick={handleDrawerToggle}>
                             <ListItemText primary="📋 Contracts" />
+                        </ListItemButton>
+                        <ListItemButton component={RouterLink} to="/events" onClick={handleDrawerToggle}>
+                            <ListItemText primary="📊 Events" />
                         </ListItemButton>
                         {user.role === 'admin' && (
                             <ListItemButton component={RouterLink} to="/admin" onClick={handleDrawerToggle}>
@@ -324,6 +334,14 @@ const Navbar = () => {
                                     </Button>
                                     <Button 
                                         color="inherit" 
+                                        component={RouterLink} 
+                                        to="/events"
+                                        size="small"
+                                    >
+                                        📊 Events
+                                    </Button>
+                                    <Button 
+                                        color="inherit" 
                                         component="a"
                                         href={(() => {
                               const getApiBaseURL = () => {
@@ -387,6 +405,14 @@ const Navbar = () => {
                                         size="small"
                                     >
                                         📋 Contracts
+                                    </Button>
+                                    <Button 
+                                        color="inherit" 
+                                        component={RouterLink} 
+                                        to="/events"
+                                        size="small"
+                                    >
+                                        📊 Events
                                     </Button>
                                     {user.role === 'admin' && (
                                         <Button 

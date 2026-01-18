@@ -33,6 +33,7 @@ import {
 import PublicNFTShowcase from './PublicNFTShowcase';
 import RealTimeNodeTracking from './RealTimeNodeTracking';
 import SmartWalletBalance from './SmartWalletBalance';
+import GeoLinkEvents from './GeoLinkEvents';
 import ApiDocumentation from '../shared/ApiDocumentation';
 import AIChat from '../AI/AIChat';
 import { useAIMap } from '../../contexts/AIMapContext';
@@ -166,7 +167,8 @@ const HomePage = () => {
                                         backgroundColor: 'rgba(255,255,255,0.1)', 
                                         backdropFilter: 'blur(10px)',
                                         borderRadius: 3,
-                                        mx: { xs: 2, md: 0 }
+                                        mx: { xs: 2, md: 0 },
+                                        mb: 2
                                     }}
                                 >
                                     <Typography 
@@ -186,6 +188,10 @@ const HomePage = () => {
                                         Monitor your Stellar-based assets across the globe with precision and security
                                     </Typography>
                                 </Paper>
+                                {/* GeoLink Events Card */}
+                                <Box sx={{ mt: 2 }}>
+                                    <GeoLinkEvents />
+                                </Box>
                             </Box>
                         </Grid>
                     </Grid>

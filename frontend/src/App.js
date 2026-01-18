@@ -24,6 +24,7 @@ import NFTCollectionAnalytics from './components/Analytics/NFTCollectionAnalytic
 import WalletConnectionGuard from './components/Wallet/WalletConnectionGuard';
 import SettingsPage from './components/Settings/SettingsPage';
 import ContractManagement from './components/Contracts/ContractManagement';
+import Events from './pages/Events';
 
 // Inner component that has access to router context
 function AppContent() {
@@ -124,6 +125,10 @@ function AppContent() {
                 <Route 
                     path="/contracts" 
                     element={<ContractManagement />}
+                />
+                <Route 
+                    path="/events" 
+                    element={<Events />}
                 />
             </Routes>
         </>
