@@ -49,6 +49,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Upload as UploadIcon,
+  CloudUpload as CloudUploadIcon,
   PlayArrow as PlayArrowIcon,
   Download as DownloadIcon,
   Visibility as VisibilityIcon,
@@ -647,6 +648,33 @@ const ContractManagement = () => {
   const handleEditContract = (contract) => {
     setEditingContract(contract);
     setContractDialogOpen(true);
+  };
+
+  const handleUpdateWasm = async (contract) => {
+    if (!contract.id) {
+      setError('Contract ID not found');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    
+    try {
+      const response = await api.post(`/contracts/${contract.id}/fetch-wasm`, {
+        network: contract.network || 'testnet'
+      });
+
+      if (response.data.success) {
+        setSuccess(`WASM file updated from ${contract.network || 'testnet'} network successfully!`);
+        // Reload contracts to show updated WASM info
+        loadContracts();
+      } else {
+        setError('Failed to update WASM file');
+      }
+    } catch (err) {
+      console.error('Error updating WASM:', err);
+      setError(err.response?.data?.error || err.message || 'Failed to update WASM file');
+    }
   };
 
   const handleAddRule = (contract = null) => {
@@ -4029,6 +4057,14 @@ const ContractManagement = () => {
                           onClick={() => handleEditContract(contract)}
                         >
                           Edit
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={<CloudUploadIcon />}
+                          onClick={() => handleUpdateWasm(contract)}
+                          title="Fetch WASM from network"
+                        >
+                          Update WASM
                         </Button>
                         <Button
                           size="small"

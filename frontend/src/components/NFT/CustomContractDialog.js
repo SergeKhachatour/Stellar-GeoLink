@@ -52,6 +52,7 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
   const [wasmFile, setWasmFile] = useState(null);
   const [uploadingWasm, setUploadingWasm] = useState(false);
   const [needsWasmUpload, setNeedsWasmUpload] = useState(false);
+  const [fetchingWasm, setFetchingWasm] = useState(false);
 
   // Reset form when dialog opens/closes, or load editing contract
   useEffect(() => {
@@ -114,6 +115,77 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
     }
   }, [open, editingContract]);
 
+  const handleFetchWasm = async () => {
+    if (!contractAddress.trim()) {
+      setError('Please enter a contract address');
+      return;
+    }
+
+    // Validate contract address format (Stellar address format)
+    if (!/^[A-Z0-9]{56}$/.test(contractAddress.trim())) {
+      setError('Invalid contract address format. Must be 56 characters (Stellar address format)');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    setFetchingWasm(true);
+
+    try {
+      // First, check if contract exists, if not create it
+      let contractId = null;
+      try {
+        const contractsResponse = await api.get('/contracts');
+        const existingContract = contractsResponse.data.contracts?.find(
+          c => c.contract_address === contractAddress.trim()
+        );
+        
+        if (existingContract) {
+          contractId = existingContract.id;
+        } else {
+          // Create contract first
+          const createResponse = await api.post('/contracts', {
+            contract_address: contractAddress.trim(),
+            contract_name: contractName.trim() || null,
+            network,
+            discovered_functions: {},
+            function_mappings: {}
+          });
+          contractId = createResponse.data.contract?.id;
+        }
+      } catch (createErr) {
+        console.error('Error creating/finding contract:', createErr);
+        throw new Error('Failed to create or find contract');
+      }
+
+      if (!contractId) {
+        throw new Error('Contract ID not found');
+      }
+
+      // Fetch WASM from network
+      const response = await api.post(`/contracts/${contractId}/fetch-wasm`, {
+        network
+      });
+
+      if (response.data.success) {
+        setSuccess(`WASM file fetched from ${network} network successfully! You can now discover functions.`);
+        setNeedsWasmUpload(false);
+        // Optionally auto-discover after fetching WASM
+        setTimeout(() => {
+          handleDiscover();
+        }, 1000);
+      } else {
+        setError('Failed to fetch WASM from network');
+      }
+    } catch (err) {
+      console.error('Error fetching WASM:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to fetch WASM from network';
+      setError(errorMessage);
+    } finally {
+      setFetchingWasm(false);
+    }
+  };
+
   const handleDiscover = async () => {
     if (!contractAddress.trim()) {
       setError('Please enter a contract address');
@@ -152,7 +224,7 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
         if (allTemplates) {
           // This is a template response - show WASM upload prompt
           setNeedsWasmUpload(true);
-          setError('WASM file required for function discovery. Please upload your contract WASM file to discover functions.');
+          setError('WASM file required for function discovery. Please upload your contract WASM file or fetch it from the network to discover functions.');
           setDiscoveredFunctions([]); // Don't show template functions
           setSuccess(''); // Clear any success message
         } else if (functions.length > 0) {
@@ -164,7 +236,7 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
           // No functions found
           setDiscoveredFunctions([]);
           setNeedsWasmUpload(true);
-          setError('No functions discovered. Please upload WASM file to enable function discovery.');
+          setError('No functions discovered. Please upload WASM file or fetch it from the network to enable function discovery.');
         }
       } else {
         setError('Failed to discover functions');
@@ -376,16 +448,31 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
             <option value="mainnet">Mainnet</option>
           </TextField>
 
-          {/* Discover Button */}
-          <Button
-            variant="contained"
-            onClick={handleDiscover}
-            disabled={discovering || !contractAddress.trim()}
-            startIcon={discovering ? <CircularProgress size={20} /> : <SearchIcon />}
-            fullWidth
-          >
-            {discovering ? 'Discovering Functions...' : 'Discover Contract Functions'}
-          </Button>
+          {/* WASM Actions */}
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={handleFetchWasm}
+              disabled={fetchingWasm || !contractAddress.trim()}
+              startIcon={fetchingWasm ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+              sx={{ flex: 1 }}
+            >
+              {fetchingWasm ? 'Fetching WASM...' : 'Fetch WASM from Network'}
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleDiscover}
+              disabled={discovering || !contractAddress.trim()}
+              startIcon={discovering ? <CircularProgress size={20} /> : <SearchIcon />}
+              sx={{ flex: 1 }}
+            >
+              {discovering ? 'Discovering...' : 'Discover Functions'}
+            </Button>
+          </Box>
+          
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -1, mb: 1 }}>
+            Fetch WASM from the network to enable function discovery, or upload a WASM file manually
+          </Typography>
 
           {/* Discovered Functions */}
           {discoveredFunctions.length > 0 && (
