@@ -905,16 +905,23 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   ];
                 }
                 
-                // console.log(`[Smart Wallet] 🔍 Executing completion query with params:`, {
-                //   rule_id: parseInt(rule_id),
-                //   user_id: userId,
-                //   matched_public_key: matched_public_key || 'N/A',
-                //   update_id: update_id || 'N/A',
-                //   transaction_hash: sendResult.hash,
-                //   has_execution_params: true
-                // });
-                
-                const updateResult = await pool.query(markCompletedQuery, markCompletedParams);
+                // Ensure we have a valid query before executing
+                let updateResult = { rows: [], rowCount: 0 };
+                if (!markCompletedQuery || !markCompletedParams) {
+                  console.error(`[Smart Wallet] ❌ Completion query not initialized. Rule ID: ${rule_id}, Update ID: ${update_id}, Matched Public Key: ${matched_public_key}`);
+                  // Don't fail the payment - just log the error and continue
+                } else {
+                  // console.log(`[Smart Wallet] 🔍 Executing completion query with params:`, {
+                  //   rule_id: parseInt(rule_id),
+                  //   user_id: userId,
+                  //   matched_public_key: matched_public_key || 'N/A',
+                  //   update_id: update_id || 'N/A',
+                  //   transaction_hash: sendResult.hash,
+                  //   has_execution_params: true
+                  // });
+                  
+                  updateResult = await pool.query(markCompletedQuery, markCompletedParams);
+                }
                 
                 // PUBLIC-FRIENDLY LOG: Rule completed via smart wallet payment (for GeoLink Events feed)
                 console.log(`[GeoLink Events] ✅ Rule ${rule_id} completed via smart wallet payment - Transaction: ${sendResult.hash}`);
@@ -1085,7 +1092,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                 // Verify the update - use the specific update_id if available
                 let verifyQuery;
                 let verifyParams;
-                if (update_id) {
+                if (validUpdateId) {
                   verifyQuery = `
                     SELECT luq.id, luq.execution_results
                     FROM location_update_queue luq
@@ -1093,7 +1100,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                       AND luq.id = $2::integer
                       AND luq.execution_results IS NOT NULL
                   `;
-                  verifyParams = [userId, parseInt(update_id)];
+                  verifyParams = [userId, validUpdateId];
                 } else {
                   verifyQuery = checkQuery;
                   verifyParams = [userId, parseInt(rule_id)];
