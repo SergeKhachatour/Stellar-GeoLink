@@ -688,7 +688,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                 let markCompletedQuery;
                 let markCompletedParams;
                 
-                if (update_id && matched_public_key) {
+                // Validate update_id and matched_public_key before using them
+                const validUpdateId = update_id && !isNaN(parseInt(update_id)) ? parseInt(update_id) : null;
+                const validMatchedPublicKey = matched_public_key && typeof matched_public_key === 'string' && matched_public_key.trim() !== '' ? matched_public_key : null;
+                
+                if (validUpdateId && validMatchedPublicKey) {
                   // Filter by update_id and matched_public_key for precise matching
                   // Store actual execution parameters (payment details)
                   const executionParams = {
@@ -757,11 +761,11 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     userId, 
                     new Date().toISOString(),
                     sendResult.hash,
-                    matched_public_key,
-                    parseInt(update_id),
+                    validMatchedPublicKey,
+                    validUpdateId,
                     executionParamsJson
                   ];
-                } else if (matched_public_key) {
+                } else if (validMatchedPublicKey) {
                   // Filter by matched_public_key only
                   // Store actual execution parameters (payment details)
                   const executionParams = {
@@ -829,7 +833,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     userId,
                     new Date().toISOString(),
                     sendResult.hash,
-                    matched_public_key,
+                    validMatchedPublicKey,
                     executionParamsJson
                   ];
                 } else {
