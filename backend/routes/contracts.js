@@ -705,7 +705,10 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
         );
 
         if (contractResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Contract not found' });
+            return res.status(404).json({ 
+                error: 'Contract not found',
+                message: `Contract with ID ${id} not found or you do not have access to it. Please verify the contract ID and try again.`
+            });
         }
 
         const contract = contractResult.rows[0];
