@@ -3307,7 +3307,7 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
     try {
         const userId = req.user?.id || req.userId;
         const publicKey = req.user?.public_key;
-        const limit = parseInt(req.query.limit) || 100; // Increased limit to show more completed rules
+        const limit = parseInt(req.query.limit) || 1000; // Default limit increased to show more completed rules (can be overridden via query param)
         
         if (!userId && !publicKey) {
             return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
