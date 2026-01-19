@@ -990,51 +990,62 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                     
                     // Trigger lightweight cleanup asynchronously (non-blocking)
                     if (updateResult.rows.length > 0) {
-                      const executionTime = updateResult.rows[0].received_at || new Date().toISOString();
-                      // Lightweight cleanup for this specific rule+key
-                      pool.query(`
-                        UPDATE location_update_queue luq
-                        SET execution_results = (
-                          SELECT jsonb_agg(
-                            CASE 
-                              WHEN (result->>'rule_id')::integer = $1
+                      try {
+                        const receivedAt = updateResult.rows[0].received_at;
+                        // Ensure executionTime is a proper timestamp string
+                        const executionTime = receivedAt 
+                          ? (receivedAt instanceof Date ? receivedAt.toISOString() : receivedAt)
+                          : new Date().toISOString();
+                        
+                        // Lightweight cleanup for this specific rule+key (fire and forget)
+                        pool.query(`
+                          UPDATE location_update_queue luq
+                          SET execution_results = (
+                            SELECT jsonb_agg(
+                              CASE 
+                                WHEN (result->>'rule_id')::integer = $1
+                                  AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
+                                  AND COALESCE((result->>'completed')::boolean, false) = false
+                                  AND COALESCE((result->>'skipped')::boolean, false) = true
+                                  AND luq.received_at < $4::timestamp
+                                  AND (result->>'reason')::text != 'superseded_by_newer_execution'
+                                THEN result || jsonb_build_object(
+                                  'reason', 'superseded_by_newer_execution',
+                                  'superseded_at', CURRENT_TIMESTAMP::text
+                                )
+                                ELSE result
+                              END
+                            )
+                            FROM jsonb_array_elements(luq.execution_results) AS result
+                          )
+                          WHERE luq.status IN ('matched', 'executed')
+                            AND luq.execution_results IS NOT NULL
+                            AND luq.received_at < $4::timestamp
+                            AND (
+                              (luq.public_key = $2 OR $2 IS NULL)
+                              OR (luq.user_id = $3 OR $3 IS NULL)
+                            )
+                            AND EXISTS (
+                              SELECT 1
+                              FROM jsonb_array_elements(luq.execution_results) AS result
+                              WHERE (result->>'rule_id')::integer = $1
                                 AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
                                 AND COALESCE((result->>'completed')::boolean, false) = false
                                 AND COALESCE((result->>'skipped')::boolean, false) = true
-                                AND luq.received_at < $4::timestamp
-                                AND (result->>'reason')::text != 'superseded_by_newer_execution'
-                              THEN result || jsonb_build_object(
-                                'reason', 'superseded_by_newer_execution',
-                                'superseded_at', CURRENT_TIMESTAMP::text
-                              )
-                              ELSE result
-                            END
-                          )
-                          FROM jsonb_array_elements(luq.execution_results) AS result
-                        )
-                        WHERE luq.status IN ('matched', 'executed')
-                          AND luq.execution_results IS NOT NULL
-                          AND luq.received_at < $4::timestamp
-                          AND (
-                            (luq.public_key = $2 OR $2 IS NULL)
-                            OR (luq.user_id = $3 OR $3 IS NULL)
-                          )
-                          AND EXISTS (
-                            SELECT 1
-                            FROM jsonb_array_elements(luq.execution_results) AS result
-                            WHERE (result->>'rule_id')::integer = $1
-                              AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
-                              AND COALESCE((result->>'completed')::boolean, false) = false
-                              AND COALESCE((result->>'skipped')::boolean, false) = true
-                          )
-                      `, [
-                        parseInt(rule_id),
-                        executedPublicKey,
-                        userId,
-                        executionTime
-                      ]).catch(err => {
-                        console.error('[QueueCleanup] ⚠️ Background cleanup error:', err.message);
-                      });
+                            )
+                        `, [
+                          parseInt(rule_id),
+                          executedPublicKey,
+                          userId,
+                          executionTime
+                        ]).catch(err => {
+                          // Silently handle errors - cleanup is non-critical
+                          console.error('[QueueCleanup] ⚠️ Background cleanup error:', err.message);
+                        });
+                      } catch (cleanupInitError) {
+                        // Don't let cleanup initialization errors break the payment
+                        console.error('[QueueCleanup] ⚠️ Error initializing cleanup:', cleanupInitError.message);
+                      }
                     }
                   } catch (rateLimitError) {
                     console.error(`[Smart Wallet] ⚠️ Error recording rule execution for rate limiting:`, rateLimitError.message);
