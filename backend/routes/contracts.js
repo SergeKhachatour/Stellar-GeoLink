@@ -1125,10 +1125,18 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
         });
     } catch (error) {
         console.error('[GeoLink Agent] ❌ Error during automated onboarding:', error);
+        console.error('[GeoLink Agent] Error stack:', error.stack);
+        console.error('[GeoLink Agent] Error details:', {
+            message: error.message,
+            name: error.name,
+            contract_address: contract_address,
+            userId: userId
+        });
         res.status(500).json({ 
             success: false,
             error: 'Failed to onboard contract',
-            message: error.message 
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
     }
 });
