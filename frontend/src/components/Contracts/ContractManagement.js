@@ -2372,7 +2372,8 @@ const ContractManagement = () => {
       }
       
       // Call smart wallet endpoint
-      const response = await api.post('/smart-wallet/execute-payment', {
+      // Only include update_id and matched_public_key if they are defined and valid
+      const requestBody = {
         userPublicKey: publicKey,
         userSecretKey: userSecretKey,
         destinationAddress: destination,
@@ -2383,10 +2384,18 @@ const ContractManagement = () => {
         webauthnSignature: webauthnData.webauthnSignature,
         webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
         webauthnClientData: webauthnData.webauthnClientData,
-        rule_id: rule.id,
-        update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
-        matched_public_key: rule.matched_public_key // Include matched_public_key for additional filtering
-      });
+        rule_id: rule.id
+      };
+      
+      // Only add optional parameters if they are defined and valid
+      if (rule.update_id && !isNaN(parseInt(rule.update_id))) {
+        requestBody.update_id = parseInt(rule.update_id);
+      }
+      if (rule.matched_public_key && typeof rule.matched_public_key === 'string' && rule.matched_public_key.trim() !== '') {
+        requestBody.matched_public_key = rule.matched_public_key;
+      }
+      
+      const response = await api.post('/smart-wallet/execute-payment', requestBody);
       
       if (!response.data.success) {
         throw new Error(response.data.error || 'Smart wallet payment failed');
