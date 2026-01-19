@@ -1133,13 +1133,20 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
               } else {
                 console.warn(`[Smart Wallet] ⚠️ No location_update_queue entry found with rule_id ${rule_id} for user ${userId}`);
               }
-            } else {
-              console.warn(`[Smart Wallet] ⚠️ No userId found in request`);
             }
           } catch (updateError) {
             // Don't fail the payment if we can't update the status
             console.error(`[Smart Wallet] ❌ Error marking rule ${rule_id} as completed:`, updateError);
-            console.error(`[Smart Wallet] ❌ Error stack:`, updateError.stack);
+            console.error(`[Smart Wallet] ❌ Error details:`, {
+              message: updateError.message,
+              stack: updateError.stack,
+              name: updateError.name,
+              code: updateError.code,
+              rule_id: rule_id,
+              update_id: update_id,
+              matched_public_key: matched_public_key,
+              userId: req.user?.id || req.userId
+            });
           }
         } else {
           console.log(`[Smart Wallet] ℹ️ No rule_id provided, skipping rule completion marking`);
@@ -1164,7 +1171,12 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       message: error.message,
       stack: error.stack,
       name: error.name,
-      code: error.code
+      code: error.code,
+      rule_id: req.body.rule_id,
+      update_id: req.body.update_id,
+      matched_public_key: req.body.matched_public_key,
+      userPublicKey: req.body.userPublicKey?.substring(0, 8) + '...',
+      has_userId: !!req.user?.id
     });
     
     // Check if this is a WebAuthn signature verification error
@@ -1193,6 +1205,13 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
         ],
         suggestion: 'Please try re-authenticating with your passkey and ensure all WebAuthn data is correctly formatted.',
         originalError: error.message
+      };
+    } else {
+      // For other errors, include the full error message and stack
+      errorDetails = {
+        originalError: error.message,
+        stack: error.stack,
+        code: error.code
       };
     }
     

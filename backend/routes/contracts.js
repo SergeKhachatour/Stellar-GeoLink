@@ -1953,12 +1953,12 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         WHERE (newer_completed->>'rule_id')::integer = cer.id
                             AND COALESCE((newer_completed->>'completed')::boolean, false) = true
                             AND (
-                                COALESCE(newer_completed->>'matched_public_key', luq2.public_key) = 
-                                COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id LIMIT 1), luq.public_key)
+                                (luq2.public_key = luq.public_key)
+                                OR (luq2.user_id = luq.user_id)
                             )
                             AND (
-                                (luq2.public_key = $1 OR $1 IS NULL)
-                                OR (luq2.user_id = $2 OR $2 IS NULL)
+                                COALESCE(newer_completed->>'matched_public_key', luq2.public_key) = 
+                                COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id AND result->>'skipped' = 'true' LIMIT 1), luq.public_key)
                             )
                             AND luq2.received_at > luq.received_at
                     )
