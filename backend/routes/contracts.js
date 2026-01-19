@@ -1945,6 +1945,23 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR completed_result->>'matched_public_key' IS NULL
                         )
                     )
+                    -- Exclude pending rules if there's a newer completed execution for the same rule+key
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM location_update_queue luq2
+                        CROSS JOIN jsonb_array_elements(luq2.execution_results) AS newer_completed
+                        WHERE (newer_completed->>'rule_id')::integer = cer.id
+                            AND COALESCE((newer_completed->>'completed')::boolean, false) = true
+                            AND (
+                                COALESCE(newer_completed->>'matched_public_key', luq2.public_key) = 
+                                COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id LIMIT 1), luq.public_key)
+                            )
+                            AND (
+                                (luq2.public_key = $1 OR $1 IS NULL)
+                                OR (luq2.user_id = $2 OR $2 IS NULL)
+                            )
+                            AND luq2.received_at > luq.received_at
+                    )
                     AND (
                         -- Only apply rate limit check if rule has rate limiting configured
                         cer.max_executions_per_public_key IS NULL 
@@ -2012,6 +2029,20 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
                             OR completed_result->>'matched_public_key' IS NULL
                         )
+                    )
+                    -- Exclude pending rules if there's a newer completed execution for the same rule+key
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM location_update_queue luq2
+                        CROSS JOIN jsonb_array_elements(luq2.execution_results) AS newer_completed
+                        WHERE (newer_completed->>'rule_id')::integer = cer.id
+                            AND COALESCE((newer_completed->>'completed')::boolean, false) = true
+                            AND (
+                                COALESCE(newer_completed->>'matched_public_key', luq2.public_key) = 
+                                COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id LIMIT 1), luq.public_key)
+                            )
+                            AND luq2.public_key = $1
+                            AND luq2.received_at > luq.received_at
                     )
                     AND (
                         -- Only apply rate limit check if rule has rate limiting configured
@@ -2083,6 +2114,20 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
                             OR completed_result->>'matched_public_key' IS NULL
                         )
+                    )
+                    -- Exclude pending rules if there's a newer completed execution for the same rule+key
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM location_update_queue luq2
+                        CROSS JOIN jsonb_array_elements(luq2.execution_results) AS newer_completed
+                        WHERE (newer_completed->>'rule_id')::integer = cer.id
+                            AND COALESCE((newer_completed->>'completed')::boolean, false) = true
+                            AND (
+                                COALESCE(newer_completed->>'matched_public_key', luq2.public_key) = 
+                                COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id LIMIT 1), luq.public_key)
+                            )
+                            AND luq2.user_id = $1
+                            AND luq2.received_at > luq.received_at
                     )
                     AND (
                         -- Only apply rate limit check if rule has rate limiting configured
