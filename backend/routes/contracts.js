@@ -685,6 +685,7 @@ router.get('/:id/wasm', authenticateContractUser, async (req, res) => {
  *       401:
  *         description: Authentication required
  */
+// NOTE: This route MUST be defined BEFORE /:id to avoid route conflicts
 router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
     try {
         const { id } = req.params;

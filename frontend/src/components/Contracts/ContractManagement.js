@@ -681,6 +681,57 @@ const ContractManagement = () => {
     }
   };
 
+  const handleAgentOnboard = async () => {
+    if (!agentContractAddress.trim()) {
+      setError('Please enter a contract address');
+      return;
+    }
+
+    // Validate contract address format
+    if (!/^[A-Z0-9]{56}$/.test(agentContractAddress.trim())) {
+      setError('Invalid contract address format. Must be 56 characters (Stellar address format)');
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    setAgentProcessing(true);
+    setAgentResult(null);
+
+    try {
+      console.log('[GeoLink Agent] 🤖 Starting automated onboarding...');
+      const response = await api.post('/contracts/agent-onboard', {
+        contract_address: agentContractAddress.trim().toUpperCase()
+      });
+
+      if (response.data.success) {
+        setAgentResult(response.data);
+        setSuccess(`Contract onboarded successfully on ${response.data.detected_network}!`);
+        // Reload contracts
+        loadContracts();
+        // Close agent dialog and open edit dialog with the new contract
+        setAgentDialogOpen(false);
+        // Find the newly created contract
+        const contractsResponse = await api.get('/contracts');
+        const newContract = contractsResponse.data.contracts?.find(
+          c => c.contract_address === agentContractAddress.trim().toUpperCase()
+        );
+        if (newContract) {
+          setEditingContract(newContract);
+          setContractDialogOpen(true);
+        }
+      } else {
+        setError(response.data.error || 'Failed to onboard contract');
+      }
+    } catch (err) {
+      console.error('Error in GeoLink Agent onboarding:', err);
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to onboard contract';
+      setError(errorMessage);
+    } finally {
+      setAgentProcessing(false);
+    }
+  };
+
   const handleAddRule = (contract = null) => {
     setSelectedContractForRule(contract);
     setRuleForm({
