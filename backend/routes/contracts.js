@@ -2332,6 +2332,482 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
 
 /**
  * @swagger
+ * /api/contracts/rules/pending/cleanup:
+ *   post:
+ *     summary: Cleanup and realign pending rules queue
+ *     description: Self-check function that removes old queue records superseded by newer executions and marks outdated entries as skipped. Supports both JWT and API key authentication.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     responses:
+ *       200:
+ *         description: Cleanup completed successfully
+ *       401:
+ *         description: Authentication required
+ */
+router.post('/rules/pending/cleanup', authenticateContractUser, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+
+        console.log('[QueueCleanup] 🔧 Starting queue cleanup and realignment...');
+        const cleanupStats = {
+            markedSkipped: 0,
+            deletedEntries: 0,
+            rateLimitSkipped: 0,
+            supersededSkipped: 0
+        };
+
+        // Step 1: Find all completed executions to identify what should be considered "latest"
+        const completedExecutionsQuery = `
+            SELECT DISTINCT
+                (result->>'rule_id')::integer as rule_id,
+                COALESCE(result->>'matched_public_key', luq.public_key) as matched_key,
+                luq.public_key as queue_public_key,
+                luq.user_id,
+                MAX(luq.received_at) as latest_execution_time
+            FROM location_update_queue luq
+            CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND COALESCE((result->>'completed')::boolean, false) = true
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+            GROUP BY (result->>'rule_id')::integer, 
+                     COALESCE(result->>'matched_public_key', luq.public_key),
+                     luq.public_key,
+                     luq.user_id
+        `;
+        
+        const completedExecutions = await pool.query(completedExecutionsQuery, [publicKey || null, userId || null]);
+        const latestExecutionsMap = new Map();
+        
+        for (const exec of completedExecutions.rows) {
+            const key = `${exec.rule_id}_${exec.matched_key}`;
+            if (!latestExecutionsMap.has(key) || 
+                new Date(exec.latest_execution_time) > new Date(latestExecutionsMap.get(key).latest_execution_time)) {
+                latestExecutionsMap.set(key, exec);
+            }
+        }
+
+        // Step 2: Find old pending entries that should be marked as superseded
+        const oldPendingQuery = `
+            SELECT 
+                luq.id,
+                luq.execution_results,
+                luq.received_at,
+                luq.public_key,
+                luq.user_id
+            FROM location_update_queue luq
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+        `;
+        
+        const oldPendingResult = await pool.query(oldPendingQuery, [publicKey || null, userId || null]);
+        
+        // Process each entry and update if needed
+        for (const entry of oldPendingResult.rows) {
+            let executionResults = typeof entry.execution_results === 'string' 
+                ? JSON.parse(entry.execution_results) 
+                : entry.execution_results;
+            
+            let updated = false;
+            const newResults = executionResults.map(result => {
+                const ruleId = result.rule_id;
+                const matchedKey = result.matched_public_key || entry.public_key;
+                const key = `${ruleId}_${matchedKey}`;
+                
+                // Check if this result should be marked as superseded
+                if (latestExecutionsMap.has(key)) {
+                    const latestExec = latestExecutionsMap.get(key);
+                    if (new Date(entry.received_at) < new Date(latestExec.latest_execution_time) &&
+                        !result.completed &&
+                        result.skipped &&
+                        result.reason !== 'superseded_by_newer_execution') {
+                        updated = true;
+                        cleanupStats.supersededSkipped++;
+                        return {
+                            ...result,
+                            reason: 'superseded_by_newer_execution',
+                            superseded_at: new Date().toISOString()
+                        };
+                    }
+                }
+                
+                // Check rate limits
+                if (!result.completed && result.skipped && result.reason === 'requires_webauthn') {
+                    // We'll check rate limits in a separate query
+                }
+                
+                return result;
+            });
+            
+            if (updated) {
+                await pool.query(
+                    'UPDATE location_update_queue SET execution_results = $1::jsonb WHERE id = $2',
+                    [JSON.stringify(newResults), entry.id]
+                );
+            }
+        }
+
+        // Step 3: Check rate limits and mark entries as skipped if rate limit exceeded
+        const rateLimitCheckQuery = `
+            WITH latest_executions AS (
+                SELECT 
+                    (result->>'rule_id')::integer as rule_id,
+                    COALESCE(result->>'matched_public_key', luq.public_key) as matched_key,
+                    luq.public_key as queue_public_key,
+                    luq.user_id,
+                    MAX(luq.received_at) as latest_execution_time
+                FROM location_update_queue luq
+                CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+                WHERE luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND COALESCE((result->>'completed')::boolean, false) = true
+                    AND (
+                        (luq.public_key = $1 OR $1 IS NULL)
+                        OR (luq.user_id = $2 OR $2 IS NULL)
+                    )
+                GROUP BY (result->>'rule_id')::integer, 
+                         COALESCE(result->>'matched_public_key', luq.public_key),
+                         luq.public_key,
+                         luq.user_id
+            )
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE 
+                        WHEN (result->>'rule_id')::integer = le.rule_id
+                            AND COALESCE(result->>'matched_public_key', luq.public_key) = le.matched_key
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                            AND luq.received_at < le.latest_execution_time
+                        THEN jsonb_set(
+                            result,
+                            '{skipped}',
+                            'true'::jsonb
+                        ) || jsonb_build_object(
+                            'reason', 'superseded_by_newer_execution',
+                            'superseded_at', CURRENT_TIMESTAMP::text
+                        )
+                        ELSE result
+                    END
+                )
+                FROM jsonb_array_elements(luq.execution_results) AS result
+                CROSS JOIN latest_executions le
+                WHERE (result->>'rule_id')::integer = le.rule_id
+                    AND COALESCE(result->>'matched_public_key', luq.public_key) = le.matched_key
+                    AND luq.received_at < le.latest_execution_time
+            )
+            FROM latest_executions le
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND luq.received_at < le.latest_execution_time
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE (result->>'rule_id')::integer = le.rule_id
+                        AND COALESCE(result->>'matched_public_key', luq.public_key) = le.matched_key
+                        AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                )
+        `;
+        
+        // Simplified approach: Mark old entries as skipped
+        const markSupersededQuery = `
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE 
+                        WHEN (result->>'rule_id')::integer = $3
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                            AND luq.received_at < (
+                                SELECT MAX(luq2.received_at)
+                                FROM location_update_queue luq2
+                                CROSS JOIN jsonb_array_elements(luq2.execution_results) AS exec_result
+                                WHERE (exec_result->>'rule_id')::integer = $3
+                                    AND COALESCE((exec_result->>'completed')::boolean, false) = true
+                                    AND (
+                                        COALESCE(exec_result->>'matched_public_key', luq2.public_key) = 
+                                        COALESCE(result->>'matched_public_key', luq.public_key)
+                                    )
+                                    AND (
+                                        (luq2.public_key = $1 OR $1 IS NULL)
+                                        OR (luq2.user_id = $2 OR $2 IS NULL)
+                                    )
+                            )
+                        THEN jsonb_set(
+                            result,
+                            '{reason}',
+                            '"superseded_by_newer_execution"'::jsonb
+                        ) || jsonb_build_object(
+                            'superseded_at', CURRENT_TIMESTAMP::text
+                        )
+                        ELSE result
+                    END
+                )
+                FROM jsonb_array_elements(luq.execution_results) AS result
+            )
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE COALESCE((result->>'completed')::boolean, false) = false
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                )
+        `;
+
+        // Better approach: Use a CTE to find and update
+        const cleanupQuery = `
+            WITH completed_executions AS (
+                -- Find all completed executions with their timestamps
+                SELECT DISTINCT
+                    (result->>'rule_id')::integer as rule_id,
+                    COALESCE(result->>'matched_public_key', luq.public_key) as matched_key,
+                    luq.public_key as queue_public_key,
+                    luq.user_id,
+                    MAX(luq.received_at) as latest_execution_time
+                FROM location_update_queue luq
+                CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+                WHERE luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND COALESCE((result->>'completed')::boolean, false) = true
+                    AND (
+                        (luq.public_key = $1 OR $1 IS NULL)
+                        OR (luq.user_id = $2 OR $2 IS NULL)
+                    )
+                GROUP BY (result->>'rule_id')::integer, 
+                         COALESCE(result->>'matched_public_key', luq.public_key),
+                         luq.public_key,
+                         luq.user_id
+            ),
+            entries_to_cleanup AS (
+                -- Find old pending entries that should be marked as skipped
+                SELECT DISTINCT
+                    luq.id as queue_id,
+                    (result->>'rule_id')::integer as rule_id,
+                    COALESCE(result->>'matched_public_key', luq.public_key) as matched_key
+                FROM location_update_queue luq
+                CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+                INNER JOIN completed_executions ce ON 
+                    (result->>'rule_id')::integer = ce.rule_id
+                    AND COALESCE(result->>'matched_public_key', luq.public_key) = ce.matched_key
+                WHERE luq.status IN ('matched', 'executed')
+                    AND luq.execution_results IS NOT NULL
+                    AND COALESCE((result->>'completed')::boolean, false) = false
+                    AND COALESCE((result->>'skipped')::boolean, false) = true
+                    AND luq.received_at < ce.latest_execution_time
+                    AND (
+                        (luq.public_key = $1 OR $1 IS NULL)
+                        OR (luq.user_id = $2 OR $2 IS NULL)
+                    )
+            )
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE 
+                        WHEN (result->>'rule_id')::integer = etc.rule_id
+                            AND COALESCE(result->>'matched_public_key', luq.public_key) = etc.matched_key
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                        THEN result || jsonb_build_object(
+                            'reason', 'superseded_by_newer_execution',
+                            'superseded_at', CURRENT_TIMESTAMP::text
+                        )
+                        ELSE result
+                    END
+                )
+                FROM jsonb_array_elements(luq.execution_results) AS result
+                CROSS JOIN entries_to_cleanup etc
+                WHERE luq.id = etc.queue_id
+            )
+            FROM entries_to_cleanup etc
+            WHERE luq.id = etc.queue_id
+            RETURNING luq.id
+        `;
+
+        // Step 3: Check rate limits and mark entries as skipped if rate limit exceeded
+        const rateLimitEntriesQuery = `
+            SELECT 
+                luq.id,
+                luq.execution_results,
+                luq.public_key
+            FROM location_update_queue luq
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+        `;
+        
+        const rateLimitEntries = await pool.query(rateLimitEntriesQuery, [publicKey || null, userId || null]);
+        
+        for (const entry of rateLimitEntries.rows) {
+            let executionResults = typeof entry.execution_results === 'string' 
+                ? JSON.parse(entry.execution_results) 
+                : entry.execution_results;
+            
+            let updated = false;
+            const newResults = await Promise.all(executionResults.map(async (result) => {
+                if (result.completed || !result.skipped || result.reason === 'rate_limit_exceeded') {
+                    return result;
+                }
+                
+                // Check if rule has rate limiting configured
+                const ruleQuery = await pool.query(
+                    'SELECT max_executions_per_public_key, execution_time_window_seconds FROM contract_execution_rules WHERE id = $1',
+                    [result.rule_id]
+                );
+                
+                if (ruleQuery.rows.length === 0) {
+                    return result;
+                }
+                
+                const rule = ruleQuery.rows[0];
+                if (!rule.max_executions_per_public_key || !rule.execution_time_window_seconds ||
+                    rule.max_executions_per_public_key === 0 || rule.execution_time_window_seconds === 0) {
+                    return result;
+                }
+                
+                // Check execution history
+                const execCountQuery = await pool.query(
+                    `SELECT COUNT(*) as count
+                     FROM rule_execution_history
+                     WHERE rule_id = $1
+                       AND public_key = $2
+                       AND last_execution_at >= CURRENT_TIMESTAMP - ($3 || ' seconds')::INTERVAL`,
+                    [result.rule_id, entry.public_key, rule.execution_time_window_seconds]
+                );
+                
+                const execCount = parseInt(execCountQuery.rows[0]?.count || 0);
+                if (execCount >= rule.max_executions_per_public_key) {
+                    updated = true;
+                    cleanupStats.rateLimitSkipped++;
+                    return {
+                        ...result,
+                        reason: 'rate_limit_exceeded',
+                        message: 'Rate limit exceeded - marked during cleanup',
+                        marked_at: new Date().toISOString()
+                    };
+                }
+                
+                return result;
+            }));
+            
+            if (updated) {
+                await pool.query(
+                    'UPDATE location_update_queue SET execution_results = $1::jsonb WHERE id = $2',
+                    [JSON.stringify(newResults), entry.id]
+                );
+            }
+        }
+
+        // Step 4: Delete old queue entries that have no valid pending rules and are superseded
+        const entriesToDeleteQuery = `
+            SELECT luq.id
+            FROM location_update_queue luq
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND (
+                    (luq.public_key = $1 OR $1 IS NULL)
+                    OR (luq.user_id = $2 OR $2 IS NULL)
+                )
+                -- Only delete if all execution results are skipped/superseded (no valid pending rules)
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE COALESCE((result->>'completed')::boolean, false) = false
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rate_limit_exceeded')
+                )
+                -- Don't delete entries that have completed rules
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE COALESCE((result->>'completed')::boolean, false) = true
+                )
+        `;
+        
+        const entriesToDelete = await pool.query(entriesToDeleteQuery, [publicKey || null, userId || null]);
+        
+        for (const entry of entriesToDelete.rows) {
+            // Check if this entry is superseded by a newer execution
+            const entryDetails = await pool.query(
+                'SELECT execution_results, received_at, public_key FROM location_update_queue WHERE id = $1',
+                [entry.id]
+            );
+            
+            if (entryDetails.rows.length === 0) continue;
+            
+            const entryData = entryDetails.rows[0];
+            let executionResults = typeof entryData.execution_results === 'string' 
+                ? JSON.parse(entryData.execution_results) 
+                : entryData.execution_results;
+            
+            let shouldDelete = false;
+            for (const result of executionResults) {
+                if (result.completed) continue;
+                
+                const ruleId = result.rule_id;
+                const matchedKey = result.matched_public_key || entryData.public_key;
+                const key = `${ruleId}_${matchedKey}`;
+                
+                if (latestExecutionsMap.has(key)) {
+                    const latestExec = latestExecutionsMap.get(key);
+                    if (new Date(entryData.received_at) < new Date(latestExec.latest_execution_time)) {
+                        shouldDelete = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (shouldDelete) {
+                await pool.query('DELETE FROM location_update_queue WHERE id = $1', [entry.id]);
+                cleanupStats.deletedEntries++;
+            }
+        }
+
+        console.log('[QueueCleanup] ✅ Cleanup completed:', cleanupStats);
+
+        res.json({
+            success: true,
+            message: 'Queue cleanup completed',
+            stats: cleanupStats
+        });
+    } catch (error) {
+        console.error('[QueueCleanup] ❌ Error during cleanup:', error);
+        res.status(500).json({ 
+            error: 'Cleanup failed', 
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
  * /api/contracts/rules/pending/{ruleId}/reject:
  *   post:
  *     summary: Reject/dismiss a pending rule
