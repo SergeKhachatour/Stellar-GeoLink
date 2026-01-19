@@ -1858,6 +1858,21 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR completed_result->>'matched_public_key' IS NULL
                         )
                     )
+                    AND (
+                        -- Only apply rate limit check if rule has rate limiting configured
+                        cer.max_executions_per_public_key IS NULL 
+                        OR cer.execution_time_window_seconds IS NULL
+                        OR cer.max_executions_per_public_key = 0
+                        OR cer.execution_time_window_seconds = 0
+                        OR (
+                            -- Check if rule has been executed recently (within time window)
+                            SELECT COUNT(*)
+                            FROM rule_execution_history reh
+                            WHERE reh.rule_id = cer.id
+                                AND reh.public_key = luq.public_key
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                        ) < cer.max_executions_per_public_key
+                    )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $3
             `;
@@ -1910,6 +1925,21 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
                             OR completed_result->>'matched_public_key' IS NULL
                         )
+                    )
+                    AND (
+                        -- Only apply rate limit check if rule has rate limiting configured
+                        cer.max_executions_per_public_key IS NULL 
+                        OR cer.execution_time_window_seconds IS NULL
+                        OR cer.max_executions_per_public_key = 0
+                        OR cer.execution_time_window_seconds = 0
+                        OR (
+                            -- Check if rule has been executed recently (within time window)
+                            SELECT COUNT(*)
+                            FROM rule_execution_history reh
+                            WHERE reh.rule_id = cer.id
+                                AND reh.public_key = luq.public_key
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                        ) < cer.max_executions_per_public_key
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
@@ -1966,6 +1996,21 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             OR COALESCE(completed_result->>'matched_public_key', luq.public_key) = luq.public_key
                             OR completed_result->>'matched_public_key' IS NULL
                         )
+                    )
+                    AND (
+                        -- Only apply rate limit check if rule has rate limiting configured
+                        cer.max_executions_per_public_key IS NULL 
+                        OR cer.execution_time_window_seconds IS NULL
+                        OR cer.max_executions_per_public_key = 0
+                        OR cer.execution_time_window_seconds = 0
+                        OR (
+                            -- Check if rule has been executed recently (within time window)
+                            SELECT COUNT(*)
+                            FROM rule_execution_history reh
+                            WHERE reh.rule_id = cer.id
+                                AND reh.public_key = luq.public_key
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                        ) < cer.max_executions_per_public_key
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
                 LIMIT $2
