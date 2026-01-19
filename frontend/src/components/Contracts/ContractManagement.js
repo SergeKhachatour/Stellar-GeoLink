@@ -146,6 +146,10 @@ const ContractManagement = () => {
   // Contract Dialog States
   const [contractDialogOpen, setContractDialogOpen] = useState(false);
   const [editingContract, setEditingContract] = useState(null);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [agentContractAddress, setAgentContractAddress] = useState('');
+  const [agentProcessing, setAgentProcessing] = useState(false);
+  const [agentResult, setAgentResult] = useState(null);
   
   // Rule Dialog States
   const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -3816,16 +3820,30 @@ const ContractManagement = () => {
             {isAuthenticated ? 'Smart Contract Management' : 'Explore Smart Contracts'}
           </Typography>
           {isAuthenticated && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                setEditingContract(null);
-                setContractDialogOpen(true);
-              }}
-            >
-              Add Contract
-            </Button>
+            <Box display="flex" gap={2}>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<SearchIcon />}
+                onClick={() => {
+                  setAgentContractAddress('');
+                  setAgentResult(null);
+                  setAgentDialogOpen(true);
+                }}
+              >
+                🤖 GeoLink Agent
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setEditingContract(null);
+                  setContractDialogOpen(true);
+                }}
+              >
+                Add Contract
+              </Button>
+            </Box>
           )}
           {!isAuthenticated && (
             <Button
@@ -5273,6 +5291,100 @@ const ContractManagement = () => {
           setEditingContract(null);
         }}
       />
+
+      {/* GeoLink Agent Dialog */}
+      <Dialog 
+        open={agentDialogOpen} 
+        onClose={() => {
+          setAgentDialogOpen(false);
+          setAgentContractAddress('');
+          setAgentResult(null);
+          setError('');
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography variant="h6">🤖 GeoLink Agent</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
+            <Typography variant="body2" color="text.secondary">
+              Enter a contract address and the GeoLink Agent will automatically:
+            </Typography>
+            <Box component="ul" sx={{ pl: 3, mb: 0 }}>
+              <li>Detect the network (Testnet/Mainnet)</li>
+              <li>Fetch WASM from the network</li>
+              <li>Discover contract functions</li>
+              <li>Generate a contract name</li>
+              <li>Create the contract for you</li>
+            </Box>
+
+            <TextField
+              label="Contract Address"
+              value={agentContractAddress}
+              onChange={(e) => setAgentContractAddress(e.target.value.toUpperCase())}
+              placeholder="Enter Stellar contract address (56 characters)"
+              fullWidth
+              required
+              helperText="The Stellar address of your smart contract"
+              error={agentContractAddress.length > 0 && !/^[A-Z0-9]{56}$/.test(agentContractAddress)}
+              disabled={agentProcessing}
+            />
+
+            {agentProcessing && (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, py: 2 }}>
+                <CircularProgress />
+                <Typography variant="body2" color="text.secondary">
+                  Detecting network, fetching WASM, and discovering functions...
+                </Typography>
+              </Box>
+            )}
+
+            {agentResult && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  ✅ Contract onboarded successfully!
+                </Typography>
+                <Typography variant="body2">
+                  Network: <strong>{agentResult.detected_network}</strong><br />
+                  Name: <strong>{agentResult.contract.contract_name}</strong><br />
+                  Functions discovered: <strong>{agentResult.functions_count}</strong>
+                </Typography>
+              </Alert>
+            )}
+
+            {error && (
+              <Alert severity="error" onClose={() => setError('')}>
+                {error}
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setAgentDialogOpen(false);
+              setAgentContractAddress('');
+              setAgentResult(null);
+              setError('');
+            }}
+            disabled={agentProcessing}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAgentOnboard}
+            disabled={agentProcessing || !agentContractAddress.trim() || !/^[A-Z0-9]{56}$/.test(agentContractAddress)}
+            startIcon={agentProcessing ? <CircularProgress size={20} /> : <SearchIcon />}
+          >
+            {agentProcessing ? 'Processing...' : 'Onboard Contract'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Rule Dialog - Step by Step */}
       <Dialog 

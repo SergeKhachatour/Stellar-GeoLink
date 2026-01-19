@@ -648,6 +648,477 @@ router.get('/:id/wasm', authenticateContractUser, async (req, res) => {
  *       401:
  *         description: Authentication required
  */
+/**
+ * @swagger
+ * /api/contracts/{id}/fetch-wasm:
+ *   post:
+ *     summary: Fetch WASM file from Stellar network
+ *     description: Fetches the WASM bytecode for a contract directly from the Stellar network using the contract ID. Supports both JWT and API key authentication.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: Contract ID
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               network:
+ *                 type: string
+ *                 enum: [testnet, mainnet]
+ *                 description: Network override (optional, uses contract's network if not provided)
+ *     responses:
+ *       200:
+ *         description: WASM file fetched and saved successfully
+ *       404:
+ *         description: Contract not found or WASM not found on network
+ *       401:
+ *         description: Authentication required
+ */
+router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { network: networkOverride } = req.body;
+        const userId = req.user?.id || req.userId;
+        
+        if (!userId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        // Get contract details
+        const contractResult = await pool.query(
+            `SELECT id, contract_address, network, wasm_file_path, wasm_file_name
+             FROM custom_contracts
+             WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+
+        if (contractResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Contract not found' });
+        }
+
+        const contract = contractResult.rows[0];
+        const contractAddress = contract.contract_address;
+        const network = networkOverride || contract.network || 'testnet';
+
+        // Validate contract address format
+        if (!/^[A-Z0-9]{56}$/.test(contractAddress)) {
+            return res.status(400).json({ error: 'Invalid contract address format' });
+        }
+
+        const StellarSdk = require('@stellar/stellar-sdk');
+        const contractsConfig = require('../config/contracts');
+        
+        // Determine RPC URL based on network
+        const rpcUrl = network === 'mainnet'
+            ? 'https://soroban.stellar.org'
+            : 'https://soroban-testnet.stellar.org';
+        
+        const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: true });
+        const networkPassphrase = network === 'mainnet'
+            ? StellarSdk.Networks.PUBLIC
+            : StellarSdk.Networks.TESTNET;
+
+        console.log(`[Fetch WASM] 🔍 Fetching WASM for contract ${contractAddress} on ${network}...`);
+
+        // Step 1: Get contract instance to find WASM hash
+        const contractIdBytes = StellarSdk.StrKey.decodeContract(contractAddress);
+        const contractScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(contractIdBytes);
+        const contractScVal = StellarSdk.xdr.ScVal.scvAddress(contractScAddress);
+
+        // Get contract instance data
+        const contractDataKey = StellarSdk.xdr.LedgerKey.contractData(
+            new StellarSdk.xdr.LedgerKeyContractData({
+                contract: contractScAddress,
+                key: StellarSdk.xdr.ScVal.scvLedgerKeyContractInstance(),
+                durability: StellarSdk.xdr.ContractDataDurability.persistent()
+            })
+        );
+
+        const ledgerEntries = await sorobanServer.getLedgerEntries(contractDataKey);
+        
+        if (!ledgerEntries.entries || ledgerEntries.entries.length === 0) {
+            return res.status(404).json({ error: 'Contract instance not found on network' });
+        }
+
+        const contractInstance = ledgerEntries.entries[0].val.contractData().val().instance();
+        const wasmHash = contractInstance.executable().wasmHash();
+
+        if (!wasmHash) {
+            return res.status(404).json({ error: 'WASM hash not found in contract instance' });
+        }
+
+        // Step 2: Fetch WASM bytecode using the hash
+        const wasmHashHex = Buffer.from(wasmHash).toString('hex');
+        console.log(`[Fetch WASM] 📦 Found WASM hash: ${wasmHashHex}`);
+
+        const wasmCodeKey = StellarSdk.xdr.LedgerKey.contractCode(
+            new StellarSdk.xdr.LedgerKeyContractCode({
+                hash: wasmHash
+            })
+        );
+
+        const wasmEntries = await sorobanServer.getLedgerEntries(wasmCodeKey);
+        
+        if (!wasmEntries.entries || wasmEntries.entries.length === 0) {
+            return res.status(404).json({ error: 'WASM bytecode not found on network' });
+        }
+
+        const wasmData = wasmEntries.entries[0].val.contractCode().code();
+        const wasmBuffer = Buffer.from(wasmData);
+
+        console.log(`[Fetch WASM] ✅ Fetched WASM bytecode: ${wasmBuffer.length} bytes`);
+
+        // Step 3: Save WASM file to server
+        const uploadDir = path.join(__dirname, '../uploads/contract-wasm');
+        await fs.mkdir(uploadDir, { recursive: true });
+
+        const timestamp = Date.now();
+        const filename = `contract-${contractAddress.substring(0, 8)}-${timestamp}.wasm`;
+        const filePath = path.join(uploadDir, filename);
+
+        await fs.writeFile(filePath, wasmBuffer);
+
+        // Calculate hash
+        const hash = crypto.createHash('sha256').update(wasmBuffer).digest('hex');
+
+        // Step 4: Delete old WASM file if it exists
+        if (contract.wasm_file_path) {
+            try {
+                await fs.unlink(contract.wasm_file_path);
+            } catch (err) {
+                console.warn(`[Fetch WASM] ⚠️ Could not delete old WASM file: ${err.message}`);
+            }
+        }
+
+        // Step 5: Update contract record
+        await pool.query(
+            `UPDATE custom_contracts
+             SET wasm_file_path = $1,
+                 wasm_file_name = $2,
+                 wasm_hash = $3,
+                 wasm_source = 'network',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4`,
+            [filePath, filename, hash, id]
+        );
+
+        console.log(`[Fetch WASM] ✅ WASM file saved and contract updated`);
+
+        res.json({
+            success: true,
+            message: 'WASM file fetched from network and saved successfully',
+            wasm_file: {
+                path: filePath,
+                filename: filename,
+                size: wasmBuffer.length,
+                hash: hash,
+                source: 'network',
+                network: network
+            },
+            contract_id: parseInt(id)
+        });
+    } catch (error) {
+        console.error('[Fetch WASM] ❌ Error fetching WASM from network:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch WASM from network', 
+            message: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/agent-onboard:
+ *   post:
+ *     summary: GeoLink Agent - Automated contract onboarding
+ *     description: Automatically detects network, fetches WASM, discovers functions, infers contract name, and creates the contract. Returns the created contract for editing and testing.
+ *     tags: [Contracts]
+ *     security:
+ *       - BearerAuth: []
+ *       - DataConsumerAuth: []
+ *       - WalletProviderAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - contract_address
+ *             properties:
+ *               contract_address:
+ *                 type: string
+ *                 pattern: '^[A-Z0-9]{56}$'
+ *                 description: Stellar contract address (56 characters)
+ *                 example: "CCU33UEBVE6EVQ5HPAGF55FYNFO3NILVUSLLG74QDJSCO5UTSKYC7P7Q"
+ *     responses:
+ *       200:
+ *         description: Contract onboarded successfully
+ *       400:
+ *         description: Invalid contract address format
+ *       404:
+ *         description: Contract not found on any network
+ *       401:
+ *         description: Authentication required
+ */
+router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
+    try {
+        const { contract_address } = req.body;
+        const userId = req.user?.id || req.userId;
+        
+        if (!userId) {
+            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        }
+
+        if (!contract_address) {
+            return res.status(400).json({ error: 'Contract address is required' });
+        }
+
+        // Validate contract address format
+        if (!/^[A-Z0-9]{56}$/.test(contract_address)) {
+            return res.status(400).json({ error: 'Invalid contract address format. Must be 56 characters, uppercase alphanumeric.' });
+        }
+
+        console.log(`[GeoLink Agent] 🤖 Starting automated onboarding for contract ${contract_address}`);
+
+        // Step 1: Auto-detect network by trying both testnet and mainnet
+        let detectedNetwork = null;
+        const networks = ['testnet', 'mainnet'];
+        
+        for (const network of networks) {
+            try {
+                const verification = await contractIntrospection.verifyContractExists(contract_address, network);
+                if (verification.exists) {
+                    detectedNetwork = network;
+                    console.log(`[GeoLink Agent] ✅ Contract found on ${network}`);
+                    break;
+                }
+            } catch (err) {
+                console.log(`[GeoLink Agent] ⚠️ Contract not found on ${network}: ${err.message}`);
+            }
+        }
+
+        if (!detectedNetwork) {
+            return res.status(404).json({
+                success: false,
+                error: 'Contract not found',
+                message: `The contract address ${contract_address} was not found on testnet or mainnet. Please verify the address.`
+            });
+        }
+
+        // Step 2: Check if contract already exists
+        const existingContractResult = await pool.query(
+            `SELECT id, contract_address, network, contract_name, wasm_file_path, discovered_functions
+             FROM custom_contracts
+             WHERE contract_address = $1 AND user_id = $2 AND is_active = true`,
+            [contract_address, userId]
+        );
+
+        let contractId;
+        let contract;
+
+        if (existingContractResult.rows.length > 0) {
+            // Contract already exists - return it
+            contractId = existingContractResult.rows[0].id;
+            contract = existingContractResult.rows[0];
+            console.log(`[GeoLink Agent] ℹ️ Contract already exists with ID ${contractId}`);
+        } else {
+            // Step 3: Fetch WASM from network
+            console.log(`[GeoLink Agent] 📦 Fetching WASM from ${detectedNetwork}...`);
+            const StellarSdk = require('@stellar/stellar-sdk');
+            const contractsConfig = require('../config/contracts');
+            const crypto = require('crypto');
+            const fs = require('fs').promises;
+            const path = require('path');
+            
+            const rpcUrl = detectedNetwork === 'mainnet'
+                ? 'https://soroban.stellar.org'
+                : 'https://soroban-testnet.stellar.org';
+            
+            const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: true });
+
+            // Get contract instance to find WASM hash
+            const contractIdBytes = StellarSdk.StrKey.decodeContract(contract_address);
+            const contractScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(contractIdBytes);
+
+            const contractDataKey = StellarSdk.xdr.LedgerKey.contractData(
+                new StellarSdk.xdr.LedgerKeyContractData({
+                    contract: contractScAddress,
+                    key: StellarSdk.xdr.ScVal.scvLedgerKeyContractInstance(),
+                    durability: StellarSdk.xdr.ContractDataDurability.persistent()
+                })
+            );
+
+            const ledgerEntries = await sorobanServer.getLedgerEntries(contractDataKey);
+            
+            if (!ledgerEntries.entries || ledgerEntries.entries.length === 0) {
+                return res.status(404).json({ error: 'Contract instance not found on network' });
+            }
+
+            const contractInstance = ledgerEntries.entries[0].val.contractData().val().instance();
+            const wasmHash = contractInstance.executable().wasmHash();
+
+            if (!wasmHash) {
+                return res.status(404).json({ error: 'WASM hash not found in contract instance' });
+            }
+
+            // Fetch WASM bytecode
+            const wasmHashHex = Buffer.from(wasmHash).toString('hex');
+            const wasmCodeKey = StellarSdk.xdr.LedgerKey.contractCode(
+                new StellarSdk.xdr.LedgerKeyContractCode({
+                    hash: wasmHash
+                })
+            );
+
+            const wasmEntries = await sorobanServer.getLedgerEntries(wasmCodeKey);
+            
+            if (!wasmEntries.entries || wasmEntries.entries.length === 0) {
+                return res.status(404).json({ error: 'WASM bytecode not found on network' });
+            }
+
+            const wasmData = wasmEntries.entries[0].val.contractCode().code();
+            const wasmBuffer = Buffer.from(wasmData);
+
+            // Save WASM file
+            const uploadDir = path.join(__dirname, '../uploads/contract-wasm');
+            await fs.mkdir(uploadDir, { recursive: true });
+
+            const timestamp = Date.now();
+            const filename = `contract-${contract_address.substring(0, 8)}-${timestamp}.wasm`;
+            const filePath = path.join(uploadDir, filename);
+
+            await fs.writeFile(filePath, wasmBuffer);
+            const hash = crypto.createHash('sha256').update(wasmBuffer).digest('hex');
+
+            console.log(`[GeoLink Agent] ✅ WASM fetched and saved: ${filename} (${wasmBuffer.length} bytes)`);
+
+            // Step 4: Discover functions
+            console.log(`[GeoLink Agent] 🔍 Discovering contract functions...`);
+            const discoveredFunctions = await contractIntrospection.discoverFunctions(contract_address, detectedNetwork);
+
+            // Step 5: Infer contract name from interface
+            let inferredName = null;
+            if (Array.isArray(discoveredFunctions) && discoveredFunctions.length > 0) {
+                // Try to infer name from function names (common patterns)
+                const functionNames = discoveredFunctions.map(f => f.name || '').join(' ').toLowerCase();
+                
+                // Common contract name patterns
+                if (functionNames.includes('mint') || functionNames.includes('nft')) {
+                    inferredName = 'NFT Contract';
+                } else if (functionNames.includes('payment') || functionNames.includes('pay')) {
+                    inferredName = 'Payment Contract';
+                } else if (functionNames.includes('token')) {
+                    inferredName = 'Token Contract';
+                } else if (functionNames.includes('wallet') || functionNames.includes('smart')) {
+                    inferredName = 'Smart Wallet Contract';
+                } else if (functionNames.includes('location') || functionNames.includes('geo')) {
+                    inferredName = 'Location Contract';
+                } else {
+                    // Use first function name or contract address prefix
+                    const firstFunc = discoveredFunctions.find(f => f.name);
+                    inferredName = firstFunc ? `${firstFunc.name.charAt(0).toUpperCase() + firstFunc.name.slice(1)} Contract` : `Contract ${contract_address.substring(0, 8)}`;
+                }
+            } else {
+                inferredName = `Contract ${contract_address.substring(0, 8)}`;
+            }
+
+            console.log(`[GeoLink Agent] 📝 Inferred contract name: ${inferredName}`);
+
+            // Step 6: Create contract
+            const functionsToSave = Array.isArray(discoveredFunctions) 
+                ? discoveredFunctions.reduce((acc, func) => {
+                    acc[func.name || 'unknown'] = {
+                        ...func,
+                        parameters: Array.isArray(func.parameters) ? func.parameters : [],
+                        return_type: func.return_type || 'void',
+                        discovered: func.discovered !== undefined ? func.discovered : true,
+                        note: func.note || 'Extracted from contract spec'
+                    };
+                    return acc;
+                }, {})
+                : {};
+
+            const insertResult = await pool.query(
+                `INSERT INTO custom_contracts (
+                    user_id, contract_address, contract_name, network,
+                    wasm_file_path, wasm_file_name, wasm_hash, wasm_source,
+                    discovered_functions, function_mappings, is_active, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                RETURNING id, contract_address, contract_name, network, wasm_file_name, discovered_functions, function_mappings`,
+                [
+                    userId,
+                    contract_address,
+                    inferredName,
+                    detectedNetwork,
+                    filePath,
+                    filename,
+                    hash,
+                    'network',
+                    JSON.stringify(functionsToSave),
+                    JSON.stringify({})
+                ]
+            );
+
+            contract = insertResult.rows[0];
+            contractId = contract.id;
+
+            console.log(`[GeoLink Agent] ✅ Contract created with ID ${contractId}`);
+        }
+
+        // Parse discovered functions for response
+        let discoveredFunctionsArray = [];
+        if (contract.discovered_functions) {
+            try {
+                const functions = typeof contract.discovered_functions === 'string' 
+                    ? JSON.parse(contract.discovered_functions)
+                    : contract.discovered_functions;
+                
+                discoveredFunctionsArray = Array.isArray(functions)
+                    ? functions
+                    : Object.values(functions || {});
+            } catch (e) {
+                console.error('[GeoLink Agent] Error parsing discovered_functions:', e);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Contract onboarded successfully on ${detectedNetwork}`,
+            contract: {
+                id: contract.id,
+                contract_address: contract.contract_address,
+                contract_name: contract.contract_name,
+                network: contract.network || detectedNetwork,
+                wasm_file_name: contract.wasm_file_name,
+                discovered_functions: discoveredFunctionsArray,
+                function_mappings: typeof contract.function_mappings === 'string' 
+                    ? JSON.parse(contract.function_mappings) 
+                    : contract.function_mappings
+            },
+            detected_network: detectedNetwork,
+            functions_count: discoveredFunctionsArray.length
+        });
+    } catch (error) {
+        console.error('[GeoLink Agent] ❌ Error during automated onboarding:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to onboard contract',
+            message: error.message 
+        });
+    }
+});
+
 router.post('/discover', authenticateContractUser, async (req, res) => {
     try {
         const { contract_address, network = 'testnet' } = req.body;
