@@ -22,6 +22,7 @@ try {
 class BackgroundAIService {
   constructor() {
     this.processingInterval = null;
+    this.cleanupInterval = null;
     this.isProcessing = false;
   }
 
@@ -42,6 +43,12 @@ class BackgroundAIService {
         await this.processLocationUpdateQueue();
       }
     }, intervalMs);
+
+    // Start periodic queue cleanup (every 10 minutes)
+    // This runs the full cleanup to ensure queue stays clean
+    this.cleanupInterval = setInterval(async () => {
+      await this.runPeriodicCleanup();
+    }, 10 * 60 * 1000); // 10 minutes
   }
 
   /**
@@ -52,6 +59,102 @@ class BackgroundAIService {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
       // console.log('[BackgroundAI] ⏹️  Background AI worker stopped');
+    }
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  /**
+   * Run periodic full cleanup of the queue
+   * This is called every 10 minutes to ensure the queue stays clean
+   */
+  async runPeriodicCleanup() {
+    try {
+      // console.log('[BackgroundAI] 🧹 Running periodic queue cleanup...');
+      
+      // Mark old pending rules as superseded
+      const markSupersededQuery = `
+        WITH completed_executions AS (
+          SELECT DISTINCT
+            (result->>'rule_id')::integer as rule_id,
+            COALESCE(result->>'matched_public_key', luq.public_key) as matched_key,
+            MAX(luq.received_at) as latest_execution_time
+          FROM location_update_queue luq
+          CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+          WHERE luq.status IN ('matched', 'executed')
+            AND luq.execution_results IS NOT NULL
+            AND COALESCE((result->>'completed')::boolean, false) = true
+          GROUP BY (result->>'rule_id')::integer, 
+                   COALESCE(result->>'matched_public_key', luq.public_key)
+        )
+        UPDATE location_update_queue luq
+        SET execution_results = (
+          SELECT jsonb_agg(
+            CASE 
+              WHEN (result->>'rule_id')::integer = ce.rule_id
+                AND COALESCE(result->>'matched_public_key', luq.public_key) = ce.matched_key
+                AND COALESCE((result->>'completed')::boolean, false) = false
+                AND COALESCE((result->>'skipped')::boolean, false) = true
+                AND luq.received_at < ce.latest_execution_time
+                AND (result->>'reason')::text != 'superseded_by_newer_execution'
+              THEN result || jsonb_build_object(
+                'reason', 'superseded_by_newer_execution',
+                'superseded_at', CURRENT_TIMESTAMP::text
+              )
+              ELSE result
+            END
+          )
+          FROM jsonb_array_elements(luq.execution_results) AS result
+          CROSS JOIN completed_executions ce
+          WHERE (result->>'rule_id')::integer = ce.rule_id
+            AND COALESCE(result->>'matched_public_key', luq.public_key) = ce.matched_key
+            AND luq.received_at < ce.latest_execution_time
+        )
+        WHERE luq.status IN ('matched', 'executed')
+          AND luq.execution_results IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM completed_executions ce
+            CROSS JOIN jsonb_array_elements(luq.execution_results) AS result
+            WHERE (result->>'rule_id')::integer = ce.rule_id
+              AND COALESCE(result->>'matched_public_key', luq.public_key) = ce.matched_key
+              AND luq.received_at < ce.latest_execution_time
+              AND COALESCE((result->>'completed')::boolean, false) = false
+              AND COALESCE((result->>'skipped')::boolean, false) = true
+          )
+      `;
+      
+      await pool.query(markSupersededQuery);
+      
+      // Delete old entries that are fully superseded
+      const deleteOldQuery = `
+        DELETE FROM location_update_queue luq
+        WHERE luq.status IN ('matched', 'executed')
+          AND luq.execution_results IS NOT NULL
+          -- Only delete if all execution results are skipped/superseded (no valid pending rules)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(luq.execution_results) AS result
+            WHERE COALESCE((result->>'completed')::boolean, false) = false
+              AND COALESCE((result->>'skipped')::boolean, false) = true
+              AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rate_limit_exceeded')
+          )
+          -- Don't delete entries that have completed rules
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(luq.execution_results) AS result
+            WHERE COALESCE((result->>'completed')::boolean, false) = true
+          )
+      `;
+      
+      const deleteResult = await pool.query(deleteOldQuery);
+      // if (deleteResult.rowCount > 0) {
+      //   console.log(`[BackgroundAI] 🧹 Periodic cleanup: Deleted ${deleteResult.rowCount} old queue entries`);
+      // }
+    } catch (error) {
+      console.error('[BackgroundAI] ⚠️ Error in periodic cleanup:', error.message);
     }
   }
 

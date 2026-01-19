@@ -9,6 +9,93 @@ const { authenticateUser } = require('../middleware/authUser');
 const contractIntrospection = require('../services/contractIntrospection');
 const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } = require('../utils/webauthnUtils');
 
+/**
+ * Lightweight cleanup function for a specific rule_id + public_key combination
+ * This is called after each execution to clean up only related entries
+ * Runs asynchronously to avoid blocking the execution response
+ */
+async function cleanupAfterExecution(ruleId, publicKey, userId, executionTime) {
+    try {
+        // Mark old pending entries for this specific rule+key as superseded
+        const markSupersededQuery = `
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE 
+                        WHEN (result->>'rule_id')::integer = $1
+                            AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
+                            AND COALESCE((result->>'completed')::boolean, false) = false
+                            AND COALESCE((result->>'skipped')::boolean, false) = true
+                            AND luq.received_at < $4
+                            AND (result->>'reason')::text != 'superseded_by_newer_execution'
+                        THEN result || jsonb_build_object(
+                            'reason', 'superseded_by_newer_execution',
+                            'superseded_at', CURRENT_TIMESTAMP::text
+                        )
+                        ELSE result
+                    END
+                )
+                FROM jsonb_array_elements(luq.execution_results) AS result
+            )
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND luq.received_at < $4
+                AND (
+                    (luq.public_key = $2 OR $2 IS NULL)
+                    OR (luq.user_id = $3 OR $3 IS NULL)
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE (result->>'rule_id')::integer = $1
+                        AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
+                        AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                )
+        `;
+        
+        await pool.query(markSupersededQuery, [ruleId, publicKey || null, userId || null, executionTime]);
+        
+        // Delete old entries that are fully superseded (no valid pending rules)
+        const deleteOldQuery = `
+            DELETE FROM location_update_queue luq
+            WHERE luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND luq.received_at < $4
+                AND (
+                    (luq.public_key = $2 OR $2 IS NULL)
+                    OR (luq.user_id = $3 OR $3 IS NULL)
+                )
+                -- Only delete if all execution results are skipped/superseded (no valid pending rules)
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE COALESCE((result->>'completed')::boolean, false) = false
+                        AND COALESCE((result->>'skipped')::boolean, false) = true
+                        AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rate_limit_exceeded')
+                )
+                -- Don't delete entries that have completed rules
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE COALESCE((result->>'completed')::boolean, false) = true
+                )
+                -- Only delete entries related to this specific rule
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE (result->>'rule_id')::integer = $1
+                        AND COALESCE(result->>'matched_public_key', luq.public_key) = $2
+                )
+        `;
+        
+        await pool.query(deleteOldQuery, [ruleId, publicKey || null, userId || null, executionTime]);
+    } catch (error) {
+        // Don't throw - cleanup is non-critical
+        console.error('[QueueCleanup] ⚠️ Error in lightweight cleanup:', error.message);
+    }
+}
+
 // Combined authentication: supports both JWT and API key (for Data Consumers and Wallet Providers)
 const authenticateContractUser = async (req, res, next) => {
     // First try API key authentication
@@ -6792,6 +6879,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                     ]
                                 );
                                 // console.log(`[Execute] ✅ Recorded rule ${rule_id} execution in rate limit history for public key ${executedPublicKey.substring(0, 8)}...`);
+                                
+                                // Trigger lightweight cleanup asynchronously (non-blocking)
+                                cleanupAfterExecution(
+                                    parseInt(rule_id),
+                                    executedPublicKey,
+                                    userId,
+                                    completedAt
+                                ).catch(err => {
+                                    console.error('[QueueCleanup] ⚠️ Background cleanup error:', err.message);
+                                });
                             } catch (rateLimitError) {
                                 console.error(`[Execute] ⚠️ Error recording rule execution for rate limiting:`, rateLimitError.message);
                                 // Don't fail the request if rate limit recording fails
@@ -6960,6 +7057,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                                             ]
                                         );
                                         // console.log(`[Execute] ✅ (fallback) Recorded rule ${rule_id} execution in rate limit history for public key ${executedPublicKey.substring(0, 8)}...`);
+                                        
+                                        // Trigger lightweight cleanup asynchronously (non-blocking)
+                                        cleanupAfterExecution(
+                                            parseInt(rule_id),
+                                            executedPublicKey,
+                                            userId,
+                                            completedAt
+                                        ).catch(err => {
+                                            console.error('[QueueCleanup] ⚠️ Background cleanup error:', err.message);
+                                        });
                                     } catch (rateLimitError) {
                                         console.error(`[Execute] ⚠️ (fallback) Error recording rule execution for rate limiting:`, rateLimitError.message);
                                         // Don't fail the request if rate limit recording fails
