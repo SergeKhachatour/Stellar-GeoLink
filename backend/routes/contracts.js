@@ -1009,7 +1009,17 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
 
             // Step 4: Discover functions
             console.log(`[GeoLink Agent] 🔍 Discovering contract functions...`);
-            const discoveredFunctions = await contractIntrospection.discoverFunctions(contract_address, detectedNetwork);
+            let discoveredFunctions = [];
+            try {
+                // discoverFunctions signature: (contractAddress, network, wasmFilePath)
+                discoveredFunctions = await contractIntrospection.discoverFunctions(contract_address, detectedNetwork, filePath);
+                console.log(`[GeoLink Agent] ✅ Discovered ${discoveredFunctions.length} functions`);
+            } catch (discoverError) {
+                console.error(`[GeoLink Agent] ⚠️ Error discovering functions: ${discoverError.message}`);
+                console.error(`[GeoLink Agent] Stack: ${discoverError.stack}`);
+                // Continue with empty functions array - contract will still be created
+                discoveredFunctions = [];
+            }
 
             // Step 5: Infer contract name from interface
             let inferredName = null;

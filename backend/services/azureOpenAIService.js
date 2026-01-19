@@ -445,28 +445,50 @@ async function getAvailableTools(userContext = {}) {
           }
         }
       },
-    {
-      type: 'function',
-      function: {
-        name: 'geolink_discoverContract',
-        description: 'Discover functions in a Soroban smart contract by analyzing its contract spec. Returns discovered functions with their parameters and types.',
-        parameters: {
-          type: 'object',
-          properties: {
-            contractAddress: {
-              type: 'string',
-              description: 'The Stellar contract address (starts with C)'
+      {
+        type: 'function',
+        function: {
+          name: 'geolink_discoverContract',
+          description: 'Discover functions in a Soroban smart contract by analyzing its contract spec. Returns discovered functions with their parameters and types.',
+          parameters: {
+            type: 'object',
+            properties: {
+              contractAddress: {
+                type: 'string',
+                description: 'The Stellar contract address (starts with C)'
+              },
+              network: {
+                type: 'string',
+                enum: ['testnet', 'mainnet'],
+                description: 'Network (default: testnet)'
+              }
             },
-            network: {
-              type: 'string',
-              enum: ['testnet', 'mainnet'],
-              description: 'Network (default: testnet)'
-            }
-          },
-          required: ['contractAddress']
+            required: ['contractAddress']
+          }
         }
-      }
-    },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'geolink_onboardContract',
+          description: 'Onboard a Stellar smart contract to GeoLink. This will automatically detect the network (testnet/mainnet), fetch the WASM bytecode from the network, discover all contract functions and their parameters, infer a friendly contract name, and save the contract to your account. After onboarding, the contract will be available for creating execution rules and testing functions. Returns the created contract with all discovered functions.',
+          parameters: {
+            type: 'object',
+            properties: {
+              contract_address: {
+                type: 'string',
+                description: 'The Stellar contract address (56 characters, starts with C, uppercase alphanumeric)'
+              },
+              network: {
+                type: 'string',
+                enum: ['testnet', 'mainnet'],
+                description: 'Optional: Network override. If not provided, the system will auto-detect the network by checking both testnet and mainnet.'
+              }
+            },
+            required: ['contract_address']
+          }
+        }
+      },
     // GeoLink WebAuthn/Passkey Tools
     {
       type: 'function',
@@ -1116,6 +1138,40 @@ async function executeToolCall(toolCall, userContext = {}) {
           functionArgs.network || 'testnet',
           token
         );
+
+      case 'geolink_onboardContract':
+        if (!token) throw new Error('Authentication required for this operation');
+        // Call the agent-onboard endpoint
+        const axios = require('axios');
+        const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+        try {
+          const response = await axios.post(`${apiBaseUrl}/api/contracts/agent-onboard`, {
+            contract_address: functionArgs.contract_address
+          }, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.data.success) {
+            return {
+              success: true,
+              message: response.data.message,
+              contract: response.data.contract,
+              detected_network: response.data.detected_network,
+              functions_count: response.data.functions_count,
+              contract_id: response.data.contract.id,
+              contract_name: response.data.contract.contract_name,
+              contract_address: response.data.contract.contract_address
+            };
+          } else {
+            throw new Error(response.data.error || 'Failed to onboard contract');
+          }
+        } catch (error) {
+          console.error('[geolink_onboardContract] Error:', error.response?.data || error.message);
+          throw new Error(error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to onboard contract');
+        }
 
       case 'geolink_getCustomContracts':
         if (!token) throw new Error('Authentication required for this operation');
