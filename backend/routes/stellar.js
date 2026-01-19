@@ -7,6 +7,38 @@ const { authenticateUser } = require('../middleware/authUser');
 const STELLAR_ATLAS_BASE_URL = 'https://api.stellaratlas.io';
 const STELLAR_HORIZON_BASE_URL = 'https://horizon.stellar.org';
 
+// Cache for XLM price to avoid hitting CoinGecko rate limits
+// Cache duration: 60 seconds (CoinGecko free tier allows ~10-50 requests/minute)
+const xlmPriceCache = {
+  data: null,
+  timestamp: null,
+  CACHE_DURATION_MS: 60000 // 60 seconds
+};
+
+/**
+ * Get cached XLM price if available and fresh
+ */
+function getCachedXlmPrice() {
+  if (!xlmPriceCache.data || !xlmPriceCache.timestamp) {
+    return null;
+  }
+  
+  const age = Date.now() - xlmPriceCache.timestamp;
+  if (age > xlmPriceCache.CACHE_DURATION_MS) {
+    return null; // Cache expired
+  }
+  
+  return xlmPriceCache.data;
+}
+
+/**
+ * Set cached XLM price
+ */
+function setCachedXlmPrice(data) {
+  xlmPriceCache.data = data;
+  xlmPriceCache.timestamp = Date.now();
+}
+
 /**
  * @swagger
  * /api/stellar/health:
@@ -608,6 +640,13 @@ router.post('/call-contract-method', authenticateUser, async (req, res) => {
  */
 router.get('/xlm-price', async (req, res) => {
   try {
+    // Check cache first
+    const cachedPrice = getCachedXlmPrice();
+    if (cachedPrice) {
+      console.log('[Stellar Proxy] Returning cached XLM price');
+      return res.json(cachedPrice);
+    }
+    
     console.log('[Stellar Proxy] Fetching XLM price from CoinGecko...');
     const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
       params: {
@@ -623,15 +662,28 @@ router.get('/xlm-price', async (req, res) => {
     });
     
     console.log('[Stellar Proxy] Successfully fetched XLM price:', response.data);
+    
+    // Cache the response
+    setCachedXlmPrice(response.data);
+    
     res.json(response.data);
   } catch (error) {
+    // If we get a 429 (rate limit) error, try to return cached value
+    if (error.response?.status === 429) {
+      const cachedPrice = getCachedXlmPrice();
+      if (cachedPrice) {
+        console.log('[Stellar Proxy] Rate limited - returning cached XLM price');
+        return res.json(cachedPrice);
+      }
+      console.warn('[Stellar Proxy] Rate limited and no cached price available');
+    }
+    
     console.error('[Stellar Proxy] Error fetching XLM price from CoinGecko:', {
       message: error.message,
       code: error.code,
       status: error.response?.status,
       statusText: error.response?.statusText,
-      data: error.response?.data,
-      stack: error.stack
+      data: error.response?.data
     });
     
     // Return more detailed error information
