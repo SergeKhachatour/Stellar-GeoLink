@@ -1143,7 +1143,8 @@ async function executeToolCall(toolCall, userContext = {}) {
         if (!token) throw new Error('Authentication required for this operation');
         // Call the agent-onboard endpoint
         const axios = require('axios');
-        const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:5000';
+        // Use the same host/port as the current request, or fallback to localhost
+        const apiBaseUrl = process.env.API_BASE_URL || process.env.FRONTEND_URL?.replace('/frontend', '') || 'http://localhost:5000';
         try {
           const response = await axios.post(`${apiBaseUrl}/api/contracts/agent-onboard`, {
             contract_address: functionArgs.contract_address
