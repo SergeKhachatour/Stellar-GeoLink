@@ -266,6 +266,14 @@ const ContractManagement = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabValue, isAuthenticated]);
 
+  // Reload rules when toggle changes (for non-authenticated users)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      loadRules();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showActiveRulesOnly, isAuthenticated]);
+
   // Auto-refresh pending rules count every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
@@ -444,12 +452,49 @@ const ContractManagement = () => {
     try {
       // Use public endpoint if not authenticated, authenticated endpoint if logged in
       const endpoint = isAuthenticated ? '/contracts/rules' : '/contracts/rules/public';
-      const response = await api.get(endpoint);
-      if (response.data.success) {
-        const loadedRules = response.data.rules || [];
-        setRules(loadedRules);
-        setAllRules(loadedRules); // Store all rules for filtering
+      
+      let loadedRules = [];
+      
+      if (!isAuthenticated && !showActiveRulesOnly) {
+        // For public endpoint when toggle is off, fetch both active and inactive rules
+        try {
+          const [activeResponse, inactiveResponse] = await Promise.all([
+            api.get('/contracts/rules/public', { params: { is_active: true } }),
+            api.get('/contracts/rules/public', { params: { is_active: false } })
+          ]);
+          
+          const activeRules = activeResponse.data?.success ? (activeResponse.data.rules || []) : [];
+          const inactiveRules = inactiveResponse.data?.success ? (inactiveResponse.data.rules || []) : [];
+          
+          // Combine active and inactive rules, removing duplicates
+          const allRulesMap = new Map();
+          activeRules.forEach(rule => allRulesMap.set(rule.id, rule));
+          inactiveRules.forEach(rule => allRulesMap.set(rule.id, rule));
+          loadedRules = Array.from(allRulesMap.values());
+        } catch (fetchErr) {
+          console.error('Error loading rules (both active and inactive):', fetchErr);
+          // Fallback to just active rules
+          const response = await api.get('/contracts/rules/public');
+          if (response.data.success) {
+            loadedRules = response.data.rules || [];
+          }
+        }
+      } else {
+        // For authenticated users or when toggle is on, use normal endpoint
+        const params = {};
+        if (!isAuthenticated && showActiveRulesOnly) {
+          // Public endpoint with active only (default behavior, but explicit for clarity)
+          params.is_active = true;
+        }
+        
+        const response = await api.get(endpoint, { params });
+        if (response.data.success) {
+          loadedRules = response.data.rules || [];
+        }
       }
+      
+      setRules(loadedRules);
+      setAllRules(loadedRules); // Store all rules for filtering
     } catch (err) {
       console.error('Error loading rules:', err);
       // If authenticated endpoint fails and user is logged in, try public endpoint as fallback
@@ -3995,51 +4040,52 @@ const ContractManagement = () => {
         >
           <Tab label="Contracts" {...a11yProps(0)} />
           <Tab label="Execution Rules" {...a11yProps(1)} />
-          <Tab 
-            label={
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" noWrap>Pending Rules</Typography>
-                <Chip 
-                  label={pendingRules.length} 
-                  size="small" 
-                  color="warning"
-                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                />
-              </Box>
-            } 
-            {...a11yProps(2)}
-            disabled={!isAuthenticated}
-          />
-          <Tab 
-            label={
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" noWrap>Completed Rules</Typography>
-                <Chip 
-                  label={completedRules.length} 
-                  size="small" 
-                  color="success"
-                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                />
-              </Box>
-            } 
-            {...a11yProps(3)}
-            disabled={!isAuthenticated}
-          />
-          <Tab 
-            label={
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" noWrap>Rejected Rules</Typography>
-                <Chip 
-                  label={rejectedRules.length} 
-                  size="small" 
-                  color="error"
-                  sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                />
-              </Box>
-            } 
-            {...a11yProps(4)}
-            disabled={!isAuthenticated}
-          />
+          {isAuthenticated && (
+            <>
+              <Tab 
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" noWrap>Pending Rules</Typography>
+                    <Chip 
+                      label={pendingRules.length} 
+                      size="small" 
+                      color="warning"
+                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                    />
+                  </Box>
+                } 
+                {...a11yProps(2)}
+              />
+              <Tab 
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" noWrap>Completed Rules</Typography>
+                    <Chip 
+                      label={completedRules.length} 
+                      size="small" 
+                      color="success"
+                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                    />
+                  </Box>
+                } 
+                {...a11yProps(3)}
+              />
+              <Tab 
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Typography variant="body2" noWrap>Rejected Rules</Typography>
+                    <Chip 
+                      label={rejectedRules.length} 
+                      size="small" 
+                      color="error"
+                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                    />
+                  </Box>
+                } 
+                {...a11yProps(4)}
+              />
+            </>
+          )}
         </Tabs>
       </Box>
 
@@ -4089,9 +4135,52 @@ const ContractManagement = () => {
                       </Typography>
                     )}
                     {discoveredFunctions(contract).length > 0 && (
-                      <Typography variant="body2" color="text.secondary">
-                        <strong>Functions:</strong> {discoveredFunctions(contract).length} discovered
-                      </Typography>
+                      <>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Functions:</strong> {discoveredFunctions(contract).length} discovered
+                        </Typography>
+                        {!isAuthenticated && (
+                          <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
+                              Available Functions (View Only):
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                              {discoveredFunctions(contract).slice(0, 5).map((func, idx) => (
+                                <Box key={idx} sx={{ p: 1, bgcolor: 'white', borderRadius: 0.5 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 'medium', mb: 0.5 }}>
+                                    {func.name || 'Unknown'}
+                                  </Typography>
+                                  {func.parameters && func.parameters.length > 0 && (
+                                    <Box sx={{ pl: 1 }}>
+                                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                        Parameters:
+                                      </Typography>
+                                      {func.parameters.map((param, pIdx) => (
+                                        <Chip
+                                          key={pIdx}
+                                          label={`${param.name || 'param'}: ${param.type || 'unknown'}`}
+                                          size="small"
+                                          sx={{ mr: 0.5, mb: 0.5, fontSize: '0.65rem' }}
+                                        />
+                                      ))}
+                                    </Box>
+                                  )}
+                                  {func.return_type && func.return_type !== 'void' && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                      Returns: {func.return_type}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              ))}
+                              {discoveredFunctions(contract).length > 5 && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                  +{discoveredFunctions(contract).length - 5} more function(s)
+                                </Typography>
+                              )}
+                            </Box>
+                          </Box>
+                        )}
+                      </>
                     )}
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Rules:</strong> {activeRules.length} active rule{activeRules.length !== 1 ? 's' : ''} 
@@ -4232,6 +4321,7 @@ const ContractManagement = () => {
 
       {/* Execution Rules Tab */}
       <TabPanel value={tabValue} index={1}>
+        {/* Show Active Rules Only toggle - works for both authenticated and non-authenticated users */}
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
           {isAuthenticated && (
             <Button
@@ -4605,7 +4695,8 @@ const ContractManagement = () => {
         )}
       </TabPanel>
 
-      {/* Pending Rules Tab */}
+      {/* Pending Rules Tab - Only show when authenticated */}
+      {isAuthenticated && (
       <TabPanel value={tabValue} index={2}>
         <Box mb={3}>
           <Alert severity="info" icon={<ScheduleIcon />}>
@@ -4982,8 +5073,10 @@ const ContractManagement = () => {
           </>
         )}
       </TabPanel>
+      )}
 
-      {/* Completed Rules Tab */}
+      {/* Completed Rules Tab - Only show when authenticated */}
+      {isAuthenticated && (
       <TabPanel value={tabValue} index={3}>
         <Box mb={3}>
           <Alert severity="success" icon={<CheckCircleIcon />}>
@@ -5179,8 +5272,10 @@ const ContractManagement = () => {
           </>
         )}
       </TabPanel>
+      )}
 
-      {/* Rejected Rules Tab */}
+      {/* Rejected Rules Tab - Only show when authenticated */}
+      {isAuthenticated && (
       <TabPanel value={tabValue} index={4}>
         <Box mb={3}>
           <Alert severity="warning" icon={<WarningIcon />}>
@@ -5354,6 +5449,7 @@ const ContractManagement = () => {
           </>
         )}
       </TabPanel>
+      )}
 
       {/* Contract Dialog */}
       <CustomContractDialog
