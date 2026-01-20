@@ -877,32 +877,60 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
  *         description: Authentication required
  */
 router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
+    // Set overall request timeout (60 seconds)
+    const requestTimeout = setTimeout(() => {
+        if (!res.headersSent) {
+            res.status(504).json({ 
+                success: false,
+                error: 'Request timeout',
+                message: 'The onboarding process took too long. Please try again or check the contract address.'
+            });
+        }
+    }, 60000);
+
     try {
         const { contract_address } = req.body;
         const userId = req.user?.id || req.userId;
         
         if (!userId) {
+            clearTimeout(requestTimeout);
             return res.status(401).json({ error: 'User ID not found. Authentication required.' });
         }
 
         if (!contract_address) {
+            clearTimeout(requestTimeout);
             return res.status(400).json({ error: 'Contract address is required' });
         }
 
         // Validate contract address format
         if (!/^[A-Z0-9]{56}$/.test(contract_address)) {
+            clearTimeout(requestTimeout);
             return res.status(400).json({ error: 'Invalid contract address format. Must be 56 characters, uppercase alphanumeric.' });
         }
 
         console.log(`[GeoLink Agent] 🤖 Starting automated onboarding for contract ${contract_address}`);
 
-        // Step 1: Auto-detect network by trying both testnet and mainnet
+        // Helper function to add timeout to promises
+        const withTimeout = (promise, timeoutMs, errorMessage) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+                )
+            ]);
+        };
+
+        // Step 1: Auto-detect network by trying both testnet and mainnet (with timeout)
         let detectedNetwork = null;
         const networks = ['testnet', 'mainnet'];
         
         for (const network of networks) {
             try {
-                const verification = await contractIntrospection.verifyContractExists(contract_address, network);
+                const verification = await withTimeout(
+                    contractIntrospection.verifyContractExists(contract_address, network),
+                    15000, // 15 second timeout per network check
+                    `Network verification timeout for ${network}`
+                );
                 if (verification.exists) {
                     detectedNetwork = network;
                     console.log(`[GeoLink Agent] ✅ Contract found on ${network}`);
@@ -914,6 +942,7 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
         }
 
         if (!detectedNetwork) {
+            clearTimeout(requestTimeout);
             return res.status(404).json({
                 success: false,
                 error: 'Contract not found',
@@ -921,13 +950,14 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
             });
         }
 
-        // Step 2: Check if contract already exists
-        const existingContractResult = await pool.query(
-            `SELECT id, contract_address, network, contract_name, wasm_file_path, discovered_functions
+        // Step 2: Check if contract already exists (with query timeout)
+        const existingContractResult = await pool.query({
+            text: `SELECT id, contract_address, network, contract_name, wasm_file_path, discovered_functions
              FROM custom_contracts
              WHERE contract_address = $1 AND user_id = $2 AND is_active = true`,
-            [contract_address, userId]
-        );
+            values: [contract_address, userId],
+            statement_timeout: 10000 // 10 second timeout
+        });
 
         let contractId;
         let contract;
@@ -964,9 +994,14 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 })
             );
 
-            const ledgerEntries = await sorobanServer.getLedgerEntries(contractDataKey);
+            const ledgerEntries = await withTimeout(
+                sorobanServer.getLedgerEntries(contractDataKey),
+                20000, // 20 second timeout for RPC call
+                'Timeout fetching contract instance from network'
+            );
             
             if (!ledgerEntries.entries || ledgerEntries.entries.length === 0) {
+                clearTimeout(requestTimeout);
                 return res.status(404).json({ error: 'Contract instance not found on network' });
             }
 
@@ -985,9 +1020,14 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 })
             );
 
-            const wasmEntries = await sorobanServer.getLedgerEntries(wasmCodeKey);
+            const wasmEntries = await withTimeout(
+                sorobanServer.getLedgerEntries(wasmCodeKey),
+                20000, // 20 second timeout for RPC call
+                'Timeout fetching WASM bytecode from network'
+            );
             
             if (!wasmEntries.entries || wasmEntries.entries.length === 0) {
+                clearTimeout(requestTimeout);
                 return res.status(404).json({ error: 'WASM bytecode not found on network' });
             }
 
@@ -1007,12 +1047,16 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
 
             console.log(`[GeoLink Agent] ✅ WASM fetched and saved: ${filename} (${wasmBuffer.length} bytes)`);
 
-            // Step 4: Discover functions
+            // Step 4: Discover functions (with timeout)
             console.log(`[GeoLink Agent] 🔍 Discovering contract functions...`);
             let discoveredFunctions = [];
             try {
                 // discoverFunctions signature: (contractAddress, network, wasmFilePath)
-                discoveredFunctions = await contractIntrospection.discoverFunctions(contract_address, detectedNetwork, filePath);
+                discoveredFunctions = await withTimeout(
+                    contractIntrospection.discoverFunctions(contract_address, detectedNetwork, filePath),
+                    30000, // 30 second timeout for function discovery
+                    'Timeout discovering contract functions'
+                );
                 console.log(`[GeoLink Agent] ✅ Discovered ${discoveredFunctions.length} functions`);
             } catch (discoverError) {
                 console.error(`[GeoLink Agent] ⚠️ Error discovering functions: ${discoverError.message}`);
@@ -1063,14 +1107,14 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 }, {})
                 : {};
 
-            const insertResult = await pool.query(
-                `INSERT INTO custom_contracts (
+            const insertResult = await pool.query({
+                text: `INSERT INTO custom_contracts (
                     user_id, contract_address, contract_name, network,
                     wasm_file_path, wasm_file_name, wasm_hash, wasm_source,
                     discovered_functions, function_mappings, is_active, created_at, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 RETURNING id, contract_address, contract_name, network, wasm_file_name, discovered_functions, function_mappings`,
-                [
+                values: [
                     userId,
                     contract_address,
                     inferredName,
@@ -1081,8 +1125,9 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                     'network',
                     JSON.stringify(functionsToSave),
                     JSON.stringify({})
-                ]
-            );
+                ],
+                statement_timeout: 10000 // 10 second timeout
+            });
 
             contract = insertResult.rows[0];
             contractId = contract.id;
@@ -1106,6 +1151,7 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
             }
         }
 
+        clearTimeout(requestTimeout);
         res.json({
             success: true,
             message: `Contract onboarded successfully on ${detectedNetwork}`,
@@ -1124,20 +1170,25 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
             functions_count: discoveredFunctionsArray.length
         });
     } catch (error) {
+        clearTimeout(requestTimeout);
         console.error('[GeoLink Agent] ❌ Error during automated onboarding:', error);
         console.error('[GeoLink Agent] Error stack:', error.stack);
         console.error('[GeoLink Agent] Error details:', {
             message: error.message,
             name: error.name,
-            contract_address: contract_address,
-            userId: userId
+            contract_address: req.body?.contract_address,
+            userId: req.user?.id || req.userId
         });
-        res.status(500).json({ 
-            success: false,
-            error: 'Failed to onboard contract',
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        });
+        
+        // Don't send response if headers already sent
+        if (!res.headersSent) {
+            res.status(500).json({ 
+                success: false,
+                error: 'Failed to onboard contract',
+                message: error.message,
+                details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            });
+        }
     }
 });
 
