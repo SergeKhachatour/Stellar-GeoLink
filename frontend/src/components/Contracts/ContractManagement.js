@@ -92,16 +92,20 @@ if (MAPBOX_TOKEN) {
 // Tab Panel Component
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
+  
   return (
-    <div
+    <Box
       role="tabpanel"
-      hidden={value !== index}
       id={`contract-tabpanel-${index}`}
       aria-labelledby={`contract-tab-${index}`}
+      sx={{
+        p: 3,
+        display: value === index ? 'block' : 'none'
+      }}
       {...other}
     >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
-    </div>
+      {children}
+    </Box>
   );
 }
 
@@ -759,18 +763,56 @@ const ContractManagement = () => {
       if (response.data.success) {
         setAgentResult(response.data);
         setSuccess(`Contract onboarded successfully on ${response.data.detected_network}!`);
-        // Reload contracts
+        // Reload contracts to refresh the list
         loadContracts();
-        // Close agent dialog and open edit dialog with the new contract
+        // Close agent dialog and open edit dialog with the newly created contract
         setAgentDialogOpen(false);
-        // Find the newly created contract
-        const contractsResponse = await api.get('/contracts');
-        const newContract = contractsResponse.data.contracts?.find(
-          c => c.contract_address === agentContractAddress.trim().toUpperCase()
-        );
-        if (newContract) {
-          setEditingContract(newContract);
-          setContractDialogOpen(true);
+        // Use the contract data directly from the response instead of refetching
+        // This ensures we have the latest data including the inferred name and correct contract address
+        const contractData = response.data.contract;
+        if (contractData) {
+          // Ensure we're using the exact contract address from the input, not any default
+          const contractToEdit = {
+            ...contractData,
+            // Force the contract address to match what the user entered
+            contract_address: agentContractAddress.trim().toUpperCase(),
+            // Ensure we have the latest inferred name from the onboarding process
+            contract_name: contractData.contract_name || `Contract ${agentContractAddress.trim().substring(0, 8)}`,
+            // Use the network that was detected
+            network: response.data.detected_network || contractData.network || 'testnet'
+          };
+          
+          // Fetch full contract details to ensure we have all fields (id, etc.)
+          try {
+            const contractsResponse = await api.get('/contracts');
+            const fullContract = contractsResponse.data.contracts?.find(
+              c => c.contract_address === agentContractAddress.trim().toUpperCase()
+            );
+            if (fullContract) {
+              // Merge: use full contract data but override with latest onboarding data
+              const mergedContract = {
+                ...fullContract,
+                // Override with onboarding data to ensure latest name and functions
+                contract_name: contractData.contract_name || fullContract.contract_name,
+                discovered_functions: contractData.discovered_functions || fullContract.discovered_functions,
+                function_mappings: contractData.function_mappings || fullContract.function_mappings,
+                network: response.data.detected_network || contractData.network || fullContract.network,
+                // Ensure contract address matches what user entered
+                contract_address: agentContractAddress.trim().toUpperCase()
+              };
+              setEditingContract(mergedContract);
+              setContractDialogOpen(true);
+            } else {
+              // Fallback: use the contract data from response with forced address
+              setEditingContract(contractToEdit);
+              setContractDialogOpen(true);
+            }
+          } catch (fetchError) {
+            console.error('Error fetching full contract details:', fetchError);
+            // Fallback: use the contract data from response with forced address
+            setEditingContract(contractToEdit);
+            setContractDialogOpen(true);
+          }
         }
       } else {
         setError(response.data.error || 'Failed to onboard contract');
@@ -3953,7 +3995,7 @@ const ContractManagement = () => {
                   padding: { xs: '6px 12px', sm: '8px 16px' }
                 }}
               >
-                GeoLink Agent
+                Load Contract
               </Button>
               <Button
                 variant="contained"
@@ -4026,6 +4068,12 @@ const ContractManagement = () => {
         <Tabs 
           value={tabValue} 
           onChange={(e, newValue) => {
+            console.log('[ContractManagement] Tab clicked:', { 
+              from: tabValue, 
+              to: newValue, 
+              isAuthenticated,
+              tabNames: ['Contracts', 'Execution Rules', 'Pending Rules', 'Completed Rules', 'Rejected Rules']
+            });
             setTabValue(newValue);
           }}
           variant="scrollable"
@@ -4044,88 +4092,81 @@ const ContractManagement = () => {
               scrollbarWidth: 'none', // Firefox
               msOverflowStyle: 'none' // IE and Edge
             },
-            // Ensure tabs are clickable
+            // Ensure tabs are clickable when not disabled
             '& .MuiTab-root': {
-              pointerEvents: 'auto',
-              cursor: 'pointer',
+              '&:not(.Mui-disabled)': {
+                pointerEvents: 'auto',
+                cursor: 'pointer'
+              },
               '&.Mui-disabled': {
                 pointerEvents: 'none',
-                opacity: 1,
-                color: 'inherit'
+                opacity: 0.5
+              },
+              '&.Mui-selected': {
+                color: 'primary.main'
               }
             },
-            // Override disabled state for authenticated tabs
-            '& .MuiTab-root[aria-controls*="contract-tabpanel-2"]': {
-              pointerEvents: 'auto !important',
-              cursor: 'pointer !important',
-              opacity: '1 !important'
-            },
-            '& .MuiTab-root[aria-controls*="contract-tabpanel-3"]': {
-              pointerEvents: 'auto !important',
-              cursor: 'pointer !important',
-              opacity: '1 !important'
-            },
-            '& .MuiTab-root[aria-controls*="contract-tabpanel-4"]': {
-              pointerEvents: 'auto !important',
-              cursor: 'pointer !important',
-              opacity: '1 !important'
+            // Ensure indicator shows for all tabs and is visible
+            '& .MuiTabs-indicator': {
+              backgroundColor: 'primary.main',
+              height: 3,
+              zIndex: 1
             }
           }}
         >
           <Tab label="Contracts" {...a11yProps(0)} />
           <Tab label="Execution Rules" {...a11yProps(1)} />
-          {isAuthenticated && (
-            <>
-              <Tab 
-                label={
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" noWrap>Pending Rules</Typography>
-                    <Chip 
-                      label={loadingPendingRules ? '...' : pendingRules.length} 
-                      size="small" 
-                      color="warning"
-                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                    />
-                  </Box>
-                } 
-                {...a11yProps(2)}
-                disabled={false}
-                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
-              />
-              <Tab 
-                label={
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" noWrap>Completed Rules</Typography>
-                    <Chip 
-                      label={loadingCompletedRules ? '...' : completedRules.length} 
-                      size="small" 
-                      color="success"
-                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                    />
-                  </Box>
-                } 
-                {...a11yProps(3)}
-                disabled={false}
-                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
-              />
-              <Tab 
-                label={
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Typography variant="body2" noWrap>Rejected Rules</Typography>
-                    <Chip 
-                      label={loadingRejectedRules ? '...' : rejectedRules.length} 
-                      size="small" 
-                      color="error"
-                      sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
-                    />
-                  </Box>
-                } 
-                {...a11yProps(4)}
-                disabled={false}
-                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
-              />
-            </>
-          )}
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Pending Rules</Typography>
+                {isAuthenticated && (
+                  <Chip 
+                    label={loadingPendingRules ? '...' : pendingRules.length} 
+                    size="small" 
+                    color="warning"
+                    sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                  />
+                )}
+              </Box>
+            } 
+            {...a11yProps(2)}
+            disabled={!isAuthenticated}
+          />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Completed Rules</Typography>
+                {isAuthenticated && (
+                  <Chip 
+                    label={loadingCompletedRules ? '...' : completedRules.length} 
+                    size="small" 
+                    color="success"
+                    sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                  />
+                )}
+              </Box>
+            } 
+            {...a11yProps(3)}
+            disabled={!isAuthenticated}
+          />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Rejected Rules</Typography>
+                {isAuthenticated && (
+                  <Chip 
+                    label={loadingRejectedRules ? '...' : rejectedRules.length} 
+                    size="small" 
+                    color="error"
+                    sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                  />
+                )}
+              </Box>
+            } 
+            {...a11yProps(4)}
+            disabled={!isAuthenticated}
+          />
         </Tabs>
       </Box>
 
@@ -4707,7 +4748,11 @@ const ContractManagement = () => {
 
       {/* Pending Rules Tab */}
       <TabPanel value={tabValue} index={2}>
-        {isAuthenticated ? (
+        {!isAuthenticated ? (
+          <Alert severity="info">
+            Please log in to view pending rules.
+          </Alert>
+        ) : (
           <>
             <Box mb={3}>
               <Alert severity="info" icon={<ScheduleIcon />}>
@@ -4720,6 +4765,7 @@ const ContractManagement = () => {
                 </Typography>
               </Alert>
             </Box>
+            {/* Debug: Tab value = {tabValue}, isAuthenticated = {String(isAuthenticated)} */}
 
             {loadingPendingRules ? (
           <Box display="flex" justifyContent="center" p={4}>
@@ -5084,16 +5130,17 @@ const ContractManagement = () => {
           </>
             )}
           </>
-        ) : (
-          <Alert severity="info">
-            Please log in to view pending rules.
-          </Alert>
         )}
       </TabPanel>
 
       {/* Completed Rules Tab */}
       <TabPanel value={tabValue} index={3}>
-        {isAuthenticated ? (
+        {!isAuthenticated && (
+          <Alert severity="info">
+            Please log in to view completed rules.
+          </Alert>
+        )}
+        {isAuthenticated && (
           <>
             <Box mb={3}>
               <Alert severity="success" icon={<CheckCircleIcon />}>
@@ -5289,16 +5336,17 @@ const ContractManagement = () => {
           </>
             )}
           </>
-        ) : (
-          <Alert severity="info">
-            Please log in to view completed rules.
-          </Alert>
         )}
       </TabPanel>
 
       {/* Rejected Rules Tab */}
       <TabPanel value={tabValue} index={4}>
-        {isAuthenticated ? (
+        {!isAuthenticated && (
+          <Alert severity="info">
+            Please log in to view rejected rules.
+          </Alert>
+        )}
+        {isAuthenticated && (
           <>
             <Box mb={3}>
               <Alert severity="warning" icon={<WarningIcon />}>
@@ -5472,10 +5520,6 @@ const ContractManagement = () => {
           </>
             )}
           </>
-        ) : (
-          <Alert severity="info">
-            Please log in to view rejected rules.
-          </Alert>
         )}
       </TabPanel>
 
@@ -5594,13 +5638,13 @@ const ContractManagement = () => {
         <DialogTitle>
           <Box display="flex" alignItems="center" gap={1}>
             <SmartToyIcon color="primary" />
-            <Typography variant="h6">GeoLink Agent</Typography>
+            <Typography variant="h6">Load Contract</Typography>
           </Box>
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 2 }}>
             <Typography variant="body2" color="text.secondary">
-              Enter a contract address and the GeoLink Agent will automatically:
+              Enter a contract address and the system will automatically:
             </Typography>
             <Box component="ul" sx={{ pl: 3, mb: 0 }}>
               <li>Detect the network (Testnet/Mainnet)</li>
@@ -5632,16 +5676,85 @@ const ContractManagement = () => {
             )}
 
             {agentResult && (
-              <Alert severity="success" sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  ✅ Contract onboarded successfully!
-                </Typography>
-                <Typography variant="body2">
-                  Network: <strong>{agentResult.detected_network}</strong><br />
-                  Name: <strong>{agentResult.contract.contract_name}</strong><br />
-                  Functions discovered: <strong>{agentResult.functions_count}</strong>
-                </Typography>
-              </Alert>
+              <Box sx={{ mt: 2 }}>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    ✅ Contract onboarded successfully!
+                  </Typography>
+                  <Typography variant="body2">
+                    Network: <strong>{agentResult.detected_network}</strong><br />
+                    Name: <strong>{agentResult.contract.contract_name}</strong><br />
+                    Functions discovered: <strong>{agentResult.functions_count}</strong>
+                  </Typography>
+                </Alert>
+                
+                {agentResult.wasm_details && (
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CloudUploadIcon fontSize="small" />
+                      WASM Details
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Network:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, textTransform: 'capitalize' }}>
+                          {agentResult.wasm_details.network}
+                        </Typography>
+                      </Box>
+                      {agentResult.wasm_details.size_formatted && (
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">Size:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {agentResult.wasm_details.size_formatted}
+                          </Typography>
+                        </Box>
+                      )}
+                      {agentResult.wasm_details.hash && (
+                        <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                          <Typography variant="body2" color="text.secondary">Hash:</Typography>
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              fontWeight: 500, 
+                              fontFamily: 'monospace', 
+                              fontSize: '0.75rem',
+                              wordBreak: 'break-all',
+                              textAlign: 'right',
+                              maxWidth: '70%'
+                            }}
+                          >
+                            {agentResult.wasm_details.hash.substring(0, 16)}...{agentResult.wasm_details.hash.substring(agentResult.wasm_details.hash.length - 16)}
+                          </Typography>
+                        </Box>
+                      )}
+                      {agentResult.wasm_details.deploy_ledger && (
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">Deploy Ledger:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                            #{agentResult.wasm_details.deploy_ledger}
+                          </Typography>
+                        </Box>
+                      )}
+                      {agentResult.wasm_details.deploy_date_formatted && (
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">Deploy Date:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {new Date(agentResult.wasm_details.deploy_date).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      )}
+                      {agentResult.wasm_details.filename && (
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">Filename:</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                            {agentResult.wasm_details.filename}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Paper>
+                )}
+              </Box>
             )}
 
             {error && (

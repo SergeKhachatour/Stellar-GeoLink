@@ -819,6 +819,42 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
 
         console.log(`[Fetch WASM] ✅ WASM file saved and contract updated`);
 
+        // Get deploy ledger and date info if available
+        let deployLedger = null;
+        let deployDate = null;
+        try {
+            const ledgerInfo = await sorobanServer.getLatestLedger();
+            if (ledgerInfo && ledgerInfo.sequence) {
+                // Try to get the ledger from the contract instance entry
+                const contractIdBytes = StellarSdk.StrKey.decodeContract(contractAddress);
+                const contractScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(contractIdBytes);
+                const contractDataKey = StellarSdk.xdr.LedgerKey.contractData(
+                    new StellarSdk.xdr.LedgerKeyContractData({
+                        contract: contractScAddress,
+                        key: StellarSdk.xdr.ScVal.scvLedgerKeyContractInstance(),
+                        durability: StellarSdk.xdr.ContractDataDurability.persistent()
+                    })
+                );
+                const ledgerEntries = await sorobanServer.getLedgerEntries(contractDataKey);
+                if (ledgerEntries.entries && ledgerEntries.entries.length > 0) {
+                    const entry = ledgerEntries.entries[0];
+                    if (entry.lastModifiedLedgerSeq) {
+                        deployLedger = entry.lastModifiedLedgerSeq;
+                        const currentLedger = ledgerInfo.sequence;
+                        if (currentLedger > deployLedger) {
+                            const ledgerDiff = currentLedger - deployLedger;
+                            const estimatedSecondsAgo = ledgerDiff * 5; // ~5 seconds per ledger
+                            deployDate = new Date(Date.now() - estimatedSecondsAgo * 1000);
+                        }
+                    }
+                }
+            }
+        } catch (ledgerError) {
+            console.warn(`[Fetch WASM] Could not estimate deploy date: ${ledgerError.message}`);
+        }
+
+        // wasmHashHex is already set above from the contract instance
+
         res.json({
             success: true,
             message: 'WASM file fetched from network and saved successfully',
@@ -830,7 +866,19 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
                 source: 'local', // WASM fetched from network but stored locally
                 network: network
             },
-            contract_id: parseInt(id)
+            contract_id: parseInt(id),
+            wasm_details: {
+                hash: wasmHashHex || hash,
+                hash_algorithm: 'sha256',
+                size_bytes: wasmBuffer.length,
+                size_formatted: wasmBuffer.length < 1024 ? `${wasmBuffer.length} B` : wasmBuffer.length < 1024 * 1024 ? `${(wasmBuffer.length / 1024).toFixed(2)} KB` : `${(wasmBuffer.length / (1024 * 1024)).toFixed(2)} MB`,
+                network: network,
+                deploy_ledger: deployLedger || null,
+                deploy_date: deployDate ? deployDate.toISOString() : null,
+                deploy_date_formatted: deployDate ? deployDate.toLocaleString() : null,
+                filename: filename,
+                source: 'network'
+            }
         });
     } catch (error) {
         console.error('[Fetch WASM] ❌ Error fetching WASM from network:', error);
@@ -983,6 +1031,10 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
         let filePath;
         let filename;
         let hash;
+        let wasmHashHex = null;
+        let wasmSize = null;
+        let deployLedger = null;
+        let deployDate = null;
         
         try {
             const StellarSdk = require('@stellar/stellar-sdk');
@@ -1023,6 +1075,18 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 return res.status(404).json({ error: 'Contract instance not found on network' });
             }
 
+            // Extract ledger information for deploy date estimation
+            const latestLedger = ledgerEntries.latestLedger || null;
+            
+            // Try to get the ledger number from the entry
+            if (ledgerEntries.entries && ledgerEntries.entries.length > 0) {
+                // The entry might have lastModifiedLedgerSeq
+                const entry = ledgerEntries.entries[0];
+                if (entry.lastModifiedLedgerSeq) {
+                    deployLedger = entry.lastModifiedLedgerSeq;
+                }
+            }
+
             console.log(`[GeoLink Agent] Extracting WASM hash from contract instance...`);
             const contractInstance = ledgerEntries.entries[0].val.contractData().val().instance();
             const wasmHash = contractInstance.executable().wasmHash();
@@ -1031,10 +1095,12 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 clearTimeout(requestTimeout);
                 return res.status(404).json({ error: 'WASM hash not found in contract instance' });
             }
+            
+            // Convert WASM hash to hex for display (store for later use)
+            wasmHashHex = Buffer.from(wasmHash).toString('hex');
 
             // Fetch WASM bytecode
             console.log(`[GeoLink Agent] Fetching WASM bytecode from network...`);
-            const wasmHashHex = Buffer.from(wasmHash).toString('hex');
             const wasmCodeKey = StellarSdk.xdr.LedgerKey.contractCode(
                 new StellarSdk.xdr.LedgerKeyContractCode({
                     hash: wasmHash
@@ -1067,8 +1133,34 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
 
             await fs.writeFile(filePath, wasmBuffer);
             hash = crypto.createHash('sha256').update(wasmBuffer).digest('hex');
+            
+            // Store WASM buffer size for response
+            wasmSize = wasmBuffer.length;
+            
+            // Get current ledger info for date estimation
+            try {
+                const ledgerInfo = await sorobanServer.getLatestLedger();
+                if (ledgerInfo && ledgerInfo.sequence) {
+                    // Estimate deploy date based on ledger sequence
+                    // Stellar ledgers close approximately every 5 seconds
+                    // This is a rough estimate
+                    const currentLedger = ledgerInfo.sequence;
+                    if (deployLedger && currentLedger > deployLedger) {
+                        const ledgerDiff = currentLedger - deployLedger;
+                        const estimatedSecondsAgo = ledgerDiff * 5; // ~5 seconds per ledger
+                        deployDate = new Date(Date.now() - estimatedSecondsAgo * 1000);
+                    } else if (latestLedger) {
+                        // Fallback to latest ledger if we have it
+                        const ledgerDiff = currentLedger - latestLedger;
+                        const estimatedSecondsAgo = ledgerDiff * 5;
+                        deployDate = new Date(Date.now() - estimatedSecondsAgo * 1000);
+                    }
+                }
+            } catch (ledgerError) {
+                console.warn(`[GeoLink Agent] Could not estimate deploy date: ${ledgerError.message}`);
+            }
 
-            console.log(`[GeoLink Agent] ✅ WASM fetched and saved: ${filename} (${wasmBuffer.length} bytes)`);
+            console.log(`[GeoLink Agent] ✅ WASM fetched and saved: ${filename} (${wasmSize} bytes)`);
         } catch (wasmError) {
             clearTimeout(requestTimeout);
             console.error(`[GeoLink Agent] ❌ Error fetching WASM: ${wasmError.message}`);
@@ -1211,7 +1303,19 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                     : contract.function_mappings
             },
             detected_network: detectedNetwork,
-            functions_count: discoveredFunctionsArray.length
+            functions_count: discoveredFunctionsArray.length,
+            wasm_details: {
+                hash: wasmHashHex || hash,
+                hash_algorithm: 'sha256',
+                size_bytes: wasmSize || null,
+                size_formatted: wasmSize ? (wasmSize < 1024 ? `${wasmSize} B` : wasmSize < 1024 * 1024 ? `${(wasmSize / 1024).toFixed(2)} KB` : `${(wasmSize / (1024 * 1024)).toFixed(2)} MB`) : null,
+                network: detectedNetwork,
+                deploy_ledger: deployLedger || null,
+                deploy_date: deployDate ? deployDate.toISOString() : null,
+                deploy_date_formatted: deployDate ? deployDate.toLocaleString() : null,
+                filename: filename,
+                source: 'network'
+            }
         });
     } catch (error) {
         clearTimeout(requestTimeout);

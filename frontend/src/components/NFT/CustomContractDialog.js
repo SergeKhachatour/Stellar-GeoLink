@@ -16,6 +16,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   Chip,
+  Paper,
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -53,6 +54,7 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
   const [uploadingWasm, setUploadingWasm] = useState(false);
   const [needsWasmUpload, setNeedsWasmUpload] = useState(false);
   const [fetchingWasm, setFetchingWasm] = useState(false);
+  const [wasmDetails, setWasmDetails] = useState(null);
 
   // Reset form when dialog opens/closes, or load editing contract
   useEffect(() => {
@@ -69,6 +71,7 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
       setNeedsWasmUpload(false);
       setWasmFile(null);
       setWasmUploadOpen(false);
+      setWasmDetails(null);
     } else if (open && editingContract) {
       // Load editing contract data
       setContractAddress(editingContract.contract_address || '');
@@ -170,6 +173,27 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
       if (response.data.success) {
         setSuccess(`WASM file fetched from ${network} network successfully! You can now discover functions.`);
         setNeedsWasmUpload(false);
+        // Store WASM details for display
+        if (response.data.wasm_details) {
+          setWasmDetails(response.data.wasm_details);
+        }
+        // Refresh contract data to get updated information
+        if (editingContract && editingContract.id) {
+          try {
+            const contractsResponse = await api.get('/contracts');
+            const updatedContract = contractsResponse.data.contracts?.find(
+              c => c.id === editingContract.id
+            );
+            if (updatedContract) {
+              // Update the contract name if it was inferred during onboarding
+              // The contract name will be re-evaluated when functions are discovered
+              setContractName(updatedContract.contract_name || contractName);
+            }
+          } catch (refreshError) {
+            console.error('Error refreshing contract data:', refreshError);
+            // Continue anyway - the WASM was fetched successfully
+          }
+        }
         // Optionally auto-discover after fetching WASM
         setTimeout(() => {
           handleDiscover();
@@ -598,9 +622,80 @@ const CustomContractDialog = ({ open, onClose, onContractSaved, editingContract 
             </Alert>
           )}
           {success && (
-            <Alert severity="success" onClose={() => setSuccess('')}>
-              {success}
-            </Alert>
+            <Box>
+              <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: wasmDetails ? 2 : 0 }}>
+                {success}
+              </Alert>
+              
+              {wasmDetails && (
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default', mt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CloudUploadIcon fontSize="small" />
+                    WASM Details
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+                    <Box display="flex" justifyContent="space-between">
+                      <Typography variant="body2" color="text.secondary">Network:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 500, textTransform: 'capitalize' }}>
+                        {wasmDetails.network}
+                      </Typography>
+                    </Box>
+                    {wasmDetails.size_formatted && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Size:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {wasmDetails.size_formatted}
+                        </Typography>
+                      </Box>
+                    )}
+                    {wasmDetails.hash && (
+                      <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                        <Typography variant="body2" color="text.secondary">Hash:</Typography>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 500, 
+                            fontFamily: 'monospace', 
+                            fontSize: '0.75rem',
+                            wordBreak: 'break-all',
+                            textAlign: 'right',
+                            maxWidth: '70%'
+                          }}
+                        >
+                          {wasmDetails.hash.length > 32 
+                            ? `${wasmDetails.hash.substring(0, 16)}...${wasmDetails.hash.substring(wasmDetails.hash.length - 16)}`
+                            : wasmDetails.hash}
+                        </Typography>
+                      </Box>
+                    )}
+                    {wasmDetails.deploy_ledger && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Deploy Ledger:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                          #{wasmDetails.deploy_ledger}
+                        </Typography>
+                      </Box>
+                    )}
+                    {wasmDetails.deploy_date_formatted && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Deploy Date:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {wasmDetails.deploy_date ? new Date(wasmDetails.deploy_date).toLocaleString() : wasmDetails.deploy_date_formatted}
+                        </Typography>
+                      </Box>
+                    )}
+                    {wasmDetails.filename && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Filename:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                          {wasmDetails.filename}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              )}
+            </Box>
           )}
         </Box>
       </DialogContent>
