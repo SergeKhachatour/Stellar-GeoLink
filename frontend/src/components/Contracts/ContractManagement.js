@@ -42,7 +42,9 @@ import {
   InputAdornment,
   List,
   ListItemButton,
-  Collapse
+  Collapse,
+  useMediaQuery,
+  useTheme
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -113,6 +115,8 @@ function a11yProps(index) {
 const ContractManagement = () => {
   const { publicKey, secretKey, balance: walletBalance } = useWallet();
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isAuthenticated = !!user;
   const [contracts, setContracts] = useState([]);
   const [allRules, setAllRules] = useState([]); // Store all rules for public view
@@ -136,6 +140,8 @@ const ContractManagement = () => {
   const [batchSecretKeyShow, setBatchSecretKeyShow] = useState(false);
   const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
   const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
+  const [functionsDialogOpen, setFunctionsDialogOpen] = useState(false);
+  const [selectedContractForFunctions, setSelectedContractForFunctions] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [ruleToReject, setRuleToReject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -4019,7 +4025,9 @@ const ContractManagement = () => {
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
         <Tabs 
           value={tabValue} 
-          onChange={(e, newValue) => setTabValue(newValue)}
+          onChange={(e, newValue) => {
+            setTabValue(newValue);
+          }}
           variant="scrollable"
           scrollButtons="auto"
           sx={{
@@ -4035,6 +4043,32 @@ const ContractManagement = () => {
               },
               scrollbarWidth: 'none', // Firefox
               msOverflowStyle: 'none' // IE and Edge
+            },
+            // Ensure tabs are clickable
+            '& .MuiTab-root': {
+              pointerEvents: 'auto',
+              cursor: 'pointer',
+              '&.Mui-disabled': {
+                pointerEvents: 'none',
+                opacity: 1,
+                color: 'inherit'
+              }
+            },
+            // Override disabled state for authenticated tabs
+            '& .MuiTab-root[aria-controls*="contract-tabpanel-2"]': {
+              pointerEvents: 'auto !important',
+              cursor: 'pointer !important',
+              opacity: '1 !important'
+            },
+            '& .MuiTab-root[aria-controls*="contract-tabpanel-3"]': {
+              pointerEvents: 'auto !important',
+              cursor: 'pointer !important',
+              opacity: '1 !important'
+            },
+            '& .MuiTab-root[aria-controls*="contract-tabpanel-4"]': {
+              pointerEvents: 'auto !important',
+              cursor: 'pointer !important',
+              opacity: '1 !important'
             }
           }}
         >
@@ -4047,7 +4081,7 @@ const ContractManagement = () => {
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" noWrap>Pending Rules</Typography>
                     <Chip 
-                      label={pendingRules.length} 
+                      label={loadingPendingRules ? '...' : pendingRules.length} 
                       size="small" 
                       color="warning"
                       sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
@@ -4055,13 +4089,15 @@ const ContractManagement = () => {
                   </Box>
                 } 
                 {...a11yProps(2)}
+                disabled={false}
+                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
               />
               <Tab 
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" noWrap>Completed Rules</Typography>
                     <Chip 
-                      label={completedRules.length} 
+                      label={loadingCompletedRules ? '...' : completedRules.length} 
                       size="small" 
                       color="success"
                       sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
@@ -4069,13 +4105,15 @@ const ContractManagement = () => {
                   </Box>
                 } 
                 {...a11yProps(3)}
+                disabled={false}
+                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
               />
               <Tab 
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="body2" noWrap>Rejected Rules</Typography>
                     <Chip 
-                      label={rejectedRules.length} 
+                      label={loadingRejectedRules ? '...' : rejectedRules.length} 
                       size="small" 
                       color="error"
                       sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
@@ -4083,6 +4121,8 @@ const ContractManagement = () => {
                   </Box>
                 } 
                 {...a11yProps(4)}
+                disabled={false}
+                sx={{ pointerEvents: 'auto', cursor: 'pointer' }}
               />
             </>
           )}
@@ -4139,47 +4179,17 @@ const ContractManagement = () => {
                         <Typography variant="body2" color="text.secondary">
                           <strong>Functions:</strong> {discoveredFunctions(contract).length} discovered
                         </Typography>
-                        {!isAuthenticated && (
-                          <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
-                              Available Functions (View Only):
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                              {discoveredFunctions(contract).slice(0, 5).map((func, idx) => (
-                                <Box key={idx} sx={{ p: 1, bgcolor: 'white', borderRadius: 0.5 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 'medium', mb: 0.5 }}>
-                                    {func.name || 'Unknown'}
-                                  </Typography>
-                                  {func.parameters && func.parameters.length > 0 && (
-                                    <Box sx={{ pl: 1 }}>
-                                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                        Parameters:
-                                      </Typography>
-                                      {func.parameters.map((param, pIdx) => (
-                                        <Chip
-                                          key={pIdx}
-                                          label={`${param.name || 'param'}: ${param.type || 'unknown'}`}
-                                          size="small"
-                                          sx={{ mr: 0.5, mb: 0.5, fontSize: '0.65rem' }}
-                                        />
-                                      ))}
-                                    </Box>
-                                  )}
-                                  {func.return_type && func.return_type !== 'void' && (
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                      Returns: {func.return_type}
-                                    </Typography>
-                                  )}
-                                </Box>
-                              ))}
-                              {discoveredFunctions(contract).length > 5 && (
-                                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                  +{discoveredFunctions(contract).length - 5} more function(s)
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        )}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => {
+                            setSelectedContractForFunctions(contract);
+                            setFunctionsDialogOpen(true);
+                          }}
+                          sx={{ mt: 1 }}
+                        >
+                          View Functions ({discoveredFunctions(contract).length})
+                        </Button>
                       </>
                     )}
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
@@ -4695,22 +4705,23 @@ const ContractManagement = () => {
         )}
       </TabPanel>
 
-      {/* Pending Rules Tab - Only show when authenticated */}
-      {isAuthenticated && (
+      {/* Pending Rules Tab */}
       <TabPanel value={tabValue} index={2}>
-        <Box mb={3}>
-          <Alert severity="info" icon={<ScheduleIcon />}>
-            <Typography variant="subtitle2" gutterBottom>
-              Pending Rules Requiring Authentication
-            </Typography>
-            <Typography variant="body2">
-              These rules matched your location but require WebAuthn/passkey authentication to execute. 
-              Follow the steps below to complete each transaction.
-            </Typography>
-          </Alert>
-        </Box>
+        {isAuthenticated ? (
+          <>
+            <Box mb={3}>
+              <Alert severity="info" icon={<ScheduleIcon />}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Pending Rules Requiring Authentication
+                </Typography>
+                <Typography variant="body2">
+                  These rules matched your location but require WebAuthn/passkey authentication to execute. 
+                  Follow the steps below to complete each transaction.
+                </Typography>
+              </Alert>
+            </Box>
 
-        {loadingPendingRules ? (
+            {loadingPendingRules ? (
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />
           </Box>
@@ -5071,24 +5082,30 @@ const ContractManagement = () => {
             sx={{ mt: 2 }}
           />
           </>
+            )}
+          </>
+        ) : (
+          <Alert severity="info">
+            Please log in to view pending rules.
+          </Alert>
         )}
       </TabPanel>
-      )}
 
-      {/* Completed Rules Tab - Only show when authenticated */}
-      {isAuthenticated && (
+      {/* Completed Rules Tab */}
       <TabPanel value={tabValue} index={3}>
-        <Box mb={3}>
-          <Alert severity="success" icon={<CheckCircleIcon />}>
-            <Typography variant="subtitle2" gutterBottom>
-              Successfully Executed Rules
-            </Typography>
-            <Typography variant="body2">
-              These rules were matched and successfully executed after requiring authentication.
-            </Typography>
-          </Alert>
-        </Box>
-        {loadingCompletedRules ? (
+        {isAuthenticated ? (
+          <>
+            <Box mb={3}>
+              <Alert severity="success" icon={<CheckCircleIcon />}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Successfully Executed Rules
+                </Typography>
+                <Typography variant="body2">
+                  These rules were matched and successfully executed after requiring authentication.
+                </Typography>
+              </Alert>
+            </Box>
+            {loadingCompletedRules ? (
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />
           </Box>
@@ -5270,24 +5287,30 @@ const ContractManagement = () => {
             sx={{ mt: 2 }}
           />
           </>
+            )}
+          </>
+        ) : (
+          <Alert severity="info">
+            Please log in to view completed rules.
+          </Alert>
         )}
       </TabPanel>
-      )}
 
-      {/* Rejected Rules Tab - Only show when authenticated */}
-      {isAuthenticated && (
+      {/* Rejected Rules Tab */}
       <TabPanel value={tabValue} index={4}>
-        <Box mb={3}>
-          <Alert severity="warning" icon={<WarningIcon />}>
-            <Typography variant="subtitle2" gutterBottom>
-              Rejected Rules
-            </Typography>
-            <Typography variant="body2">
-              These rules were matched but you chose not to execute them.
-            </Typography>
-          </Alert>
-        </Box>
-        {loadingRejectedRules ? (
+        {isAuthenticated ? (
+          <>
+            <Box mb={3}>
+              <Alert severity="warning" icon={<WarningIcon />}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Rejected Rules
+                </Typography>
+                <Typography variant="body2">
+                  These rules were matched but you chose not to execute them.
+                </Typography>
+              </Alert>
+            </Box>
+            {loadingRejectedRules ? (
           <Box display="flex" justifyContent="center" p={4}>
             <CircularProgress />
           </Box>
@@ -5447,9 +5470,99 @@ const ContractManagement = () => {
             sx={{ mt: 2 }}
           />
           </>
+            )}
+          </>
+        ) : (
+          <Alert severity="info">
+            Please log in to view rejected rules.
+          </Alert>
         )}
       </TabPanel>
-      )}
+
+      {/* Functions Dialog */}
+      <Dialog
+        open={functionsDialogOpen}
+        onClose={() => {
+          setFunctionsDialogOpen(false);
+          setSelectedContractForFunctions(null);
+        }}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" justifyContent="space-between">
+            <Typography variant="h6">
+              Available Functions{!isAuthenticated ? ' (View Only)' : ''}
+            </Typography>
+            <IconButton onClick={() => {
+              setFunctionsDialogOpen(false);
+              setSelectedContractForFunctions(null);
+            }}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          {selectedContractForFunctions && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Contract: {selectedContractForFunctions.contract_name || 'Unnamed Contract'}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          {selectedContractForFunctions && discoveredFunctions(selectedContractForFunctions).length > 0 ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              {discoveredFunctions(selectedContractForFunctions).map((func, idx) => (
+                <Card key={idx} variant="outlined">
+                  <CardContent>
+                    <Typography variant="h6" sx={{ mb: 1, fontWeight: 'medium' }}>
+                      {func.name || 'Unknown'}
+                    </Typography>
+                    {func.parameters && func.parameters.length > 0 && (
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+                          Parameters:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {func.parameters.map((param, pIdx) => (
+                            <Chip
+                              key={pIdx}
+                              label={`${param.name || 'param'}: ${param.type || 'unknown'}`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                    {func.return_type && func.return_type !== 'void' && (
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Returns:</strong> {func.return_type}
+                      </Typography>
+                    )}
+                    {(!func.parameters || func.parameters.length === 0) && (!func.return_type || func.return_type === 'void') && (
+                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        No parameters, returns void
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          ) : selectedContractForFunctions ? (
+            <Alert severity="info">
+              No functions discovered for this contract.
+            </Alert>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setFunctionsDialogOpen(false);
+            setSelectedContractForFunctions(null);
+          }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Contract Dialog */}
       <CustomContractDialog
