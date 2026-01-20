@@ -41,6 +41,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAIMap } from '../../contexts/AIMapContext';
 import { useWallet } from '../../contexts/WalletContext';
+import { useAuth } from '../../contexts/AuthContext';
 import AIMap from './AIMap';
 
 const AIChat = ({ isPublic = false, initialOpen = false }) => {
@@ -62,6 +63,9 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
   const userManuallyOpenedRef = useRef(false); // Track if user manually opened the chat after map became visible
   const { showMap, hideMap, mapVisible, mapData, proximityRadius, updateUserLocation } = useAIMap();
   const { publicKey } = useWallet();
+  const { user } = useAuth();
+  const [userContracts, setUserContracts] = useState([]);
+  const [pendingRules, setPendingRules] = useState([]);
 
   // Get user's location on component mount with improved error handling
   useEffect(() => {
@@ -158,6 +162,27 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount - don't include updateUserLocation to prevent infinite loop
+
+  // Fetch user contracts and pending rules for context-aware shortcuts
+  useEffect(() => {
+    const fetchUserContext = async () => {
+      if (!user) return;
+      
+      try {
+        // Fetch contracts
+        const contractsRes = await api.get('/contracts').catch(() => ({ data: { contracts: [] } }));
+        setUserContracts(contractsRes.data?.contracts || []);
+        
+        // Fetch pending rules
+        const pendingRes = await api.get('/contracts/rules/pending').catch(() => ({ data: { pending_rules: [] } }));
+        setPendingRules(pendingRes.data?.pending_rules || []);
+      } catch (err) {
+        console.warn('[AIChat] Failed to fetch user context:', err);
+      }
+    };
+    
+    fetchUserContext();
+  }, [user]);
 
   // Auto-minimize chat in mobile view when map FIRST becomes visible
   // Only minimize once per map visibility change, allow user to manually expand
@@ -724,125 +749,198 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                     Ask me anything about Stellar blockchain operations, or try:
                   </Typography>
                   <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {/* Location & Map Shortcuts */}
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 1 }}>
-                      📍 Location & Map
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      <Chip
-                        label="📍 My Location"
-                        onClick={() => {
-                          handleSend('Show my location on the map');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                        color="primary"
-                      />
-                      <Chip
-                        label="🗺️ Show Nearby NFTs"
-                        onClick={() => {
-                          handleSend('Show me nearby NFTs on the map');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="👥 Find Nearby Wallets"
-                        onClick={() => {
-                          handleSend('Find nearby wallets');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="🌍 Show All NFTs"
-                        onClick={() => {
-                          handleSend('Show me all NFTs on the map');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                    </Box>
+                    {/* Location & Map Shortcuts - Show if location available */}
+                    {userLocation && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 1 }}>
+                          📍 Location & Map
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          <Chip
+                            label="📍 My Location"
+                            onClick={() => {
+                              handleSend('Show my location on the map');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                            color="primary"
+                          />
+                          <Chip
+                            label="🗺️ Show Nearby NFTs"
+                            onClick={() => {
+                              handleSend('Show me nearby NFTs on the map');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="👥 Find Nearby Wallets"
+                            onClick={() => {
+                              handleSend('Find nearby wallets');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="🌍 Show All NFTs"
+                            onClick={() => {
+                              handleSend('Show me all NFTs on the map');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                        </Box>
+                      </>
+                    )}
                     
-                    {/* Stellar Operations */}
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
-                      ⭐ Stellar Operations
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      <Chip
-                        label="➕ Create Account"
-                        onClick={() => {
-                          handleSend('Create a new Stellar account');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="💰 My Balance"
-                        onClick={() => {
-                          handleSend('Show my account balance');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="💸 Transfer Assets"
-                        onClick={() => {
-                          handleSend('How do I transfer Stellar assets?');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="🔗 Manage Trustlines"
-                        onClick={() => {
-                          handleSend('How do I manage trustlines?');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                    </Box>
+                    {/* Smart Contracts - Show if user has contracts */}
+                    {user && userContracts.length > 0 && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                          📜 Smart Contracts ({userContracts.length})
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          <Chip
+                            label={`📋 My Contracts (${userContracts.length})`}
+                            onClick={() => {
+                              handleSend(`I have ${userContracts.length} contract(s). Show me my contracts`);
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                            color="primary"
+                          />
+                          <Chip
+                            label="➕ Onboard Contract"
+                            onClick={() => {
+                              handleSend('Help me onboard a new smart contract');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          {pendingRules.length > 0 && (
+                            <Chip
+                              label={`⏳ Pending Rules (${pendingRules.length})`}
+                              onClick={() => {
+                                handleSend(`I have ${pendingRules.length} pending rule(s) to execute. Show me my pending rules`);
+                              }}
+                              sx={{ cursor: 'pointer' }}
+                              size="small"
+                              color="warning"
+                            />
+                          )}
+                        </Box>
+                      </>
+                    )}
                     
-                    {/* NFT Operations */}
+                    {/* Stellar Operations - Show if wallet connected */}
+                    {publicKey && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                          ⭐ Stellar Operations
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          <Chip
+                            label="💰 My Balance"
+                            onClick={() => {
+                              handleSend('Show my account balance');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="💸 Transfer Assets"
+                            onClick={() => {
+                              handleSend('How do I transfer Stellar assets?');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="🔗 Manage Trustlines"
+                            onClick={() => {
+                              handleSend('How do I manage trustlines?');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="📜 Transaction History"
+                            onClick={() => {
+                              handleSend('Show my transaction history');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                        </Box>
+                      </>
+                    )}
+                    
+                    {/* Smart Wallet - Show if user authenticated */}
+                    {user && (
+                      <>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
+                          🏦 Smart Wallet
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          <Chip
+                            label="💳 Smart Wallet Balance"
+                            onClick={() => {
+                              handleSend('Show my smart wallet balance');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                          <Chip
+                            label="📊 Geospatial Stats"
+                            onClick={() => {
+                              handleSend('Show geospatial statistics');
+                            }}
+                            sx={{ cursor: 'pointer' }}
+                            size="small"
+                          />
+                        </Box>
+                      </>
+                    )}
+                    
+                    {/* General Operations - Always show */}
                     <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
-                      🖼️ NFT Operations
+                      🚀 Quick Actions
                     </Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {!userLocation && (
+                        <Chip
+                          label="📍 Enable Location"
+                          onClick={() => {
+                            handleSend('How do I enable location services?');
+                          }}
+                          sx={{ cursor: 'pointer' }}
+                          size="small"
+                        />
+                      )}
+                      {!publicKey && (
+                        <Chip
+                          label="➕ Create Account"
+                          onClick={() => {
+                            handleSend('Create a new Stellar account');
+                          }}
+                          sx={{ cursor: 'pointer' }}
+                          size="small"
+                        />
+                      )}
+                      {user && userContracts.length === 0 && (
+                        <Chip
+                          label="📜 Create Contract"
+                          onClick={() => {
+                            handleSend('Help me create a smart contract');
+                          }}
+                          sx={{ cursor: 'pointer' }}
+                          size="small"
+                        />
+                      )}
                       <Chip
                         label="📚 NFT Collections"
                         onClick={() => {
                           handleSend('Show me all NFT collections');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="📍 Verify NFT Location"
-                        onClick={() => {
-                          handleSend('How do I verify an NFT location?');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    {/* Smart Wallet */}
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', mt: 2 }}>
-                      🏦 Smart Wallet
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      <Chip
-                        label="💳 Smart Wallet Balance"
-                        onClick={() => {
-                          handleSend('Show my smart wallet balance');
-                        }}
-                        sx={{ cursor: 'pointer' }}
-                        size="small"
-                      />
-                      <Chip
-                        label="📊 Geospatial Stats"
-                        onClick={() => {
-                          handleSend('Show geospatial statistics');
                         }}
                         sx={{ cursor: 'pointer' }}
                         size="small"

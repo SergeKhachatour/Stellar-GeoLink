@@ -267,17 +267,21 @@ const SmartWalletBalance = ({ compact = false }) => {
                   <Button
                     variant="outlined"
                     size="small"
-                    startIcon={<History sx={{ fontSize: 16 }} />}
+                    startIcon={<History sx={{ fontSize: { xs: 16, sm: 16 } }} />}
                     onClick={() => setTransactionHistoryOpen(true)}
                     sx={{ 
-                      fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                      fontSize: { xs: '0.75rem', sm: '0.875rem' },
                       px: { xs: 1, sm: 1.5 },
                       py: { xs: 0.5, sm: 0.75 },
-                      minWidth: 'auto'
+                      minWidth: { xs: 'auto', sm: 'auto' },
+                      whiteSpace: 'nowrap',
+                      overflow: 'visible',
+                      '& .MuiButton-startIcon': {
+                        margin: { xs: 0, sm: '0 8px 0 -4px' }
+                      }
                     }}
                   >
                     <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>History</Box>
-                    <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Hist</Box>
                   </Button>
                   <Button
                     variant="contained"

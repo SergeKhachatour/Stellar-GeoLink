@@ -70,7 +70,8 @@ import {
   AccountBalanceWallet as AccountBalanceWalletIcon,
   ContentCopy as ContentCopyIcon,
   CheckBox as CheckBoxIcon,
-  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon
+  CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
+  SmartToy as SmartToyIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -3888,7 +3889,7 @@ const ContractManagement = () => {
                 variant="outlined"
                 color="secondary"
                 size="small"
-                startIcon={<SearchIcon />}
+                startIcon={<SmartToyIcon />}
                 onClick={() => {
                   setAgentContractAddress('');
                   setAgentResult(null);
@@ -3901,7 +3902,7 @@ const ContractManagement = () => {
                   padding: { xs: '6px 12px', sm: '8px 16px' }
                 }}
               >
-                🤖 GeoLink Agent
+                GeoLink Agent
               </Button>
               <Button
                 variant="contained"
@@ -5383,7 +5384,8 @@ const ContractManagement = () => {
       >
         <DialogTitle>
           <Box display="flex" alignItems="center" gap={1}>
-            <Typography variant="h6">🤖 GeoLink Agent</Typography>
+            <SmartToyIcon color="primary" />
+            <Typography variant="h6">GeoLink Agent</Typography>
           </Box>
         </DialogTitle>
         <DialogContent>

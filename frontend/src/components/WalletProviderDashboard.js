@@ -514,17 +514,42 @@ const WalletProviderDashboard = () => {
 
     return (
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-                <Typography variant="h4">
+            <Box 
+                display="flex" 
+                flexDirection={{ xs: 'column', sm: 'row' }}
+                justifyContent="space-between" 
+                alignItems={{ xs: 'flex-start', sm: 'center' }}
+                gap={{ xs: 2, sm: 0 }}
+                mb={3}
+            >
+                <Typography 
+                    variant="h4"
+                    sx={{
+                        fontSize: { xs: '1.5rem', sm: '2.125rem' },
+                        fontWeight: { xs: 500, sm: 400 }
+                    }}
+                >
                     Wallet Provider Dashboard
                 </Typography>
-                <Box>
+                <Box 
+                    display="flex" 
+                    gap={1}
+                    flexWrap="wrap"
+                    width={{ xs: '100%', sm: 'auto' }}
+                >
                     {!apiKey && (
                         <Button
                             variant="contained"
                             color="primary"
+                            size="small"
                             onClick={() => setRequestFormOpen(true)}
                             startIcon={<Key />}
+                            sx={{ 
+                                flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                                minWidth: { xs: 'auto', sm: 'auto' },
+                                fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                                padding: { xs: '6px 12px', sm: '8px 16px' }
+                            }}
                         >
                             Request API Key
                         </Button>
@@ -534,17 +559,31 @@ const WalletProviderDashboard = () => {
                             <Button
                                 variant="contained"
                                 color="primary"
+                                size="small"
                                 onClick={() => setRequestFormOpen(true)}
                                 startIcon={<Key />}
-                                sx={{ mr: 2 }}
+                                sx={{ 
+                                    flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                                    minWidth: { xs: 'auto', sm: 'auto' },
+                                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                                    padding: { xs: '6px 12px', sm: '8px 16px' },
+                                    mr: { xs: 0, sm: 2 }
+                                }}
                             >
                                 Request Additional Key
                             </Button>
                             <Button
                                 variant="outlined"
+                                size="small"
                                 component={RouterLink}
                                 to="/api-keys/manage"
                                 startIcon={<DataUsage />}
+                                sx={{ 
+                                    flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                                    minWidth: { xs: 'auto', sm: 'auto' },
+                                    fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                                    padding: { xs: '6px 12px', sm: '8px 16px' }
+                                }}
                             >
                                 Manage API Keys
                             </Button>
