@@ -2006,7 +2006,11 @@ router.get('/', authenticateContractUser, async (req, res) => {
             params = [userId];
         }
 
-        const result = await pool.query(query, params);
+        const result = await pool.query({
+            text: query,
+            values: params,
+            statement_timeout: 15000 // 15 second timeout for complex queries
+        });
 
         res.json({
             success: true,
@@ -2225,7 +2229,11 @@ router.get('/rules/public', async (req, res) => {
 
         query += ` ORDER BY cer.created_at DESC`;
 
-        const result = await pool.query(query, params);
+        const result = await pool.query({
+            text: query,
+            values: params,
+            statement_timeout: 15000 // 15 second timeout for complex queries
+        });
 
         // Parse JSON fields safely
         const rules = result.rows.map(rule => {
@@ -2335,7 +2343,11 @@ router.get('/rules', authenticateContractUser, async (req, res) => {
 
         query += ` ORDER BY cer.created_at DESC`;
 
-        const result = await pool.query(query, params);
+        const result = await pool.query({
+            text: query,
+            values: params,
+            statement_timeout: 15000 // 15 second timeout for complex queries
+        });
 
         // Parse JSON fields safely
         const rules = result.rows.map(rule => {
@@ -4412,7 +4424,11 @@ router.get('/rules/rejected', authenticateContractUser, async (req, res) => {
             params = [userId, limit];
         }
 
-        const result = await pool.query(query, params);
+        const result = await pool.query({
+            text: query,
+            values: params,
+            statement_timeout: 15000 // 15 second timeout for complex queries
+        });
         
         // Process results to extract rejected rules
         // Show all rejected executions, but use unique key to avoid duplicates
@@ -8241,7 +8257,11 @@ router.get('/execution-rules/locations', authenticateContractUser, async (req, r
             params = [userId];
         }
 
-        const result = await pool.query(query, params);
+        const result = await pool.query({
+            text: query,
+            values: params,
+            statement_timeout: 15000 // 15 second timeout for complex queries
+        });
 
         // Format response for map markers
         const rules = result.rows.map(rule => ({
