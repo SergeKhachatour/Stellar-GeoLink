@@ -42,7 +42,9 @@ const getApiBaseURL = () => {
 };
 
 // Create axios instance - baseURL will be set dynamically in interceptor
-const api = axios.create();
+const api = axios.create({
+    timeout: 10000 // 10 second timeout for all requests
+});
 
 // Set baseURL dynamically before each request and add auth token
 api.interceptors.request.use((config) => {

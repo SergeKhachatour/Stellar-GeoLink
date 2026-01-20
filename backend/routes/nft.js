@@ -1641,8 +1641,8 @@ router.get('/debug', async (req, res) => {
 // Public endpoint to get all active NFTs (no authentication required)
 router.get('/public', async (req, res) => {
     try {
-        console.log('🌍 GET /public - Fetching all public NFTs');
-        console.log('🌍 Public endpoint called at:', new Date().toISOString());
+        // console.log('🌍 GET /public - Fetching all public NFTs');
+        // console.log('🌍 Public endpoint called at:', new Date().toISOString());
         
         // Check if NFT tables exist
         const tableCheck = await pool.query(`
@@ -1665,17 +1665,17 @@ router.get('/public', async (req, res) => {
         const allNFTsCheck = await pool.query(`
             SELECT COUNT(*) as total_count FROM pinned_nfts
         `);
-        console.log('📍 Total NFTs in database:', allNFTsCheck.rows[0].total_count);
+        // console.log('📍 Total NFTs in database:', allNFTsCheck.rows[0].total_count);
         
         // Check if there are any NFTs at all
         if (allNFTsCheck.rows[0].total_count == 0) {
-            console.log('📍 No NFTs found in pinned_nfts table');
+            // console.log('📍 No NFTs found in pinned_nfts table');
             
             // Check if there are NFTs in user_nft_ownership table
             const ownershipCheck = await pool.query(`
                 SELECT COUNT(*) as total_count FROM user_nft_ownership
             `);
-            console.log('📍 NFTs in user_nft_ownership:', ownershipCheck.rows[0].total_count);
+            // console.log('📍 NFTs in user_nft_ownership:', ownershipCheck.rows[0].total_count);
             
             return res.json({
                 nfts: [],
@@ -1691,7 +1691,7 @@ router.get('/public', async (req, res) => {
             FROM pinned_nfts 
             GROUP BY is_active
         `);
-        console.log('📍 is_active distribution:', activeCheck.rows);
+        // console.log('📍 is_active distribution:', activeCheck.rows);
         
         // First, let's check what columns exist in pinned_nfts
         const columnCheck = await pool.query(`
@@ -1700,7 +1700,7 @@ router.get('/public', async (req, res) => {
             WHERE table_name = 'pinned_nfts' 
             ORDER BY ordinal_position
         `);
-        console.log('📍 pinned_nfts columns:', columnCheck.rows);
+        // console.log('📍 pinned_nfts columns:', columnCheck.rows);
         
         // Use the EXACT same query as /nft/dashboard/nearby to ensure consistency
         // Use center point (0, 0) with very large radius (20000000 meters = ~20,000 km) to get ALL NFTs globally
@@ -1748,52 +1748,52 @@ router.get('/public', async (req, res) => {
             ORDER BY distance ASC
         `, [centerLat, centerLng, radius]);
         
-        console.log('📍 Found public NFTs:', result.rows.length);
+        // console.log('📍 Found public NFTs:', result.rows.length);
         
-        // Enhanced logging for Azure debugging
-        if (result.rows.length > 0) {
-            console.log('📍 Sample NFT data (first 3):');
-            result.rows.slice(0, 3).forEach((nft, idx) => {
-                console.log(`📍 NFT ${idx + 1} (ID: ${nft.id}):`, {
-                    id: nft.id,
-                    name: nft.name,
-                    latitude: nft.latitude,
-                    longitude: nft.longitude,
-                    server_url: nft.server_url,
-                    ipfs_hash: nft.ipfs_hash,
-                    nft_upload_id: nft.nft_upload_id,
-                    ipfs_server_id: nft.ipfs_server_id,
-                    pin_id: nft.pin_id,
-                    has_upload: !!nft.nft_upload_id,
-                    has_ipfs_server: !!nft.ipfs_server_id,
-                    has_pin: !!nft.pin_id,
-                    upload_filename: nft.upload_filename,
-                    upload_status: nft.upload_status,
-                    ipfs_server_name: nft.ipfs_server_name,
-                    pin_status: nft.pin_status,
-                    collection_name: nft.collection_name
-                });
-            });
-            
-            // Check for missing data
-            const missingServerUrl = result.rows.filter(nft => !nft.server_url);
-            const missingIpfsHash = result.rows.filter(nft => !nft.ipfs_hash);
-            const missingBoth = result.rows.filter(nft => !nft.server_url && !nft.ipfs_hash);
-            
-            console.log('📍 Data quality check:');
-            console.log(`  - NFTs missing server_url: ${missingServerUrl.length}`);
-            console.log(`  - NFTs missing ipfs_hash: ${missingIpfsHash.length}`);
-            console.log(`  - NFTs missing both: ${missingBoth.length}`);
-            
-            if (missingServerUrl.length > 0) {
-                console.log('⚠️ NFTs missing server_url:', missingServerUrl.map(nft => ({ id: nft.id, name: nft.name })));
-            }
-            if (missingIpfsHash.length > 0) {
-                console.log('⚠️ NFTs missing ipfs_hash:', missingIpfsHash.map(nft => ({ id: nft.id, name: nft.name })));
-            }
-        } else {
-            console.log('📍 No NFTs found matching criteria');
-        }
+        // Enhanced logging for Azure debugging (commented out to reduce log noise)
+        // if (result.rows.length > 0) {
+        //     console.log('📍 Sample NFT data (first 3):');
+        //     result.rows.slice(0, 3).forEach((nft, idx) => {
+        //         console.log(`📍 NFT ${idx + 1} (ID: ${nft.id}):`, {
+        //             id: nft.id,
+        //             name: nft.name,
+        //             latitude: nft.latitude,
+        //             longitude: nft.longitude,
+        //             server_url: nft.server_url,
+        //             ipfs_hash: nft.ipfs_hash,
+        //             nft_upload_id: nft.nft_upload_id,
+        //             ipfs_server_id: nft.ipfs_server_id,
+        //             pin_id: nft.pin_id,
+        //             has_upload: !!nft.nft_upload_id,
+        //             has_ipfs_server: !!nft.ipfs_server_id,
+        //             has_pin: !!nft.pin_id,
+        //             upload_filename: nft.upload_filename,
+        //             upload_status: nft.upload_status,
+        //             ipfs_server_name: nft.ipfs_server_name,
+        //             pin_status: nft.pin_status,
+        //             collection_name: nft.collection_name
+        //         });
+        //     });
+        //     
+        //     // Check for missing data
+        //     const missingServerUrl = result.rows.filter(nft => !nft.server_url);
+        //     const missingIpfsHash = result.rows.filter(nft => !nft.ipfs_hash);
+        //     const missingBoth = result.rows.filter(nft => !nft.server_url && !nft.ipfs_hash);
+        //     
+        //     console.log('📍 Data quality check:');
+        //     console.log(`  - NFTs missing server_url: ${missingServerUrl.length}`);
+        //     console.log(`  - NFTs missing ipfs_hash: ${missingIpfsHash.length}`);
+        //     console.log(`  - NFTs missing both: ${missingBoth.length}`);
+        //     
+        //     if (missingServerUrl.length > 0) {
+        //         console.log('⚠️ NFTs missing server_url:', missingServerUrl.map(nft => ({ id: nft.id, name: nft.name })));
+        //     }
+        //     if (missingIpfsHash.length > 0) {
+        //         console.log('⚠️ NFTs missing ipfs_hash:', missingIpfsHash.map(nft => ({ id: nft.id, name: nft.name })));
+        //     }
+        // } else {
+        //     console.log('📍 No NFTs found matching criteria');
+        // }
         
         // Format NFTs exactly like /nft/nearby endpoint (matching XYZ-Wallet expectations)
         const formattedNFTs = result.rows.map(nft => ({

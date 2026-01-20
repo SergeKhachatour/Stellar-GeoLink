@@ -811,7 +811,7 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
              SET wasm_file_path = $1,
                  wasm_file_name = $2,
                  wasm_hash = $3,
-                 wasm_source = 'network',
+                 wasm_source = 'local',
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = $4`,
             [filePath, filename, hash, id]
@@ -827,7 +827,7 @@ router.post('/:id/fetch-wasm', authenticateContractUser, async (req, res) => {
                 filename: filename,
                 size: wasmBuffer.length,
                 hash: hash,
-                source: 'network',
+                source: 'local', // WASM fetched from network but stored locally
                 network: network
             },
             contract_id: parseInt(id)
@@ -924,21 +924,28 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
         let detectedNetwork = null;
         const networks = ['testnet', 'mainnet'];
         
-        for (const network of networks) {
-            try {
-                const verification = await withTimeout(
-                    contractIntrospection.verifyContractExists(contract_address, network),
-                    15000, // 15 second timeout per network check
-                    `Network verification timeout for ${network}`
-                );
-                if (verification.exists) {
-                    detectedNetwork = network;
-                    console.log(`[GeoLink Agent] ✅ Contract found on ${network}`);
-                    break;
+        try {
+            for (const network of networks) {
+                try {
+                    console.log(`[GeoLink Agent] 🔍 Checking ${network}...`);
+                    const verification = await withTimeout(
+                        contractIntrospection.verifyContractExists(contract_address, network),
+                        15000, // 15 second timeout per network check
+                        `Network verification timeout for ${network}`
+                    );
+                    if (verification && verification.exists) {
+                        detectedNetwork = network;
+                        console.log(`[GeoLink Agent] ✅ Contract found on ${network}`);
+                        break;
+                    }
+                } catch (err) {
+                    console.log(`[GeoLink Agent] ⚠️ Contract not found on ${network}: ${err.message}`);
+                    // Continue to next network
                 }
-            } catch (err) {
-                console.log(`[GeoLink Agent] ⚠️ Contract not found on ${network}: ${err.message}`);
             }
+        } catch (networkError) {
+            console.error(`[GeoLink Agent] ❌ Error during network detection: ${networkError.message}`);
+            throw networkError;
         }
 
         if (!detectedNetwork) {
@@ -950,26 +957,34 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
             });
         }
 
-        // Step 2: Check if contract already exists (with query timeout)
+        // Step 2: Check if contract already exists (with query timeout) - check for both active and inactive
         const existingContractResult = await pool.query({
-            text: `SELECT id, contract_address, network, contract_name, wasm_file_path, discovered_functions
+            text: `SELECT id, contract_address, network, contract_name, wasm_file_path, discovered_functions, is_active
              FROM custom_contracts
-             WHERE contract_address = $1 AND user_id = $2 AND is_active = true`,
+             WHERE contract_address = $1 AND user_id = $2`,
             values: [contract_address, userId],
             statement_timeout: 10000 // 10 second timeout
         });
 
         let contractId;
         let contract;
+        const contractExists = existingContractResult.rows.length > 0;
 
-        if (existingContractResult.rows.length > 0) {
-            // Contract already exists - return it
+        if (contractExists) {
+            // Contract already exists - we'll update it with new WASM and function data
             contractId = existingContractResult.rows[0].id;
             contract = existingContractResult.rows[0];
-            console.log(`[GeoLink Agent] ℹ️ Contract already exists with ID ${contractId}`);
-        } else {
-            // Step 3: Fetch WASM from network
-            console.log(`[GeoLink Agent] 📦 Fetching WASM from ${detectedNetwork}...`);
+            console.log(`[GeoLink Agent] ℹ️ Contract already exists with ID ${contractId}, will update with new WASM and functions`);
+        }
+
+        // Step 3: Fetch WASM from network (always fetch, even if contract exists, to update it)
+        console.log(`[GeoLink Agent] 📦 Fetching WASM from ${detectedNetwork}...`);
+        let sorobanServer;
+        let filePath;
+        let filename;
+        let hash;
+        
+        try {
             const StellarSdk = require('@stellar/stellar-sdk');
             const contractsConfig = require('../config/contracts');
             const crypto = require('crypto');
@@ -980,9 +995,11 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 ? 'https://soroban.stellar.org'
                 : 'https://soroban-testnet.stellar.org';
             
-            const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: true });
+            console.log(`[GeoLink Agent] Connecting to RPC: ${rpcUrl}`);
+            sorobanServer = new StellarSdk.rpc.Server(rpcUrl, { allowHttp: true });
 
             // Get contract instance to find WASM hash
+            console.log(`[GeoLink Agent] Decoding contract address...`);
             const contractIdBytes = StellarSdk.StrKey.decodeContract(contract_address);
             const contractScAddress = StellarSdk.xdr.ScAddress.scAddressTypeContract(contractIdBytes);
 
@@ -994,6 +1011,7 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 })
             );
 
+            console.log(`[GeoLink Agent] Fetching contract instance from network...`);
             const ledgerEntries = await withTimeout(
                 sorobanServer.getLedgerEntries(contractDataKey),
                 20000, // 20 second timeout for RPC call
@@ -1005,14 +1023,17 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 return res.status(404).json({ error: 'Contract instance not found on network' });
             }
 
+            console.log(`[GeoLink Agent] Extracting WASM hash from contract instance...`);
             const contractInstance = ledgerEntries.entries[0].val.contractData().val().instance();
             const wasmHash = contractInstance.executable().wasmHash();
 
             if (!wasmHash) {
+                clearTimeout(requestTimeout);
                 return res.status(404).json({ error: 'WASM hash not found in contract instance' });
             }
 
             // Fetch WASM bytecode
+            console.log(`[GeoLink Agent] Fetching WASM bytecode from network...`);
             const wasmHashHex = Buffer.from(wasmHash).toString('hex');
             const wasmCodeKey = StellarSdk.xdr.LedgerKey.contractCode(
                 new StellarSdk.xdr.LedgerKeyContractCode({
@@ -1031,23 +1052,35 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 return res.status(404).json({ error: 'WASM bytecode not found on network' });
             }
 
+            console.log(`[GeoLink Agent] Extracting WASM data...`);
             const wasmData = wasmEntries.entries[0].val.contractCode().code();
             const wasmBuffer = Buffer.from(wasmData);
 
             // Save WASM file
+            console.log(`[GeoLink Agent] Saving WASM file...`);
             const uploadDir = path.join(__dirname, '../uploads/contract-wasm');
             await fs.mkdir(uploadDir, { recursive: true });
 
             const timestamp = Date.now();
-            const filename = `contract-${contract_address.substring(0, 8)}-${timestamp}.wasm`;
-            const filePath = path.join(uploadDir, filename);
+            filename = `contract-${contract_address.substring(0, 8)}-${timestamp}.wasm`;
+            filePath = path.join(uploadDir, filename);
 
             await fs.writeFile(filePath, wasmBuffer);
-            const hash = crypto.createHash('sha256').update(wasmBuffer).digest('hex');
+            hash = crypto.createHash('sha256').update(wasmBuffer).digest('hex');
 
             console.log(`[GeoLink Agent] ✅ WASM fetched and saved: ${filename} (${wasmBuffer.length} bytes)`);
+        } catch (wasmError) {
+            clearTimeout(requestTimeout);
+            console.error(`[GeoLink Agent] ❌ Error fetching WASM: ${wasmError.message}`);
+            console.error(`[GeoLink Agent] Stack: ${wasmError.stack}`);
+            return res.status(500).json({
+                success: false,
+                error: 'Failed to fetch WASM from network',
+                message: wasmError.message
+            });
+        }
 
-            // Step 4: Discover functions (with timeout)
+        // Step 4: Discover functions (with timeout)
             console.log(`[GeoLink Agent] 🔍 Discovering contract functions...`);
             let discoveredFunctions = [];
             try {
@@ -1091,49 +1124,60 @@ router.post('/agent-onboard', authenticateContractUser, async (req, res) => {
                 inferredName = `Contract ${contract_address.substring(0, 8)}`;
             }
 
-            console.log(`[GeoLink Agent] 📝 Inferred contract name: ${inferredName}`);
+        console.log(`[GeoLink Agent] 📝 Inferred contract name: ${inferredName}`);
 
-            // Step 6: Create contract
-            const functionsToSave = Array.isArray(discoveredFunctions) 
-                ? discoveredFunctions.reduce((acc, func) => {
-                    acc[func.name || 'unknown'] = {
-                        ...func,
-                        parameters: Array.isArray(func.parameters) ? func.parameters : [],
-                        return_type: func.return_type || 'void',
-                        discovered: func.discovered !== undefined ? func.discovered : true,
-                        note: func.note || 'Extracted from contract spec'
-                    };
-                    return acc;
-                }, {})
-                : {};
+        // Step 6: Create or update contract
+        const functionsToSave = Array.isArray(discoveredFunctions) 
+            ? discoveredFunctions.reduce((acc, func) => {
+                acc[func.name || 'unknown'] = {
+                    ...func,
+                    parameters: Array.isArray(func.parameters) ? func.parameters : [],
+                    return_type: func.return_type || 'void',
+                    discovered: func.discovered !== undefined ? func.discovered : true,
+                    note: func.note || 'Extracted from contract spec'
+                };
+                return acc;
+            }, {})
+            : {};
 
-            const insertResult = await pool.query({
-                text: `INSERT INTO custom_contracts (
-                    user_id, contract_address, contract_name, network,
-                    wasm_file_path, wasm_file_name, wasm_hash, wasm_source,
-                    discovered_functions, function_mappings, is_active, created_at, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                RETURNING id, contract_address, contract_name, network, wasm_file_name, discovered_functions, function_mappings`,
-                values: [
-                    userId,
-                    contract_address,
-                    inferredName,
-                    detectedNetwork,
-                    filePath,
-                    filename,
-                    hash,
-                    'network',
-                    JSON.stringify(functionsToSave),
-                    JSON.stringify({})
-                ],
-                statement_timeout: 10000 // 10 second timeout
-            });
+        // Use UPSERT pattern: INSERT with ON CONFLICT to handle existing contracts
+        const upsertResult = await pool.query({
+            text: `INSERT INTO custom_contracts (
+                user_id, contract_address, contract_name, network,
+                wasm_file_path, wasm_file_name, wasm_hash, wasm_source,
+                discovered_functions, function_mappings, is_active, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id, contract_address) 
+            DO UPDATE SET
+                contract_name = EXCLUDED.contract_name,
+                network = EXCLUDED.network,
+                wasm_file_path = EXCLUDED.wasm_file_path,
+                wasm_file_name = EXCLUDED.wasm_file_name,
+                wasm_hash = EXCLUDED.wasm_hash,
+                wasm_source = EXCLUDED.wasm_source,
+                discovered_functions = EXCLUDED.discovered_functions,
+                is_active = true,
+                updated_at = CURRENT_TIMESTAMP
+            RETURNING id, contract_address, contract_name, network, wasm_file_name, discovered_functions, function_mappings`,
+            values: [
+                userId,
+                contract_address,
+                inferredName,
+                detectedNetwork,
+                filePath,
+                filename,
+                hash,
+                'local', // WASM fetched from network but stored locally
+                JSON.stringify(functionsToSave),
+                JSON.stringify({})
+            ],
+            statement_timeout: 10000 // 10 second timeout
+        });
 
-            contract = insertResult.rows[0];
-            contractId = contract.id;
+        contract = upsertResult.rows[0];
+        contractId = contract.id;
 
-            console.log(`[GeoLink Agent] ✅ Contract created with ID ${contractId}`);
-        }
+        console.log(`[GeoLink Agent] ✅ Contract ${contractExists ? 'updated' : 'created'} with ID ${contractId}`);
 
         // Parse discovered functions for response
         let discoveredFunctionsArray = [];
@@ -2736,41 +2780,41 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             });
         }
         
-        const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
-        const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
-        console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
-        if (result.rows.length > 0) {
-            console.log(`[PendingRules] Sample rows:`, result.rows.slice(0, 3).map(row => ({
-                rule_id: row.rule_id,
-                public_key: row.public_key?.substring(0, 8) + '...',
-                update_id: row.update_id,
-                has_execution_results: !!row.execution_results
-            })));
-            
-            // Check for rule_id 2 specifically
-            const rule2Rows = result.rows.filter(r => r.rule_id === 2);
-            if (rule2Rows.length > 0) {
-                console.log(`[PendingRules] 🔍 Found ${rule2Rows.length} row(s) with rule_id 2:`, rule2Rows.map(row => ({
-                    update_id: row.update_id,
-                    public_key: row.public_key?.substring(0, 8) + '...',
-                    execution_results_preview: row.execution_results ? JSON.stringify(
-                        (typeof row.execution_results === 'string' ? JSON.parse(row.execution_results) : row.execution_results)
-                            .filter(r => r.rule_id === 2)
-                            .map(r => ({ completed: r.completed, skipped: r.skipped, matched_public_key: r.matched_public_key }))
-                    ) : 'null'
-                })));
-            }
-        } else {
-            // Debug: Check if there are any matching records at all
-            const debugQuery = publicKey && userId 
-                ? `SELECT COUNT(*) as count FROM location_update_queue WHERE (public_key = $1 OR user_id = $2) AND status IN ('matched', 'executed')`
-                : publicKey
-                    ? `SELECT COUNT(*) as count FROM location_update_queue WHERE public_key = $1 AND status IN ('matched', 'executed')`
-                    : `SELECT COUNT(*) as count FROM location_update_queue WHERE user_id = $1 AND status IN ('matched', 'executed')`;
-            const debugParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
-            const debugResult = await pool.query(debugQuery, debugParams);
-            console.log(`[PendingRules] Debug: Found ${debugResult.rows[0]?.count || 0} location_update_queue entries matching criteria`);
-        }
+        // const identifier = (publicKey && userId) ? `public_key=${publicKey?.substring(0, 8)}... OR user_id=${userId}` : (publicKey ? publicKey?.substring(0, 8) + '...' : userId);
+        // const filterType = (publicKey && userId) ? 'public_key OR user_id' : (publicKey ? 'public_key' : 'user_id');
+        // console.log(`[PendingRules] Query returned ${result.rows.length} row(s) for ${filterType} ${identifier}`);
+        // if (result.rows.length > 0) {
+        //     console.log(`[PendingRules] Sample rows:`, result.rows.slice(0, 3).map(row => ({
+        //         rule_id: row.rule_id,
+        //         public_key: row.public_key?.substring(0, 8) + '...',
+        //         update_id: row.update_id,
+        //         has_execution_results: !!row.execution_results
+        //     })));
+        //     
+        //     // Check for rule_id 2 specifically
+        //     const rule2Rows = result.rows.filter(r => r.rule_id === 2);
+        //     if (rule2Rows.length > 0) {
+        //         console.log(`[PendingRules] 🔍 Found ${rule2Rows.length} row(s) with rule_id 2:`, rule2Rows.map(row => ({
+        //             update_id: row.update_id,
+        //             public_key: row.public_key?.substring(0, 8) + '...',
+        //             execution_results_preview: row.execution_results ? JSON.stringify(
+        //                 (typeof row.execution_results === 'string' ? JSON.parse(row.execution_results) : row.execution_results)
+        //                     .filter(r => r.rule_id === 2)
+        //                     .map(r => ({ completed: r.completed, skipped: r.skipped, matched_public_key: r.matched_public_key }))
+        //             ) : 'null'
+        //         })));
+        //     }
+        // } else {
+        //     // Debug: Check if there are any matching records at all
+        //     const debugQuery = publicKey && userId 
+        //         ? `SELECT COUNT(*) as count FROM location_update_queue WHERE (public_key = $1 OR user_id = $2) AND status IN ('matched', 'executed')`
+        //         : publicKey
+        //             ? `SELECT COUNT(*) as count FROM location_update_queue WHERE public_key = $1 AND status IN ('matched', 'executed')`
+        //             : `SELECT COUNT(*) as count FROM location_update_queue WHERE user_id = $1 AND status IN ('matched', 'executed')`;
+        //     const debugParams = publicKey && userId ? [publicKey, userId] : publicKey ? [publicKey] : [userId];
+        //     const debugResult = await pool.query(debugQuery, debugParams);
+        //     console.log(`[PendingRules] Debug: Found ${debugResult.rows[0]?.count || 0} location_update_queue entries matching criteria`);
+        // }
 
         // Process results to extract skipped rules
         // Each public key should have its own pending rule entry
@@ -2802,22 +2846,22 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 !r.rejected
             );
 
-            // Debug logging
-            if (row.rule_id === 2) {
-                console.log(`[PendingRules] 🔍 Processing row for rule_id 2:`, {
-                    update_id: row.update_id,
-                    public_key: row.public_key?.substring(0, 8) + '...',
-                    execution_results_count: executionResults.length,
-                    rule_2_results: executionResults.filter(r => r.rule_id === 2).map(r => ({
-                        skipped: r.skipped,
-                        completed: r.completed,
-                        rejected: r.rejected,
-                        matched_public_key: r.matched_public_key
-                    })),
-                    found_skipped_result: !!skippedResult,
-                    skipped_result_completed: skippedResult?.completed
-                });
-            }
+            // Debug logging (commented out to reduce log noise)
+            // if (row.rule_id === 2) {
+            //     console.log(`[PendingRules] 🔍 Processing row for rule_id 2:`, {
+            //         update_id: row.update_id,
+            //         public_key: row.public_key?.substring(0, 8) + '...',
+            //         execution_results_count: executionResults.length,
+            //         rule_2_results: executionResults.filter(r => r.rule_id === 2).map(r => ({
+            //             skipped: r.skipped,
+            //             completed: r.completed,
+            //             rejected: r.rejected,
+            //             matched_public_key: r.matched_public_key
+            //         })),
+            //         found_skipped_result: !!skippedResult,
+            //         skipped_result_completed: skippedResult?.completed
+            //     });
+            // }
 
             // Skip if no pending result found (all instances are completed or rejected)
             if (!skippedResult) {

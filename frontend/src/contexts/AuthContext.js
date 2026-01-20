@@ -25,9 +25,37 @@ export const AuthProvider = ({ children }) => {
             return;
         }
 
+        // Check if token is expired before making API call (faster on slow networks)
+        try {
+            const tokenData = JSON.parse(atob(token.split('.')[1]));
+            const isExpired = tokenData.exp < Math.floor(Date.now() / 1000);
+            
+            if (isExpired) {
+                // Token is expired, clear it immediately without API call
+                localStorage.removeItem('token');
+                delete api.defaults.headers.common['Authorization'];
+                setUser(null);
+                setLoading(false);
+                return;
+            }
+        } catch (parseError) {
+            // Invalid token format, clear it
+            localStorage.removeItem('token');
+            delete api.defaults.headers.common['Authorization'];
+            setUser(null);
+            setLoading(false);
+            return;
+        }
+
         try {
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-            const response = await authApi.verifyToken();
+            // Add timeout to prevent hanging on slow networks
+            const response = await Promise.race([
+                authApi.verifyToken(),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Auth check timeout')), 5000)
+                )
+            ]);
             
             if (response.data) {
                 setUser(response.data);
@@ -59,37 +87,14 @@ export const AuthProvider = ({ children }) => {
                 
             }
         } catch (err) {
-            console.error('❌ Auth check failed:', err);
-            console.error('❌ Auth check error details:', {
-                message: err.message,
-                status: err.response?.status,
-                statusText: err.response?.statusText,
-                data: err.response?.data
-            });
-            console.error('❌ Token being used:', token.substring(0, 20) + '...');
-            console.error('❌ Authorization header:', api.defaults.headers.common['Authorization']);
+            // Only log errors that aren't timeouts or expected auth failures
+            if (err.message !== 'Auth check timeout' && err.response?.status !== 401) {
+                console.error('❌ Auth check failed:', err);
+            }
+            
             localStorage.removeItem('token');
             delete api.defaults.headers.common['Authorization'];
             setUser(null);
-            
-            // Store debug info
-            localStorage.setItem('debug_checkAuth', JSON.stringify({
-                timestamp: new Date().toISOString(),
-                success: false,
-                reason: 'error',
-                error: err.message,
-                status: err.response?.status,
-                statusText: err.response?.statusText
-            }));
-            
-            // Store when user is cleared
-            localStorage.setItem('debug_user_cleared', JSON.stringify({
-                timestamp: new Date().toISOString(),
-                reason: 'checkAuth error',
-                error: err.message,
-                status: err.response?.status
-            }));
-            
         } finally {
             setLoading(false);
         }

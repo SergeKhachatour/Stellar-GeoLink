@@ -47,7 +47,8 @@ const getApiBaseURL = () => {
 const api = axios.create({
     headers: {
         'Content-Type': 'application/json'
-    }
+    },
+    timeout: 10000 // 10 second timeout for all requests
 });
 
 // Set baseURL dynamically before each request and add auth token
