@@ -4071,11 +4071,15 @@ router.get('/rules/completed', authenticateContractUser, async (req, res) => {
 
         let result;
         try {
-            // Add query timeout to prevent hanging
+            // Add query timeout to prevent hanging (both statement_timeout and Promise.race as backup)
             result = await Promise.race([
-                pool.query(query, params),
+                pool.query({
+                    text: query,
+                    values: params,
+                    statement_timeout: 15000 // 15 second timeout for complex queries
+                }),
                 new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Query timeout after 10 seconds')), 10000)
+                    setTimeout(() => reject(new Error('Query timeout after 15 seconds')), 15000)
                 )
             ]);
         } catch (queryError) {
