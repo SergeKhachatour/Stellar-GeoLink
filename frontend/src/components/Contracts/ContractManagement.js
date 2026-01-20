@@ -3866,30 +3866,56 @@ const ContractManagement = () => {
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <Box>
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box 
+          display="flex" 
+          flexDirection={{ xs: 'column', sm: 'row' }}
+          justifyContent="space-between" 
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          gap={{ xs: 2, sm: 0 }}
+          mb={3}
+        >
           <Typography variant="h4" gutterBottom>
             {isAuthenticated ? 'Smart Contract Management' : 'Explore Smart Contracts'}
           </Typography>
           {isAuthenticated && (
-            <Box display="flex" gap={2}>
+            <Box 
+              display="flex" 
+              gap={2}
+              flexWrap="wrap"
+              width={{ xs: '100%', sm: 'auto' }}
+            >
               <Button
                 variant="outlined"
                 color="secondary"
+                size="small"
                 startIcon={<SearchIcon />}
                 onClick={() => {
                   setAgentContractAddress('');
                   setAgentResult(null);
                   setAgentDialogOpen(true);
                 }}
+                sx={{ 
+                  flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                  minWidth: { xs: 'calc(50% - 8px)', sm: 'auto' },
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                  padding: { xs: '6px 12px', sm: '8px 16px' }
+                }}
               >
                 🤖 GeoLink Agent
               </Button>
               <Button
                 variant="contained"
+                size="small"
                 startIcon={<AddIcon />}
                 onClick={() => {
                   setEditingContract(null);
                   setContractDialogOpen(true);
+                }}
+                sx={{ 
+                  flex: { xs: '1 1 auto', sm: '0 0 auto' },
+                  minWidth: { xs: 'calc(50% - 8px)', sm: 'auto' },
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' },
+                  padding: { xs: '6px 12px', sm: '8px 16px' }
                 }}
               >
                 Add Contract
