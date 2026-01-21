@@ -2251,7 +2251,14 @@ const ContractManagement = () => {
           if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
             let destination = functionParams.destination || functionParams.recipient || functionParams.to || 
                             functionParams.to_address || functionParams.destination_address || '';
-            if (!destination && pendingRule.matched_public_key) {
+            // Check if destination is a placeholder or empty, and replace with matched_public_key if available
+            const isPlaceholder = destination && (
+              destination.includes('[Will be') || 
+              destination.includes('system-generated') ||
+              destination.trim() === ''
+            );
+            
+            if ((!destination || isPlaceholder) && pendingRule.matched_public_key) {
               destination = pendingRule.matched_public_key;
             }
             let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
@@ -2553,8 +2560,17 @@ const ContractManagement = () => {
     if (isPayment && shouldRouteThroughSmartWallet) {
       // Handle smart wallet payment execution
       let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
-      if (!destination && rule.matched_public_key) {
+      
+      // Check if destination is a placeholder or empty, and replace with matched_public_key if available
+      const isPlaceholder = destination && (
+        destination.includes('[Will be') || 
+        destination.includes('system-generated') ||
+        destination.trim() === ''
+      );
+      
+      if ((!destination || isPlaceholder) && rule.matched_public_key) {
         destination = rule.matched_public_key;
+        console.log('[BatchExecute] Using matched_public_key as destination:', destination.substring(0, 8) + '...');
       }
       
       let amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
@@ -2563,7 +2579,13 @@ const ContractManagement = () => {
           const payload = typeof functionParams.signature_payload === 'string' 
             ? JSON.parse(functionParams.signature_payload) 
             : functionParams.signature_payload;
-          if (payload.destination && !destination) destination = payload.destination;
+          // Only use payload.destination if it's not a placeholder and destination is still empty or a placeholder
+          if (payload.destination && 
+              !payload.destination.includes('[Will be') && 
+              !payload.destination.includes('system-generated') &&
+              (!destination || isPlaceholder)) {
+            destination = payload.destination;
+          }
           if (payload.amount && !amount) {
             const amountNum = parseFloat(payload.amount);
             amount = amountNum >= 1000000 ? (amountNum / 10000000).toString() : payload.amount;
@@ -3008,9 +3030,16 @@ const ContractManagement = () => {
           // The backend will set destination from matched_public_key, so the signature must match
           let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
           
-          // If destination is empty and this is a pending rule, check if matched_public_key is available
+          // Check if destination is a placeholder or empty, and replace with matched_public_key if available
+          const isPlaceholder = destination && (
+            destination.includes('[Will be') || 
+            destination.includes('system-generated') ||
+            destination.trim() === ''
+          );
+          
+          // If destination is empty or a placeholder and this is a pending rule, check if matched_public_key is available
           // This ensures the signature payload matches what the backend will use
-          if (!destination && rule.matched_public_key) {
+          if ((!destination || isPlaceholder) && rule.matched_public_key) {
             destination = rule.matched_public_key;
             console.log('[ContractManagement] Using matched_public_key as destination for signature payload:', destination.substring(0, 8) + '...');
           }
@@ -3163,13 +3192,20 @@ const ContractManagement = () => {
         let destination = functionParams.destination || functionParams.recipient || functionParams.to || functionParams.to_address || functionParams.destination_address || '';
         let amount = functionParams.amount || functionParams.value || functionParams.quantity || '';
         
-        // If destination is empty, try to extract from signature_payload (for pending rules)
-        if (!destination && functionParams.signature_payload) {
+        // Check if destination is a placeholder
+        const isPlaceholder = destination && (
+          destination.includes('[Will be') || 
+          destination.includes('system-generated') ||
+          destination.trim() === ''
+        );
+        
+        // If destination is empty or a placeholder, try to extract from signature_payload (for pending rules)
+        if ((!destination || isPlaceholder) && functionParams.signature_payload) {
           try {
             const payload = typeof functionParams.signature_payload === 'string' 
               ? JSON.parse(functionParams.signature_payload) 
               : functionParams.signature_payload;
-            if (payload.destination) {
+            if (payload.destination && !payload.destination.includes('[Will be') && !payload.destination.includes('system-generated')) {
               destination = payload.destination;
               console.log('[ContractManagement] ✅ Extracted destination from signature_payload:', destination.substring(0, 8) + '...');
             }
@@ -3178,8 +3214,8 @@ const ContractManagement = () => {
           }
         }
         
-        // If destination is still empty, check matched_public_key (for pending rules)
-        if (!destination && rule.matched_public_key) {
+        // If destination is still empty or a placeholder, check matched_public_key (for pending rules)
+        if ((!destination || isPlaceholder) && rule.matched_public_key) {
           destination = rule.matched_public_key;
           console.log('[ContractManagement] ✅ Using matched_public_key as destination:', destination.substring(0, 8) + '...');
         }
