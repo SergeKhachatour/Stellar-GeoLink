@@ -643,6 +643,24 @@ async function getCustomContracts(token) {
 }
 
 /**
+ * Get public contracts (no authentication required)
+ * @returns {Promise<object>} - Public contracts
+ */
+async function getPublicContracts() {
+  try {
+    const baseUrl = getApiBaseUrl();
+    const apiUrl = `${baseUrl}/contracts/public`;
+    
+    const response = await axios.get(apiUrl);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching public contracts:', error);
+    throw new Error(`Failed to fetch public contracts: ${error.response?.data?.error || error.message}`);
+  }
+}
+
+/**
  * Save a custom contract
  */
 async function saveCustomContract(contractData, token) {
@@ -762,6 +780,7 @@ module.exports = {
   getUserWalletInfo,
   discoverContract,
   getCustomContracts,
+  getPublicContracts,
   saveCustomContract,
   executeContractFunction,
   getNearbyContractRules,

@@ -78,6 +78,7 @@ import {
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import CustomContractDialog from '../NFT/CustomContractDialog';
+import AIChat from '../AI/AIChat';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
@@ -8478,6 +8479,9 @@ const ContractManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* GeoLink Agent - Available for both logged-in and logged-out users */}
+      <AIChat isPublic={!isAuthenticated} initialOpen={false} />
       </Box>
     </Container>
   );

@@ -410,8 +410,20 @@ async function getAvailableTools(userContext = {}) {
       {
         type: 'function',
         function: {
+          name: 'geolink_getPublicContracts',
+          description: 'Get all public smart contracts available on the GeoLink platform. This is a view-only endpoint that returns active contracts with their contract addresses, contract names, discovered functions, and parameters. Use this when the user asks about available contracts on the platform, wants to browse contracts, or asks about what smart contracts are available. This tool works without authentication and provides read-only access to public contract information.',
+          parameters: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
           name: 'geolink_getCustomContracts',
-          description: 'Get all custom smart contracts that the user has added to GeoLink. Returns contracts with their contract addresses (contract_address), contract IDs (id), contract names, discovered functions, parameters, and configuration. Each contract includes: id (contract ID number), contract_address (Stellar contract address starting with C), contract_name, network, discovered_functions, and function_mappings. Use this to see what contracts are available, their addresses, and what functions can be called on each contract. ALWAYS use this tool when the user asks about their contracts, contract addresses, or what contracts they have.',
+          description: 'Get all custom smart contracts that the user has added to GeoLink. Returns contracts with their contract addresses (contract_address), contract IDs (id), contract names, discovered functions, parameters, and configuration. Each contract includes: id (contract ID number), contract_address (Stellar contract address starting with C), contract_name, network, discovered_functions, and function_mappings. Use this to see what contracts are available, their addresses, and what functions can be called on each contract. ALWAYS use this tool when the user asks about their contracts, contract addresses, or what contracts they have. REQUIRES AUTHENTICATION.',
           parameters: {
             type: 'object',
             properties: {},
@@ -1173,6 +1185,10 @@ async function executeToolCall(toolCall, userContext = {}) {
           console.error('[geolink_onboardContract] Error:', error.response?.data || error.message);
           throw new Error(error.response?.data?.error || error.response?.data?.message || error.message || 'Failed to onboard contract');
         }
+
+      case 'geolink_getPublicContracts':
+        // Public endpoint - no authentication required
+        return await geolinkOperations.getPublicContracts();
 
       case 'geolink_getCustomContracts':
         if (!token) throw new Error('Authentication required for this operation');
