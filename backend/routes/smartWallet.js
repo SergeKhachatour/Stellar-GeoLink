@@ -364,8 +364,26 @@ router.get('/balance', authenticateUser, async (req, res) => {
 router.post('/execute-payment', authenticateUser, async (req, res) => {
   console.log('[Smart Wallet] 💳 Execute payment request received');
   try {
-    // console.log('[Smart Wallet] 📋 Request body keys:', Object.keys(req.body));
-    // console.log('[Smart Wallet] 📋 Has passkeyPublicKeySPKI:', !!req.body.passkeyPublicKeySPKI);
+    // Log request details for debugging
+    console.log('[Smart Wallet] 📋 Request body keys:', Object.keys(req.body));
+    console.log('[Smart Wallet] 📋 Request details:', {
+      hasUserPublicKey: !!req.body.userPublicKey,
+      hasUserSecretKey: !!req.body.userSecretKey,
+      hasDestinationAddress: !!req.body.destinationAddress,
+      destinationAddressType: typeof req.body.destinationAddress,
+      destinationAddressValue: req.body.destinationAddress ? (req.body.destinationAddress.substring(0, 20) + '...') : null,
+      hasAmount: !!req.body.amount,
+      amountValue: req.body.amount,
+      hasSignaturePayload: !!req.body.signaturePayload,
+      hasWebAuthnSignature: !!req.body.webauthnSignature,
+      hasWebAuthnAuthenticatorData: !!req.body.webauthnAuthenticatorData,
+      hasWebAuthnClientData: !!req.body.webauthnClientData,
+      hasPasskeyPublicKeySPKI: !!req.body.passkeyPublicKeySPKI,
+      rule_id: req.body.rule_id,
+      update_id: req.body.update_id,
+      matched_public_key: req.body.matched_public_key
+    });
+    
     const {
       userPublicKey,
       userSecretKey,
@@ -390,10 +408,20 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
         hasUserSecretKey: !!userSecretKey,
         hasDestinationAddress: !!destinationAddress,
         hasAmount: !!amount,
-        destinationAddressValue: destinationAddress
+        destinationAddressValue: destinationAddress,
+        destinationAddressType: typeof destinationAddress,
+        amountValue: amount,
+        amountType: typeof amount,
+        requestBodyKeys: Object.keys(req.body)
       });
       return res.status(400).json({ 
-        error: 'userPublicKey, userSecretKey, destinationAddress, and amount are required' 
+        error: 'userPublicKey, userSecretKey, destinationAddress, and amount are required',
+        details: {
+          hasUserPublicKey: !!userPublicKey,
+          hasUserSecretKey: !!userSecretKey,
+          hasDestinationAddress: !!destinationAddress,
+          hasAmount: !!amount
+        }
       });
     }
 
@@ -405,24 +433,38 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
         destinationAddress.includes('[Will be') ||
         destinationAddress.includes('system-generated')) {
       console.error('[Smart Wallet] ❌ Invalid or placeholder destinationAddress', {
-        destinationAddress,
+        destinationAddress: destinationAddress ? (destinationAddress.substring(0, 50) + (destinationAddress.length > 50 ? '...' : '')) : null,
         type: typeof destinationAddress,
-        isPlaceholder: destinationAddress?.includes('[Will be') || destinationAddress?.includes('system-generated')
+        length: destinationAddress?.length,
+        isPlaceholder: destinationAddress?.includes('[Will be') || destinationAddress?.includes('system-generated'),
+        isEmpty: destinationAddress?.trim() === ''
       });
       return res.status(400).json({ 
-        error: 'Invalid destinationAddress. It appears to be a placeholder or empty. Please ensure the destination address is properly set in the rule parameters.' 
+        error: 'Invalid destinationAddress. It appears to be a placeholder or empty. Please ensure the destination address is properly set in the rule parameters.',
+        details: {
+          received: destinationAddress ? (destinationAddress.substring(0, 50) + (destinationAddress.length > 50 ? '...' : '')) : null,
+          type: typeof destinationAddress,
+          isPlaceholder: destinationAddress?.includes('[Will be') || destinationAddress?.includes('system-generated')
+        }
       });
     }
     
-    if (!/^[G][A-Z0-9]{55}$/.test(destinationAddress.trim())) {
+    const trimmedDestination = destinationAddress.trim();
+    if (!/^[G][A-Z0-9]{55}$/.test(trimmedDestination)) {
       console.error('[Smart Wallet] ❌ Invalid destinationAddress format', {
-        destinationAddress: destinationAddress?.substring(0, 20) + '...',
-        length: destinationAddress?.length,
-        firstChar: destinationAddress?.[0],
-        trimmed: destinationAddress?.trim()?.substring(0, 20)
+        destinationAddress: trimmedDestination.substring(0, 20) + '...',
+        length: trimmedDestination.length,
+        firstChar: trimmedDestination[0],
+        matchesPattern: /^[G][A-Z0-9]{55}$/.test(trimmedDestination)
       });
       return res.status(400).json({ 
-        error: 'Invalid destinationAddress format. Must be a valid Stellar address (starts with G, 56 characters)' 
+        error: 'Invalid destinationAddress format. Must be a valid Stellar address (starts with G, 56 characters)',
+        details: {
+          received: trimmedDestination.substring(0, 20) + '...',
+          length: trimmedDestination.length,
+          firstChar: trimmedDestination[0],
+          expectedFormat: 'G followed by 55 alphanumeric characters (56 total)'
+        }
       });
     }
     
@@ -430,9 +472,20 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     const normalizedDestinationAddress = destinationAddress.trim().toUpperCase();
 
     if (!signaturePayload || !webauthnSignature || !webauthnAuthenticatorData || !webauthnClientData) {
-      console.error('[Smart Wallet] ❌ Missing WebAuthn signature parameters');
+      console.error('[Smart Wallet] ❌ Missing WebAuthn signature parameters', {
+        hasSignaturePayload: !!signaturePayload,
+        hasWebAuthnSignature: !!webauthnSignature,
+        hasWebAuthnAuthenticatorData: !!webauthnAuthenticatorData,
+        hasWebAuthnClientData: !!webauthnClientData
+      });
       return res.status(400).json({ 
-        error: 'signaturePayload, webauthnSignature, webauthnAuthenticatorData, and webauthnClientData are required' 
+        error: 'signaturePayload, webauthnSignature, webauthnAuthenticatorData, and webauthnClientData are required',
+        details: {
+          hasSignaturePayload: !!signaturePayload,
+          hasWebAuthnSignature: !!webauthnSignature,
+          hasWebAuthnAuthenticatorData: !!webauthnAuthenticatorData,
+          hasWebAuthnClientData: !!webauthnClientData
+        }
       });
     }
 
@@ -446,7 +499,21 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
 
     // Decode DER signature to raw 64-byte format
-    const derSignatureBytes = Buffer.from(webauthnSignature, 'base64');
+    let derSignatureBytes;
+    try {
+      derSignatureBytes = Buffer.from(webauthnSignature, 'base64');
+    } catch (decodeError) {
+      console.error('[Smart Wallet] ❌ Failed to decode webauthnSignature from base64', {
+        error: decodeError.message,
+        signatureLength: webauthnSignature?.length,
+        signaturePreview: webauthnSignature?.substring(0, 20) + '...'
+      });
+      return res.status(400).json({
+        error: 'Invalid webauthnSignature format. Must be valid base64 encoded data.',
+        details: decodeError.message
+      });
+    }
+    
     let rawSignature64;
 
     if (derSignatureBytes.length === 64) {
@@ -454,9 +521,30 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
       rawSignature64 = normalizeECDSASignature(derSignatureBytes);
     } else if (derSignatureBytes.length >= 70 && derSignatureBytes.length <= 72) {
       // DER-encoded signature - decode and normalize
-      rawSignature64 = decodeDERSignature(derSignatureBytes);
+      try {
+        rawSignature64 = decodeDERSignature(derSignatureBytes);
+      } catch (decodeError) {
+        console.error('[Smart Wallet] ❌ Failed to decode DER signature', {
+          error: decodeError.message,
+          signatureLength: derSignatureBytes.length
+        });
+        return res.status(400).json({
+          error: 'Failed to decode DER signature',
+          details: decodeError.message
+        });
+      }
     } else {
-      throw new Error(`Invalid signature length: expected 64 bytes (raw) or 70-72 bytes (DER), got ${derSignatureBytes.length}`);
+      console.error('[Smart Wallet] ❌ Invalid signature length', {
+        receivedLength: derSignatureBytes.length,
+        expectedLengths: '64 bytes (raw) or 70-72 bytes (DER)'
+      });
+      return res.status(400).json({
+        error: `Invalid signature length: expected 64 bytes (raw) or 70-72 bytes (DER), got ${derSignatureBytes.length}`,
+        details: {
+          receivedLength: derSignatureBytes.length,
+          expectedLengths: '64 bytes (raw) or 70-72 bytes (DER)'
+        }
+      });
     }
 
     // Create ScVals for addresses

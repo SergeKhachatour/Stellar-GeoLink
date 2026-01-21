@@ -2152,11 +2152,63 @@ const ContractManagement = () => {
         // Use the passkey that's registered on the contract
         selectedPasskey = passkeys.find(p => p.isOnContract === true);
         if (!selectedPasskey) {
-          const errorMsg = 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.';
-          console.error('[ContractManagement] ❌', errorMsg);
-          setError(errorMsg);
-          setBatchExecuting(false);
-          return;
+          // Try to auto-register the first available passkey
+          console.warn('[ContractManagement] ⚠️ No passkey matches contract in batch execution, attempting auto-registration...');
+          
+          // Get secret key from various sources
+          const availableSecretKey = secretKey || localStorage.getItem('stellar_secret_key');
+          
+          if (passkeys.length > 0 && availableSecretKey) {
+            const firstPasskey = passkeys[0];
+            const passkeyPublicKeySPKI = firstPasskey.publicKey || firstPasskey.public_key_spki;
+            
+            if (passkeyPublicKeySPKI) {
+              try {
+                setSuccess('Auto-registering passkey on contract...');
+                console.log('[ContractManagement] 🔐 Attempting to auto-register passkey for batch execution...');
+                
+                const registerResponse = await api.post('/smart-wallet/register-signer', {
+                  userPublicKey: publicKey,
+                  userSecretKey: availableSecretKey,
+                  passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+                  rpId: window.location.hostname
+                });
+                
+                if (registerResponse.data.success) {
+                  console.log('[ContractManagement] ✅ Passkey auto-registered successfully');
+                  
+                  // Wait a moment for the contract to update
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  
+                  // Re-fetch passkeys to get updated isOnContract status
+                  const refreshedPasskeysResponse = await api.get('/webauthn/passkeys');
+                  const refreshedPasskeys = refreshedPasskeysResponse.data.passkeys || [];
+                  selectedPasskey = refreshedPasskeys.find(p => p.isOnContract === true);
+                  
+                  if (selectedPasskey) {
+                    console.log('[ContractManagement] ✅ Found registered passkey, continuing batch execution...');
+                    setSuccess('Passkey registered! Continuing with batch execution...');
+                  } else {
+                    throw new Error('Passkey registered but not found in refreshed list');
+                  }
+                } else {
+                  throw new Error(registerResponse.data.error || 'Registration failed');
+                }
+              } catch (regError) {
+                console.error('[ContractManagement] ❌ Auto-registration failed in batch execution:', regError);
+                // Fall through to show helpful error message
+              }
+            }
+          }
+          
+          // If auto-registration failed or no passkey available, show helpful error
+          if (!selectedPasskey) {
+            const errorMsg = `No passkey found that matches the one registered on the contract. ${passkeys.length > 0 ? 'Auto-registration failed. ' : ''}Please go to Settings > Passkeys to register or update your passkey.\n\nTo access: Click your profile menu (top right) → Settings → Passkeys`;
+            console.error('[ContractManagement] ❌', errorMsg);
+            setError(errorMsg);
+            setBatchExecuting(false);
+            return;
+          }
         }
 
         credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
@@ -2844,18 +2896,70 @@ const ContractManagement = () => {
         let selectedPasskey = passkeys.find(p => p.isOnContract === true);
         
         if (!selectedPasskey) {
-          // No passkey matches the contract - this will cause signature verification to fail
-          const errorMsg = passkeysResponse.data.contractPasskeyHex
-            ? 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.'
-            : 'No passkey found that is registered on the contract. Please register a passkey first.';
-          console.error('[ContractManagement] ❌', errorMsg);
-          console.error('[ContractManagement] Available passkeys:', passkeys.map(p => ({
-            credentialId: p.credentialId || p.credential_id,
-            isOnContract: p.isOnContract
-          })));
-          setError(errorMsg);
-          setExecutingRule(false);
-          return;
+          // No passkey matches the contract - try to auto-register the first available passkey
+          console.warn('[ContractManagement] ⚠️ No passkey matches contract, attempting auto-registration...');
+          
+          // Get secret key from various sources (same logic as used later in the function)
+          const availableSecretKey = userSecretKey || secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+          
+          if (passkeys.length > 0 && availableSecretKey) {
+            const firstPasskey = passkeys[0];
+            const passkeyPublicKeySPKI = firstPasskey.publicKey || firstPasskey.public_key_spki;
+            
+            if (passkeyPublicKeySPKI) {
+              try {
+                setExecutionStatus('Auto-registering passkey on contract...');
+                console.log('[ContractManagement] 🔐 Attempting to auto-register passkey on contract...');
+                
+                const registerResponse = await api.post('/smart-wallet/register-signer', {
+                  userPublicKey: publicKey,
+                  userSecretKey: availableSecretKey,
+                  passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+                  rpId: window.location.hostname
+                });
+                
+                if (registerResponse.data.success) {
+                  console.log('[ContractManagement] ✅ Passkey auto-registered successfully');
+                  setExecutionStatus('Passkey registered! Refreshing passkeys...');
+                  
+                  // Wait a moment for the contract to update
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  
+                  // Re-fetch passkeys to get updated isOnContract status
+                  const refreshedPasskeysResponse = await api.get('/webauthn/passkeys');
+                  const refreshedPasskeys = refreshedPasskeysResponse.data.passkeys || [];
+                  selectedPasskey = refreshedPasskeys.find(p => p.isOnContract === true);
+                  
+                  if (selectedPasskey) {
+                    console.log('[ContractManagement] ✅ Found registered passkey, continuing execution...');
+                    setExecutionStatus('Passkey registered! Continuing execution...');
+                  } else {
+                    throw new Error('Passkey registered but not found in refreshed list');
+                  }
+                } else {
+                  throw new Error(registerResponse.data.error || 'Registration failed');
+                }
+              } catch (regError) {
+                console.error('[ContractManagement] ❌ Auto-registration failed:', regError);
+                // Fall through to show helpful error message
+              }
+            }
+          }
+          
+          // If auto-registration failed or no passkey available, show helpful error
+          if (!selectedPasskey) {
+            const errorMsg = passkeysResponse.data.contractPasskeyHex
+              ? `No passkey found that matches the one registered on the contract. ${passkeys.length > 0 ? 'Auto-registration failed. ' : ''}Please go to Settings > Passkeys to register or update your passkey.\n\nTo access: Click your profile menu (top right) → Settings → Passkeys`
+              : `No passkey found that is registered on the contract. ${passkeys.length > 0 ? 'Auto-registration failed. ' : ''}Please go to Settings > Passkeys to register a passkey.\n\nTo access: Click your profile menu (top right) → Settings → Passkeys`;
+            console.error('[ContractManagement] ❌', errorMsg);
+            console.error('[ContractManagement] Available passkeys:', passkeys.map(p => ({
+              credentialId: p.credentialId || p.credential_id,
+              isOnContract: p.isOnContract
+            })));
+            setError(errorMsg);
+            setExecutingRule(false);
+            return;
+          }
         }
         
         console.log('[ContractManagement] ✅ Using passkey that matches contract:', {
@@ -3153,11 +3257,65 @@ const ContractManagement = () => {
           // The contract stores only ONE passkey per public_key, so we must use the one that's on the contract
           let selectedPasskey = passkeys.find(p => p.isOnContract === true);
           if (!selectedPasskey) {
-            const errorMsg = 'No passkey found that matches the one registered on the contract. Please register a passkey or use the correct passkey that matches the contract.';
-            console.error('[ContractManagement] ❌', errorMsg);
-            setError(errorMsg);
-            setExecutingRule(false);
-            return;
+            // Try to auto-register the first available passkey
+            console.warn('[ContractManagement] ⚠️ No passkey matches contract in smart wallet payment, attempting auto-registration...');
+            
+            // Get secret key from various sources
+            const currentPublicKey = publicKey || localStorage.getItem('stellar_public_key');
+            const availableSecretKey = userSecretKey || secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+            
+            if (passkeys.length > 0 && availableSecretKey) {
+              const firstPasskey = passkeys[0];
+              const passkeyPublicKeySPKI = firstPasskey.publicKey || firstPasskey.public_key_spki;
+              
+              if (passkeyPublicKeySPKI) {
+                try {
+                  setExecutionStatus('Auto-registering passkey on contract...');
+                  console.log('[ContractManagement] 🔐 Attempting to auto-register passkey for smart wallet payment...');
+                  
+                  const registerResponse = await api.post('/smart-wallet/register-signer', {
+                    userPublicKey: currentPublicKey,
+                    userSecretKey: availableSecretKey,
+                    passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+                    rpId: window.location.hostname
+                  });
+                  
+                  if (registerResponse.data.success) {
+                    console.log('[ContractManagement] ✅ Passkey auto-registered successfully');
+                    setExecutionStatus('Passkey registered! Refreshing passkeys...');
+                    
+                    // Wait a moment for the contract to update
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    // Re-fetch passkeys to get updated isOnContract status
+                    const refreshedPasskeysResponse = await api.get('/webauthn/passkeys');
+                    const refreshedPasskeys = refreshedPasskeysResponse.data.passkeys || [];
+                    selectedPasskey = refreshedPasskeys.find(p => p.isOnContract === true);
+                    
+                    if (selectedPasskey) {
+                      console.log('[ContractManagement] ✅ Found registered passkey, continuing smart wallet payment...');
+                      setExecutionStatus('Passkey registered! Continuing payment...');
+                    } else {
+                      throw new Error('Passkey registered but not found in refreshed list');
+                    }
+                  } else {
+                    throw new Error(registerResponse.data.error || 'Registration failed');
+                  }
+                } catch (regError) {
+                  console.error('[ContractManagement] ❌ Auto-registration failed in smart wallet payment:', regError);
+                  // Fall through to show helpful error message
+                }
+              }
+            }
+            
+            // If auto-registration failed or no passkey available, show helpful error
+            if (!selectedPasskey) {
+              const errorMsg = `No passkey found that matches the one registered on the contract. ${passkeys.length > 0 ? 'Auto-registration failed. ' : ''}Please go to Settings > Passkeys to register or update your passkey.\n\nTo access: Click your profile menu (top right) → Settings → Passkeys`;
+              console.error('[ContractManagement] ❌', errorMsg);
+              setError(errorMsg);
+              setExecutingRule(false);
+              return;
+            }
           }
           
           const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
