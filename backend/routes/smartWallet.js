@@ -385,11 +385,49 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     // console.log(`[Smart Wallet] 📋 Payment params - From: ${userPublicKey}, To: ${destinationAddress}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}, Rule ID: ${rule_id || 'Not provided'}`);
 
     if (!userPublicKey || !userSecretKey || !destinationAddress || !amount) {
-      console.error('[Smart Wallet] ❌ Missing required parameters');
+      console.error('[Smart Wallet] ❌ Missing required parameters', {
+        hasUserPublicKey: !!userPublicKey,
+        hasUserSecretKey: !!userSecretKey,
+        hasDestinationAddress: !!destinationAddress,
+        hasAmount: !!amount,
+        destinationAddressValue: destinationAddress
+      });
       return res.status(400).json({ 
         error: 'userPublicKey, userSecretKey, destinationAddress, and amount are required' 
       });
     }
+
+    // Validate destinationAddress format (must be valid Stellar address)
+    // Check if it's a placeholder string that needs to be replaced
+    if (!destinationAddress || 
+        typeof destinationAddress !== 'string' || 
+        destinationAddress.trim() === '' ||
+        destinationAddress.includes('[Will be') ||
+        destinationAddress.includes('system-generated')) {
+      console.error('[Smart Wallet] ❌ Invalid or placeholder destinationAddress', {
+        destinationAddress,
+        type: typeof destinationAddress,
+        isPlaceholder: destinationAddress?.includes('[Will be') || destinationAddress?.includes('system-generated')
+      });
+      return res.status(400).json({ 
+        error: 'Invalid destinationAddress. It appears to be a placeholder or empty. Please ensure the destination address is properly set in the rule parameters.' 
+      });
+    }
+    
+    if (!/^[G][A-Z0-9]{55}$/.test(destinationAddress.trim())) {
+      console.error('[Smart Wallet] ❌ Invalid destinationAddress format', {
+        destinationAddress: destinationAddress?.substring(0, 20) + '...',
+        length: destinationAddress?.length,
+        firstChar: destinationAddress?.[0],
+        trimmed: destinationAddress?.trim()?.substring(0, 20)
+      });
+      return res.status(400).json({ 
+        error: 'Invalid destinationAddress format. Must be a valid Stellar address (starts with G, 56 characters)' 
+      });
+    }
+    
+    // Normalize destinationAddress
+    const normalizedDestinationAddress = destinationAddress.trim().toUpperCase();
 
     if (!signaturePayload || !webauthnSignature || !webauthnAuthenticatorData || !webauthnClientData) {
       console.error('[Smart Wallet] ❌ Missing WebAuthn signature parameters');
@@ -428,7 +466,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
     );
     const signerAddressScVal = StellarSdk.xdr.ScVal.scvAddress(userScAddress);
 
-    const destinationAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(destinationAddress);
+    const destinationAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(normalizedDestinationAddress);
     const destinationScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
       StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(destinationAddressBytes)
     );
@@ -696,7 +734,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   // Filter by update_id and matched_public_key for precise matching
                   // Store actual execution parameters (payment details)
                   const executionParams = {
-                    destination: destinationAddress,
+                    destination: normalizedDestinationAddress,
                     amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
                     asset: assetAddress || 'native',
                     signer_address: userPublicKey,
@@ -769,7 +807,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   // Filter by matched_public_key only
                   // Store actual execution parameters (payment details)
                   const executionParams = {
-                    destination: destinationAddress,
+                    destination: normalizedDestinationAddress,
                     amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
                     asset: assetAddress || 'native',
                     signer_address: userPublicKey,
@@ -840,7 +878,7 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                   // Fallback: mark all instances (backward compatibility)
                   // Store actual execution parameters (payment details)
                   const executionParams = {
-                    destination: destinationAddress,
+                    destination: normalizedDestinationAddress,
                     amount: parseFloat(amount) / 10000000, // Convert stroops to XLM
                     asset: assetAddress || 'native',
                     signer_address: userPublicKey,
@@ -981,6 +1019,12 @@ router.post('/execute-payment', authenticateUser, async (req, res) => {
                 if (rule_id && updateResult.rows.length > 0) {
                   try {
                     const executedPublicKey = updateResult.rows[0].public_key || matched_public_key || userPublicKey;
+                    console.log(`[SmartWallet] 📝 Recording rule execution for rate limit tracking:`, {
+                      rule_id: parseInt(rule_id),
+                      public_key: executedPublicKey?.substring(0, 8) + '...',
+                      transaction_hash: sendResult.hash?.substring(0, 16) + '...',
+                      update_id: update_id
+                    });
                     await pool.query(
                       'SELECT record_rule_execution($1, $2, $3, $4)',
                       [

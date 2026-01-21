@@ -2674,11 +2674,19 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         OR cer.execution_time_window_seconds = 0
                         OR (
                             -- Check if rule has been executed recently (within time window)
+                            -- Use matched_public_key from execution_results, fallback to luq.public_key
                             SELECT COUNT(*)
                             FROM rule_execution_history reh
                             WHERE reh.rule_id = cer.id
-                                AND reh.public_key = luq.public_key
-                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                                AND reh.public_key = COALESCE(
+                                    (SELECT result->>'matched_public_key' 
+                                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                                     WHERE (result->>'rule_id')::integer = cer.id 
+                                       AND result->>'skipped' = 'true' 
+                                     LIMIT 1),
+                                    luq.public_key
+                                )
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
@@ -2756,11 +2764,19 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         OR cer.execution_time_window_seconds = 0
                         OR (
                             -- Check if rule has been executed recently (within time window)
+                            -- Use matched_public_key from execution_results, fallback to luq.public_key
                             SELECT COUNT(*)
                             FROM rule_execution_history reh
                             WHERE reh.rule_id = cer.id
-                                AND reh.public_key = luq.public_key
-                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                                AND reh.public_key = COALESCE(
+                                    (SELECT result->>'matched_public_key' 
+                                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                                     WHERE (result->>'rule_id')::integer = cer.id 
+                                       AND result->>'skipped' = 'true' 
+                                     LIMIT 1),
+                                    luq.public_key
+                                )
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
@@ -2841,11 +2857,19 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         OR cer.execution_time_window_seconds = 0
                         OR (
                             -- Check if rule has been executed recently (within time window)
+                            -- Use matched_public_key from execution_results, fallback to luq.public_key
                             SELECT COUNT(*)
                             FROM rule_execution_history reh
                             WHERE reh.rule_id = cer.id
-                                AND reh.public_key = luq.public_key
-                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (cer.execution_time_window_seconds || ' seconds')::INTERVAL
+                                AND reh.public_key = COALESCE(
+                                    (SELECT result->>'matched_public_key' 
+                                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                                     WHERE (result->>'rule_id')::integer = cer.id 
+                                       AND result->>'skipped' = 'true' 
+                                     LIMIT 1),
+                                    luq.public_key
+                                )
+                                AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
                 ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
@@ -2924,6 +2948,72 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         // Each public key should have its own pending rule entry
         const pendingRules = [];
         const processedKeys = new Set(); // Track rule_id + public_key combinations
+
+        console.log(`[PendingRules] 📊 Query returned ${result.rows.length} row(s) for ${publicKey ? `public_key ${publicKey.substring(0, 8)}...` : ''}${userId ? ` OR user_id ${userId}` : ''}`);
+        
+        // Log rule settings for first few rows
+        if (result.rows.length > 0) {
+            const sampleRows = result.rows.slice(0, 3);
+            for (const row of sampleRows) {
+                const ruleSettingsQuery = await pool.query(
+                    `SELECT max_executions_per_public_key, execution_time_window_seconds, min_location_duration_seconds 
+                     FROM contract_execution_rules WHERE id = $1`,
+                    [row.rule_id]
+                );
+                const ruleSettings = ruleSettingsQuery.rows[0] || {};
+                
+                // Check rate limit status - use matched_public_key from execution_results if available
+                let rateLimitStatus = null;
+                if (ruleSettings.max_executions_per_public_key && ruleSettings.execution_time_window_seconds) {
+                    // Extract matched_public_key from execution_results
+                    let executionResults = [];
+                    try {
+                        executionResults = typeof row.execution_results === 'string'
+                            ? JSON.parse(row.execution_results)
+                            : row.execution_results || [];
+                    } catch (e) {
+                        // Ignore parse errors
+                    }
+                    const skippedResult = executionResults.find(r => 
+                        r.rule_id === row.rule_id && 
+                        r.skipped === true && 
+                        r.reason === 'requires_webauthn'
+                    );
+                    const keyForRateLimit = skippedResult?.matched_public_key || row.public_key;
+                    
+                    const rateLimitCheckQuery = await pool.query(
+                        `SELECT COUNT(*) as count, MAX(last_execution_at) as last_execution
+                         FROM rule_execution_history
+                         WHERE rule_id = $1 AND public_key = $2
+                           AND last_execution_at >= CURRENT_TIMESTAMP - ($3 || ' seconds')::INTERVAL`,
+                        [row.rule_id, keyForRateLimit, ruleSettings.execution_time_window_seconds]
+                    );
+                    const execCount = parseInt(rateLimitCheckQuery.rows[0]?.count || 0);
+                    const lastExecution = rateLimitCheckQuery.rows[0]?.last_execution;
+                    rateLimitStatus = {
+                        current_count: execCount,
+                        max_allowed: ruleSettings.max_executions_per_public_key,
+                        time_window_seconds: ruleSettings.execution_time_window_seconds,
+                        last_execution: lastExecution,
+                        within_limit: execCount < ruleSettings.max_executions_per_public_key,
+                        checked_public_key: keyForRateLimit?.substring(0, 8) + '...',
+                        queue_public_key: row.public_key?.substring(0, 8) + '...'
+                    };
+                }
+                
+                console.log(`[PendingRules] ⚙️ Rule ${row.rule_id} (${row.rule_name}) settings:`, {
+                    rule_id: row.rule_id,
+                    rule_name: row.rule_name,
+                    max_executions_per_public_key: ruleSettings.max_executions_per_public_key || 'NULL',
+                    execution_time_window_seconds: ruleSettings.execution_time_window_seconds || 'NULL',
+                    min_location_duration_seconds: ruleSettings.min_location_duration_seconds || 'NULL',
+                    rate_limit_status: rateLimitStatus,
+                    update_id: row.update_id,
+                    received_at: row.received_at,
+                    public_key: row.public_key?.substring(0, 8) + '...'
+                });
+            }
+        }
 
         for (const row of result.rows) {
             // Create unique key from rule_id + public_key to ensure each public key gets its own pending entry
@@ -7619,6 +7709,12 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         if (rule_id && updateResult.rows.length > 0) {
                             try {
                                 const executedPublicKey = updateResult.rows[0].public_key || matched_public_key || user_public_key;
+                                console.log(`[ContractExecution] 📝 Recording rule execution for rate limit tracking:`, {
+                                    rule_id: parseInt(rule_id),
+                                    public_key: executedPublicKey?.substring(0, 8) + '...',
+                                    transaction_hash: sendResult.hash?.substring(0, 16) + '...',
+                                    update_id: update_id
+                                });
                                 await pool.query(
                                     'SELECT record_rule_execution($1, $2, $3, $4)',
                                     [

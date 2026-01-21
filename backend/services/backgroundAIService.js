@@ -340,6 +340,28 @@ class BackgroundAIService {
         // Check rate limiting (only if rule has rate limiting configured)
         // Skip check if max_executions_per_public_key or execution_time_window_seconds is NULL
         if (rule.max_executions_per_public_key && rule.execution_time_window_seconds) {
+          // Get detailed rate limit information for logging
+          const rateLimitDetailsQuery = await pool.query(
+            `SELECT COUNT(*) as count, MAX(last_execution_at) as last_execution
+             FROM rule_execution_history
+             WHERE rule_id = $1 AND public_key = $2
+               AND last_execution_at >= CURRENT_TIMESTAMP - ($3 || ' seconds')::INTERVAL`,
+            [rule.id, public_key, rule.execution_time_window_seconds]
+          );
+          const execCount = parseInt(rateLimitDetailsQuery.rows[0]?.count || 0);
+          const lastExecution = rateLimitDetailsQuery.rows[0]?.last_execution;
+          
+          console.log(`[BackgroundAI] ⏱️ Rate limit check for rule ${rule.id} (${rule.rule_name}):`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            public_key: public_key.substring(0, 8) + '...',
+            max_executions: rule.max_executions_per_public_key,
+            time_window_seconds: rule.execution_time_window_seconds,
+            current_executions_in_window: execCount,
+            last_execution: lastExecution,
+            can_execute: execCount < rule.max_executions_per_public_key
+          });
+          
           const canExecute = await pool.query(
             'SELECT can_execute_rule($1, $2) as can_execute',
             [rule.id, public_key]
@@ -347,7 +369,7 @@ class BackgroundAIService {
           
           if (!canExecute.rows[0]?.can_execute) {
             // ESSENTIAL: Log when rate limit blocks a rule
-            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Rate limit exceeded: ${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s`);
+            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Rate limit exceeded: ${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s (current: ${execCount}, last execution: ${lastExecution || 'never'})`);
             executionResults.push({
               rule_id: rule.id,
               success: false,
@@ -358,10 +380,9 @@ class BackgroundAIService {
             });
             matchedRuleIds.push(rule.id);
             continue;
+          } else {
+            console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.rule_name}): ${execCount}/${rule.max_executions_per_public_key} executions in ${rule.execution_time_window_seconds}s window`);
           }
-          // else {
-          //   console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s)`);
-          // }
         }
         // else {
         //   console.log(`[BackgroundAI] ✅ No rate limiting configured for rule ${rule.id} (max_executions: ${rule.max_executions_per_public_key ?? 'NULL'}, time_window: ${rule.execution_time_window_seconds ?? 'NULL'})`);
@@ -370,6 +391,35 @@ class BackgroundAIService {
         // Check location duration requirement (only if rule has a duration requirement set)
         // Skip check if min_location_duration_seconds is NULL or 0
         if (rule.min_location_duration_seconds && rule.min_location_duration_seconds > 0) {
+          // Get detailed location duration information for logging from rule_location_tracking table
+          const locationDurationQuery = await pool.query(
+            `SELECT 
+               entered_location_at,
+               duration_seconds,
+               is_in_range,
+               updated_at
+             FROM rule_location_tracking
+             WHERE rule_id = $1 AND public_key = $2
+             ORDER BY updated_at DESC
+             LIMIT 1`,
+            [rule.id, public_key]
+          );
+          
+          const durationInfo = locationDurationQuery.rows[0] || {};
+          const actualDuration = parseFloat(durationInfo.duration_seconds || 0);
+          
+          console.log(`[BackgroundAI] ⏱️ Location duration check for rule ${rule.id} (${rule.rule_name}):`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            public_key: public_key.substring(0, 8) + '...',
+            required_duration_seconds: rule.min_location_duration_seconds,
+            actual_duration_seconds: actualDuration,
+            is_in_range: durationInfo.is_in_range || false,
+            entered_location_at: durationInfo.entered_location_at,
+            last_updated: durationInfo.updated_at,
+            meets_requirement: actualDuration >= rule.min_location_duration_seconds
+          });
+          
           const hasMinDuration = await pool.query(
             'SELECT has_min_location_duration($1, $2) as has_duration',
             [rule.id, public_key]
@@ -377,17 +427,19 @@ class BackgroundAIService {
           
           if (!hasMinDuration.rows[0]?.has_duration) {
             // ESSENTIAL: Log when location duration requirement blocks a rule
-            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Location duration not met: requires ${rule.min_location_duration_seconds}s at location`);
+            console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Location duration not met: requires ${rule.min_location_duration_seconds}s at location (actual: ${actualDuration.toFixed(1)}s, in_range: ${durationInfo.is_in_range || false})`);
             executionResults.push({
               rule_id: rule.id,
               success: false,
               skipped: true,
               reason: 'insufficient_location_duration',
-              message: `Public key has not been at location long enough to trigger execution (requires ${rule.min_location_duration_seconds} seconds)`,
+              message: `Public key has not been at location long enough to trigger execution (requires ${rule.min_location_duration_seconds} seconds, actual: ${actualDuration.toFixed(1)}s)`,
               matched_public_key: public_key
             });
             matchedRuleIds.push(rule.id);
             continue;
+          } else {
+            console.log(`[BackgroundAI] ✅ Location duration check passed for rule ${rule.id} (${rule.rule_name}): ${actualDuration.toFixed(1)}s >= ${rule.min_location_duration_seconds}s`);
           }
         }
         // else {
