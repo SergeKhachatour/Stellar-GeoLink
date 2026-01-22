@@ -198,6 +198,7 @@ class PasskeyService {
     }
 
     try {
+      // eslint-disable-next-line no-undef
       const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
       return available;
     } catch (error) {
