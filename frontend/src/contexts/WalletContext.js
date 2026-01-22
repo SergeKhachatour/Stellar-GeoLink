@@ -126,6 +126,7 @@ export const WalletProvider = ({ children }) => {
     console.log('WalletContext: Checking saved wallet data:', { 
       savedPublicKey: savedPublicKey ? 'exists' : 'none',
       savedSecretKey: savedSecretKey ? 'exists' : 'none',
+      hasEncryptedWallet,
       userPublicKey: currentUser?.public_key,
       currentWalletState: { isConnected, publicKey }
     });
@@ -139,10 +140,29 @@ export const WalletProvider = ({ children }) => {
           console.log('WalletContext: Restoring wallet for current user');
           if (!isConnected || publicKey !== savedPublicKey) {
             setPublicKey(savedPublicKey);
-            setSecretKey(savedSecretKey); // Restore secret key if available
             setIsConnected(true);
+            
+            // Try to decrypt encrypted wallet if available
+            if (hasEncryptedWallet && !savedSecretKey) {
+              console.log('WalletContext: Attempting to decrypt encrypted wallet...');
+              (async () => {
+                try {
+                  const decryptedSecretKey = await walletEncryptionHelper.decryptWallet(savedPublicKey);
+                  setSecretKey(decryptedSecretKey);
+                  console.log('WalletContext: Encrypted wallet decrypted successfully');
+                } catch (decryptError) {
+                  console.warn('WalletContext: Could not decrypt wallet automatically (may require passkey auth):', decryptError.message);
+                  // Keep wallet in view-only mode if decryption fails
+                  // User will need to authenticate with passkey when needed
+                }
+              })();
+            } else {
+              setSecretKey(savedSecretKey); // Restore plaintext secret key if available
+            }
+            
             console.log('WalletContext: Wallet restored', { 
-              hasSecretKey: !!savedSecretKey,
+              hasSecretKey: !!savedSecretKey || hasEncryptedWallet,
+              isEncrypted: hasEncryptedWallet,
               publicKey: savedPublicKey.substring(0, 8) + '...'
             });
             loadAccountInfo(savedPublicKey).then(() => {
@@ -150,10 +170,23 @@ export const WalletProvider = ({ children }) => {
             }).catch(error => {
               console.error('WalletContext: Failed to load account info:', error);
             });
-          } else if (isConnected && publicKey === savedPublicKey && !secretKey && savedSecretKey) {
-            // Wallet is connected but missing secret key - restore it
-            console.log('WalletContext: Restoring missing secret key for connected wallet');
-            setSecretKey(savedSecretKey);
+          } else if (isConnected && publicKey === savedPublicKey && !secretKey) {
+            // Wallet is connected but missing secret key - try to restore it
+            if (hasEncryptedWallet) {
+              console.log('WalletContext: Attempting to decrypt encrypted wallet for connected wallet...');
+              (async () => {
+                try {
+                  const decryptedSecretKey = await walletEncryptionHelper.decryptWallet(savedPublicKey);
+                  setSecretKey(decryptedSecretKey);
+                  console.log('WalletContext: Encrypted wallet decrypted successfully');
+                } catch (decryptError) {
+                  console.warn('WalletContext: Could not decrypt wallet automatically:', decryptError.message);
+                }
+              })();
+            } else if (savedSecretKey) {
+              console.log('WalletContext: Restoring missing secret key for connected wallet');
+              setSecretKey(savedSecretKey);
+            }
           }
         } else {
           // Different user, clear saved data
@@ -173,10 +206,28 @@ export const WalletProvider = ({ children }) => {
         console.log('WalletContext: No current user, but restoring standalone wallet connection');
         if (!isConnected || publicKey !== savedPublicKey) {
           setPublicKey(savedPublicKey);
-          setSecretKey(savedSecretKey); // Restore secret key if available
           setIsConnected(true);
+          
+          // Try to decrypt encrypted wallet if available
+          if (hasEncryptedWallet && !savedSecretKey) {
+            console.log('WalletContext: Attempting to decrypt encrypted wallet for standalone connection...');
+            (async () => {
+              try {
+                const decryptedSecretKey = await walletEncryptionHelper.decryptWallet(savedPublicKey);
+                setSecretKey(decryptedSecretKey);
+                console.log('WalletContext: Encrypted wallet decrypted successfully');
+              } catch (decryptError) {
+                console.warn('WalletContext: Could not decrypt wallet automatically:', decryptError.message);
+                // Keep wallet in view-only mode if decryption fails
+              }
+            })();
+          } else {
+            setSecretKey(savedSecretKey); // Restore plaintext secret key if available
+          }
+          
           console.log('WalletContext: Standalone wallet restored', {
-            hasSecretKey: !!savedSecretKey,
+            hasSecretKey: !!savedSecretKey || hasEncryptedWallet,
+            isEncrypted: hasEncryptedWallet,
             publicKey: savedPublicKey.substring(0, 8) + '...'
           });
           loadAccountInfo(savedPublicKey).then(() => {
@@ -184,10 +235,23 @@ export const WalletProvider = ({ children }) => {
           }).catch(error => {
             console.error('WalletContext: Failed to load account info:', error);
           });
-        } else if (isConnected && publicKey === savedPublicKey && !secretKey && savedSecretKey) {
-          // Wallet is connected but missing secret key - restore it
-          console.log('WalletContext: Restoring missing secret key for standalone wallet');
-          setSecretKey(savedSecretKey);
+        } else if (isConnected && publicKey === savedPublicKey && !secretKey) {
+          // Wallet is connected but missing secret key - try to restore it
+          if (hasEncryptedWallet) {
+            console.log('WalletContext: Attempting to decrypt encrypted wallet for standalone wallet...');
+            (async () => {
+              try {
+                const decryptedSecretKey = await walletEncryptionHelper.decryptWallet(savedPublicKey);
+                setSecretKey(decryptedSecretKey);
+                console.log('WalletContext: Encrypted wallet decrypted successfully');
+              } catch (decryptError) {
+                console.warn('WalletContext: Could not decrypt wallet automatically:', decryptError.message);
+              }
+            })();
+          } else if (savedSecretKey) {
+            console.log('WalletContext: Restoring missing secret key for standalone wallet');
+            setSecretKey(savedSecretKey);
+          }
         }
       }
     } else if (currentUser?.public_key && !savedPublicKey) {

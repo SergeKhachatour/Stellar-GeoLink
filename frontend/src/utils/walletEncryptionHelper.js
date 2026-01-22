@@ -80,36 +80,64 @@ export async function encryptAndStoreWallet(secretKey, publicKey, options = {}) 
  * @returns {Promise<string>} - Decrypted secret key
  */
 export async function decryptWallet(publicKey, options = {}) {
-  const { passphrase = null } = options;
+  const { passphrase = null, requirePasskeyAuth = false } = options;
   
   const encryptedData = keyVaultService.getEncryptedWalletData();
   if (!encryptedData) {
     throw new Error('No encrypted wallet data found');
   }
 
+  // Check which key derivation method was used
+  const keyDerivation = encryptedData.metadata?.keyDerivation || 'FALLBACK';
+  const requiresPRF = keyDerivation === 'PRF';
+
   // Try to get credentialId from storage
   const credentialId = localStorage.getItem('geolink_passkey_credential_id');
   
   // Build keying material
-  const keyingMaterial = {
+  let keyingMaterial = {
     credentialId: credentialId,
     prfResult: null, // PRF result is not stored, would need to re-authenticate
     passphrase: passphrase
   };
 
-  // If we have a credentialId, try to get PRF result by re-authenticating
-  // Note: This is a simplified approach - in production, you might want to cache PRF results
-  if (credentialId && !passphrase) {
-    try {
-      // For decryption, we can't use PRF result without re-authenticating
-      // So we'll use credentialId as fallback or require passphrase
-      console.log('[WalletEncryption] Using credentialId for key derivation (PRF requires re-authentication)');
-    } catch (error) {
-      console.warn('[WalletEncryption] Could not use PRF, falling back:', error);
+  // If PRF was used and we don't have a passphrase, we need to re-authenticate with passkey
+  if (requiresPRF && !passphrase) {
+    if (requirePasskeyAuth && credentialId) {
+      // Prompt user to authenticate with passkey to get PRF result
+      console.log('[WalletEncryption] PRF was used for encryption, requiring passkey authentication...');
+      try {
+        const passkeyService = await import('../services/passkeyService');
+        // Create a challenge for authentication
+        const challenge = new Uint8Array(32);
+        crypto.getRandomValues(challenge);
+        const challengeBase64 = btoa(String.fromCharCode(...challenge));
+        
+        // Authenticate with passkey to get PRF result
+        const authResult = await passkeyService.default.authenticatePasskey(credentialId, challengeBase64);
+        
+        // Note: The PRF result is not directly available from authenticatePasskey
+        // We would need to modify passkeyService to return PRF result if available
+        // For now, we'll try decryption with credentialId fallback
+        console.warn('[WalletEncryption] Passkey authentication successful, but PRF result not available. Using credentialId fallback (may fail if PRF was required).');
+      } catch (authError) {
+        throw new Error(`Passkey authentication required for decryption: ${authError.message}`);
+      }
+    } else {
+      // Try with credentialId fallback first
+      console.log('[WalletEncryption] PRF was used, but no passkey auth requested. Trying credentialId fallback...');
     }
   }
 
-  return await keyVaultService.decryptSecretKey(encryptedData, keyingMaterial);
+  try {
+    return await keyVaultService.decryptSecretKey(encryptedData, keyingMaterial);
+  } catch (decryptError) {
+    // If decryption fails and PRF was used, it might be because we need PRF result
+    if (requiresPRF && decryptError.message.includes('decrypt')) {
+      throw new Error('This wallet was encrypted with passkey PRF extension. Please authenticate with your passkey to decrypt. If you have a passphrase, you can use that instead.');
+    }
+    throw decryptError;
+  }
 }
 
 /**

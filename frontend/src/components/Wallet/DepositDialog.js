@@ -83,6 +83,24 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
     }
   }, [isConnected, publicKey, secretKey, showWalletDialog]);
 
+  // Check if wallet is encrypted when dialog opens
+  useEffect(() => {
+    if (open && isConnected && publicKey && !secretKey) {
+      // Wallet is connected but no secret key - check if it's encrypted
+      (async () => {
+        try {
+          const walletEncryptionHelper = await import('../../utils/walletEncryptionHelper');
+          if (walletEncryptionHelper.default.isWalletEncrypted()) {
+            console.log('DepositDialog: Wallet is encrypted, will decrypt on deposit attempt');
+            // Don't show wallet dialog - we'll handle decryption when user tries to deposit
+          }
+        } catch (err) {
+          console.error('DepositDialog: Error checking wallet encryption:', err);
+        }
+      })();
+    }
+  }, [open, isConnected, publicKey, secretKey]);
+
   // Get available balance from wallet context
   // balance is the XLM balance as a number, or we can get it from account.balances
   const availableBalance = (() => {
@@ -123,10 +141,10 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
     setLoading(true);
 
     try {
-      // Retrieve secret key from localStorage (like xyz-wallet does)
-      // This allows deposits to work even if wallet is connected in view-only mode
+      // Retrieve secret key - check state first, then try to decrypt encrypted wallet
       let userSecretKey = secretKey;
       if (!userSecretKey) {
+        // Check for plaintext secret key in localStorage
         const storedSecretKey = localStorage.getItem('stellar_secret_key');
         if (storedSecretKey) {
           // Verify the stored secret key matches the current public key
@@ -147,10 +165,43 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
             return;
           }
         } else {
-          setError('Secret key is required for deposits. Please import your wallet with secret key using the "Import Wallet" option.');
-          setShowWalletDialog(true);
-          setLoading(false);
-          return;
+          // Try to decrypt encrypted wallet
+          try {
+            const walletEncryptionHelper = await import('../../utils/walletEncryptionHelper');
+            if (walletEncryptionHelper.default.isWalletEncrypted()) {
+              console.log('DepositDialog: Attempting to decrypt encrypted wallet...');
+              // Try decryption first without requiring passkey auth (may work with credentialId fallback)
+              try {
+                userSecretKey = await walletEncryptionHelper.default.decryptWallet(publicKey);
+                console.log('DepositDialog: Encrypted wallet decrypted successfully');
+              } catch (decryptError) {
+                // If decryption fails and it mentions PRF or passkey, prompt user
+                if (decryptError.message.includes('passkey') || decryptError.message.includes('PRF')) {
+                  setError('This wallet requires passkey authentication to decrypt. Please authenticate with your passkey to continue.');
+                  setStatus('Waiting for passkey authentication...');
+                  // Try again with passkey auth requirement
+                  userSecretKey = await walletEncryptionHelper.default.decryptWallet(publicKey, { requirePasskeyAuth: true });
+                  console.log('DepositDialog: Encrypted wallet decrypted after passkey authentication');
+                } else {
+                  throw decryptError;
+                }
+              }
+            } else {
+              throw new Error('No encrypted wallet found');
+            }
+          } catch (decryptError) {
+            console.error('DepositDialog: Could not decrypt wallet:', decryptError);
+            // Don't show wallet dialog if wallet is already connected (even in view-only mode)
+            // Instead, show error message with option to decrypt
+            if (isConnected && publicKey) {
+              setError(decryptError.message || 'Secret key is required for deposits. Your wallet is encrypted. Please authenticate with your passkey to decrypt, or import your wallet with secret key using the "Import Wallet" option.');
+            } else {
+              setError(decryptError.message || 'Secret key is required for deposits. Please import your wallet with secret key using the "Import Wallet" option.');
+              setShowWalletDialog(true);
+            }
+            setLoading(false);
+            return;
+          }
         }
       }
 
@@ -345,10 +396,18 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setShowWalletDialog(true)}
+                  onClick={() => {
+                    // If wallet is encrypted, show message to authenticate
+                    // Otherwise, show wallet connection dialog
+                    if (isConnected && publicKey) {
+                      setError('To decrypt your encrypted wallet, please try depositing again - you will be prompted to authenticate with your passkey. Alternatively, you can import your wallet with secret key.');
+                    } else {
+                      setShowWalletDialog(true);
+                    }
+                  }}
                   startIcon={<AccountBalanceWallet />}
                 >
-                  Import Wallet with Secret Key
+                  {isConnected && publicKey ? 'Decrypt Wallet' : 'Import Wallet with Secret Key'}
                 </Button>
               </Box>
             )}
