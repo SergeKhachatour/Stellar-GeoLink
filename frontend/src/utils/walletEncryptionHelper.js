@@ -113,12 +113,11 @@ export async function decryptWallet(publicKey, options = {}) {
         crypto.getRandomValues(challenge);
         const challengeBase64 = btoa(String.fromCharCode(...challenge));
         
-        // Authenticate with passkey to get PRF result
-        const authResult = await passkeyService.default.authenticatePasskey(credentialId, challengeBase64);
-        
-        // Note: The PRF result is not directly available from authenticatePasskey
+        // Authenticate with passkey to verify user identity
+        // Note: PRF result is not directly available from authenticatePasskey
         // We would need to modify passkeyService to return PRF result if available
         // For now, we'll try decryption with credentialId fallback
+        await passkeyService.default.authenticatePasskey(credentialId, challengeBase64);
         console.warn('[WalletEncryption] Passkey authentication successful, but PRF result not available. Using credentialId fallback (may fail if PRF was required).');
       } catch (authError) {
         throw new Error(`Passkey authentication required for decryption: ${authError.message}`);
