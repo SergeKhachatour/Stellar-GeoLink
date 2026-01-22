@@ -88,7 +88,6 @@ import contractExecutionHelper from '../../utils/contractExecutionHelper';
 import IntentPreview from './IntentPreview';
 import executionEngine from '../../services/executionEngine';
 import intentService from '../../services/intentService';
-import passkeyService from '../../services/passkeyService';
 import keyVaultService from '../../services/keyVaultService';
 import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
 
@@ -1740,7 +1739,7 @@ const ContractManagement = () => {
   const [executingRule, setExecutingRule] = useState(false);
   const [intentPreviewOpen, setIntentPreviewOpen] = useState(false);
   const [currentIntent, setCurrentIntent] = useState(null);
-  const [useIntentExecution, setUseIntentExecution] = useState(process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true');
+  const useIntentExecution = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true';
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
   const [secretKeyInput, setSecretKeyInput] = useState('');

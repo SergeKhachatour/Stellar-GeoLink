@@ -43,6 +43,7 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
     if (open && intent) {
       loadIntentDetails();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, intent]);
 
   const loadIntentDetails = async () => {
