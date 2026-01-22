@@ -170,7 +170,7 @@ export async function migrateToEncryptedStorage(secretKey, publicKey, options = 
   };
 }
 
-export default {
+const walletEncryptionHelper = {
   encryptAndStoreWallet,
   decryptWallet,
   isWalletEncrypted,
@@ -179,3 +179,5 @@ export default {
   clearEncryptedWallet,
   migrateToEncryptedStorage
 };
+
+export default walletEncryptionHelper;
