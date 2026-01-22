@@ -33,7 +33,9 @@ import {
   Cancel as CancelIcon
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
-import webauthnService from '../../services/webauthnService';
+import passkeyService from '../../services/passkeyService';
+import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
+import keyVaultService from '../../services/keyVaultService';
 import api from '../../services/api';
 
 const PasskeyManager = () => {
@@ -48,12 +50,43 @@ const PasskeyManager = () => {
   const [editingName, setEditingName] = useState(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   const [deletingPasskey, setDeletingPasskey] = useState(null);
+  const [prfAvailable, setPrfAvailable] = useState(false);
+  const [walletEncrypted, setWalletEncrypted] = useState(false);
+  const [keyDerivationMethod, setKeyDerivationMethod] = useState(null);
 
   useEffect(() => {
     if (isConnected && publicKey) {
       fetchPasskeys();
+      checkPrfAvailability();
+      checkWalletEncryption();
     }
   }, [isConnected, publicKey]);
+
+  const checkPrfAvailability = async () => {
+    try {
+      const available = await passkeyService.isAvailable();
+      setPrfAvailable(available);
+    } catch (err) {
+      console.warn('Failed to check PRF availability:', err);
+      setPrfAvailable(false);
+    }
+  };
+
+  const checkWalletEncryption = () => {
+    const encrypted = walletEncryptionHelper.isWalletEncrypted();
+    setWalletEncrypted(encrypted);
+    
+    if (encrypted) {
+      try {
+        const encryptedData = keyVaultService.getEncryptedWalletData();
+        if (encryptedData?.metadata?.keyDerivation) {
+          setKeyDerivationMethod(encryptedData.metadata.keyDerivation);
+        }
+      } catch (err) {
+        console.warn('Failed to get key derivation method:', err);
+      }
+    }
+  };
 
   const fetchPasskeys = async () => {
     try {
@@ -92,17 +125,44 @@ const PasskeyManager = () => {
       setError('');
       setSuccess('');
 
-      // Step 1: Register passkey with WebAuthn API
-      const passkeyData = await webauthnService.registerPasskey(publicKey);
+      // Check if PRF extension is available
+      const prfAvailable = await passkeyService.isAvailable();
+      
+      // Step 1: Register passkey with new passkeyService (with PRF support)
+      const passkeyData = await passkeyService.registerPasskey(publicKey, { 
+        usePRF: prfAvailable 
+      });
 
-      // Step 2: Register on smart wallet contract via backend
+      // Step 2: If wallet is encrypted, update encryption with PRF result
+      if (walletEncryptionHelper.isWalletEncrypted() && passkeyData.prfResult) {
+        console.log('[PasskeyManager] PRF result available, can be used for wallet encryption');
+        // Note: The PRF result is already stored during registration
+        // The keyVaultService will use it if available during encryption
+      }
+
+      // Step 3: Register on smart wallet contract via backend
       await api.post('/webauthn/register', {
-        passkeyPublicKeySPKI: passkeyData.publicKey,
+        passkeyPublicKeySPKI: passkeyData.publicKeySPKI,
         credentialId: passkeyData.credentialId,
         secretKey: userSecretKey
       });
 
-      setSuccess('Passkey registered successfully!');
+      // Step 4: If wallet is not encrypted yet, offer to encrypt it
+      if (!walletEncryptionHelper.isWalletEncrypted() && userSecretKey) {
+        try {
+          await walletEncryptionHelper.encryptAndStoreWallet(userSecretKey, publicKey, {
+            autoRegisterPasskey: false, // Already registered
+            passphrase: null
+          });
+          setSuccess('Passkey registered successfully! Wallet encrypted with passkey.');
+        } catch (encryptError) {
+          console.warn('[PasskeyManager] Failed to encrypt wallet:', encryptError);
+          setSuccess('Passkey registered successfully! (Wallet encryption skipped)');
+        }
+      } else {
+        setSuccess(`Passkey registered successfully! ${passkeyData.prfResult ? 'PRF extension enabled.' : 'Using standard key derivation.'}`);
+      }
+
       await fetchPasskeys();
     } catch (err) {
       console.error('Error registering passkey:', err);
@@ -237,6 +297,28 @@ const PasskeyManager = () => {
           You can register multiple passkeys for backup.
         </Typography>
 
+        {/* PRF and Encryption Status */}
+        <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.default', borderRadius: 1 }}>
+          <Typography variant="body2" fontWeight="bold" gutterBottom>
+            Security Status
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              PRF Extension: {prfAvailable ? '✅ Available' : '❌ Not Available'}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Wallet Encryption: {walletEncrypted ? '✅ Encrypted' : '❌ Not Encrypted'}
+            </Typography>
+            {keyDerivationMethod && (
+              <Typography variant="caption" color="text.secondary">
+                Key Derivation: {keyDerivationMethod === 'PRF' ? '🔐 PRF (Most Secure)' : 
+                                keyDerivationMethod === 'PBKDF2' ? '🔑 PBKDF2 (Secure)' : 
+                                '⚠️ Fallback (Less Secure)'}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
         {loading && passkeys.length === 0 ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
             <CircularProgress />
@@ -365,6 +447,11 @@ const PasskeyManager = () => {
                       {passkey.role && (
                         <Typography variant="caption" color="text.secondary">
                           Role: {passkey.role}
+                        </Typography>
+                      )}
+                      {walletEncrypted && passkey.credentialId === walletEncryptionHelper.getStoredCredentialId() && (
+                        <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                          🔐 Used for wallet encryption
                         </Typography>
                       )}
                     </Box>

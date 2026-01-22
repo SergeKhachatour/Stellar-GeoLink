@@ -85,6 +85,12 @@ import * as turf from '@turf/turf';
 import { useWallet } from '../../contexts/WalletContext';
 import webauthnService from '../../services/webauthnService';
 import contractExecutionHelper from '../../utils/contractExecutionHelper';
+import IntentPreview from './IntentPreview';
+import executionEngine from '../../services/executionEngine';
+import intentService from '../../services/intentService';
+import passkeyService from '../../services/passkeyService';
+import keyVaultService from '../../services/keyVaultService';
+import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {
@@ -1732,6 +1738,9 @@ const ContractManagement = () => {
 
   const [testingRule, setTestingRule] = useState(false);
   const [executingRule, setExecutingRule] = useState(false);
+  const [intentPreviewOpen, setIntentPreviewOpen] = useState(false);
+  const [currentIntent, setCurrentIntent] = useState(null);
+  const [useIntentExecution, setUseIntentExecution] = useState(process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true');
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
   const [secretKeyInput, setSecretKeyInput] = useState('');
@@ -2800,6 +2809,112 @@ const ContractManagement = () => {
     }
   };
 
+  // Handle intent preview confirmation and execute with ExecutionEngine
+  const handleIntentPreviewConfirm = async () => {
+    if (!currentIntent) return;
+    
+    setIntentPreviewOpen(false);
+    setExecutingRule(true);
+    setExecutionStatus('Executing with ExecutionEngine...');
+    
+    try {
+      const rule = executeConfirmDialog.rule;
+      if (!rule) {
+        throw new Error('No rule found for execution');
+      }
+
+      const contract = contracts.find(c => c.id === rule.contract_id);
+      if (!contract) {
+        throw new Error('Contract not found');
+      }
+
+      // Get credential ID for WebAuthn
+      let credentialId = null;
+      if (currentIntent.authMode === 'webauthn') {
+        credentialId = walletEncryptionHelper.getStoredCredentialId();
+        if (!credentialId) {
+          // Try to get from passkeys API
+          try {
+            const passkeysResponse = await api.get('/webauthn/passkeys');
+            const passkeys = passkeysResponse.data.passkeys || [];
+            const activePasskey = passkeys.find(p => p.isOnContract === true) || passkeys[0];
+            if (activePasskey) {
+              credentialId = activePasskey.credentialId || activePasskey.credential_id;
+            }
+          } catch (err) {
+            console.warn('Failed to fetch passkeys:', err);
+          }
+        }
+      }
+
+      // Prepare execution options
+      const executionOptions = {
+        authMode: currentIntent.authMode,
+        simulate: true
+      };
+
+      if (currentIntent.authMode === 'webauthn') {
+        if (!credentialId) {
+          throw new Error('No passkey credential ID found. Please register a passkey first.');
+        }
+        executionOptions.credentialId = credentialId;
+      } else {
+        // Classic mode: need keying material
+        const encryptedData = keyVaultService.getEncryptedWalletData();
+        if (encryptedData) {
+          executionOptions.keyingMaterial = {
+            credentialId: walletEncryptionHelper.getStoredCredentialId(),
+            passphrase: null
+          };
+        } else {
+          // Fallback: use secret key from context
+          const userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
+          if (!userSecretKey) {
+            throw new Error('Secret key required for classic execution');
+          }
+          // For classic mode without encrypted wallet, we'll use backend execution
+          // (ExecutionEngine requires encrypted wallet for classic mode)
+          throw new Error('Classic execution requires encrypted wallet. Please use WebAuthn mode or encrypt your wallet.');
+        }
+      }
+
+      // Execute with ExecutionEngine
+      const result = await executionEngine.executeContractCall(currentIntent, executionOptions);
+
+      if (result.success) {
+        setExecutionStatus('✅ Transaction confirmed!');
+        setExecutionResult({
+          functionName: rule.function_name,
+          transactionHash: result.transactionHash,
+          network: currentIntent.network,
+          executionType: 'intent_based',
+          timestamp: new Date().toISOString(),
+          parameters: currentIntent.args
+        });
+        setSuccess(`Function "${rule.function_name}" executed successfully! Transaction: ${result.transactionHash}`);
+        
+        // Reload rules
+        setTimeout(async () => {
+          await Promise.all([
+            loadPendingRules(),
+            loadCompletedRules()
+          ]);
+        }, 1000);
+      } else {
+        throw new Error(result.error || 'Execution failed');
+      }
+    } catch (error) {
+      console.error('[ContractManagement] Intent-based execution failed:', error);
+      setError(error.message || 'Execution failed');
+      // Fall back to backend execution
+      setExecutionStatus('Falling back to backend execution...');
+      // Continue with regular execution flow
+      await handleConfirmExecute(executeConfirmDialog.rule);
+    } finally {
+      setExecutingRule(false);
+    }
+  };
+
   const handleConfirmExecute = async (ruleParam = null) => {
     const rule = ruleParam || executeConfirmDialog.rule;
     if (!rule) {
@@ -2820,6 +2935,68 @@ const ContractManagement = () => {
 
     const contract = contracts.find(c => c.id === rule.contract_id);
     const isReadOnly = isReadOnlyFunction(rule.function_name);
+    
+    // Create intent for execution (if using intent-based execution)
+    let intent = null;
+    if (useIntentExecution && contract) {
+      try {
+        let functionParams = typeof rule.function_parameters === 'string'
+          ? JSON.parse(rule.function_parameters)
+          : rule.function_parameters || {};
+
+        // Convert function params to typed args
+        let typedArgs = [];
+        if (contract.discovered_functions) {
+          const discoveredFunctions = typeof contract.discovered_functions === 'string'
+            ? JSON.parse(contract.discovered_functions)
+            : contract.discovered_functions;
+          
+          const func = discoveredFunctions[rule.function_name];
+          if (func && func.parameters) {
+            typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, functionParams);
+          } else {
+            // Fallback: convert parameters object to typed args
+            typedArgs = Object.entries(functionParams).map(([name, value]) => ({
+              name,
+              type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',
+              value
+            }));
+          }
+        } else {
+          // No introspection available, infer types from values
+          typedArgs = Object.entries(functionParams).map(([name, value]) => ({
+            name,
+            type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',
+            value
+          }));
+        }
+
+        // Determine auth mode
+        const needsWebAuthn = contract?.requires_webauthn || requiresWebAuthn(rule, contract);
+        const authMode = needsWebAuthn ? 'webauthn' : 'classic';
+
+        // Create intent
+        intent = intentService.createContractCallIntent({
+          contractId: contract.contract_address,
+          fn: rule.function_name,
+          args: typedArgs,
+          signer: publicKey,
+          network: contract.network || 'testnet',
+          authMode,
+          ruleBinding: rule.id ? rule.id.toString() : null,
+          expiresIn: 300 // 5 minutes
+        });
+
+        // Show intent preview before execution
+        setCurrentIntent(intent);
+        setIntentPreviewOpen(true);
+        setExecutingRule(false); // Don't execute yet, wait for preview confirmation
+        return; // Exit early, execution will continue after preview confirmation
+      } catch (intentError) {
+        console.error('[ContractManagement] Failed to create intent:', intentError);
+        // Fall through to regular execution
+      }
+    }
     
     // Keep confirmation dialog open to show execution steps
     // Don't close it - it will show the execution progress
@@ -8534,6 +8711,19 @@ const ContractManagement = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Intent Preview Dialog */}
+      <IntentPreview
+        open={intentPreviewOpen}
+        onClose={() => {
+          setIntentPreviewOpen(false);
+          setCurrentIntent(null);
+          setExecutingRule(false);
+        }}
+        intent={currentIntent}
+        onConfirm={handleIntentPreviewConfirm}
+        loading={executingRule}
+      />
 
       {/* GeoLink Agent - Available for both logged-in and logged-out users */}
       <AIChat isPublic={!isAuthenticated} initialOpen={false} />
