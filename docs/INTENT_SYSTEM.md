@@ -68,12 +68,48 @@ User clicks Execute →
 - ExecutionEngine integration
 - PasskeyManager with PRF support
 
-### Configuration
+## Configuration
 
-Enable intent-based execution via environment variable:
-```bash
-REACT_APP_USE_EXECUTION_ENGINE=true
-```
+### Enable Intent-Based Execution
+
+To enable the intent-based execution flow, set the environment variable in your frontend `.env` file:
+
+1. **Edit `frontend/.env` file** (create it if it doesn't exist):
+   ```bash
+   # Enable intent-based execution
+   REACT_APP_USE_EXECUTION_ENGINE=true
+   ```
+
+2. **Restart your development server** (if running):
+   ```bash
+   # Stop the current server (Ctrl+C)
+   # Then restart:
+   cd frontend
+   npm start
+   ```
+
+3. **For production builds**, rebuild the frontend:
+   ```bash
+   cd frontend
+   npm run build
+   ```
+
+**Important Notes:**
+- React environment variables must be prefixed with `REACT_APP_`
+- Environment variables are baked into the build at compile time
+- You must rebuild/restart after changing environment variables
+- The flag is checked at runtime: `process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true'`
+
+**What Happens When Enabled:**
+- Contract execution will show an intent preview dialog before executing
+- Uses the new ExecutionEngine for client-side execution
+- Supports both classic (secret key) and WebAuthn (passkey) execution lanes
+- Falls back to backend API execution if ExecutionEngine fails
+
+**What Happens When Disabled (default):**
+- Uses the legacy backend API execution flow
+- No intent preview dialog
+- Direct execution via backend endpoints
 
 ## Technical Details
 
