@@ -84,6 +84,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import { useWallet } from '../../contexts/WalletContext';
 import webauthnService from '../../services/webauthnService';
+import contractExecutionHelper from '../../utils/contractExecutionHelper';
+import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {
@@ -3566,7 +3568,61 @@ const ContractManagement = () => {
         requestBody.signaturePayload = webauthnData.signaturePayload;
       }
 
-      const response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
+      // OPTIONAL: Use ExecutionEngine for client-side execution (classic mode only)
+      // Enable by setting REACT_APP_USE_EXECUTION_ENGINE=true in .env
+      const shouldUseExecutionEngine = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true' && 
+                                       !needsWebAuthn && 
+                                       !isPayment && 
+                                       !willRouteThroughSmartWallet &&
+                                       userSecretKey &&
+                                       contract;
+
+      let response;
+      let usedExecutionEngine = false;
+      
+      if (shouldUseExecutionEngine) {
+        try {
+          console.log('[ContractManagement] Using ExecutionEngine for client-side execution');
+          setExecutionStatus('Executing with ExecutionEngine...');
+          
+          // Use contractExecutionHelper to execute
+          const executionResult = await contractExecutionHelper.executeContractFunction({
+            contractId: contract.contract_address,
+            functionName: rule.function_name,
+            parameters: functionParams,
+            userPublicKey: publicKey,
+            network: 'testnet', // TODO: Get from contract or user settings
+            contract: contract,
+            rule: rule,
+            authMode: 'classic',
+            passphrase: null
+          });
+
+          if (executionResult.success) {
+            // Convert ExecutionEngine result to match backend response format
+            response = {
+              data: {
+                success: true,
+                transaction_hash: executionResult.transactionHash,
+                network: 'testnet',
+                execution_type: 'submitted_to_ledger',
+                result: executionResult.result
+              }
+            };
+            usedExecutionEngine = true;
+          } else {
+            throw new Error(executionResult.error || 'Execution failed');
+          }
+        } catch (execError) {
+          console.error('[ContractManagement] ExecutionEngine failed, falling back to backend:', execError);
+          // Fall through to backend execution
+        }
+      }
+
+      // Backend execution (default or fallback)
+      if (!usedExecutionEngine) {
+        response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
+      }
 
       if (response.data.success) {
         setExecutionStep(5);
