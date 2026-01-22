@@ -368,10 +368,8 @@ class PasskeyService {
 // Export singleton instance
 export const passkeyService = new PasskeyService();
 
-// Export utility functions
+// Export utility functions (normalizeWebAuthnSignatureToRaw64 and extractUncompressedP256PubKey65FromSPKI already exported above)
 export {
-  normalizeWebAuthnSignatureToRaw64,
-  extractUncompressedP256PubKey65FromSPKI,
   arrayBufferToBase64,
   base64ToArrayBuffer
 };

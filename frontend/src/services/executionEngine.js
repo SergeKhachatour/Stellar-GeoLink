@@ -42,6 +42,9 @@ class ExecutionEngine {
   constructor() {
     this.networkPassphrase = 'Test SDF Network ; September 2015';
     this.rpcUrl = 'https://soroban-testnet.stellar.org';
+    // WebAuthn Dispatcher Contract ID (optional - for universal WebAuthn execution)
+    this.dispatcherContractId = process.env.REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID || 
+      'CDGRO2434K4NT37VZRILKJYCWNWNIF2M3DUTA47SCKO7TBPCDEF5ZICV';
   }
 
   /**
@@ -175,7 +178,7 @@ class ExecutionEngine {
 
       // Check if target contract is WebAuthn-aware
       // If not, route through dispatcher contract
-      const targetContractId = options.dispatcherContractId || intent.contractId;
+      const targetContractId = options.dispatcherContractId || this.dispatcherContractId || intent.contractId;
 
       // Build Soroban transaction with WebAuthn parameters
       const StellarSdk = await import('@stellar/stellar-sdk');

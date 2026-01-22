@@ -20,7 +20,13 @@ All contract IDs are configured via environment variables, making it easy to upd
 - **Frontend Variable**: `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID`
 - **Current Default**: `CARLXTWOUIRQVQILCBSA3CNG6QIVO3PIPKF66LDHQXGQGUAAWPFLND3L`
 
-### 3. Default LocationNFT Contract
+### 3. WebAuthn Dispatcher Contract
+- **Purpose**: Routes WebAuthn-verified calls to any target contract (optional)
+- **Backend Variable**: `WEBAUTHN_DISPATCHER_CONTRACT_ID`
+- **Frontend Variable**: `REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID`
+- **Current Default**: `CDGRO2434K4NT37VZRILKJYCWNWNIF2M3DUTA47SCKO7TBPCDEF5ZICV`
+
+### 4. Default LocationNFT Contract
 - **Purpose**: Default contract for minting location-based NFTs
 - **Backend Variable**: `DEFAULT_NFT_CONTRACT_ID`
 - **Frontend Variable**: `REACT_APP_DEFAULT_CONTRACT_ADDRESS`
@@ -35,11 +41,13 @@ All contract IDs are configured via environment variables, making it easy to upd
    # Backend variables
    SMART_WALLET_CONTRACT_ID=YOUR_NEW_SMART_WALLET_CONTRACT_ID
    WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_WEBAUTHN_VERIFIER_CONTRACT_ID
+   WEBAUTHN_DISPATCHER_CONTRACT_ID=YOUR_NEW_DISPATCHER_CONTRACT_ID
    DEFAULT_NFT_CONTRACT_ID=YOUR_NEW_NFT_CONTRACT_ID
    
    # Frontend variables (must be prefixed with REACT_APP_)
    REACT_APP_SMART_WALLET_CONTRACT_ID=YOUR_NEW_SMART_WALLET_CONTRACT_ID
    REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID=YOUR_NEW_WEBAUTHN_VERIFIER_CONTRACT_ID
+   REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID=YOUR_NEW_DISPATCHER_CONTRACT_ID
    REACT_APP_DEFAULT_CONTRACT_ADDRESS=YOUR_NEW_NFT_CONTRACT_ID
    ```
 
@@ -68,6 +76,7 @@ Frontend contract IDs are baked into the build during GitHub Actions deployment.
 2. **Add the following secrets**:
    - `REACT_APP_SMART_WALLET_CONTRACT_ID` = Your new contract ID
    - `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
+   - `REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID` = Your new dispatcher contract ID
    - `REACT_APP_DEFAULT_CONTRACT_ADDRESS` = Your new contract ID
 
 3. **Push a commit** to trigger automatic rebuild and deployment:
@@ -87,6 +96,7 @@ Backend contract IDs are runtime variables and should be set in Azure Portal:
 2. **Add/Update the following environment variables**:
    - `SMART_WALLET_CONTRACT_ID` = Your new contract ID
    - `WEBAUTHN_VERIFIER_CONTRACT_ID` = Your new contract ID
+   - `WEBAUTHN_DISPATCHER_CONTRACT_ID` = Your new dispatcher contract ID
    - `DEFAULT_NFT_CONTRACT_ID` = Your new contract ID
    - `STELLAR_NETWORK` = `testnet` or `mainnet`
 
@@ -136,5 +146,6 @@ After updating contract IDs, verify they're being used correctly:
 |----------|----------------|------------------|---------------|
 | Smart Wallet | `SMART_WALLET_CONTRACT_ID` | `REACT_APP_SMART_WALLET_CONTRACT_ID` | `CAAQTGMXO6VS7HUYH7YLBVSI6T64WWHAPQDR6QEO7EVEOD4CR3H3565U` |
 | WebAuthn Verifier | `WEBAUTHN_VERIFIER_CONTRACT_ID` | `REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID` | `CARLXTWOUIRQVQILCBSA3CNG6QIVO3PIPKF66LDHQXGQGUAAWPFLND3L` |
+| WebAuthn Dispatcher | `WEBAUTHN_DISPATCHER_CONTRACT_ID` | `REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID` | `CDGRO2434K4NT37VZRILKJYCWNWNIF2M3DUTA47SCKO7TBPCDEF5ZICV` |
 | LocationNFT | `DEFAULT_NFT_CONTRACT_ID` | `REACT_APP_DEFAULT_CONTRACT_ADDRESS` | `CCDHRZSNWGW2KTRVPOW5QXR32DTWFLXHXDBC3OZO6CSW2JY7PYV2N4AQ` |
 

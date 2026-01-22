@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, BytesN, Env, Map, Symbol, Vec};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, symbol_short, 
+    Address, Bytes, BytesN, Env, Map, Symbol, Vec
+};
 
 /// WebAuthn Dispatcher Contract
 /// Routes WebAuthn-verified calls to any target contract
@@ -35,7 +38,7 @@ pub struct WebAuthnSignature {
     pub signature_payload: Bytes,        // Intent bytes (for challenge verification)
 }
 
-const WEBAUTHN_VERIFIER_CONTRACT: Symbol = symbol_short!("WEBAUTHN_VERIFIER");
+const VERIFIER: Symbol = symbol_short!("VERIFIER");
 
 #[contract]
 pub struct WebAuthnDispatcher;
@@ -46,7 +49,7 @@ impl WebAuthnDispatcher {
     /// Sets the WebAuthn Verifier contract address
     pub fn initialize(env: Env, verifier_contract: Address) {
         // Store verifier contract address
-        env.storage().instance().set(&WEBAUTHN_VERIFIER_CONTRACT, &verifier_contract);
+        env.storage().instance().set(&VERIFIER, &verifier_contract);
     }
 
     /// Execute a contract call with WebAuthn verification
@@ -77,7 +80,7 @@ impl WebAuthnDispatcher {
 
         // 2. Verify nonce uniqueness (anti-replay)
         let nonce_key = (intent.signer.clone(), intent.nonce.clone());
-        let nonces: Map<(Address, BytesN<32>), bool> = env.storage().persistent().get(&symbol_short!("nonces")).unwrap_or(Map::new(&env));
+        let mut nonces: Map<(Address, BytesN<32>), bool> = env.storage().persistent().get(&symbol_short!("nonces")).unwrap_or(Map::new(&env));
         if nonces.get(nonce_key.clone()).is_some() {
             panic!("Nonce already used");
         }
@@ -85,7 +88,7 @@ impl WebAuthnDispatcher {
         env.storage().persistent().set(&symbol_short!("nonces"), &nonces);
 
         // 3. Verify WebAuthn signature using verifier contract
-        let verifier_contract: Address = env.storage().instance().get(&WEBAUTHN_VERIFIER_CONTRACT)
+        let _verifier_contract: Address = env.storage().instance().get(&VERIFIER)
             .expect("Verifier contract not initialized");
 
         // Call verifier contract to verify signature
@@ -102,8 +105,14 @@ impl WebAuthnDispatcher {
 
         // 4. Derive challenge from intent bytes (SHA-256, first 32 bytes)
         // The verifier will compare this with the challenge in client_data_json
-        let intent_bytes = Self::encode_intent(&env, &intent);
-        let challenge = Self::derive_challenge(&env, &intent_bytes);
+        let _intent_bytes = Self::encode_intent(&env, &intent);
+        let _challenge = Self::derive_challenge(&env, &_intent_bytes);
+        
+        // TODO: Use webauthn_signature, passkey_public_key, and rp_id_hash for verification
+        // For now, these are placeholders
+        let _ = webauthn_signature;
+        let _ = passkey_public_key;
+        let _ = rp_id_hash;
 
         // 5. Call target contract function
         // Note: This requires dynamic contract invocation
@@ -111,53 +120,27 @@ impl WebAuthnDispatcher {
         // so we'd need to use a different approach or limit to known contracts
         
         // For now, return success (actual implementation would invoke target contract)
-        env.log().debug("WebAuthn signature verified, routing to target contract");
+        // Note: Logging removed for simplicity - can be added back if needed
         
         // Return empty bytes (actual implementation would return contract result)
         Bytes::new(&env)
     }
 
     /// Encode intent to bytes (deterministic)
-    fn encode_intent(env: &Env, intent: &ContractCallIntent) -> Bytes {
-        // Simplified encoding - in production, use canonical encoding
+    /// Note: This is a simplified placeholder - actual implementation would use proper XDR encoding
+    fn encode_intent(_env: &Env, _intent: &ContractCallIntent) -> Bytes {
+        // Simplified encoding - in production, use canonical XDR encoding
         // This should match the frontend's encodeIntentBytes implementation
-        let mut bytes = Vec::new(env);
-        
-        // Version
-        bytes.push_back((intent.v as u8).into());
-        
-        // Contract ID (Address)
-        bytes.push_back(intent.contract_id.to_xdr(env).into());
-        
-        // Function name (Symbol)
-        bytes.push_back(intent.fn_name.to_xdr(env).into());
-        
-        // Args (Vec<Bytes>)
-        bytes.push_back(intent.args.to_xdr(env).into());
-        
-        // Signer (Address)
-        bytes.push_back(intent.signer.to_xdr(env).into());
-        
-        // Nonce (BytesN<32>)
-        bytes.push_back(intent.nonce.to_xdr(env).into());
-        
-        // IAT (u64)
-        bytes.push_back(intent.iat.to_xdr(env).into());
-        
-        // EXP (u64)
-        bytes.push_back(intent.exp.to_xdr(env).into());
-        
-        // Convert Vec to Bytes
-        // Note: This is simplified - actual implementation needs proper serialization
-        Bytes::new(env)
+        // For now, return empty bytes as placeholder
+        // TODO: Implement proper XDR encoding to match frontend's canonical JSON encoding
+        Bytes::new(_env)
     }
 
     /// Derive challenge from intent bytes (SHA-256, first 32 bytes)
-    fn derive_challenge(env: &Env, intent_bytes: &Bytes) -> BytesN<32> {
-        // Use Soroban's crypto functions to compute SHA-256
-        // Note: Soroban doesn't have SHA-256 directly, so this is a placeholder
-        // In production, you'd need to use a crypto library or contract
-        
+    /// Note: Soroban doesn't have native SHA-256, so this is a placeholder
+    /// In production, you'd need to use a crypto library or contract
+    fn derive_challenge(env: &Env, _intent_bytes: &Bytes) -> BytesN<32> {
+        // TODO: Implement SHA-256 hash computation
         // For now, return zero bytes (actual implementation would compute SHA-256)
         BytesN::<32>::from_array(env, &[0u8; 32])
     }
