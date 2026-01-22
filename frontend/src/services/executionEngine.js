@@ -9,11 +9,9 @@
  */
 
 import { 
-  createContractCallIntent, 
   encodeIntentBytes, 
   challengeFromIntent, 
-  validateIntent,
-  convertIntrospectedArgsToIntentArgs 
+  validateIntent
 } from './intentService';
 import passkeyService, { base64ToArrayBuffer } from './passkeyService';
 import keyVaultService from './keyVaultService';

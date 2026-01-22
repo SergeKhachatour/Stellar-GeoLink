@@ -6,7 +6,6 @@
 
 import executionEngine from '../services/executionEngine';
 import intentService from '../services/intentService';
-import passkeyService from '../services/passkeyService';
 import walletEncryptionHelper from './walletEncryptionHelper';
 
 /**
@@ -136,6 +135,8 @@ function inferType(value) {
   return 'String';
 }
 
-export default {
+const contractExecutionHelper = {
   executeContractFunction
 };
+
+export default contractExecutionHelper;

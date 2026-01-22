@@ -85,7 +85,6 @@ import * as turf from '@turf/turf';
 import { useWallet } from '../../contexts/WalletContext';
 import webauthnService from '../../services/webauthnService';
 import contractExecutionHelper from '../../utils/contractExecutionHelper';
-import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {

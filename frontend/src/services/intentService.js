@@ -183,7 +183,7 @@ export function validateIntent(intent) {
   return { valid: true };
 }
 
-export default {
+const intentService = {
   encodeIntentBytes,
   challengeFromIntent,
   convertIntrospectedArgsToIntentArgs,
@@ -191,3 +191,5 @@ export default {
   createContractCallIntent,
   validateIntent
 };
+
+export default intentService;
