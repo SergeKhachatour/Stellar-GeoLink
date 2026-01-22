@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAuthn & Encryption Validation Tests</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #ffd700;
+            text-align: center;
+        }
+        .test-container {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        .pass {
+            background: #2d5016;
+            color: #90ee90;
+        }
+        .fail {
+            background: #501616;
+            color: #ff6b6b;
+        }
+        button {
+            background: #ffd700;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #ffed4e;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #output {
+            background: #0f0f1e;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 WebAuthn & Encryption Validation Tests</h1>
+    
+    <div class="test-container">
+        <h2>Test Suite</h2>
+        <p>Run validation tests for the improved WebAuthn and encryption implementation.</p>
+        
+        <button id="runAllTests">Run All Tests</button>
+        <button id="testDeterministic">Test Deterministic Encoding</button>
+        <button id="testChallenge">Test Challenge Derivation</button>
+        <button id="testSignature">Test Signature Normalization</button>
+        <button id="testSPKI">Test SPKI Extraction</button>
+        <button id="testEncryption">Test Encryption Round Trip</button>
+        <button id="clearOutput">Clear Output</button>
+        
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        // Capture console.log for display
+        const output = document.getElementById('output');
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        function addToOutput(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'warn' ? '⚠️' : 'ℹ️';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        console.log = (...args) => {
+            originalLog.apply(console, args);
+            addToOutput(args.join(' '), 'log');
+        };
+
+        console.error = (...args) => {
+            originalError.apply(console, args);
+            addToOutput(args.join(' '), 'error');
+        };
+
+        console.warn = (...args) => {
+            originalWarn.apply(console, args);
+            addToOutput(args.join(' '), 'warn');
+        };
+
+        // Import validation scripts
+        let validationScripts;
+        
+        async function loadValidationScripts() {
+            try {
+                // Note: This assumes the validation scripts are available
+                // In production, you'd bundle this or use a module loader
+                validationScripts = await import('/src/utils/validationScripts.js');
+                console.log('✅ Validation scripts loaded');
+            } catch (error) {
+                console.error('❌ Failed to load validation scripts:', error);
+                addToOutput('Note: This test page requires the validation scripts to be available. Run tests from the browser console or a test environment.', 'warn');
+            }
+        }
+
+        document.getElementById('runAllTests').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                console.log('🚀 Running all validation tests...\n');
+                await validationScripts.runAllValidationTests();
+            }
+        });
+
+        document.getElementById('testDeterministic').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                await validationScripts.testDeterministicEncoding();
+            }
+        });
+
+        document.getElementById('testChallenge').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                await validationScripts.testChallengeDerivation();
+            }
+        });
+
+        document.getElementById('testSignature').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                validationScripts.testSignatureNormalization();
+            }
+        });
+
+        document.getElementById('testSPKI').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                validationScripts.testSPKIExtraction();
+            }
+        });
+
+        document.getElementById('testEncryption').addEventListener('click', async () => {
+            if (!validationScripts) {
+                await loadValidationScripts();
+            }
+            if (validationScripts) {
+                await validationScripts.testEncryptionRoundTrip();
+            }
+        });
+
+        document.getElementById('clearOutput').addEventListener('click', () => {
+            output.textContent = '';
+        });
+
+        // Load scripts on page load
+        loadValidationScripts();
+    </script>
+</body>
+</html>

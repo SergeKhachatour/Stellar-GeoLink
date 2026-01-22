@@ -12,6 +12,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
+const { validateSignedXDR } = require('../middleware/validateSignedXDR');
 const contracts = require('../config/contracts');
 const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } = require('../utils/webauthnUtils');
 
@@ -361,7 +362,7 @@ router.get('/balance', authenticateUser, async (req, res) => {
  *   webauthnSignature, webauthnAuthenticatorData, webauthnClientData
  * }
  */
-router.post('/execute-payment', authenticateUser, async (req, res) => {
+router.post('/execute-payment', authenticateUser, validateSignedXDR, async (req, res) => {
   console.log('[Smart Wallet] 💳 Execute payment request received');
   try {
     // Log request details for debugging
@@ -1494,7 +1495,7 @@ router.post('/register-signer', authenticateUser, async (req, res) => {
  *   webauthnSignature, webauthnAuthenticatorData, webauthnClientData
  * }
  */
-router.post('/deposit', authenticateUser, async (req, res) => {
+router.post('/deposit', authenticateUser, validateSignedXDR, async (req, res) => {
   console.log('[Smart Wallet] 💸 Deposit request received');
   try {
     const {

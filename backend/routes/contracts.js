@@ -6,6 +6,7 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
+const { validateSignedXDR } = require('../middleware/validateSignedXDR');
 const contractIntrospection = require('../services/contractIntrospection');
 const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } = require('../utils/webauthnUtils');
 

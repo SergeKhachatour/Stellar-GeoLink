@@ -5,6 +5,7 @@ import sorobanService from '../services/sorobanService';
 import nftService from '../services/nftService';
 import realNFTService from '../services/realNFTService';
 import contractDeploymentService from '../services/contractDeployment';
+import walletEncryptionHelper from '../utils/walletEncryptionHelper';
 
 const WalletContext = createContext();
 
@@ -115,10 +116,12 @@ export const WalletProvider = ({ children }) => {
     setCurrentUser(user);
   };
 
-  // Load wallet from localStorage - supports both user-based and standalone connections
+    // Load wallet from localStorage - supports both user-based and standalone connections
   useEffect(() => {
     const savedPublicKey = localStorage.getItem('stellar_public_key');
-    const savedSecretKey = localStorage.getItem('stellar_secret_key');
+    // Check for encrypted wallet first, then fallback to plaintext
+    const hasEncryptedWallet = walletEncryptionHelper.isWalletEncrypted();
+    const savedSecretKey = hasEncryptedWallet ? null : localStorage.getItem('stellar_secret_key');
     
     console.log('WalletContext: Checking saved wallet data:', { 
       savedPublicKey: savedPublicKey ? 'exists' : 'none',
@@ -313,11 +316,31 @@ export const WalletProvider = ({ children }) => {
       // Save to state and localStorage immediately
       // This allows connection even for newly created accounts that aren't on Horizon yet
       setPublicKey(publicKey);
-      setSecretKey(secretKeyInput);
+      setSecretKey(secretKeyInput); // Keep in state for immediate use
       setIsConnected(true);
       
       localStorage.setItem('stellar_public_key', publicKey);
-      localStorage.setItem('stellar_secret_key', secretKeyInput);
+      
+      // Encrypt and store secret key (migrate from plaintext if needed)
+      try {
+        const encrypted = await walletEncryptionHelper.encryptAndStoreWallet(
+          secretKeyInput,
+          publicKey,
+          { autoRegisterPasskey: true }
+        );
+        console.log('[WalletContext] Secret key encrypted and stored:', {
+          encrypted: encrypted.encrypted,
+          passkeyRegistered: encrypted.passkeyRegistered,
+          keyDerivation: encrypted.keyDerivation
+        });
+        
+        // Remove plaintext secret key from localStorage
+        localStorage.removeItem('stellar_secret_key');
+      } catch (encryptError) {
+        console.warn('[WalletContext] Failed to encrypt secret key, storing plaintext as fallback:', encryptError);
+        // Fallback: store plaintext (less secure, but functional)
+        localStorage.setItem('stellar_secret_key', secretKeyInput);
+      }
 
       console.log(`WalletContext: Wallet connected successfully - Public Key: ${publicKey.substring(0, 8)}...`);
       
@@ -439,16 +462,43 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Invalid response from server: missing publicKey or secret');
       }
 
+      // Encrypt and store secret key immediately
+      let encrypted = false;
+      let passkeyRegistered = false;
+      try {
+        const encryptionResult = await walletEncryptionHelper.encryptAndStoreWallet(
+          secretKey,
+          publicKey,
+          { autoRegisterPasskey: autoRegisterPasskey }
+        );
+        encrypted = encryptionResult.encrypted;
+        passkeyRegistered = encryptionResult.passkeyRegistered;
+        console.log('[WalletContext] Wallet created with encrypted storage:', {
+          encrypted,
+          passkeyRegistered,
+          keyDerivation: encryptionResult.keyDerivation
+        });
+        
+        // Remove plaintext secret key from localStorage
+        localStorage.removeItem('stellar_secret_key');
+      } catch (encryptError) {
+        console.warn('[WalletContext] Failed to encrypt secret key during wallet creation:', encryptError);
+        // Fallback: store plaintext (less secure, but functional)
+        localStorage.setItem('stellar_secret_key', secretKey);
+      }
+
       const wallet = {
         publicKey: publicKey,
-        secretKey: secretKey
+        secretKey: secretKey, // Keep in memory for immediate use
+        encrypted: encrypted,
+        passkeyRegistered: passkeyRegistered
       };
 
       // Automatically register passkey if WebAuthn is available and enabled
       // Do this asynchronously - don't block wallet creation on passkey registration
       // Friendbot can take 30+ seconds to fund accounts, so we'll try to register
       // the passkey in the background with multiple attempts
-      if (autoRegisterPasskey && navigator.credentials && navigator.credentials.create) {
+      if (autoRegisterPasskey && !passkeyRegistered && navigator.credentials && navigator.credentials.create) {
         // Start passkey registration asynchronously (don't await)
         // This allows wallet creation to complete immediately
         (async () => {
@@ -533,6 +583,8 @@ export const WalletProvider = ({ children }) => {
     
     localStorage.removeItem('stellar_public_key');
     localStorage.removeItem('stellar_secret_key');
+    // Note: Encrypted wallet data is kept for reconnection
+    // Use clearWalletCompletely() to remove encrypted data
   };
 
   // Clear wallet state (for logout)
@@ -546,7 +598,7 @@ export const WalletProvider = ({ children }) => {
     // Don't clear localStorage as it might be needed for reconnection
   };
 
-  // Clear wallet completely (including localStorage)
+  // Clear wallet completely (including localStorage and encrypted data)
   const clearWalletCompletely = () => {
     setPublicKey(null);
     setSecretKey(null);
@@ -556,6 +608,7 @@ export const WalletProvider = ({ children }) => {
     setError(null);
     localStorage.removeItem('stellar_public_key');
     localStorage.removeItem('stellar_secret_key');
+    walletEncryptionHelper.clearEncryptedWallet(); // Clear encrypted wallet data
   };
 
   // Upgrade from view-only to full access
@@ -585,9 +638,22 @@ export const WalletProvider = ({ children }) => {
         throw new Error('Secret key does not match the current wallet. Please use the correct secret key.');
       }
       
-      // Update to full access
+      // Encrypt and store secret key
+      try {
+        await walletEncryptionHelper.encryptAndStoreWallet(
+          secretKeyInput,
+          publicKey,
+          { autoRegisterPasskey: true }
+        );
+        console.log('[WalletContext] Secret key encrypted during upgrade');
+        localStorage.removeItem('stellar_secret_key'); // Remove plaintext
+      } catch (encryptError) {
+        console.warn('[WalletContext] Failed to encrypt secret key during upgrade:', encryptError);
+        localStorage.setItem('stellar_secret_key', secretKeyInput); // Fallback
+      }
+      
+      // Update to full access (keep in state for immediate use)
       setSecretKey(secretKeyInput);
-      localStorage.setItem('stellar_secret_key', secretKeyInput);
       
       console.log('WalletContext: Upgraded to full access');
       return true;
@@ -655,8 +721,23 @@ export const WalletProvider = ({ children }) => {
         return result;
       } else if (secretKey) {
         // Use secret key to sign (traditional method)
+        // Note: secretKey is in state, but if not available, try to decrypt from encrypted storage
+        let signingKey = secretKey;
+        if (!signingKey) {
+          try {
+            signingKey = await walletEncryptionHelper.decryptWallet(publicKey);
+            setSecretKey(signingKey); // Cache in state for future use
+          } catch (decryptError) {
+            // Fallback to plaintext if decryption fails
+            signingKey = localStorage.getItem('stellar_secret_key');
+            if (!signingKey) {
+              throw new Error('No secret key available for signing');
+            }
+          }
+        }
+        
         const Keypair = StellarSdk.Keypair;
-        const keypair = Keypair.fromSecret(secretKey);
+        const keypair = Keypair.fromSecret(signingKey);
         transaction.sign(keypair);
         const result = await serverRef.current.submitTransaction(transaction);
         // Only refresh account info if not skipped (to prevent page refresh during payment flow)
@@ -704,8 +785,23 @@ export const WalletProvider = ({ children }) => {
         return signedTransaction.toXDR();
       } else if (secretKey) {
         // Use secret key to sign (traditional method)
+        // Note: secretKey is in state, but if not available, try to decrypt from encrypted storage
+        let signingKey = secretKey;
+        if (!signingKey) {
+          try {
+            signingKey = await walletEncryptionHelper.decryptWallet(publicKey);
+            setSecretKey(signingKey); // Cache in state for future use
+          } catch (decryptError) {
+            // Fallback to plaintext if decryption fails
+            signingKey = localStorage.getItem('stellar_secret_key');
+            if (!signingKey) {
+              throw new Error('No secret key available for signing');
+            }
+          }
+        }
+        
         const Keypair = StellarSdk.Keypair;
-        const keypair = Keypair.fromSecret(secretKey);
+        const keypair = Keypair.fromSecret(signingKey);
         transaction.sign(keypair);
         return transaction.toXDR();
       } else {
