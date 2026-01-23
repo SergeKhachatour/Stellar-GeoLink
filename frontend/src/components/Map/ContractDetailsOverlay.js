@@ -789,8 +789,9 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
 
       <DialogContent>
         {itemType === 'contract_rule' ? (
-          // Side-by-side layout for contract rules
-          <Grid container spacing={2} sx={{ mb: 2 }}>
+          <>
+            {/* Side-by-side layout for contract rules */}
+            <Grid container spacing={2} sx={{ mb: 2 }}>
             {/* Contract Execution Rule Information */}
             <Grid item xs={12} md={6}>
               <Card variant="outlined" sx={{ height: '100%' }}>
@@ -1009,6 +1010,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
               )}
             </Box>
           )}
+          </>
         ) : (
           // Original layout for NFT/Wallet types
           <>
