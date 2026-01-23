@@ -72,7 +72,14 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       // Try to get by ID first
       const response = await api.get(`/contracts/${contractIdOrAddress}`);
       if (response.data.success && response.data.contract) {
+        console.log('[ContractDetailsOverlay] Contract fetched:', {
+          id: response.data.contract.id,
+          hasDiscoveredFunctions: !!response.data.contract.discovered_functions,
+          discoveredFunctionsType: typeof response.data.contract.discovered_functions
+        });
         setContract(response.data.contract);
+      } else {
+        console.warn('[ContractDetailsOverlay] Contract fetch response missing contract:', response.data);
       }
     } catch (error) {
       // Don't let API errors cause logout - just log and continue

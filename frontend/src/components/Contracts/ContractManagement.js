@@ -3003,8 +3003,12 @@ const ContractManagement = () => {
     // Create intent for execution (if using intent-based execution)
     let intent = null;
     if (useIntentExecution && contract) {
+      console.log('[ContractManagement] useIntentExecution is enabled, creating intent...', {
+        hasContract: !!contract,
+        functionName: rule.function_name,
+        hasDiscoveredFunctions: !!contract.discovered_functions
+      });
       try {
-
         // Convert function params to typed args
         let typedArgs = [];
         if (contract.discovered_functions) {
@@ -3049,14 +3053,26 @@ const ContractManagement = () => {
         });
 
         // Show intent preview before execution
+        console.log('[ContractManagement] Intent created successfully, showing preview:', intent);
         setCurrentIntent(intent);
         setIntentPreviewOpen(true);
         setExecutingRule(false); // Don't execute yet, wait for preview confirmation
         return; // Exit early, execution will continue after preview confirmation
       } catch (intentError) {
         console.error('[ContractManagement] Failed to create intent:', intentError);
+        console.error('[ContractManagement] Intent error details:', {
+          message: intentError.message,
+          stack: intentError.stack,
+          rule: rule.function_name,
+          contractId: contract?.id
+        });
         // Fall through to regular execution
       }
+    } else {
+      console.log('[ContractManagement] Intent execution disabled or no contract:', {
+        useIntentExecution,
+        hasContract: !!contract
+      });
     }
     
     // Keep confirmation dialog open to show execution steps
