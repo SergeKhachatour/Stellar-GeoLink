@@ -78,6 +78,7 @@ import {
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import CustomContractDialog from '../NFT/CustomContractDialog';
+import FunctionParameterDialog from './FunctionParameterDialog';
 import AIChat from '../AI/AIChat';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -1742,6 +1743,9 @@ const ContractManagement = () => {
   const useIntentExecution = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true';
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
+  const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
+  const [parameterDialogData, setParameterDialogData] = useState({ functionName: null, parameters: [], contract: null, rule: null, existingParams: {} });
+  const [pendingExecution, setPendingExecution] = useState(null); // Store execution context when waiting for parameters
   const [secretKeyInput, setSecretKeyInput] = useState('');
   const [showSecretKey, setShowSecretKey] = useState(false);
   const [executionStatus, setExecutionStatus] = useState('');
@@ -2916,7 +2920,41 @@ const ContractManagement = () => {
     }
   };
 
-  const handleConfirmExecute = async (ruleParam = null) => {
+  // Helper function to check for missing required parameters
+  const checkMissingParameters = (rule, contract, functionParams) => {
+    if (!contract || !contract.discovered_functions) {
+      return { missing: [], parameters: [] };
+    }
+
+    const discoveredFunctions = typeof contract.discovered_functions === 'string'
+      ? JSON.parse(contract.discovered_functions)
+      : contract.discovered_functions;
+    
+    const func = discoveredFunctions[rule.function_name];
+    if (!func || !func.parameters || !Array.isArray(func.parameters)) {
+      return { missing: [], parameters: [] };
+    }
+
+    const requiredParams = func.parameters.filter(param => {
+      const paramName = param.name || param.parameter_name;
+      // WebAuthn params are auto-generated
+      const isWebAuthnParam = ['webauthn_signature', 'webauthn_authenticator_data', 
+                                'webauthn_client_data', 'signature_payload'].includes(paramName);
+      const isOptional = param.optional || paramName.includes('optional');
+      return !isWebAuthnParam && !isOptional;
+    });
+
+    const missing = requiredParams.filter(param => {
+      const paramName = param.name || param.parameter_name;
+      const value = functionParams[paramName];
+      return !value || value.trim() === '' || 
+             (typeof value === 'string' && (value.includes('[Will be') || value.includes('system-generated')));
+    });
+
+    return { missing, parameters: func.parameters };
+  };
+
+  const handleConfirmExecute = async (ruleParam = null, providedParams = null) => {
     const rule = ruleParam || executeConfirmDialog.rule;
     if (!rule) {
       setExecuteConfirmDialog({ open: false, rule: null });
@@ -2937,13 +2975,35 @@ const ContractManagement = () => {
     const contract = contracts.find(c => c.id === rule.contract_id);
     const isReadOnly = isReadOnlyFunction(rule.function_name);
     
+    // Get function parameters (use provided params if available, otherwise from rule)
+    let functionParams = providedParams || (typeof rule.function_parameters === 'string'
+      ? JSON.parse(rule.function_parameters)
+      : rule.function_parameters || {});
+
+    // Check for missing required parameters (unless params were just provided)
+    if (!providedParams && contract) {
+      const { missing, parameters } = checkMissingParameters(rule, contract, functionParams);
+      
+      if (missing.length > 0) {
+        // Show parameter dialog
+        setParameterDialogData({
+          functionName: rule.function_name,
+          parameters: parameters,
+          contract: contract,
+          rule: rule,
+          existingParams: functionParams
+        });
+        setPendingExecution({ rule, contract, isReadOnly });
+        setParameterDialogOpen(true);
+        setExecutingRule(false); // Don't start execution yet
+        return; // Wait for user to provide parameters
+      }
+    }
+    
     // Create intent for execution (if using intent-based execution)
     let intent = null;
     if (useIntentExecution && contract) {
       try {
-        let functionParams = typeof rule.function_parameters === 'string'
-          ? JSON.parse(rule.function_parameters)
-          : rule.function_parameters || {};
 
         // Convert function params to typed args
         let typedArgs = [];
@@ -3003,9 +3063,7 @@ const ContractManagement = () => {
     // Don't close it - it will show the execution progress
     setExecutingRule(true);
       try {
-      let functionParams = typeof rule.function_parameters === 'string'
-        ? JSON.parse(rule.function_parameters)
-        : rule.function_parameters || {};
+      // functionParams already set above (from providedParams or rule)
 
       // Check if payment will route through smart wallet
       // If payment source is smart-wallet, always route through smart wallet
@@ -3881,6 +3939,33 @@ const ContractManagement = () => {
       const errorMessage = err.response?.data?.error || err.response?.data?.message || 'Failed to execute function';
       const errorDetails = err.response?.data?.details || '';
       const errorSuggestion = err.response?.data?.suggestion || '';
+      
+      // Handle missing parameters error - show parameter dialog
+      if (errorMessage.includes('requires') && (errorMessage.includes('parameter') || errorMessage.includes('destination') || errorMessage.includes('amount'))) {
+        const contract = contracts.find(c => c.id === rule.contract_id);
+        if (contract && contract.discovered_functions) {
+          const discoveredFunctions = typeof contract.discovered_functions === 'string'
+            ? JSON.parse(contract.discovered_functions)
+            : contract.discovered_functions;
+          
+          const func = discoveredFunctions[rule.function_name];
+          if (func && func.parameters) {
+            // Show parameter dialog
+            setParameterDialogData({
+              functionName: rule.function_name,
+              parameters: func.parameters,
+              contract: contract,
+              rule: rule,
+              existingParams: functionParams
+            });
+            setPendingExecution({ rule, contract, isReadOnly });
+            setParameterDialogOpen(true);
+            setExecutingRule(false);
+            setError(''); // Clear error since we're showing the dialog
+            return; // Exit - user will provide parameters
+          }
+        }
+      }
       
       // Handle passkey mismatch error specifically
       if (errorMessage.toLowerCase().includes('passkey') && errorMessage.toLowerCase().includes('mismatch')) {
@@ -8725,6 +8810,33 @@ const ContractManagement = () => {
         intent={currentIntent}
         onConfirm={handleIntentPreviewConfirm}
         loading={executingRule}
+      />
+
+      {/* Function Parameter Dialog */}
+      <FunctionParameterDialog
+        open={parameterDialogOpen}
+        onClose={() => {
+          setParameterDialogOpen(false);
+          setParameterDialogData({ functionName: null, parameters: [], contract: null, rule: null, existingParams: {} });
+          setPendingExecution(null);
+        }}
+        onConfirm={(params) => {
+          setParameterDialogOpen(false);
+          // Update rule with new parameters
+          const updatedRule = {
+            ...parameterDialogData.rule,
+            function_parameters: params
+          };
+          // Continue with execution using provided parameters
+          if (pendingExecution) {
+            handleConfirmExecute(updatedRule, params);
+          }
+          setPendingExecution(null);
+        }}
+        functionName={parameterDialogData.functionName}
+        parameters={parameterDialogData.parameters}
+        existingParams={parameterDialogData.existingParams}
+        contractName={parameterDialogData.contract?.name || parameterDialogData.contract?.contract_name}
       />
 
       {/* GeoLink Agent - Available for both logged-in and logged-out users */}
