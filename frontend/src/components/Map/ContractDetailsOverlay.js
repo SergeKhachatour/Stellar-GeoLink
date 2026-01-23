@@ -29,7 +29,6 @@ import {
   Code,
   PlayArrow,
   CheckCircle,
-  Cancel,
   SmartToy,
   ZoomIn,
   MyLocation,
