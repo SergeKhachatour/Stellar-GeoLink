@@ -8717,7 +8717,8 @@ const ContractManagement = () => {
         onClose={() => {
           setIntentPreviewOpen(false);
           setCurrentIntent(null);
-          setExecutingRule(false);
+          // Only reset executingRule if we're not actively executing
+          // This allows the preview to show again for subsequent executions
         }}
         intent={currentIntent}
         onConfirm={handleIntentPreviewConfirm}

@@ -279,6 +279,13 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     mapRef.current = map;
 
     map.on('load', () => {
+      // Center map on contract location
+      map.flyTo({
+        center: [ruleLng, ruleLat],
+        zoom: 15,
+        duration: 1000
+      });
+      
       // Add radius circle
       const center = [ruleLng, ruleLat];
       const circle = turf.circle(center, radius, { units: 'meters', steps: 64 });
@@ -673,7 +680,19 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       return [];
     }
     
-    const functions = contract.discovered_functions || contract.functions;
+    let functions = contract.discovered_functions || contract.functions;
+    
+    // If discovered_functions is a JSON string, parse it
+    if (typeof functions === 'string') {
+      try {
+        functions = JSON.parse(functions);
+        console.log('[ContractDetailsOverlay] Parsed discovered_functions from JSON string');
+      } catch (e) {
+        console.warn('[ContractDetailsOverlay] Failed to parse discovered_functions as JSON:', e);
+        return [];
+      }
+    }
+    
     console.log('[ContractDetailsOverlay] Raw functions data:', {
       hasDiscoveredFunctions: !!contract.discovered_functions,
       hasFunctions: !!contract.functions,
@@ -1000,7 +1019,28 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
           </>
         )}
 
-        {/* Contract Functions - Show before map for better visibility */}
+        {/* User Location & Proximity Check - Show BEFORE functions */}
+        {userLocation && itemType === 'contract_rule' && (
+          <Box mb={2}>
+            <Alert 
+              severity={isWithinRange ? 'success' : 'warning'}
+              icon={isWithinRange ? <CheckCircle /> : <Warning />}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                {isWithinRange ? '✅ You are within range!' : '⚠️ You are outside range'}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 0.5 }}>
+                <strong>Your Location:</strong> {userLocation.latitude.toFixed(6)}, {userLocation.longitude.toFixed(6)}
+              </Typography>
+              <Typography variant="body2">
+                <strong>Distance:</strong> {distanceText}
+                {!isWithinRange && ` - You need to be within ${itemRadius}m to execute functions`}
+              </Typography>
+            </Alert>
+          </Box>
+        )}
+
+        {/* Contract Functions - Show after proximity warning */}
         {contract && (
           <Box mb={2}>
             <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold', mb: 1.5 }}>
@@ -1227,26 +1267,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
           </Box>
         )}
 
-        {/* User Location & Proximity Check */}
-        {userLocation && itemType === 'contract_rule' && (
-          <Box mb={2}>
-            <Alert 
-              severity={isWithinRange ? 'success' : 'warning'}
-              icon={isWithinRange ? <CheckCircle /> : <Cancel />}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                {isWithinRange ? '✅ You are within range!' : '⚠️ You are outside range'}
-              </Typography>
-              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                <strong>Your Location:</strong> {userLocation.latitude.toFixed(6)}, {userLocation.longitude.toFixed(6)}
-              </Typography>
-              <Typography variant="body2">
-                <strong>Distance:</strong> {distanceText}
-                {!isWithinRange && ` - You need to be within ${itemRadius}m to execute functions`}
-              </Typography>
-            </Alert>
-          </Box>
-        )}
 
         {/* Rule Location Map - Only for contract_rule */}
         {itemType === 'contract_rule' && item.latitude && item.longitude && (
