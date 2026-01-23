@@ -331,9 +331,13 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
         console.warn('[AIChat] ⚠️ WARNING: No location available in userContext. Location-based features will not work.');
       }
 
+      // Increase timeout for AI chat requests, especially for location-based queries
+      // Location queries can take longer due to database operations
       const response = await api.post(endpoint, {
         messages: [...messages, userMessage],
         userContext
+      }, {
+        timeout: 60000 // 60 seconds for AI chat requests (location queries can be slow)
       });
 
       if (response.data.choices && response.data.choices[0]) {
