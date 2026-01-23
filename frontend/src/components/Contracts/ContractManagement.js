@@ -2911,6 +2911,8 @@ const ContractManagement = () => {
       await handleConfirmExecute(executeConfirmDialog.rule);
     } finally {
       setExecutingRule(false);
+      // Reset intent state so preview can show again for next execution
+      setCurrentIntent(null);
     }
   };
 
