@@ -3666,7 +3666,8 @@ const ContractManagement = () => {
           webauthnSignature: webauthnData.webauthnSignature,
           webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
           webauthnClientData: webauthnData.webauthnClientData,
-          rule_id: (rule.rule_id || rule.id) // Pass rule_id so backend can mark it as completed
+          rule_id: (rule.rule_id || rule.id), // Pass rule_id so backend can mark it as completed
+          matched_public_key: rule.matched_public_key || undefined // Pass matched_public_key for pending rules
         });
         
         if (response.data.success) {

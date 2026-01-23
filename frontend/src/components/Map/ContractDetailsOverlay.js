@@ -827,27 +827,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                         <strong>Range:</strong> {itemRadius}m
                       </Typography>
                     )}
-                    {userLocation && distance !== null && (
-                      <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }}>
-                        <Alert 
-                          severity={isWithinRange ? 'success' : 'warning'}
-                          icon={isWithinRange ? <CheckCircle /> : <Warning />}
-                          sx={{ mb: 1 }}
-                        >
-                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                            {isWithinRange ? '✅ You are within range' : '⚠️ You are outside range'}
-                          </Typography>
-                          <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
-                            Distance: {distanceText} | Required: {itemRadius}m
-                            {!isWithinRange && (
-                              <span style={{ display: 'block', marginTop: '4px' }}>
-                                You need to be {((distance - itemRadius) / 1000).toFixed(2)}km closer
-                              </span>
-                            )}
-                          </Typography>
-                        </Alert>
-                      </Box>
-                    )}
                     {ruleDetails?.minimum_wallet_count && (
                       <Typography variant="body2" color="text.secondary">
                         <strong>Min Wallets:</strong> {ruleDetails.minimum_wallet_count}
@@ -948,6 +927,88 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
               )}
             </Grid>
           </Grid>
+
+          {/* Rule Location Map - Show after smart contract card, before functions */}
+          {itemType === 'contract_rule' && item.latitude && item.longitude && (
+            <Box mb={2} mt={2}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
+                  Rule Location & Eligibility Map
+                </Typography>
+                <Box display="flex" gap={1}>
+                  {userLocation && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<MyLocation />}
+                      onClick={() => {
+                        if (mapRef.current && userLocation) {
+                          mapRef.current.flyTo({
+                            center: [userLocation.longitude, userLocation.latitude],
+                            zoom: 18,
+                            duration: 1000
+                          });
+                        }
+                      }}
+                    >
+                      Zoom to Me
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ZoomIn />}
+                    onClick={() => {
+                      if (mapRef.current && item.latitude && item.longitude) {
+                        mapRef.current.flyTo({
+                          center: [parseFloat(item.longitude), parseFloat(item.latitude)],
+                          zoom: 18,
+                          duration: 1000
+                        });
+                      }
+                    }}
+                  >
+                    Zoom to Contract
+                  </Button>
+                </Box>
+              </Box>
+              <Box 
+                ref={(el) => {
+                  if (el && !mapContainer) {
+                    setMapContainer(el);
+                  }
+                }}
+                sx={{ 
+                  height: '300px', 
+                  width: '100%', 
+                  borderRadius: 1, 
+                  overflow: 'hidden',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  mt: 1,
+                  position: 'relative'
+                }}
+              />
+              {userLocation && (
+                <Alert 
+                  severity={isWithinRange ? 'success' : 'warning'} 
+                  sx={{ mt: 1 }}
+                  icon={isWithinRange ? <CheckCircle /> : <Warning />}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {isWithinRange ? '✅ You are within range!' : '⚠️ You are outside range'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 0.5 }}>
+                    <strong>Your Location:</strong> {userLocation.latitude.toFixed(6)}, {userLocation.longitude.toFixed(6)}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>Distance:</strong> {distanceText}
+                    {!isWithinRange && ` - You need to be within ${itemRadius}m to execute functions`}
+                  </Typography>
+                </Alert>
+              )}
+            </Box>
+          )}
         ) : (
           // Original layout for NFT/Wallet types
           <>
@@ -1017,27 +1078,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
               </Box>
             )}
           </>
-        )}
-
-        {/* User Location & Proximity Check - Show BEFORE functions */}
-        {userLocation && itemType === 'contract_rule' && (
-          <Box mb={2}>
-            <Alert 
-              severity={isWithinRange ? 'success' : 'warning'}
-              icon={isWithinRange ? <CheckCircle /> : <Warning />}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                {isWithinRange ? '✅ You are within range!' : '⚠️ You are outside range'}
-              </Typography>
-              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                <strong>Your Location:</strong> {userLocation.latitude.toFixed(6)}, {userLocation.longitude.toFixed(6)}
-              </Typography>
-              <Typography variant="body2">
-                <strong>Distance:</strong> {distanceText}
-                {!isWithinRange && ` - You need to be within ${itemRadius}m to execute functions`}
-              </Typography>
-            </Alert>
-          </Box>
         )}
 
         {/* Contract Functions - Show after proximity warning */}
@@ -1268,83 +1308,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         )}
 
 
-        {/* Rule Location Map - Only for contract_rule */}
-        {itemType === 'contract_rule' && item.latitude && item.longitude && (
-          <Box mb={2}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
-                Rule Location & Eligibility Map
-              </Typography>
-              <Box display="flex" gap={1}>
-                {userLocation && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<MyLocation />}
-                    onClick={() => {
-                      if (mapRef.current && userLocation) {
-                        mapRef.current.flyTo({
-                          center: [userLocation.longitude, userLocation.latitude],
-                          zoom: 18,
-                          duration: 1000
-                        });
-                      }
-                    }}
-                  >
-                    Zoom to Me
-                  </Button>
-                )}
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ZoomIn />}
-                  onClick={() => {
-                    if (mapRef.current && item.latitude && item.longitude) {
-                      mapRef.current.flyTo({
-                        center: [parseFloat(item.longitude), parseFloat(item.latitude)],
-                        zoom: 18,
-                        duration: 1000
-                      });
-                    }
-                  }}
-                >
-                  Zoom to Contract
-                </Button>
-              </Box>
-            </Box>
-            <Box 
-              ref={(el) => {
-                if (el && !mapContainer) {
-                  setMapContainer(el);
-                }
-              }}
-              sx={{ 
-                height: '300px', 
-                width: '100%', 
-                borderRadius: 1, 
-                overflow: 'hidden',
-                border: '1px solid',
-                borderColor: 'divider',
-                mt: 1,
-                position: 'relative'
-              }}
-            />
-            {userLocation && (
-              <Alert 
-                severity={isWithinRange ? 'success' : 'info'} 
-                sx={{ mt: 1 }}
-                icon={isWithinRange ? <CheckCircle /> : <Cancel />}
-              >
-                <Typography variant="body2">
-                  {isWithinRange 
-                    ? `✅ You are within the ${itemRadius}m range and can execute this rule.`
-                    : `⚠️ You are ${distanceText} away. Move within ${itemRadius}m to execute this rule.`
-                  }
-                </Typography>
-              </Alert>
-            )}
-          </Box>
-        )}
 
         {/* For non-contract_rule types, show contract info if available */}
         {!contract && itemType !== 'contract_rule' && (
