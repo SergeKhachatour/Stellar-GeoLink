@@ -2947,8 +2947,14 @@ const ContractManagement = () => {
     const missing = requiredParams.filter(param => {
       const paramName = param.name || param.parameter_name;
       const value = functionParams[paramName];
-      return !value || value.trim() === '' || 
-             (typeof value === 'string' && (value.includes('[Will be') || value.includes('system-generated')));
+      // Check for empty, null, undefined, or placeholder text
+      if (!value) return true;
+      if (typeof value !== 'string') return false; // Non-string values are considered valid
+      const trimmed = value.trim();
+      return trimmed === '' || 
+             trimmed.includes('[Will be') || 
+             trimmed.includes('system-generated') ||
+             trimmed.includes('Will be system-generated');
     });
 
     return { missing, parameters: func.parameters };
@@ -2984,8 +2990,16 @@ const ContractManagement = () => {
     if (!providedParams && contract) {
       const { missing, parameters } = checkMissingParameters(rule, contract, functionParams);
       
+      console.log('[ContractManagement] Parameter check:', {
+        missingCount: missing.length,
+        missingParams: missing.map(p => p.name || p.parameter_name),
+        hasProvidedParams: !!providedParams,
+        functionParams: Object.keys(functionParams)
+      });
+      
       if (missing.length > 0) {
         // Show parameter dialog
+        console.log('[ContractManagement] Showing parameter dialog for missing parameters:', missing.map(p => p.name || p.parameter_name));
         setParameterDialogData({
           functionName: rule.function_name,
           parameters: parameters,
@@ -3078,7 +3092,7 @@ const ContractManagement = () => {
     // Keep confirmation dialog open to show execution steps
     // Don't close it - it will show the execution progress
     setExecutingRule(true);
-      try {
+    try {
       // functionParams already set above (from providedParams or rule)
 
       // Check if payment will route through smart wallet
@@ -3671,19 +3685,21 @@ const ContractManagement = () => {
         setExecutionStep(3);
         
         // Call smart wallet execute-payment endpoint (same as send payment)
+        // IMPORTANT: Always pass matched_public_key if available, even if destination is set
+        // The backend needs it to properly identify which pending rule to complete
         const response = await api.post('/smart-wallet/execute-payment', {
           userPublicKey: publicKey,
           userSecretKey: userSecretKey,
           destinationAddress: destination,
           amount: amountInStroops,
           assetAddress: asset === 'XLM' ? 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : asset,
-          signaturePayload: webauthnData.signaturePayload,
-          passkeyPublicKeySPKI: webauthnData.passkeyPublicKeySPKI,
-          webauthnSignature: webauthnData.webauthnSignature,
-          webauthnAuthenticatorData: webauthnData.webauthnAuthenticatorData,
-          webauthnClientData: webauthnData.webauthnClientData,
+          signaturePayload: webauthnData?.signaturePayload,
+          passkeyPublicKeySPKI: webauthnData?.passkeyPublicKeySPKI,
+          webauthnSignature: webauthnData?.webauthnSignature,
+          webauthnAuthenticatorData: webauthnData?.webauthnAuthenticatorData,
+          webauthnClientData: webauthnData?.webauthnClientData,
           rule_id: (rule.rule_id || rule.id), // Pass rule_id so backend can mark it as completed
-          matched_public_key: rule.matched_public_key || undefined // Pass matched_public_key for pending rules
+          matched_public_key: rule.matched_public_key || functionParams.matched_public_key || destination || undefined // Pass matched_public_key for pending rules (use destination as fallback)
         });
         
         if (response.data.success) {
@@ -8837,7 +8853,7 @@ const ContractManagement = () => {
           setParameterDialogData({ functionName: null, parameters: [], contract: null, rule: null, existingParams: {} });
           setPendingExecution(null);
         }}
-        onConfirm={(params) => {
+        onConfirm={async (params) => {
           setParameterDialogOpen(false);
           // Update rule with new parameters
           const updatedRule = {
@@ -8846,7 +8862,9 @@ const ContractManagement = () => {
           };
           // Continue with execution using provided parameters
           if (pendingExecution) {
-            handleConfirmExecute(updatedRule, params);
+            // Pass the updated rule and params to handleConfirmExecute
+            // This will trigger the parameter check again, then create intent if enabled
+            await handleConfirmExecute(updatedRule, params);
           }
           setPendingExecution(null);
         }}
