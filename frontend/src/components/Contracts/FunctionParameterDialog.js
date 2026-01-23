@@ -21,7 +21,7 @@ import {
   Chip,
   Divider
 } from '@mui/material';
-import { Code, Info } from '@mui/icons-material';
+import { Code } from '@mui/icons-material';
 
 const FunctionParameterDialog = ({ 
   open, 
