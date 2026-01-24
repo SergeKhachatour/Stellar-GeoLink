@@ -3823,9 +3823,20 @@ const ContractManagement = () => {
         submit_to_ledger: submitToLedger, // Only submit to ledger if it's a write function OR if we have a secret key for read-only
         rule_id: rule.id,
         update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
-        matched_public_key: rule.matched_public_key, // Include matched_public_key for additional filtering
+        matched_public_key: rule.matched_public_key || functionParams.matched_public_key || undefined, // Include matched_public_key for additional filtering (check multiple sources)
         payment_source: isPayment ? paymentSource : undefined // Pass payment source for payment functions
       };
+      
+      // Debug logging for matched_public_key
+      if (isPayment && rule.matched_public_key) {
+        console.log('[ContractManagement] Passing matched_public_key to backend:', {
+          fromRule: rule.matched_public_key,
+          fromFunctionParams: functionParams.matched_public_key,
+          finalValue: requestBody.matched_public_key,
+          ruleId: rule.id,
+          functionName: rule.function_name
+        });
+      }
 
       // Add WebAuthn data if needed
       if (webauthnData) {
