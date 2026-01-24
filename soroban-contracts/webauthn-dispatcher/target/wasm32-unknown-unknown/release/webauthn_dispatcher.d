@@ -1,0 +1,1 @@
+C:\Users\serge\OneDrive\Desktop\NodeJS\Stellar-GeoLink\soroban-contracts\webauthn-dispatcher\target\wasm32-unknown-unknown\release\webauthn_dispatcher.wasm: C:\Users\serge\OneDrive\Desktop\NodeJS\Stellar-GeoLink\soroban-contracts\webauthn-dispatcher\src\lib.rs

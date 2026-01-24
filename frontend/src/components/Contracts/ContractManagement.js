@@ -85,12 +85,8 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 import { useWallet } from '../../contexts/WalletContext';
 import webauthnService from '../../services/webauthnService';
-import contractExecutionHelper from '../../utils/contractExecutionHelper';
 import IntentPreview from './IntentPreview';
-import executionEngine from '../../services/executionEngine';
 import intentService from '../../services/intentService';
-import keyVaultService from '../../services/keyVaultService';
-import walletEncryptionHelper from '../../utils/walletEncryptionHelper';
 
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN;
 if (MAPBOX_TOKEN) {
@@ -1741,21 +1737,6 @@ const ContractManagement = () => {
   const [intentPreviewOpen, setIntentPreviewOpen] = useState(false);
   const [currentIntent, setCurrentIntent] = useState(null);
   const [currentIntentRule, setCurrentIntentRule] = useState(null); // Store rule for intent preview
-  const useIntentExecution = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true';
-  
-  // Log intent execution status on component mount (for debugging Azure deployment)
-  React.useEffect(() => {
-    const envVar = process.env.REACT_APP_USE_EXECUTION_ENGINE;
-    console.log('[ContractManagement] 🔍 Intent execution status check:', {
-      enabled: useIntentExecution,
-      envVar: envVar,
-      envVarType: typeof envVar,
-      envVarLength: envVar?.length,
-      note: envVar === undefined 
-        ? '⚠️ REACT_APP_USE_EXECUTION_ENGINE is undefined. React env vars are embedded at BUILD time. If set in GitHub Secrets, trigger a new build. Azure Portal env vars won\'t work for React apps.'
-        : `✅ Environment variable found: "${envVar}"`
-    });
-  }, [useIntentExecution]);
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
   const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
@@ -2030,10 +2011,9 @@ const ContractManagement = () => {
       return;
     }
 
-    // Set rule for execution (but don't show confirm dialog if intent execution is enabled)
-    // The intent preview will handle showing the preview, or we'll use the confirm dialog
-    setExecuteConfirmDialog({ open: !useIntentExecution, rule }); // Only show dialog if intent execution is disabled
-    // Start execution immediately
+    // Don't show confirm dialog - intent preview will be shown instead
+    setExecuteConfirmDialog({ open: false, rule: null });
+    // Start execution - this will show intent preview
     await handleConfirmExecute(rule);
   };
 
@@ -2828,124 +2808,27 @@ const ContractManagement = () => {
     }
   };
 
-  // Handle intent preview confirmation and execute with ExecutionEngine
+  // Handle intent preview confirmation and execute with backend API
   const handleIntentPreviewConfirm = async () => {
     if (!currentIntent) return;
     
     setIntentPreviewOpen(false);
-    setExecutingRule(true);
-    setExecutionStatus('Executing with ExecutionEngine...');
     
-    try {
-      // Use the stored rule from intent preview, or fall back to executeConfirmDialog
-      const rule = currentIntentRule || executeConfirmDialog.rule;
-      if (!rule) {
-        console.error('[ContractManagement] No rule found for intent execution:', {
-          hasCurrentIntentRule: !!currentIntentRule,
-          hasExecuteConfirmDialogRule: !!executeConfirmDialog.rule,
-          currentIntent: currentIntent
-        });
-        throw new Error('No rule found for execution. Please try executing again.');
-      }
-
-      const contract = contracts.find(c => c.id === rule.contract_id);
-      if (!contract) {
-        throw new Error('Contract not found');
-      }
-
-      // Get credential ID for WebAuthn
-      let credentialId = null;
-      if (currentIntent.authMode === 'webauthn') {
-        credentialId = walletEncryptionHelper.getStoredCredentialId();
-        if (!credentialId) {
-          // Try to get from passkeys API
-          try {
-            const passkeysResponse = await api.get('/webauthn/passkeys');
-            const passkeys = passkeysResponse.data.passkeys || [];
-            const activePasskey = passkeys.find(p => p.isOnContract === true) || passkeys[0];
-            if (activePasskey) {
-              credentialId = activePasskey.credentialId || activePasskey.credential_id;
-            }
-          } catch (err) {
-            console.warn('Failed to fetch passkeys:', err);
-          }
-        }
-      }
-
-      // Prepare execution options
-      const executionOptions = {
-        authMode: currentIntent.authMode,
-        simulate: true
-      };
-
-      if (currentIntent.authMode === 'webauthn') {
-        if (!credentialId) {
-          throw new Error('No passkey credential ID found. Please register a passkey first.');
-        }
-        executionOptions.credentialId = credentialId;
-      } else {
-        // Classic mode: need keying material
-        const encryptedData = keyVaultService.getEncryptedWalletData();
-        if (encryptedData) {
-          executionOptions.keyingMaterial = {
-            credentialId: walletEncryptionHelper.getStoredCredentialId(),
-            passphrase: null
-          };
-        } else {
-          // Fallback: use secret key from context
-          const userSecretKey = secretKeyInput.trim() || secretKey || localStorage.getItem('stellar_secret_key');
-          if (!userSecretKey) {
-            throw new Error('Secret key required for classic execution');
-          }
-          // For classic mode without encrypted wallet, we'll use backend execution
-          // (ExecutionEngine requires encrypted wallet for classic mode)
-          throw new Error('Classic execution requires encrypted wallet. Please use WebAuthn mode or encrypt your wallet.');
-        }
-      }
-
-      // Execute with ExecutionEngine
-      const result = await executionEngine.executeContractCall(currentIntent, executionOptions);
-
-      if (result.success) {
-        setExecutionStatus('✅ Transaction confirmed!');
-        setExecutionResult({
-          functionName: rule.function_name,
-          transactionHash: result.transactionHash,
-          network: currentIntent.network,
-          executionType: 'intent_based',
-          timestamp: new Date().toISOString(),
-          parameters: currentIntent.args
-        });
-        setSuccess(`Function "${rule.function_name}" executed successfully! Transaction: ${result.transactionHash}`);
-        
-        // Reload rules
-        setTimeout(async () => {
-          await Promise.all([
-            loadPendingRules(),
-            loadCompletedRules()
-          ]);
-        }, 1000);
-      } else {
-        throw new Error(result.error || 'Execution failed');
-      }
-    } catch (error) {
-      console.error('[ContractManagement] Intent-based execution failed:', error);
-      setError(error.message || 'Execution failed');
-      // Fall back to backend execution
-      setExecutionStatus('Falling back to backend execution...');
-      // Continue with regular execution flow - use stored rule or executeConfirmDialog rule
-      const ruleToExecute = currentIntentRule || executeConfirmDialog.rule;
-      if (ruleToExecute) {
-        await handleConfirmExecute(ruleToExecute);
-      } else {
-        setError('No rule available for fallback execution');
-        setExecutingRule(false);
-      }
-    } finally {
-      setExecutingRule(false);
-      // Reset intent state so preview can show again for next execution
-      setCurrentIntent(null);
+    // Use the stored rule from intent preview
+    const rule = currentIntentRule || executeConfirmDialog.rule;
+    if (!rule) {
+      console.error('[ContractManagement] No rule found for intent execution:', {
+        hasCurrentIntentRule: !!currentIntentRule,
+        hasExecuteConfirmDialogRule: !!executeConfirmDialog.rule,
+        currentIntent: currentIntent
+      });
+      setError('No rule found for execution. Please try executing again.');
+      return;
     }
+
+    // Continue with regular backend execution flow
+    // This will handle WebAuthn, payments, smart wallet routing, etc.
+    await handleConfirmExecute(rule);
   };
 
   // Helper function to check for missing required parameters
@@ -3042,16 +2925,9 @@ const ContractManagement = () => {
       }
     }
     
-    // Create intent for execution (if using intent-based execution)
+    // Always create intent and show preview before execution
     let intent = null;
-    if (useIntentExecution && contract) {
-      console.log('[ContractManagement] ✅ useIntentExecution is enabled, creating intent...', {
-        hasContract: !!contract,
-        functionName: rule.function_name,
-        hasDiscoveredFunctions: !!contract.discovered_functions,
-        envVarValue: process.env.REACT_APP_USE_EXECUTION_ENGINE,
-        useIntentExecutionValue: useIntentExecution
-      });
+    if (contract) {
       try {
         // Convert function params to typed args
         let typedArgs = [];
@@ -3113,16 +2989,8 @@ const ContractManagement = () => {
           rule: rule.function_name,
           contractId: contract?.id
         });
-        // Fall through to regular execution
+        // Fall through to regular execution if intent creation fails
       }
-    } else {
-      console.warn('[ContractManagement] ⚠️ Intent execution disabled or no contract:', {
-        useIntentExecution,
-        hasContract: !!contract,
-        envVar: process.env.REACT_APP_USE_EXECUTION_ENGINE,
-        envVarType: typeof process.env.REACT_APP_USE_EXECUTION_ENGINE,
-        note: 'If REACT_APP_USE_EXECUTION_ENGINE is set in GitHub Secrets, you may need to trigger a new build for it to take effect. React environment variables are embedded at BUILD time, not runtime.'
-      });
     }
     
     // Keep confirmation dialog open to show execution steps
@@ -3883,61 +3751,8 @@ const ContractManagement = () => {
         requestBody.signaturePayload = webauthnData.signaturePayload;
       }
 
-      // OPTIONAL: Use ExecutionEngine for client-side execution (classic mode only)
-      // Enable by setting REACT_APP_USE_EXECUTION_ENGINE=true in .env
-      const shouldUseExecutionEngine = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true' && 
-                                       !needsWebAuthn && 
-                                       !isPayment && 
-                                       !willRouteThroughSmartWallet &&
-                                       userSecretKey &&
-                                       contract;
-
-      let response;
-      let usedExecutionEngine = false;
-      
-      if (shouldUseExecutionEngine) {
-        try {
-          console.log('[ContractManagement] Using ExecutionEngine for client-side execution');
-          setExecutionStatus('Executing with ExecutionEngine...');
-          
-          // Use contractExecutionHelper to execute
-          const executionResult = await contractExecutionHelper.executeContractFunction({
-            contractId: contract.contract_address,
-            functionName: rule.function_name,
-            parameters: functionParams,
-            userPublicKey: publicKey,
-            network: 'testnet', // TODO: Get from contract or user settings
-            contract: contract,
-            rule: rule,
-            authMode: 'classic',
-            passphrase: null
-          });
-
-          if (executionResult.success) {
-            // Convert ExecutionEngine result to match backend response format
-            response = {
-              data: {
-                success: true,
-                transaction_hash: executionResult.transactionHash,
-                network: 'testnet',
-                execution_type: 'submitted_to_ledger',
-                result: executionResult.result
-              }
-            };
-            usedExecutionEngine = true;
-          } else {
-            throw new Error(executionResult.error || 'Execution failed');
-          }
-        } catch (execError) {
-          console.error('[ContractManagement] ExecutionEngine failed, falling back to backend:', execError);
-          // Fall through to backend execution
-        }
-      }
-
-      // Backend execution (default or fallback)
-      if (!usedExecutionEngine) {
-        response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
-      }
+      // Always use backend API execution (handles WebAuthn, payments, smart wallet, etc.)
+      const response = await api.post(`/contracts/${rule.contract_id}/execute`, requestBody);
 
       if (response.data.success) {
         setExecutionStep(5);
