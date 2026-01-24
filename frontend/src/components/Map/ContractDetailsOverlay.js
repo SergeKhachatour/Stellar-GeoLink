@@ -33,7 +33,9 @@ import {
   ZoomIn,
   MyLocation,
   Close,
-  Warning
+  Warning,
+  QrCodeScanner,
+  CameraAlt
 } from '@mui/icons-material';
 import { useWallet } from '../../contexts/WalletContext';
 import api from '../../services/api';
@@ -58,6 +60,11 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
   const mapRef = useRef(null);
   const [nearbyWallets, setNearbyWallets] = useState([]);
   const markersRef = useRef([]);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const [scannerTargetParam, setScannerTargetParam] = useState(null); // Track which parameter field is being scanned
+  const videoRef = useRef(null);
+  const qrScannerRef = useRef(null);
 
   // Calculate itemRadius early to avoid initialization errors
   const itemRadius = item ? (item.radius_meters || item.radius || 100) : 100;
@@ -677,6 +684,84 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     }));
   };
 
+  // Start QR scanner for a specific parameter
+  const startQRScanner = async (paramName) => {
+    try {
+      // Dynamically import qr-scanner
+      const QrScanner = (await import('qr-scanner')).default;
+      
+      // Check if camera is available
+      const hasCamera = await QrScanner.hasCamera();
+      if (!hasCamera) {
+        setScannerError('No camera found on this device');
+        return;
+      }
+
+      setScannerTargetParam(paramName);
+      setIsScannerOpen(true);
+      setScannerError('');
+
+      // Wait for modal to render, then start scanner
+      setTimeout(async () => {
+        try {
+          if (videoRef.current) {
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+            if (!isSecure) {
+              setScannerError('Camera access requires HTTPS. Please use the secure version of the site.');
+              setIsScannerOpen(false);
+              return;
+            }
+            
+            const scanner = new QrScanner(
+              videoRef.current,
+              (result) => {
+                console.log('QR Code detected for parameter:', paramName, result);
+                handleFunctionParamChange(selectedFunction, paramName, result.data);
+                setIsScannerOpen(false);
+                stopQRScanner();
+              },
+              {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+                preferredCamera: 'environment',
+                maxScansPerSecond: 5,
+              }
+            );
+            
+            qrScannerRef.current = scanner;
+            await scanner.start();
+          }
+        } catch (error) {
+          console.error('Error starting scanner:', error);
+          setScannerError('Failed to start camera. Please check permissions.');
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error loading QR scanner:', error);
+      setScannerError('QR scanner not available. Please install qr-scanner package.');
+    }
+  };
+
+  // Stop QR scanner
+  const stopQRScanner = () => {
+    if (qrScannerRef.current) {
+      try {
+        qrScannerRef.current.stop();
+        qrScannerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error stopping QR scanner:', e);
+      }
+      qrScannerRef.current = null;
+    }
+  };
+
+  // Cleanup QR scanner on unmount
+  useEffect(() => {
+    return () => {
+      stopQRScanner();
+    };
+  }, []);
+
   if (!item) return null;
 
   // Convert discovered_functions from object to array if needed
@@ -1268,8 +1353,13 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                       MenuProps={{
                         PaperProps: {
                           sx: {
-                            zIndex: 1600, // Higher than dialog z-index (1500)
+                            zIndex: 2000, // Much higher than dialog z-index (1500) to appear above overlay
                             maxHeight: 300
+                          }
+                        },
+                        MenuListProps: {
+                          sx: {
+                            zIndex: 2000
                           }
                         }
                       }}
@@ -1329,18 +1419,32 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                               .map((param, paramIndex) => {
                                 const paramName = param.name || param.parameter_name;
                                 const paramType = param.type || param.parameter_type || 'unknown';
+                                const isAddressType = paramType === 'Address' || paramType === 'address';
+                                
                                 return (
                                   <TextField
                                     key={paramIndex}
                                     fullWidth
                                     size="small"
                                     label={paramName}
-                                    type={paramType.includes('u32') || paramType.includes('i32') || paramType.includes('I128') ? 'number' : 'text'}
+                                    type={paramType.includes('u32') || paramType.includes('i32') || paramType.includes('I128') || paramType.includes('U64') ? 'number' : 'text'}
                                     value={functionParams[paramName] || ''}
                                     onChange={(e) => handleFunctionParamChange(selectedFunction, paramName, e.target.value)}
                                     margin="dense"
                                     helperText={`Type: ${paramType}`}
                                     sx={{ mb: 1 }}
+                                    InputProps={isAddressType ? {
+                                      endAdornment: (
+                                        <IconButton
+                                          onClick={() => startQRScanner(paramName)}
+                                          edge="end"
+                                          title="Scan QR Code"
+                                          size="small"
+                                        >
+                                          <QrCodeScanner fontSize="small" />
+                                        </IconButton>
+                                      )
+                                    } : undefined}
                                   />
                                 );
                               })}
