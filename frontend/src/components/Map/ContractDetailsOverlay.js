@@ -1503,6 +1503,77 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
+
+      {/* QR Scanner Dialog */}
+      <Dialog
+        open={isScannerOpen}
+        onClose={() => {
+          setIsScannerOpen(false);
+          stopQRScanner();
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center'
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CameraAlt />
+            <Typography variant="h6">Scan QR Code</Typography>
+            {scannerTargetParam && (
+              <Typography variant="body2" color="text.secondary">
+                for {scannerTargetParam}
+              </Typography>
+            )}
+          </Box>
+          <IconButton
+            onClick={() => {
+              setIsScannerOpen(false);
+              stopQRScanner();
+            }}
+            size="small"
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        
+        <DialogContent sx={{ textAlign: 'center' }}>
+          <video
+            ref={videoRef}
+            style={{
+              width: '100%',
+              maxWidth: '400px',
+              height: '300px',
+              borderRadius: '8px',
+              background: '#000',
+              objectFit: 'cover'
+            }}
+            playsInline
+          />
+          {scannerError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {scannerError}
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Position the QR code within the frame
+          </Typography>
+        </DialogContent>
+        
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setIsScannerOpen(false);
+              stopQRScanner();
+            }}
+            variant="outlined"
+          >
+            Cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };
