@@ -3102,7 +3102,8 @@ const ContractManagement = () => {
     } else {
       console.log('[ContractManagement] Intent execution disabled or no contract:', {
         useIntentExecution,
-        hasContract: !!contract
+        hasContract: !!contract,
+        envVar: process.env.REACT_APP_USE_EXECUTION_ENGINE
       });
     }
     
