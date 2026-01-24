@@ -1740,6 +1740,7 @@ const ContractManagement = () => {
   const [executingRule, setExecutingRule] = useState(false);
   const [intentPreviewOpen, setIntentPreviewOpen] = useState(false);
   const [currentIntent, setCurrentIntent] = useState(null);
+  const [currentIntentRule, setCurrentIntentRule] = useState(null); // Store rule for intent preview
   const useIntentExecution = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true';
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
@@ -2821,9 +2822,15 @@ const ContractManagement = () => {
     setExecutionStatus('Executing with ExecutionEngine...');
     
     try {
-      const rule = executeConfirmDialog.rule;
+      // Use the stored rule from intent preview, or fall back to executeConfirmDialog
+      const rule = currentIntentRule || executeConfirmDialog.rule;
       if (!rule) {
-        throw new Error('No rule found for execution');
+        console.error('[ContractManagement] No rule found for intent execution:', {
+          hasCurrentIntentRule: !!currentIntentRule,
+          hasExecuteConfirmDialogRule: !!executeConfirmDialog.rule,
+          currentIntent: currentIntent
+        });
+        throw new Error('No rule found for execution. Please try executing again.');
       }
 
       const contract = contracts.find(c => c.id === rule.contract_id);
@@ -2911,8 +2918,14 @@ const ContractManagement = () => {
       setError(error.message || 'Execution failed');
       // Fall back to backend execution
       setExecutionStatus('Falling back to backend execution...');
-      // Continue with regular execution flow
-      await handleConfirmExecute(executeConfirmDialog.rule);
+      // Continue with regular execution flow - use stored rule or executeConfirmDialog rule
+      const ruleToExecute = currentIntentRule || executeConfirmDialog.rule;
+      if (ruleToExecute) {
+        await handleConfirmExecute(ruleToExecute);
+      } else {
+        setError('No rule available for fallback execution');
+        setExecutingRule(false);
+      }
     } finally {
       setExecutingRule(false);
       // Reset intent state so preview can show again for next execution
@@ -3069,8 +3082,11 @@ const ContractManagement = () => {
         // Show intent preview before execution
         console.log('[ContractManagement] Intent created successfully, showing preview:', intent);
         setCurrentIntent(intent);
+        setCurrentIntentRule(rule); // Store rule for intent preview confirmation
         setIntentPreviewOpen(true);
         setExecutingRule(false); // Don't execute yet, wait for preview confirmation
+        // Don't show confirm dialog when showing intent preview
+        setExecuteConfirmDialog({ open: false, rule: null });
         return; // Exit early, execution will continue after preview confirmation
       } catch (intentError) {
         console.error('[ContractManagement] Failed to create intent:', intentError);
@@ -8850,6 +8866,7 @@ const ContractManagement = () => {
         onClose={() => {
           setIntentPreviewOpen(false);
           setCurrentIntent(null);
+          setCurrentIntentRule(null);
           // Only reset executingRule if we're not actively executing
           // This allows the preview to show again for subsequent executions
         }}
