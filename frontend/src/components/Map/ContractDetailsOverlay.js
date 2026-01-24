@@ -721,12 +721,48 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     
     // If it's an object (keyed by function name), convert to array
     if (typeof functions === 'object' && functions !== null) {
+      // Check if it's an array-like object (has numeric keys)
+      const keys = Object.keys(functions);
+      const isArrayLike = keys.length > 0 && keys.every((key, index) => key === index.toString());
+      
+      if (isArrayLike) {
+        // Convert array-like object to actual array
+        const functionArray = Object.values(functions).map((func, index) => {
+          if (func && typeof func === 'object' && func.name) {
+            return {
+              name: func.name,
+              parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || []),
+              return_type: func.return_type,
+              note: func.note,
+              discovered: func.discovered
+            };
+          }
+          if (typeof func === 'string') {
+            return {
+              name: func,
+              parameters: []
+            };
+          }
+          return {
+            name: func?.name || `function_${index}`,
+            parameters: Array.isArray(func?.parameters) ? func.parameters : []
+          };
+        }).filter(func => func && func.name);
+        
+        console.log('[ContractDetailsOverlay] Converted array-like object to array:', functionArray.length, functionArray);
+        return functionArray;
+      }
+      
+      // Regular object (keyed by function name)
       const functionArray = Object.entries(functions).map(([key, func]) => {
         // If the value is already a function object, return it
         if (func && typeof func === 'object' && (func.name || key)) {
           return {
             name: func.name || key,
-            parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || [])
+            parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || []),
+            return_type: func.return_type,
+            note: func.note,
+            discovered: func.discovered
           };
         }
         // If it's a string or simple value, create a function object

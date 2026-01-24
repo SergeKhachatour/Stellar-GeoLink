@@ -4973,7 +4973,7 @@ const ContractManagement = () => {
                       <TableCell>Trigger</TableCell>
                       <TableCell>Quorum</TableCell>
                       <TableCell>Status</TableCell>
-                      {isAuthenticated && <TableCell>Actions</TableCell>}
+                        {isAuthenticated && <TableCell sx={{ minWidth: 200 }}>Actions</TableCell>}
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -5011,7 +5011,8 @@ const ContractManagement = () => {
                           />
                         </TableCell>
                         {isAuthenticated ? (
-                          <TableCell>
+                          <TableCell sx={{ minWidth: 200, whiteSpace: 'nowrap' }}>
+                            <Box display="flex" gap={0.5} flexWrap="nowrap">
                             {rule.rule_type === 'location' && rule.center_latitude && rule.center_longitude && (
                               <Tooltip title="View Location on Map">
                                 <IconButton
@@ -5041,8 +5042,9 @@ const ContractManagement = () => {
                                 color="success"
                               >
                                 <CheckCircleIcon fontSize="small" />
-                              </IconButton>
+                                </IconButton>
                             </Tooltip>
+                            </Box>
                             <Tooltip title={rule.is_active ? 'Deactivate Rule' : 'Activate Rule'}>
                               <IconButton
                                 size="small"
