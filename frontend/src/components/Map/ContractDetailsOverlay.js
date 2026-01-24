@@ -815,8 +815,12 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     functions: contractFunctions.map(f => ({ name: f.name, paramCount: f.parameters?.length || 0 })),
     hasContract: !!contract,
     contractId: contract?.id,
+    contractAddress: contract?.contract_address,
     discoveredFunctionsType: typeof contract?.discovered_functions,
-    discoveredFunctionsRaw: contract?.discovered_functions
+    discoveredFunctionsRaw: contract?.discovered_functions,
+    discoveredFunctionsKeys: contract?.discovered_functions && typeof contract.discovered_functions === 'object' 
+      ? Object.keys(contract.discovered_functions) 
+      : null
   });
 
   return (

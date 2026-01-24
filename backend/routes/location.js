@@ -118,7 +118,37 @@ const authenticateApiKey = async (req, res, next) => {
  *                     type: string
  *                     example: "XYZ Wallet"
  */
-router.get('/nearby', authenticateApiKey, async (req, res) => {
+// Nearby endpoint - supports both JWT and API key authentication
+// Try JWT first (optional), then API key if JWT not available
+const authenticateNearbyOptional = async (req, res, next) => {
+    // Try JWT authentication first (optional - don't fail if not present)
+    try {
+        // Check if JWT token exists and is valid
+        const token = req.header('Authorization')?.replace('Bearer ', '');
+        if (token) {
+            // Try to authenticate with JWT (but don't fail if it doesn't work)
+            const jwt = require('jsonwebtoken');
+            const JWT_SECRET = process.env.JWT_SECRET;
+            if (JWT_SECRET) {
+                try {
+                    const decoded = jwt.verify(token, JWT_SECRET);
+                    req.user = decoded.user;
+                    req.userId = decoded.user?.id;
+                    return next();
+                } catch (jwtError) {
+                    // JWT invalid, continue to API key check
+                }
+            }
+        }
+    } catch (error) {
+        // JWT check failed, continue to API key check
+    }
+    
+    // Fall back to API key authentication
+    return authenticateApiKey(req, res, next);
+};
+
+router.get('/nearby', authenticateNearbyOptional, async (req, res) => {
     const { lat, lon, radius } = req.query;
     
     if (!lat || !lon || !radius) {
