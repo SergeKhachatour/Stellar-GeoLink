@@ -8292,7 +8292,16 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
             try {
                 scValParams = mappedParams.map(param => {
                     const value = param.value;
-                    if (param.type === 'Address') {
+                    
+                    // Validate required parameters are not undefined/null
+                    if ((value === undefined || value === null || value === '') && param.required !== false) {
+                        throw new Error(`Cannot convert undefined/null value to ${param.type}. Please provide a valid value for parameter "${param.name}".`);
+                    }
+                    
+                    if (param.type === 'Address' || param.type === 'address') {
+                        if (!value || value === '') {
+                            throw new Error(`Cannot convert undefined/null value to Address. Please provide a valid value for parameter "${param.name}".`);
+                        }
                         return StellarSdk.xdr.ScVal.scvAddress(StellarSdk.Address.fromString(value).toScAddress());
                     } else if (param.type === 'I128' || param.type === 'I64' || param.type === 'I32') {
                         const amountBigInt = BigInt(value || 0);

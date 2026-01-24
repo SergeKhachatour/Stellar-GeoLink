@@ -1742,6 +1742,20 @@ const ContractManagement = () => {
   const [currentIntent, setCurrentIntent] = useState(null);
   const [currentIntentRule, setCurrentIntentRule] = useState(null); // Store rule for intent preview
   const useIntentExecution = process.env.REACT_APP_USE_EXECUTION_ENGINE === 'true';
+  
+  // Log intent execution status on component mount (for debugging Azure deployment)
+  React.useEffect(() => {
+    const envVar = process.env.REACT_APP_USE_EXECUTION_ENGINE;
+    console.log('[ContractManagement] 🔍 Intent execution status check:', {
+      enabled: useIntentExecution,
+      envVar: envVar,
+      envVarType: typeof envVar,
+      envVarLength: envVar?.length,
+      note: envVar === undefined 
+        ? '⚠️ REACT_APP_USE_EXECUTION_ENGINE is undefined. React env vars are embedded at BUILD time. If set in GitHub Secrets, trigger a new build. Azure Portal env vars won\'t work for React apps.'
+        : `✅ Environment variable found: "${envVar}"`
+    });
+  }, [useIntentExecution]);
   const [ruleTestResult, setRuleTestResult] = useState(null);
   const [executeConfirmDialog, setExecuteConfirmDialog] = useState({ open: false, rule: null });
   const [parameterDialogOpen, setParameterDialogOpen] = useState(false);
@@ -3031,10 +3045,12 @@ const ContractManagement = () => {
     // Create intent for execution (if using intent-based execution)
     let intent = null;
     if (useIntentExecution && contract) {
-      console.log('[ContractManagement] useIntentExecution is enabled, creating intent...', {
+      console.log('[ContractManagement] ✅ useIntentExecution is enabled, creating intent...', {
         hasContract: !!contract,
         functionName: rule.function_name,
-        hasDiscoveredFunctions: !!contract.discovered_functions
+        hasDiscoveredFunctions: !!contract.discovered_functions,
+        envVarValue: process.env.REACT_APP_USE_EXECUTION_ENGINE,
+        useIntentExecutionValue: useIntentExecution
       });
       try {
         // Convert function params to typed args
@@ -3100,10 +3116,12 @@ const ContractManagement = () => {
         // Fall through to regular execution
       }
     } else {
-      console.log('[ContractManagement] Intent execution disabled or no contract:', {
+      console.warn('[ContractManagement] ⚠️ Intent execution disabled or no contract:', {
         useIntentExecution,
         hasContract: !!contract,
-        envVar: process.env.REACT_APP_USE_EXECUTION_ENGINE
+        envVar: process.env.REACT_APP_USE_EXECUTION_ENGINE,
+        envVarType: typeof process.env.REACT_APP_USE_EXECUTION_ENGINE,
+        note: 'If REACT_APP_USE_EXECUTION_ENGINE is set in GitHub Secrets, you may need to trigger a new build for it to take effect. React environment variables are embedded at BUILD time, not runtime.'
       });
     }
     
