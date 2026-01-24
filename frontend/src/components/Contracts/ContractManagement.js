@@ -2813,6 +2813,7 @@ const ContractManagement = () => {
     if (!currentIntent) return;
     
     setIntentPreviewOpen(false);
+    setExecutingRule(true);
     
     // Use the stored rule from intent preview
     const rule = currentIntentRule || executeConfirmDialog.rule;
@@ -2823,12 +2824,13 @@ const ContractManagement = () => {
         currentIntent: currentIntent
       });
       setError('No rule found for execution. Please try executing again.');
+      setExecutingRule(false);
       return;
     }
 
-    // Continue with regular backend execution flow
+    // Continue with backend execution flow, but skip intent creation since we already have it
     // This will handle WebAuthn, payments, smart wallet routing, etc.
-    await handleConfirmExecute(rule);
+    await handleConfirmExecute(rule, null, true); // Pass skipIntentCreation = true
   };
 
   // Helper function to check for missing required parameters
@@ -2871,7 +2873,7 @@ const ContractManagement = () => {
     return { missing, parameters: func.parameters };
   };
 
-  const handleConfirmExecute = async (ruleParam = null, providedParams = null) => {
+  const handleConfirmExecute = async (ruleParam = null, providedParams = null, skipIntentCreation = false) => {
     const rule = ruleParam || executeConfirmDialog.rule;
     if (!rule) {
       setExecuteConfirmDialog({ open: false, rule: null });
@@ -2925,9 +2927,9 @@ const ContractManagement = () => {
       }
     }
     
-    // Always create intent and show preview before execution
+    // Always create intent and show preview before execution (unless skipping)
     let intent = null;
-    if (contract) {
+    if (contract && !skipIntentCreation) {
       try {
         // Convert function params to typed args
         let typedArgs = [];
