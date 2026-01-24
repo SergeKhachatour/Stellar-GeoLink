@@ -8031,11 +8031,32 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             }
         }
     } catch (error) {
-        console.error('Error executing contract function:', error);
-        res.status(500).json({ 
-            error: 'Failed to execute contract function',
-            message: error.message 
+        console.error('[Execute] ❌ Error executing contract function:', {
+            message: error.message,
+            name: error.name,
+            stack: error.stack,
+            contractId: req.params.id,
+            functionName: req.body?.function_name,
+            userId: req.user?.id || req.userId,
+            hasUserPublicKey: !!req.body?.user_public_key,
+            hasUserSecretKey: !!req.body?.user_secret_key,
+            hasWebAuthn: !!(req.body?.webauthnSignature && req.body?.webauthnAuthenticatorData),
+            errorCode: error.code,
+            errorResponse: error.response?.data
         });
+        
+        // Don't send response if headers already sent
+        if (!res.headersSent) {
+            res.status(500).json({ 
+                error: 'Failed to execute contract function',
+                message: error.message || 'Unknown error occurred',
+                details: process.env.NODE_ENV === 'development' ? {
+                    name: error.name,
+                    code: error.code,
+                    stack: error.stack
+                } : undefined
+            });
+        }
     }
 });
 
