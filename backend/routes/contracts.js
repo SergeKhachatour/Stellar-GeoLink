@@ -5351,24 +5351,85 @@ router.get('/:id', authenticateContractUser, async (req, res) => {
         const { id } = req.params;
 
         const userId = req.user?.id || req.userId;
-        if (!userId) {
-            return res.status(401).json({ error: 'User ID not found. Authentication required.' });
+        const publicKey = req.user?.public_key;
+        
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
         }
 
-        const result = await pool.query(
-            `SELECT id, contract_address, contract_name, network, 
-                    discovered_functions, function_mappings, use_smart_wallet,
-                    smart_wallet_contract_id, payment_function_name, requires_webauthn,
-                    webauthn_verifier_contract_id,
-                    wasm_file_name, wasm_file_size, wasm_source, wasm_hash, wasm_uploaded_at,
-                    created_at, updated_at, is_active
-             FROM custom_contracts
-             WHERE id = $1 AND user_id = $2`,
-            [id, userId]
-        );
+        // Check if id is a contract address (starts with C and is 56 chars) or an integer ID
+        const isContractAddress = /^C[A-Z0-9]{55}$/.test(id);
+        const isIntegerId = /^\d+$/.test(id);
+
+        let result;
+        if (isContractAddress) {
+            // Query by contract_address
+            if (publicKey) {
+                result = await pool.query(
+                    `SELECT cc.id, cc.contract_address, cc.contract_name, cc.network, 
+                            cc.discovered_functions, cc.function_mappings, cc.use_smart_wallet,
+                            cc.smart_wallet_contract_id, cc.payment_function_name, cc.requires_webauthn,
+                            cc.webauthn_verifier_contract_id,
+                            cc.wasm_file_name, cc.wasm_file_size, cc.wasm_source, cc.wasm_hash, cc.wasm_uploaded_at,
+                            cc.created_at, cc.updated_at, cc.is_active
+                     FROM custom_contracts cc
+                     JOIN users u ON cc.user_id = u.id
+                     WHERE cc.contract_address = $1 AND u.public_key = $2 AND cc.is_active = true`,
+                    [id, publicKey]
+                );
+            } else {
+                result = await pool.query(
+                    `SELECT id, contract_address, contract_name, network, 
+                            discovered_functions, function_mappings, use_smart_wallet,
+                            smart_wallet_contract_id, payment_function_name, requires_webauthn,
+                            webauthn_verifier_contract_id,
+                            wasm_file_name, wasm_file_size, wasm_source, wasm_hash, wasm_uploaded_at,
+                            created_at, updated_at, is_active
+                     FROM custom_contracts
+                     WHERE contract_address = $1 AND user_id = $2 AND is_active = true`,
+                    [id, userId]
+                );
+            }
+        } else if (isIntegerId) {
+            // Query by integer ID
+            if (publicKey) {
+                result = await pool.query(
+                    `SELECT cc.id, cc.contract_address, cc.contract_name, cc.network, 
+                            cc.discovered_functions, cc.function_mappings, cc.use_smart_wallet,
+                            cc.smart_wallet_contract_id, cc.payment_function_name, cc.requires_webauthn,
+                            cc.webauthn_verifier_contract_id,
+                            cc.wasm_file_name, cc.wasm_file_size, cc.wasm_source, cc.wasm_hash, cc.wasm_uploaded_at,
+                            cc.created_at, cc.updated_at, cc.is_active
+                     FROM custom_contracts cc
+                     JOIN users u ON cc.user_id = u.id
+                     WHERE cc.id = $1 AND u.public_key = $2 AND cc.is_active = true`,
+                    [parseInt(id, 10), publicKey]
+                );
+            } else {
+                result = await pool.query(
+                    `SELECT id, contract_address, contract_name, network, 
+                            discovered_functions, function_mappings, use_smart_wallet,
+                            smart_wallet_contract_id, payment_function_name, requires_webauthn,
+                            webauthn_verifier_contract_id,
+                            wasm_file_name, wasm_file_size, wasm_source, wasm_hash, wasm_uploaded_at,
+                            created_at, updated_at, is_active
+                     FROM custom_contracts
+                     WHERE id = $1 AND user_id = $2 AND is_active = true`,
+                    [parseInt(id, 10), userId]
+                );
+            }
+        } else {
+            return res.status(400).json({ 
+                error: 'Invalid contract identifier',
+                message: 'Contract ID must be either an integer ID or a valid contract address (starts with C, 56 characters)'
+            });
+        }
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Contract not found' });
+            return res.status(404).json({ 
+                error: 'Contract not found',
+                message: `Contract with identifier "${id}" not found or you do not have access to it.`
+            });
         }
 
         res.json({
@@ -5377,6 +5438,13 @@ router.get('/:id', authenticateContractUser, async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching custom contract:', error);
+        console.error('Error details:', {
+            id: req.params.id,
+            userId: req.user?.id || req.userId,
+            publicKey: req.user?.public_key,
+            errorMessage: error.message,
+            errorStack: error.stack
+        });
         res.status(500).json({ 
             error: 'Failed to fetch custom contract',
             message: error.message 
