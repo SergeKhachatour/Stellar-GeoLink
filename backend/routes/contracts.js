@@ -5833,8 +5833,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 
                 if (isPlaceholder) {
                     // Try to get matched_public_key from various sources
+                    console.log(`[Execute] 🔍 Looking for matched_public_key to replace placeholder destination:`, {
+                        fromParameters: parameters.matched_public_key,
+                        fromRequestBody: req.body.matched_public_key,
+                        ruleId: rule_id,
+                        requestBodyKeys: Object.keys(req.body)
+                    });
+                    
                     let matchedKey = parameters.matched_public_key || 
-                                    req.body.matched_public_key;
+                                    req.body.matched_public_key ||
+                                    (req.body.parameters && req.body.parameters.matched_public_key);
                     
                     // If not found, try to fetch from location_update_queue
                     if (!matchedKey && rule_id) {
@@ -5869,8 +5877,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         paymentParams.destination = matchedKey;
                         console.log(`[Execute] ✅ Replaced placeholder destination with matched_public_key in payment params: ${matchedKey?.substring(0, 8)}...`);
                     } else {
-                        console.error(`[Execute] ❌ Destination is placeholder but matched_public_key not available`);
-                        throw new Error(`Destination address is required but not available. Placeholder text found: ${paymentParams.destination}. Please provide matched_public_key in the request.`);
+                        console.error(`[Execute] ❌ Destination is placeholder but matched_public_key not available`, {
+                            placeholderText: paymentParams.destination,
+                            checkedInParameters: !!parameters.matched_public_key,
+                            checkedInRequestBody: !!req.body.matched_public_key,
+                            checkedInParametersNested: !!(req.body.parameters && req.body.parameters.matched_public_key),
+                            ruleId: rule_id,
+                            userId: req.user?.id || req.userId,
+                            allRequestBodyKeys: Object.keys(req.body)
+                        });
+                        throw new Error(`Destination address is required but not available. Placeholder text found: ${paymentParams.destination}. Please provide matched_public_key in the request body.`);
                     }
                 }
             }
