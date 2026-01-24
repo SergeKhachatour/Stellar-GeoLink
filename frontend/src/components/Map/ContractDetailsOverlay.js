@@ -810,7 +810,14 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
   };
 
   const contractFunctions = getContractFunctions();
-  console.log('[ContractDetailsOverlay] Final contractFunctions:', contractFunctions.length, contractFunctions);
+  console.log('[ContractDetailsOverlay] Final contractFunctions:', {
+    count: contractFunctions.length,
+    functions: contractFunctions.map(f => ({ name: f.name, paramCount: f.parameters?.length || 0 })),
+    hasContract: !!contract,
+    contractId: contract?.id,
+    discoveredFunctionsType: typeof contract?.discovered_functions,
+    discoveredFunctionsRaw: contract?.discovered_functions
+  });
 
   return (
     <Dialog 
