@@ -2951,10 +2951,13 @@ const ContractManagement = () => {
             : contract.discovered_functions;
           
           const func = discoveredFunctions[rule.function_name];
-          if (func && func.parameters) {
+          if (func && func.parameters && Array.isArray(func.parameters)) {
+            // Use introspected parameters to preserve correct types (Address, I128, U128, etc.)
             typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, functionParams);
+            console.log('[ContractManagement] Created typed args from introspection:', typedArgs.map(a => ({ name: a.name, type: a.type })));
           } else {
-            // Fallback: convert parameters object to typed args
+            // Fallback: convert parameters object to typed args (shouldn't happen if introspection is available)
+            console.warn('[ContractManagement] No introspected parameters found, inferring types from values');
             typedArgs = Object.entries(functionParams).map(([name, value]) => ({
               name,
               type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',

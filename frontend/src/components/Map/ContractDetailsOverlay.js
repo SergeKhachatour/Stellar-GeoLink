@@ -729,9 +729,20 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         // Convert array-like object to actual array
         const functionArray = Object.values(functions).map((func, index) => {
           if (func && typeof func === 'object' && func.name) {
+            // Normalize parameters to ensure they have both 'name' and 'type' fields
+            const normalizedParams = Array.isArray(func.parameters)
+              ? func.parameters.map(param => ({
+                  name: param.name || param.parameter_name || 'unknown',
+                  type: param.type || param.parameter_type || 'String',
+                  parameter_name: param.name || param.parameter_name || 'unknown',
+                  parameter_type: param.type || param.parameter_type || 'String',
+                  ...param // Preserve other fields (mapped_from, etc.)
+                }))
+              : [];
+            
             return {
               name: func.name,
-              parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || []),
+              parameters: normalizedParams,
               return_type: func.return_type,
               note: func.note,
               discovered: func.discovered
@@ -757,9 +768,20 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       const functionArray = Object.entries(functions).map(([key, func]) => {
         // If the value is already a function object, return it
         if (func && typeof func === 'object' && (func.name || key)) {
+          // Normalize parameters to ensure they have both 'name' and 'type' fields
+          const normalizedParams = Array.isArray(func.parameters) 
+            ? func.parameters.map(param => ({
+                name: param.name || param.parameter_name || 'unknown',
+                type: param.type || param.parameter_type || 'String',
+                parameter_name: param.name || param.parameter_name || 'unknown',
+                parameter_type: param.type || param.parameter_type || 'String',
+                ...param // Preserve other fields
+              }))
+            : [];
+          
           return {
             name: func.name || key,
-            parameters: Array.isArray(func.parameters) ? func.parameters : (func.parameters || []),
+            parameters: normalizedParams,
             return_type: func.return_type,
             note: func.note,
             discovered: func.discovered
@@ -1188,9 +1210,10 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
 
                 {/* Function Selection & Execution */}
                 <Box mt={2} pt={2} sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
-                  <FormControl fullWidth margin="normal">
-                    <InputLabel>Select Function to Execute</InputLabel>
+                  <FormControl fullWidth margin="normal" error={contractFunctions.length === 0 && contract}>
+                    <InputLabel id="function-select-label">Select Function to Execute</InputLabel>
                     <Select
+                      labelId="function-select-label"
                       value={selectedFunction}
                       onChange={(e) => {
                         console.log('[ContractDetailsOverlay] Function selected:', e.target.value);
@@ -1243,9 +1266,10 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                       {contractFunctions.length > 0 ? (
                         contractFunctions.map((func, index) => {
                           const funcName = func.name || func;
+                          const funcKey = `func-${funcName}-${index}`;
                           console.log('[ContractDetailsOverlay] Adding function to dropdown:', funcName, func);
                           return (
-                            <MenuItem key={index} value={funcName}>
+                            <MenuItem key={funcKey} value={funcName}>
                               <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
                                 <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                                   {funcName}

@@ -81,11 +81,17 @@ export async function challengeFromIntent(intentBytes) {
  * @returns {Array<{name: string, type: string, value: any}>}
  */
 export function convertIntrospectedArgsToIntentArgs(introspectedArgs, parameterValues) {
-  return introspectedArgs.map(param => ({
-    name: param.name,
-    type: param.type,
-    value: parameterValues[param.name] ?? param.default ?? null
-  }));
+  return introspectedArgs.map(param => {
+    // Support both 'name' and 'parameter_name', 'type' and 'parameter_type'
+    const paramName = param.name || param.parameter_name;
+    const paramType = param.type || param.parameter_type || 'String'; // Preserve actual contract types
+    
+    return {
+      name: paramName,
+      type: paramType, // Use actual contract type (Address, I128, U128, etc.)
+      value: parameterValues[paramName] ?? param.default ?? null
+    };
+  });
 }
 
 /**
