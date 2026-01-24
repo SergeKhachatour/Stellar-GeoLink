@@ -2016,8 +2016,9 @@ const ContractManagement = () => {
       return;
     }
 
-    // Skip confirmation dialog - go straight to execution
-    setExecuteConfirmDialog({ open: true, rule });
+    // Set rule for execution (but don't show confirm dialog if intent execution is enabled)
+    // The intent preview will handle showing the preview, or we'll use the confirm dialog
+    setExecuteConfirmDialog({ open: !useIntentExecution, rule }); // Only show dialog if intent execution is disabled
     // Start execution immediately
     await handleConfirmExecute(rule);
   };
