@@ -2810,8 +2810,18 @@ const ContractManagement = () => {
 
   // Handle intent preview confirmation and execute with backend API
   const handleIntentPreviewConfirm = async () => {
-    if (!currentIntent) return;
+    if (!currentIntent) {
+      console.error('[ContractManagement] handleIntentPreviewConfirm called but currentIntent is null');
+      return;
+    }
     
+    console.log('[ContractManagement] Intent preview confirmed, starting execution...', {
+      hasCurrentIntent: !!currentIntent,
+      hasCurrentIntentRule: !!currentIntentRule,
+      intentNonce: currentIntent.nonce
+    });
+    
+    // Close the intent preview dialog
     setIntentPreviewOpen(false);
     setExecutingRule(true);
     
@@ -2830,6 +2840,7 @@ const ContractManagement = () => {
 
     // Continue with backend execution flow, but skip intent creation since we already have it
     // This will handle WebAuthn, payments, smart wallet routing, etc.
+    console.log('[ContractManagement] Calling handleConfirmExecute with skipIntentCreation=true');
     await handleConfirmExecute(rule, null, true); // Pass skipIntentCreation = true
   };
 
@@ -2930,6 +2941,7 @@ const ContractManagement = () => {
     // Always create intent and show preview before execution (unless skipping)
     let intent = null;
     if (contract && !skipIntentCreation) {
+      console.log('[ContractManagement] Creating new intent (skipIntentCreation=false)');
       try {
         // Convert function params to typed args
         let typedArgs = [];
@@ -2993,11 +3005,17 @@ const ContractManagement = () => {
         });
         // Fall through to regular execution if intent creation fails
       }
+    } else if (skipIntentCreation) {
+      console.log('[ContractManagement] Skipping intent creation, proceeding directly to execution');
+      // Ensure dialog is closed when skipping intent creation
+      setIntentPreviewOpen(false);
     }
     
     // Keep confirmation dialog open to show execution steps
     // Don't close it - it will show the execution progress
-    setExecutingRule(true);
+    if (!skipIntentCreation) {
+      setExecutingRule(true);
+    }
     try {
       // functionParams already set above (from providedParams or rule)
 
