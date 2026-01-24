@@ -35,7 +35,10 @@ jobs:
           # If secrets are not set, the frontend code will use its default values
           REACT_APP_SMART_WALLET_CONTRACT_ID: ${{ secrets.REACT_APP_SMART_WALLET_CONTRACT_ID }}
           REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID: ${{ secrets.REACT_APP_WEBAUTHN_VERIFIER_CONTRACT_ID }}
+          REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID: ${{ secrets.REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID }}
           REACT_APP_DEFAULT_CONTRACT_ADDRESS: ${{ secrets.REACT_APP_DEFAULT_CONTRACT_ADDRESS }}
+          # Intent-based execution engine - Set to 'true' to enable intent preview and ExecutionEngine
+          REACT_APP_USE_EXECUTION_ENGINE: ${{ secrets.REACT_APP_USE_EXECUTION_ENGINE }}
           GENERATE_SOURCEMAP: false
           INLINE_RUNTIME_CHUNK: false
         run: |

@@ -8332,7 +8332,27 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
                     }
                 });
             } catch (error) {
-                console.warn(`[Test Function] Could not convert parameters to ScVal without mapping: ${error.message}`);
+                // Return proper error response instead of just logging
+                console.error(`[Test Function] Parameter conversion failed: ${error.message}`, {
+                    function_name,
+                    contract_id: id,
+                    parameters,
+                    mappedParams: mappedParams.map(p => ({ name: p.name, type: p.type, value: p.value }))
+                });
+                return res.status(400).json({
+                    error: 'Parameter conversion failed',
+                    message: error.message,
+                    details: 'Check that parameter values match expected types and are not undefined/null',
+                    note: 'Function exists and parameters are valid, but value conversion failed',
+                    parameter_details: mappedParams.map(p => ({
+                        name: p.name,
+                        type: p.type,
+                        value: p.value,
+                        is_undefined: p.value === undefined,
+                        is_null: p.value === null,
+                        is_empty: p.value === ''
+                    }))
+                });
             }
         }
         const networkPassphrase = contract.network === 'mainnet' 
