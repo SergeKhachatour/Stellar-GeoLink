@@ -8020,14 +8020,35 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         : 'Transaction submitted to the ledger'
                 });
             } catch (error) {
-                console.error('Error executing contract function:', error);
-                return res.status(500).json({
-                    error: 'Failed to execute contract function',
+                console.error('[Execute] ❌ Error in contract execution (non-smart-wallet path):', {
                     message: error.message,
-                    function_name,
-                    is_read_only: isReadOnly,
-                    details: error.response?.data || error.toString()
+                    name: error.name,
+                    stack: error.stack,
+                    contractId: id,
+                    functionName: function_name,
+                    isReadOnly,
+                    userId: req.user?.id || req.userId,
+                    hasUserPublicKey: !!user_public_key,
+                    hasUserSecretKey: !!user_secret_key,
+                    errorCode: error.code,
+                    errorResponse: error.response?.data
                 });
+                
+                // Don't send response if headers already sent
+                if (!res.headersSent) {
+                    return res.status(500).json({
+                        error: 'Failed to execute contract function',
+                        message: error.message || 'Unknown error occurred',
+                        function_name,
+                        is_read_only: isReadOnly,
+                        details: process.env.NODE_ENV === 'development' ? {
+                            name: error.name,
+                            code: error.code,
+                            stack: error.stack,
+                            response: error.response?.data
+                        } : (error.response?.data || error.toString())
+                    });
+                }
             }
         }
     } catch (error) {
