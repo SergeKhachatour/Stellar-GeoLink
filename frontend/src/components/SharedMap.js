@@ -89,6 +89,7 @@ const SharedMap = ({
   const fullscreenMapContainer = useRef(null);
   const hasInitialFitBounds = useRef(false); // Track if we've done initial fitBounds
   const markerUpdateTimeout = useRef(null); // Debounce marker updates
+  const fullscreenMarkerUpdateTimeout = useRef(null); // Debounce fullscreen marker updates
 
   const initializeMap = useCallback((container) => {
     if (map.current) {
@@ -842,17 +843,28 @@ const SharedMap = ({
           });
         }, 100);
 
-        // Add markers for locations after map is fully loaded
-        // Use a longer delay to ensure map is completely ready
-        setTimeout(() => {
-          console.log('[FullscreenMap] Map loaded, checking locations:', locations?.length || 0);
-          if (locations && locations.length > 0) {
-            console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
-            addMarkersToFullscreenMap(fullscreenMapInstance);
-          } else {
-            console.warn('[FullscreenMap] No locations available to add to fullscreen map. Locations:', locations);
+        // Add markers for locations after map style is fully loaded
+        // Wait for style to be ready, especially important for globe projection
+        const addMarkersWhenReady = () => {
+          if (!fullscreenMapInstance.isStyleLoaded()) {
+            console.log('[FullscreenMap] Style not loaded yet, waiting...');
+            fullscreenMapInstance.once('style.load', addMarkersWhenReady);
+            return;
           }
-        }, 1000); // Increased delay to ensure map is fully ready
+          
+          // Additional check: ensure map is fully rendered
+          requestAnimationFrame(() => {
+            console.log('[FullscreenMap] Map ready, checking locations:', locations?.length || 0);
+            if (locations && locations.length > 0) {
+              console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
+              addMarkersToFullscreenMap(fullscreenMapInstance);
+            } else {
+              console.warn('[FullscreenMap] No locations available to add to fullscreen map. Locations:', locations);
+            }
+          });
+        };
+        
+        addMarkersWhenReady();
 
         // Add sync function to fullscreen map instance
         fullscreenMapInstance._syncStyle = (view) => {
@@ -925,6 +937,16 @@ const SharedMap = ({
       console.warn('[addMarkersToFullscreenMap] No map instance provided');
       return;
     }
+    
+    // Ensure map style is loaded before adding markers
+    if (!mapInstance.isStyleLoaded()) {
+      console.log('[addMarkersToFullscreenMap] Map style not loaded, waiting...');
+      mapInstance.once('style.load', () => {
+        addMarkersToFullscreenMap(mapInstance);
+      });
+      return;
+    }
+    
     if (!locations || locations.length === 0) {
       console.warn('[addMarkersToFullscreenMap] No locations to add, locations:', locations);
       return;
@@ -932,22 +954,26 @@ const SharedMap = ({
     
     console.log('[addMarkersToFullscreenMap] Adding', locations.length, 'markers to fullscreen map');
 
-    // Clear existing fullscreen markers only
-    Object.values(fullscreenMarkers.current).forEach(marker => {
-      if (marker && marker.remove) {
-        marker.remove();
-      }
-    });
-    fullscreenMarkers.current = {};
+    // Use requestAnimationFrame to ensure smooth updates
+    requestAnimationFrame(() => {
+      if (!mapInstance) return;
 
-    locations.forEach((location, index) => {
-      const lat = parseFloat(location.latitude);
-      const lng = parseFloat(location.longitude);
-      
-      if (isNaN(lat) || isNaN(lng)) {
-        console.warn(`Invalid coordinates for location ${index}:`, location);
-        return;
-      }
+      // Clear existing fullscreen markers only
+      Object.values(fullscreenMarkers.current).forEach(marker => {
+        if (marker && marker.remove) {
+          marker.remove();
+        }
+      });
+      fullscreenMarkers.current = {};
+
+      locations.forEach((location, index) => {
+        const lat = parseFloat(location.latitude);
+        const lng = parseFloat(location.longitude);
+        
+        if (isNaN(lat) || isNaN(lng)) {
+          console.warn(`[addMarkersToFullscreenMap] Invalid coordinates for location ${index}:`, location);
+          return;
+        }
 
       // Determine location type
       const locationType = location.type || location.marker_type;
@@ -1191,28 +1217,38 @@ const SharedMap = ({
         marker.setPopup(popup);
       }
 
-      fullscreenMarkers.current[`marker_${index}`] = marker;
-    });
-
-    // Fit map to show all locations
-    if (locations.length > 0) {
-      const bounds = new Mapboxgl.LngLatBounds();
-      let validLocations = 0;
-      
-      locations.forEach(location => {
-        const lat = parseFloat(location.latitude);
-        const lng = parseFloat(location.longitude);
-        
-        if (!isNaN(lat) && !isNaN(lng)) {
-          bounds.extend([lng, lat]);
-          validLocations++;
-        }
+        fullscreenMarkers.current[`marker_${index}`] = marker;
       });
-      
-      if (validLocations > 0) {
-        mapInstance.fitBounds(bounds, { padding: 50 });
+
+      // Fit map to show all locations after markers are added
+      if (locations.length > 0) {
+        const bounds = new Mapboxgl.LngLatBounds();
+        let validLocations = 0;
+        
+        locations.forEach(location => {
+          const lat = parseFloat(location.latitude);
+          const lng = parseFloat(location.longitude);
+          
+          if (!isNaN(lat) && !isNaN(lng)) {
+            bounds.extend([lng, lat]);
+            validLocations++;
+          }
+        });
+        
+        if (validLocations > 0 && mapInstance) {
+          // Use setTimeout to ensure markers are rendered before fitting bounds
+          setTimeout(() => {
+            if (mapInstance && !mapInstance.isStyleLoaded()) {
+              mapInstance.once('style.load', () => {
+                mapInstance.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+              });
+            } else {
+              mapInstance.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+            }
+          }, 100);
+        }
       }
-    }
+    });
   }, [locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFullscreen = () => {
@@ -1326,12 +1362,34 @@ const SharedMap = ({
     }
   }, [zoomTarget, mapLoaded]);
 
-  // Update fullscreen map markers when locations change
+  // Update fullscreen map markers when locations change (with debouncing)
   useEffect(() => {
-    if (fullscreenMap && locations && locations.length > 0) {
-      console.log('[SharedMap] Locations changed, updating fullscreen map markers:', locations.length);
-      addMarkersToFullscreenMap(fullscreenMap);
+    if (!fullscreenMap || !locations) return;
+    
+    // Clear any pending update
+    if (fullscreenMarkerUpdateTimeout.current) {
+      clearTimeout(fullscreenMarkerUpdateTimeout.current);
     }
+    
+    // Debounce marker updates by 500ms to prevent glitches and ensure map is ready
+    fullscreenMarkerUpdateTimeout.current = setTimeout(() => {
+      if (fullscreenMap && fullscreenMap.isStyleLoaded()) {
+        console.log('[SharedMap] Locations changed, updating fullscreen map markers:', locations.length);
+        addMarkersToFullscreenMap(fullscreenMap);
+      } else if (fullscreenMap) {
+        // Wait for style to load if not ready
+        fullscreenMap.once('style.load', () => {
+          console.log('[SharedMap] Fullscreen map style loaded, updating markers:', locations.length);
+          addMarkersToFullscreenMap(fullscreenMap);
+        });
+      }
+    }, 500);
+    
+    return () => {
+      if (fullscreenMarkerUpdateTimeout.current) {
+        clearTimeout(fullscreenMarkerUpdateTimeout.current);
+      }
+    };
   }, [locations, fullscreenMap, addMarkersToFullscreenMap]);
 
   // Ensure main map is visible when exiting fullscreen
