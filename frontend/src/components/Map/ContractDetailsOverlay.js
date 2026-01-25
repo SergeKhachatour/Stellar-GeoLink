@@ -1350,6 +1350,19 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                       }}
                       label="Select Function to Execute"
                       displayEmpty
+                      MenuProps={{
+                        disablePortal: false, // Ensure menu is rendered in a portal (outside dialog)
+                        PaperProps: {
+                          sx: {
+                            zIndex: 2000, // Much higher than dialog z-index (1500) to appear above overlay
+                            maxHeight: 300
+                          }
+                        },
+                        container: document.body, // Render menu in body to avoid z-index issues
+                        style: {
+                          zIndex: 2000
+                        }
+                      }}
                     >
                       {contractFunctions.length > 0 ? (
                         contractFunctions.map((func, index) => {
