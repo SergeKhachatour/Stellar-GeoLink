@@ -5696,7 +5696,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         
         // For write functions, secret key OR WebAuthn data is required
         if (!isReadOnly && !user_secret_key && !hasWebAuthnData) {
-            return res.status(400).json({ error: 'User secret key or WebAuthn signature is required for write operations' });
+            console.error(`[Execute] Missing authentication for write function: function_name=${function_name}, hasSecretKey=${!!user_secret_key}, hasWebAuthnData=${hasWebAuthnData}, userId=${userId}, contractId=${id}`);
+            return res.status(400).json({ 
+                error: 'User secret key or WebAuthn signature is required for write operations',
+                details: {
+                    function_name,
+                    is_read_only: false,
+                    has_secret_key: !!user_secret_key,
+                    has_webauthn: hasWebAuthnData
+                }
+            });
         }
         
         // For read-only functions that should be submitted to ledger, secret key OR WebAuthn data is required

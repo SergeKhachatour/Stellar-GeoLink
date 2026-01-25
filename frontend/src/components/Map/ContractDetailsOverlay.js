@@ -655,15 +655,39 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         }
       }
 
+      // Check if we have required authentication
+      const isReadOnly = /^(get_|is_|has_|check_|query_|view_|read_|fetch_)/i.test(selectedFunction);
+      const hasWebAuthn = !!(webauthnData?.passkeyPublicKeySPKI && webauthnData?.webauthnSignature);
+      
+      if (!isReadOnly && !secretKey && !hasWebAuthn) {
+        setExecutionError('Secret key is required for executing write operations. Please enter your secret key in the execution dialog or use passkey authentication.');
+        setExecuting(false);
+        return;
+      }
+
       // Execute contract function
-      const response = await api.post(`/contracts/${contract.id}/execute`, {
+      const requestBody = {
         function_name: selectedFunction,
         parameters: finalParams,
         user_public_key: publicKey,
-        user_secret_key: secretKey,
         network: contract.network || 'testnet',
         ...webauthnData
+      };
+
+      // Only include secret_key if it's available (for write operations or read-only submissions)
+      if (secretKey) {
+        requestBody.user_secret_key = secretKey;
+      }
+
+      console.log('[ContractDetailsOverlay] Executing function:', {
+        function_name: selectedFunction,
+        isReadOnly,
+        hasSecretKey: !!secretKey,
+        hasWebAuthn,
+        parameters: Object.keys(finalParams)
       });
+
+      const response = await api.post(`/contracts/${contract.id}/execute`, requestBody);
 
       if (response.data.success) {
         alert(`Function "${selectedFunction}" executed successfully!`);
