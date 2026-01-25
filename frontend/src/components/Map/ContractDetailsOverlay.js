@@ -1350,19 +1350,6 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
                       }}
                       label="Select Function to Execute"
                       displayEmpty
-                      MenuProps={{
-                        PaperProps: {
-                          sx: {
-                            zIndex: 2000, // Much higher than dialog z-index (1500) to appear above overlay
-                            maxHeight: 300
-                          }
-                        },
-                        MenuListProps: {
-                          sx: {
-                            zIndex: 2000
-                          }
-                        }
-                      }}
                     >
                       {contractFunctions.length > 0 ? (
                         contractFunctions.map((func, index) => {
