@@ -263,82 +263,143 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       : `${(distance / 1000).toFixed(2)}km`
     : 'Unknown';
 
-  // Initialize map for rule location visualization
+  // Initialize map for contract/rule location visualization
   useEffect(() => {
-    if (!mapContainer || !item || itemType !== 'contract_rule' || !item.latitude || !item.longitude) {
+    // Only initialize map if we have a container and item with location data
+    if (!mapContainer || !item) {
+      return;
+    }
+
+    // Get location from item (could be contract_rule, contract, or other types)
+    const itemLat = item.latitude || (item.contract && item.contract.latitude) || (contract && contract.latitude);
+    const itemLng = item.longitude || (item.contract && item.contract.longitude) || (contract && contract.longitude);
+    
+    // For contract_rule, require location. For other types, location is optional
+    if (itemType === 'contract_rule' && (!itemLat || !itemLng)) {
       return;
     }
 
     if (!process.env.REACT_APP_MAPBOX_TOKEN) {
-      console.warn('Mapbox token not configured for rule location map');
+      console.warn('Mapbox token not configured for map');
       return;
     }
 
+    // Set Mapbox token before creating map
     mapboxgl.accessToken = process.env.REACT_APP_MAPBOX_TOKEN;
 
-    const ruleLat = parseFloat(item.latitude);
-    const ruleLng = parseFloat(item.longitude);
+    // Use item location or contract location, or default to a reasonable center
+    const centerLat = itemLat ? parseFloat(itemLat) : (itemType === 'contract_rule' ? null : 0);
+    const centerLng = itemLng ? parseFloat(itemLng) : (itemType === 'contract_rule' ? null : 0);
+    
+    if (itemType === 'contract_rule' && (isNaN(centerLat) || isNaN(centerLng))) {
+      return;
+    }
+
     const radius = itemRadius;
 
-    // Create map
-    const map = new mapboxgl.Map({
-      container: mapContainer,
-      style: 'mapbox://styles/mapbox/light-v11',
-      center: [ruleLng, ruleLat],
-      zoom: 13,
-      attributionControl: false
-    });
+    // Create map with proper error handling
+    let map;
+    try {
+      // Ensure container is a valid DOM element
+      if (!(mapContainer instanceof HTMLElement)) {
+        console.error('[ContractDetailsOverlay] Map container is not a valid DOM element');
+        return;
+      }
 
-    mapRef.current = map;
+      const mapCenter = itemType === 'contract_rule' && centerLat && centerLng 
+        ? [centerLng, centerLat] 
+        : userLocation 
+          ? [userLocation.longitude, userLocation.latitude]
+          : [0, 0];
+
+      map = new mapboxgl.Map({
+        container: mapContainer,
+        style: 'mapbox://styles/mapbox/light-v11',
+        center: mapCenter,
+        zoom: itemType === 'contract_rule' && centerLat && centerLng ? 13 : 2,
+        attributionControl: false
+      });
+
+      mapRef.current = map;
+
+      // Add error handler to catch Mapbox errors
+      map.on('error', (e) => {
+        console.error('[ContractDetailsOverlay] Map error:', e);
+        // Suppress specific Mapbox errors that don't affect functionality
+        if (e.error && (
+          e.error.message?.includes('fog') ||
+          e.error.message?.includes('opacity') ||
+          e.error.message?.includes('Cannot read properties of undefined')
+        )) {
+          return; // Suppress these errors
+        }
+      });
+    } catch (error) {
+      console.error('[ContractDetailsOverlay] Failed to create map:', error);
+      return;
+    }
 
     map.on('load', () => {
-      // Center map on contract location
-      map.flyTo({
-        center: [ruleLng, ruleLat],
-        zoom: 15,
-        duration: 1000
-      });
-      
-      // Add radius circle
-      const center = [ruleLng, ruleLat];
-      const circle = turf.circle(center, radius, { units: 'meters', steps: 64 });
-      
-      if (!map.getSource('rule-radius')) {
-        map.addSource('rule-radius', {
-          type: 'geojson',
-          data: circle
+      // For contract rules, center on rule location
+      if (itemType === 'contract_rule' && centerLat && centerLng) {
+        map.flyTo({
+          center: [centerLng, centerLat],
+          zoom: 15,
+          duration: 1000
+        });
+      } else if (userLocation) {
+        // For other types, center on user location if available
+        map.flyTo({
+          center: [userLocation.longitude, userLocation.latitude],
+          zoom: 12,
+          duration: 1000
         });
       }
+      
+      // Add radius circle only for contract rules with location
+      if (itemType === 'contract_rule' && centerLat && centerLng) {
+        const center = [centerLng, centerLat];
+        const circle = turf.circle(center, radius, { units: 'meters', steps: 64 });
+        
+        if (!map.getSource('rule-radius')) {
+          map.addSource('rule-radius', {
+            type: 'geojson',
+            data: circle
+          });
+        } else {
+          map.getSource('rule-radius').setData(circle);
+        }
 
-      if (!map.getLayer('rule-radius-fill')) {
-        map.addLayer({
-          id: 'rule-radius-fill',
-          type: 'fill',
-          source: 'rule-radius',
-          paint: {
-            'fill-color': isWithinRange ? '#4caf50' : '#ff9800',
-            'fill-opacity': 0.2
-          }
-        });
-      } else {
-        // Update existing layer color
-        map.setPaintProperty('rule-radius-fill', 'fill-color', isWithinRange ? '#4caf50' : '#ff9800');
-      }
+        if (!map.getLayer('rule-radius-fill')) {
+          map.addLayer({
+            id: 'rule-radius-fill',
+            type: 'fill',
+            source: 'rule-radius',
+            paint: {
+              'fill-color': isWithinRange ? '#4caf50' : '#ff9800',
+              'fill-opacity': 0.2
+            }
+          });
+        } else {
+          // Update existing layer color
+          map.setPaintProperty('rule-radius-fill', 'fill-color', isWithinRange ? '#4caf50' : '#ff9800');
+        }
 
-      if (!map.getLayer('rule-radius-line')) {
-        map.addLayer({
-          id: 'rule-radius-line',
-          type: 'line',
-          source: 'rule-radius',
-          paint: {
-            'line-color': isWithinRange ? '#4caf50' : '#ff9800',
-            'line-width': 2,
-            'line-opacity': 0.8
-          }
-        });
-      } else {
-        // Update existing layer color
-        map.setPaintProperty('rule-radius-line', 'line-color', isWithinRange ? '#4caf50' : '#ff9800');
+        if (!map.getLayer('rule-radius-line')) {
+          map.addLayer({
+            id: 'rule-radius-line',
+            type: 'line',
+            source: 'rule-radius',
+            paint: {
+              'line-color': isWithinRange ? '#4caf50' : '#ff9800',
+              'line-width': 2,
+              'line-opacity': 0.8
+            }
+          });
+        } else {
+          // Update existing layer color
+          map.setPaintProperty('rule-radius-line', 'line-color', isWithinRange ? '#4caf50' : '#ff9800');
+        }
       }
 
       // Create custom contract rule marker to match the regular map style
@@ -363,17 +424,44 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         return el;
       };
 
-      // Add rule location marker with custom style
-      const ruleMarker = new mapboxgl.Marker({ element: createContractRuleMarker() })
-        .setLngLat(center)
-        .setPopup(new mapboxgl.Popup().setHTML(`
-          <div style="padding: 8px;">
-            <strong>📜 ${item.rule_name || 'Contract Rule'}</strong><br/>
-            <small>Function: ${item.function_name || 'N/A'}</small>
-          </div>
-        `))
-        .addTo(map);
-      markersRef.current.push(ruleMarker);
+      // Add rule/contract location marker with custom style (only if we have location)
+      if (itemType === 'contract_rule' && centerLat && centerLng) {
+        const center = [centerLng, centerLat];
+        const ruleMarker = new mapboxgl.Marker({ element: createContractRuleMarker() })
+          .setLngLat(center)
+          .setPopup(new mapboxgl.Popup().setHTML(`
+            <div style="padding: 8px;">
+              <strong>📜 ${item.rule_name || 'Contract Rule'}</strong><br/>
+              <small>Function: ${item.function_name || 'N/A'}</small>
+            </div>
+          `))
+          .addTo(map);
+        markersRef.current.push(ruleMarker);
+      } else if (contract && contract.latitude && contract.longitude) {
+        // Add contract marker if contract has location
+        const contractLat = parseFloat(contract.latitude);
+        const contractLng = parseFloat(contract.longitude);
+        if (!isNaN(contractLat) && !isNaN(contractLng)) {
+          const contractCenter = [contractLng, contractLat];
+          const contractMarker = new mapboxgl.Marker({ color: '#1976d2' })
+            .setLngLat(contractCenter)
+            .setPopup(new mapboxgl.Popup().setHTML(`
+              <div style="padding: 8px;">
+                <strong>📜 ${contract.contract_name || 'Smart Contract'}</strong><br/>
+                <small>${contract.contract_address?.substring(0, 8)}...</small>
+              </div>
+            `))
+            .addTo(map);
+          markersRef.current.push(contractMarker);
+          
+          // Center map on contract location
+          map.flyTo({
+            center: contractCenter,
+            zoom: 15,
+            duration: 1000
+          });
+        }
+      }
 
       // Create custom user icon marker
       const createUserIcon = (color) => {
@@ -463,9 +551,17 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         }
       });
 
-      // Fit bounds to show all markers
+      // Fit bounds to show all markers (only if we have a center location)
       const bounds = new mapboxgl.LngLatBounds();
-      bounds.extend(center);
+      if (itemType === 'contract_rule' && centerLat && centerLng) {
+        bounds.extend([centerLng, centerLat]);
+      } else if (contract && contract.latitude && contract.longitude) {
+        const contractLat = parseFloat(contract.latitude);
+        const contractLng = parseFloat(contract.longitude);
+        if (!isNaN(contractLat) && !isNaN(contractLng)) {
+          bounds.extend([contractLng, contractLat]);
+        }
+      }
       if (userLocation) {
         bounds.extend([userLocation.longitude, userLocation.latitude]);
       }
@@ -489,7 +585,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         mapRef.current = null;
       }
     };
-  }, [mapContainer, item, itemType, itemRadius, userLocation, nearbyWallets, isWithinRange, distanceText]);
+  }, [mapContainer, item, itemType, itemRadius, contract, userLocation, nearbyWallets, isWithinRange, distanceText]);
 
   // Update map colors when proximity changes
   useEffect(() => {
