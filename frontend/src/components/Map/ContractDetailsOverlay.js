@@ -340,6 +340,18 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
     }
 
     map.on('load', () => {
+      // Define center coordinate for contract/rule location (used for markers and lines)
+      let center = null;
+      if (itemType === 'contract_rule' && centerLat && centerLng) {
+        center = [centerLng, centerLat];
+      } else if (contract && contract.latitude && contract.longitude) {
+        const contractLat = parseFloat(contract.latitude);
+        const contractLng = parseFloat(contract.longitude);
+        if (!isNaN(contractLat) && !isNaN(contractLng)) {
+          center = [contractLng, contractLat];
+        }
+      }
+
       // For contract rules, center on rule location
       if (itemType === 'contract_rule' && centerLat && centerLng) {
         map.flyTo({
@@ -357,8 +369,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       }
       
       // Add radius circle only for contract rules with location
-      if (itemType === 'contract_rule' && centerLat && centerLng) {
-        const center = [centerLng, centerLat];
+      if (itemType === 'contract_rule' && centerLat && centerLng && center) {
         const circle = turf.circle(center, radius, { units: 'meters', steps: 64 });
         
         if (!map.getSource('rule-radius')) {
@@ -425,8 +436,7 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
       };
 
       // Add rule/contract location marker with custom style (only if we have location)
-      if (itemType === 'contract_rule' && centerLat && centerLng) {
-        const center = [centerLng, centerLat];
+      if (itemType === 'contract_rule' && centerLat && centerLng && center) {
         const ruleMarker = new mapboxgl.Marker({ element: createContractRuleMarker() })
           .setLngLat(center)
           .setPopup(new mapboxgl.Popup().setHTML(`
@@ -496,41 +506,43 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
           .addTo(map);
         markersRef.current.push(userMarker);
 
-        // Add dotted line from user location to contract location
-        const lineCoordinates = [
-          userMarkerLngLat,
-          center
-        ];
+        // Add dotted line from user location to contract location (only if center is available)
+        if (center) {
+          const lineCoordinates = [
+            userMarkerLngLat,
+            center
+          ];
         
-        const lineFeature = {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: lineCoordinates
-          }
-        };
-
-        if (!map.getSource('user-to-contract-line')) {
-          map.addSource('user-to-contract-line', {
-            type: 'geojson',
-            data: lineFeature
-          });
-        } else {
-          map.getSource('user-to-contract-line').setData(lineFeature);
-        }
-
-        if (!map.getLayer('user-to-contract-line-layer')) {
-          map.addLayer({
-            id: 'user-to-contract-line-layer',
-            type: 'line',
-            source: 'user-to-contract-line',
-            paint: {
-              'line-color': '#667eea',
-              'line-width': 2,
-              'line-opacity': 0.6,
-              'line-dasharray': [2, 2]
+          const lineFeature = {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: lineCoordinates
             }
-          });
+          };
+
+          if (!map.getSource('user-to-contract-line')) {
+            map.addSource('user-to-contract-line', {
+              type: 'geojson',
+              data: lineFeature
+            });
+          } else {
+            map.getSource('user-to-contract-line').setData(lineFeature);
+          }
+
+          if (!map.getLayer('user-to-contract-line-layer')) {
+            map.addLayer({
+              id: 'user-to-contract-line-layer',
+              type: 'line',
+              source: 'user-to-contract-line',
+              paint: {
+                'line-color': '#667eea',
+                'line-width': 2,
+                'line-opacity': 0.6,
+                'line-dasharray': [2, 2]
+              }
+            });
+          }
         }
       }
 
@@ -553,14 +565,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
 
       // Fit bounds to show all markers (only if we have a center location)
       const bounds = new mapboxgl.LngLatBounds();
-      if (itemType === 'contract_rule' && centerLat && centerLng) {
-        bounds.extend([centerLng, centerLat]);
-      } else if (contract && contract.latitude && contract.longitude) {
-        const contractLat = parseFloat(contract.latitude);
-        const contractLng = parseFloat(contract.longitude);
-        if (!isNaN(contractLat) && !isNaN(contractLng)) {
-          bounds.extend([contractLng, contractLat]);
-        }
+      if (center) {
+        bounds.extend(center);
       }
       if (userLocation) {
         bounds.extend([userLocation.longitude, userLocation.latitude]);
