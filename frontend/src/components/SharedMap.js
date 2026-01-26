@@ -254,8 +254,8 @@ const SharedMap = ({
             timeout: 15000, // Increased timeout to 15 seconds
             maximumAge: 30000 // Allow cached locations up to 30 seconds since we already have location from watchPosition
           },
-          trackUserLocation: true,
-          showUserHeading: true,
+          trackUserLocation: false, // Disable auto-tracking to prevent constant re-centering
+          showUserHeading: false, // Disable heading since we're not tracking
           showAccuracyCircle: true,
           fitBoundsOptions: {
             maxZoom: 15
@@ -1327,8 +1327,8 @@ const SharedMap = ({
             timeout: 15000, // Increased timeout to 15 seconds
             maximumAge: 30000 // Allow cached locations up to 30 seconds since we already have location from watchPosition
           },
-          trackUserLocation: true,
-          showUserHeading: true,
+          trackUserLocation: false, // Disable auto-tracking to prevent constant re-centering
+          showUserHeading: false, // Disable heading since we're not tracking
           showAccuracyCircle: true,
           fitBoundsOptions: {
             maxZoom: 15
@@ -2389,34 +2389,36 @@ const SharedMap = ({
           }
         };
         
-        // Try multiple times with increasing delays to ensure control is ready
-        tryTrigger();
-        setTimeout(tryTrigger, 500);
-        setTimeout(tryTrigger, 1500);
-        setTimeout(tryTrigger, 3000);
+        // DISABLED: Auto-triggering causes map to constantly re-center
+        // This interferes with user navigation and search
+        // The geolocate control will still work when user clicks it manually
+        // User's location is already tracked via watchPosition in parent component
+        // tryTrigger();
+        // setTimeout(tryTrigger, 500);
+        // setTimeout(tryTrigger, 1500);
+        // setTimeout(tryTrigger, 3000);
         
-        // Keep trying periodically to ensure it stays active
-        // BUT: Don't interfere if user has recently searched or interacted with the map
-        const keepActiveInterval = setInterval(() => {
-          // Don't auto-trigger if user has interacted with map in the last 30 seconds
-          const timeSinceInteraction = Date.now() - lastInteractionTime.current;
-          if (userInteractedWithMap.current && timeSinceInteraction < 30000) {
-            console.log('[SharedMap] Skipping geolocate auto-trigger - user recently interacted with map');
-            return;
-          }
-          
-          if (geolocateControl.current && map.current) {
-            const watchState = geolocateControl.current._watchState;
-            // If not tracking, try to activate again
-            if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-              tryTrigger();
-            }
-          }
-        }, 10000); // Check every 10 seconds
+        // DISABLED: Periodic auto-triggering causes map to constantly re-center
+        // This interferes with user navigation and search
+        // The geolocate control will still work when user clicks it manually
+        // const keepActiveInterval = setInterval(() => {
+        //   // Don't auto-trigger if user has interacted with map in the last 30 seconds
+        //   const timeSinceInteraction = Date.now() - lastInteractionTime.current;
+        //   if (userInteractedWithMap.current && timeSinceInteraction < 30000) {
+        //     console.log('[SharedMap] Skipping geolocate auto-trigger - user recently interacted with map');
+        //     return;
+        //   }
+        //   
+        //   if (geolocateControl.current && map.current) {
+        //     const watchState = geolocateControl.current._watchState;
+        //     // If not tracking, try to activate again
+        //     if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+        //       tryTrigger();
+        //     }
+        //   }
+        // }, 10000); // Check every 10 seconds
         
-        return () => {
-          clearInterval(keepActiveInterval);
-        };
+        // No cleanup needed since we're not using intervals
       }
       
       // Try to auto-trigger fullscreen map geolocate
@@ -2436,9 +2438,12 @@ const SharedMap = ({
           }
         };
         
-        tryFullscreenTrigger();
-        setTimeout(tryFullscreenTrigger, 500);
-        setTimeout(tryFullscreenTrigger, 1500);
+        // DISABLED: Auto-triggering causes map to constantly re-center
+        // This interferes with user navigation and search
+        // The geolocate control will still work when user clicks it manually
+        // tryFullscreenTrigger();
+        // setTimeout(tryFullscreenTrigger, 500);
+        // setTimeout(tryFullscreenTrigger, 1500);
       }
     }
   }, [userLocation, mapLoaded, fullscreenMap]);
