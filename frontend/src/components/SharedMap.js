@@ -1292,7 +1292,8 @@ const SharedMap = ({
     setIsFullscreen(newFullscreenState);
     
     if (newFullscreenState) {
-      // Opening fullscreen - initialize map after dialog opens
+      // Opening fullscreen - reset fitBounds flag and initialize map after dialog opens
+      hasFullscreenInitialFitBounds.current = false;
       setTimeout(() => {
         if (fullscreenMapContainer.current && !fullscreenMap) {
           initializeFullscreenMap(fullscreenMapContainer.current);
