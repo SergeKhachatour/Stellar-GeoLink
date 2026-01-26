@@ -756,12 +756,12 @@ const SharedMap = ({
       
       // Debug: Log marker creation
       // console.log(`[addMarkersToMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
-        isCurrentUser: location.isCurrentUser,
-        public_key: location.public_key,
-        markerKey,
-        originalCoords: { lat, lng },
-        finalCoords: { finalLat, finalLng }
-      });
+      //   isCurrentUser: location.isCurrentUser,
+      //   public_key: location.public_key,
+      //   markerKey,
+      //   originalCoords: { lat, lng },
+      //   finalCoords: { finalLat, finalLng }
+      // });
 
       // Add click and double-click handlers for NFT markers
       if (locationType === 'nft' && onNFTDetails) {
