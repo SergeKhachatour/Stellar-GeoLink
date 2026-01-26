@@ -2362,91 +2362,85 @@ const SharedMap = ({
   //   }
   // }, [userLocation, mapLoaded, fullscreenMap]);
 
-  // Auto-trigger geolocate control when userLocation is available
-  // This will work if geolocation permission was already granted (from watchPosition)
-  // Keep trying to activate it to ensure it stays on by default
-  useEffect(() => {
-    if (userLocation && userLocation.latitude && userLocation.longitude && mapLoaded) {
-      // DISABLED: Auto-triggering causes map to constantly re-center
-      // This interferes with user navigation and search
-      // The geolocate control will still work when user clicks it manually
-      // User's location is already tracked via watchPosition in parent component
-      // Try to auto-trigger main map geolocate
-      // if (geolocateControl.current && map.current) {
-      //   const tryTrigger = () => {
-      //     try {
-      //       // Check if control is ready and not already tracking
-      //       if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
-      //         const watchState = geolocateControl.current._watchState;
-      //         // Only trigger if not already actively tracking
-      //         if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-      //           // console.log('[SharedMap] Auto-triggering geolocate control (current state:', watchState, ')');
-      //           geolocateControl.current.trigger();
-      //           // console.log('[SharedMap] Successfully auto-triggered geolocate');
-      //         } else {
-      //           // console.log('[SharedMap] Geolocate control already active, state:', watchState);
-      //         }
-      //       }
-      //     } catch (error) {
-      //       // Browser may require user interaction for first-time permission
-      //       // console.log('[SharedMap] Auto-trigger failed (may need user interaction):', error.message);
-      //     }
-      //   };
-      //   
-      //   tryTrigger();
-      //   setTimeout(tryTrigger, 500);
-      //   setTimeout(tryTrigger, 1500);
-      //   setTimeout(tryTrigger, 3000);
-        
-        // DISABLED: Periodic auto-triggering causes map to constantly re-center
-        // This interferes with user navigation and search
-        // The geolocate control will still work when user clicks it manually
-        // const keepActiveInterval = setInterval(() => {
-        //   // Don't auto-trigger if user has interacted with map in the last 30 seconds
-        //   const timeSinceInteraction = Date.now() - lastInteractionTime.current;
-        //   if (userInteractedWithMap.current && timeSinceInteraction < 30000) {
-        //     console.log('[SharedMap] Skipping geolocate auto-trigger - user recently interacted with map');
-        //     return;
-        //   }
-        //   
-        //   if (geolocateControl.current && map.current) {
-        //     const watchState = geolocateControl.current._watchState;
-        //     // If not tracking, try to activate again
-        //     if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-        //       tryTrigger();
-        //     }
-        //   }
-        // }, 10000); // Check every 10 seconds
-        
-        // No cleanup needed since we're not using intervals
-      }
-      
-      // DISABLED: Auto-triggering causes map to constantly re-center
-      // This interferes with user navigation and search
-      // The geolocate control will still work when user clicks it manually
-      // Try to auto-trigger fullscreen map geolocate
-      // if (fullscreenGeolocateControl.current && fullscreenMap && fullscreenMap.loaded()) {
-      //   const tryFullscreenTrigger = () => {
-      //     try {
-      //       if (fullscreenGeolocateControl.current && typeof fullscreenGeolocateControl.current.trigger === 'function') {
-      //         const watchState = fullscreenGeolocateControl.current._watchState;
-      //         if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-      //           // console.log('[SharedMap] Auto-triggering fullscreen geolocate control');
-      //           fullscreenGeolocateControl.current.trigger();
-      //           // console.log('[SharedMap] Successfully auto-triggered fullscreen geolocate');
-      //         }
-      //       }
-      //     } catch (error) {
-      //       // console.log('[SharedMap] Fullscreen auto-trigger failed:', error.message);
-      //     }
-      //   };
-      //   
-      //   tryFullscreenTrigger();
-      //   setTimeout(tryFullscreenTrigger, 500);
-      //   setTimeout(tryFullscreenTrigger, 1500);
-      // }
-    }
-  }, [userLocation, mapLoaded, fullscreenMap]);
+  // DISABLED: Auto-trigger geolocate control when userLocation is available
+  // This was causing the map to constantly re-center, interfering with user navigation and search
+  // The geolocate control will still work when user clicks it manually
+  // User's location is already tracked via watchPosition in parent component
+  // useEffect(() => {
+  //   if (userLocation && userLocation.latitude && userLocation.longitude && mapLoaded) {
+  //     // Try to auto-trigger main map geolocate
+  //     if (geolocateControl.current && map.current) {
+  //       const tryTrigger = () => {
+  //         try {
+  //           // Check if control is ready and not already tracking
+  //           if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
+  //             const watchState = geolocateControl.current._watchState;
+  //             // Only trigger if not already actively tracking
+  //             if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+  //               // console.log('[SharedMap] Auto-triggering geolocate control (current state:', watchState, ')');
+  //               geolocateControl.current.trigger();
+  //               // console.log('[SharedMap] Successfully auto-triggered geolocate');
+  //             } else {
+  //               // console.log('[SharedMap] Geolocate control already active, state:', watchState);
+  //             }
+  //           }
+  //         } catch (error) {
+  //           // Browser may require user interaction for first-time permission
+  //           // console.log('[SharedMap] Auto-trigger failed (may need user interaction):', error.message);
+  //         }
+  //       };
+  //       
+  //       tryTrigger();
+  //       setTimeout(tryTrigger, 500);
+  //       setTimeout(tryTrigger, 1500);
+  //       setTimeout(tryTrigger, 3000);
+  //       
+  //       // DISABLED: Periodic auto-triggering causes map to constantly re-center
+  //       // This interferes with user navigation and search
+  //       // The geolocate control will still work when user clicks it manually
+  //       // const keepActiveInterval = setInterval(() => {
+  //       //   // Don't auto-trigger if user has interacted with map in the last 30 seconds
+  //       //   const timeSinceInteraction = Date.now() - lastInteractionTime.current;
+  //       //   if (userInteractedWithMap.current && timeSinceInteraction < 30000) {
+  //       //     console.log('[SharedMap] Skipping geolocate auto-trigger - user recently interacted with map');
+  //       //     return;
+  //       //   }
+  //       //   
+  //       //   if (geolocateControl.current && map.current) {
+  //       //     const watchState = geolocateControl.current._watchState;
+  //       //     // If not tracking, try to activate again
+  //       //     if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+  //       //       tryTrigger();
+  //       //     }
+  //       //   }
+  //       // }, 10000); // Check every 10 seconds
+  //       
+  //       // No cleanup needed since we're not using intervals
+  //     }
+  //     
+  //     // Try to auto-trigger fullscreen map geolocate
+  //     if (fullscreenGeolocateControl.current && fullscreenMap && fullscreenMap.loaded()) {
+  //       const tryFullscreenTrigger = () => {
+  //         try {
+  //           if (fullscreenGeolocateControl.current && typeof fullscreenGeolocateControl.current.trigger === 'function') {
+  //             const watchState = fullscreenGeolocateControl.current._watchState;
+  //             if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+  //               // console.log('[SharedMap] Auto-triggering fullscreen geolocate control');
+  //               fullscreenGeolocateControl.current.trigger();
+  //               // console.log('[SharedMap] Successfully auto-triggered fullscreen geolocate');
+  //             }
+  //           }
+  //         } catch (error) {
+  //           // console.log('[SharedMap] Fullscreen auto-trigger failed:', error.message);
+  //         }
+  //       };
+  //       
+  //       tryFullscreenTrigger();
+  //       setTimeout(tryFullscreenTrigger, 500);
+  //       setTimeout(tryFullscreenTrigger, 1500);
+  //     }
+  //   }
+  // }, [userLocation, mapLoaded, fullscreenMap]);
 
   // Periodically clear geolocate error state when we have valid location
   // This helps recover from error states automatically
