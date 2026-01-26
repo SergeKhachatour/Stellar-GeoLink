@@ -10,19 +10,25 @@ import {
   CircularProgress,
   Dialog,
   DialogTitle,
-  DialogContent
+  DialogContent,
+  DialogActions,
+  Button,
+  Card,
+  CardContent,
+  Divider,
+  Chip
 } from '@mui/material';
 import {
   Search as SearchIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
   Refresh as RefreshIcon,
-  FilterList as FilterListIcon
+  FilterList as FilterListIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import {
   FormControlLabel,
-  Switch,
-  Divider
+  Switch
 } from '@mui/material';
 import Mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -30,6 +36,32 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 // Mapbox Token
 const MAPBOX_TOKEN = process.env.REACT_APP_MAPBOX_TOKEN || 'YOUR_MAPBOX_ACCESS_TOKEN';
 Mapboxgl.accessToken = MAPBOX_TOKEN;
+
+// Utility function to calculate distance between two coordinates (Haversine formula)
+// Returns distance in kilometers
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Radius of the Earth in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return distance;
+};
+
+// Format distance for display
+const formatDistance = (distanceKm) => {
+  if (distanceKm < 1) {
+    return `${Math.round(distanceKm * 1000)}m`;
+  } else if (distanceKm < 10) {
+    return `${distanceKm.toFixed(2)}km`;
+  } else {
+    return `${Math.round(distanceKm)}km`;
+  }
+};
 
 // Utility function to construct IPFS URLs properly
 const constructIPFSUrl = (serverUrl, hash) => {
@@ -83,6 +115,8 @@ const SharedMap = ({
   const map = useRef(null);
   const markers = useRef({});
   const fullscreenMarkers = useRef({});
+  const geolocateControl = useRef(null); // Ref for geolocate control
+  const fullscreenGeolocateControl = useRef(null); // Ref for fullscreen geolocate control
   const [mapLoaded, setMapLoaded] = useState(false);
   const [mapView, setMapView] = useState(initialMapStyle || 'globe');
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -97,12 +131,25 @@ const SharedMap = ({
   const hasFullscreenInitialFitBounds = useRef(false); // Track if fullscreen map has done initial fitBounds
   const markerUpdateTimeout = useRef(null); // Debounce marker updates
   const fullscreenMarkerUpdateTimeout = useRef(null); // Debounce fullscreen marker updates
-  const [filters, setFilters] = useState({
+  const searchTimeout = useRef(null); // Debounce search queries
+  // Separate filter states for main map and fullscreen map
+  const [mainMapFilters, setMainMapFilters] = useState({
     showWallets: true,
     showNFTs: true,
     showContractRules: true
   });
-  const [showFilters, setShowFilters] = useState(false);
+  const [fullscreenMapFilters, setFullscreenMapFilters] = useState({
+    showWallets: true,
+    showNFTs: true,
+    showContractRules: true
+  });
+  const [showMainMapFilters, setShowMainMapFilters] = useState(false);
+  const [showFullscreenMapFilters, setShowFullscreenMapFilters] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState(null);
+  const [showWalletDetails, setShowWalletDetails] = useState(false);
+  const fullscreenSearchBoxRef = useRef(null); // Ref for fullscreen search box positioning
+  const userInteractedWithMap = useRef(false); // Track if user has searched or interacted with map
+  const lastInteractionTime = useRef(0); // Track when user last interacted (search, click, etc.)
 
   const initializeMap = useCallback((container) => {
     if (map.current) {
@@ -201,14 +248,137 @@ const SharedMap = ({
         }), 'bottom-right');
 
         // Add geolocate control
-        const geolocateControl = new Mapboxgl.GeolocateControl({
+        const geolocateControlInstance = new Mapboxgl.GeolocateControl({
           positionOptions: {
-            enableHighAccuracy: true
+            enableHighAccuracy: true,
+            timeout: 15000, // Increased timeout to 15 seconds
+            maximumAge: 30000 // Allow cached locations up to 30 seconds since we already have location from watchPosition
           },
           trackUserLocation: true,
-          showUserHeading: true
+          showUserHeading: true,
+          showAccuracyCircle: true,
+          fitBoundsOptions: {
+            maxZoom: 15
+          }
         });
-        map.current.addControl(geolocateControl, 'top-right');
+        map.current.addControl(geolocateControlInstance, 'top-right');
+        geolocateControl.current = geolocateControlInstance;
+        
+        // Function to clear error state from geolocate button
+        const clearGeolocateErrorState = () => {
+          setTimeout(() => {
+            const geolocateButton = map.current?.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+            if (geolocateButton) {
+              // Remove error classes that cause red color
+              geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+              // Reset button appearance if we have valid location
+              if (userLocation && userLocation.latitude && userLocation.longitude) {
+                geolocateButton.style.opacity = '1';
+              }
+            }
+          }, 100);
+        };
+        
+        // Listen to all geolocate events for debugging
+        geolocateControlInstance.on('geolocate', (e) => {
+          console.log('[SharedMap] Geolocate event - location found:', e.coords);
+          // Location is already tracked by watchPosition in parent component
+          // Clear any error state when location is successfully found
+          clearGeolocateErrorState();
+        });
+        
+        geolocateControlInstance.on('error', (e) => {
+          // Log specific error codes - check both e.error.code and e.code (different error formats)
+          const errorCode = (e && e.error && typeof e.error.code === 'number') ? e.error.code : 
+                           (e && typeof e.code === 'number') ? e.code : null;
+          
+          // Check if we already have location from watchPosition
+          const hasLocation = userLocation && userLocation.latitude && userLocation.longitude;
+          
+          if (errorCode !== null) {
+            if (errorCode === 1) {
+              console.error('[SharedMap] Geolocation permission denied - user needs to grant permission');
+            } else if (errorCode === 2) {
+              console.error('[SharedMap] Geolocation position unavailable');
+            } else if (errorCode === 3) {
+              // Timeout is less critical if we already have location from watchPosition
+              if (hasLocation) {
+                console.log('[SharedMap] Geolocation timeout (but we have location from watchPosition, clearing error state)');
+              } else {
+                console.warn('[SharedMap] Geolocation timeout - will retry');
+              }
+            } else {
+              console.error('[SharedMap] Geolocation error code:', errorCode);
+            }
+          } else {
+            console.error('[SharedMap] Geolocation error (unknown format):', e);
+          }
+          
+          // If we have location from watchPosition, clear error state immediately
+          // This allows the control to recover since we already have location
+          if (hasLocation) {
+            clearGeolocateErrorState();
+          }
+        });
+        
+        geolocateControlInstance.on('trackuserlocationstart', () => {
+          console.log('[SharedMap] Started tracking user location via geolocate control');
+          // Clear error state when tracking starts
+          clearGeolocateErrorState();
+        });
+        
+        geolocateControlInstance.on('trackuserlocationend', () => {
+          console.log('[SharedMap] Stopped tracking user location via geolocate control');
+        });
+        
+        // Add click handler to the geolocate button to ensure it works
+        // Wait for the control to be added to DOM
+        setTimeout(() => {
+          const geolocateButton = map.current.getContainer().querySelector('.mapboxgl-ctrl-geolocate');
+          if (geolocateButton) {
+            geolocateButton.addEventListener('click', (e) => {
+              console.log('[SharedMap] Geolocate button clicked');
+              // Clear error state on click attempt
+              setTimeout(clearGeolocateErrorState, 500);
+            });
+          }
+        }, 500);
+        
+        // Auto-trigger geolocate when map is fully loaded and userLocation is available
+        // This ensures tracking is on by default when location is available
+        const tryAutoTrigger = () => {
+          if (userLocation && userLocation.latitude && userLocation.longitude) {
+            try {
+              console.log('[SharedMap] Attempting to auto-trigger geolocate control with location:', userLocation);
+              // Try to trigger the control to start tracking (without centering the map)
+              geolocateControlInstance.trigger();
+              console.log('[SharedMap] Successfully triggered geolocate control - tracking should be active');
+            } catch (error) {
+              console.warn('[SharedMap] Could not auto-trigger geolocate:', error);
+              // Don't center the map automatically - let user control the view
+              // Retry after a longer delay
+              setTimeout(() => {
+                try {
+                  geolocateControlInstance.trigger();
+                  console.log('[SharedMap] Successfully triggered geolocate on retry');
+                } catch (retryError) {
+                  console.log('[SharedMap] Geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
+                }
+              }, 2000);
+            }
+          }
+        };
+        
+        // Try immediately after a short delay
+        setTimeout(tryAutoTrigger, 500);
+        // Also try after map style is loaded
+        map.current.once('style.load', () => {
+          setTimeout(tryAutoTrigger, 500);
+        });
+        // Try again after map is fully loaded
+        map.current.once('load', () => {
+          setTimeout(tryAutoTrigger, 1000);
+        });
 
         // Add custom 3D control
         const custom3DControl = createCustom3DControl();
@@ -240,6 +410,10 @@ const SharedMap = ({
       });
 
       map.current.on('click', (e) => {
+        // Mark that user has interacted with the map (clicked)
+        userInteractedWithMap.current = true;
+        lastInteractionTime.current = Date.now();
+        
         if (onLocationClick) {
           onLocationClick(e.lngLat);
         }
@@ -283,14 +457,71 @@ const SharedMap = ({
         return;
       }
       
+      // Debug: Log all locations, especially user location
+      const userLocationMarker = locations.find(loc => loc.isCurrentUser);
+      if (userLocationMarker) {
+        console.log('[addMarkersToMap] Found user location marker in locations array:', {
+          latitude: userLocationMarker.latitude,
+          longitude: userLocationMarker.longitude,
+          isCurrentUser: userLocationMarker.isCurrentUser,
+          type: userLocationMarker.type,
+          marker_type: userLocationMarker.marker_type
+        });
+      } else {
+        console.warn('[addMarkersToMap] No user location marker found in locations array!', {
+          locationsCount: locations.length,
+          locations: locations.map(loc => ({
+            type: loc.type,
+            marker_type: loc.marker_type,
+            isCurrentUser: loc.isCurrentUser,
+            latitude: loc.latitude,
+            longitude: loc.longitude
+          }))
+        });
+      }
+      
       console.log('[addMarkersToMap] Adding', locations.length, 'markers to regular map');
 
-      locations.forEach((location, index) => {
-      const lat = parseFloat(location.latitude);
-      const lng = parseFloat(location.longitude);
+      // Filter locations based on main map filter state
+      const filteredLocations = locations.filter(location => {
+        const locationType = location.type || location.marker_type;
+        // If no type is set, show it (for backward compatibility)
+        if (!locationType) {
+          return true;
+        }
+        if (locationType === 'wallet') return mainMapFilters.showWallets;
+        if (locationType === 'nft') return mainMapFilters.showNFTs;
+        if (locationType === 'contract_rule') return mainMapFilters.showContractRules;
+        return true; // Show unknown types by default
+      });
+
+      filteredLocations.forEach((location, index) => {
+      // Parse coordinates - handle both number and string types
+      const lat = typeof location.latitude === 'number' ? location.latitude : parseFloat(location.latitude);
+      const lng = typeof location.longitude === 'number' ? location.longitude : parseFloat(location.longitude);
       
-      if (isNaN(lat) || isNaN(lng)) {
-        console.warn(`[SharedMap] Invalid coordinates for location ${index}:`, location);
+      // Debug log for user location markers
+      if (location.isCurrentUser) {
+        console.log(`[addMarkersToMap] Processing user location marker:`, {
+          index,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          parsedLat: lat,
+          parsedLng: lng,
+          isNaNLat: isNaN(lat),
+          isNaNLng: isNaN(lng),
+          isFiniteLat: isFinite(lat),
+          isFiniteLng: isFinite(lng)
+        });
+      }
+      
+      if (isNaN(lat) || isNaN(lng) || !isFinite(lat) || !isFinite(lng)) {
+        console.warn(`[SharedMap] Invalid coordinates for location ${index}:`, {
+          location,
+          lat,
+          lng,
+          isCurrentUser: location.isCurrentUser
+        });
         return;
       }
 
@@ -358,23 +589,25 @@ const SharedMap = ({
         // Keep the 📜 icon clearly visible
         el.textContent = '📜';
       } else if (locationType === 'wallet') {
-        // Wallet marker
+        // Wallet marker - distinguish current user from other users
+        const isCurrentUser = location.isCurrentUser;
         el.style.cssText = `
-          width: 30px;
-          height: 30px;
+          width: ${isCurrentUser ? '36px' : '30px'};
+          height: ${isCurrentUser ? '36px' : '30px'};
           border-radius: 50%;
-          background-color: #1976d2;
-          border: 3px solid white;
+          background-color: ${isCurrentUser ? '#4caf50' : '#1976d2'};
+          border: 3px solid ${isCurrentUser ? '#2e7d32' : 'white'};
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0,0,0,0.3);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 14px;
+          font-size: ${isCurrentUser ? '18px' : '14px'};
           color: white;
           font-weight: bold;
+          ${isCurrentUser ? 'animation: pulseMarker 2s ease-in-out infinite;' : ''}
         `;
-        el.textContent = '💳';
+        el.textContent = isCurrentUser ? '📍' : '💳';
       } else {
         // Default marker
         el.style.cssText = `
@@ -395,16 +628,140 @@ const SharedMap = ({
         el.textContent = (index + 1).toString();
       }
 
-      // Create marker with draggable: false to prevent animation
+      // Ensure coordinates are valid numbers and within valid ranges
+      if (!isFinite(lat) || !isFinite(lng)) {
+        console.warn(`[addMarkersToMap] Invalid coordinates (not finite) for location ${index}:`, { lat, lng, location });
+        return;
+      }
+      
+      // Ensure coordinates are within valid WGS84 ranges
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        console.warn(`[addMarkersToMap] Coordinates out of range for location ${index}:`, { lat, lng });
+        return;
+      }
+      
+      // Normalize longitude to -180 to 180 range
+      let finalLng = lng;
+      while (finalLng > 180) finalLng -= 360;
+      while (finalLng < -180) finalLng += 360;
+      
+      // Normalize latitude to -90 to 90 range
+      let finalLat = lat;
+      if (finalLat > 90) finalLat = 90;
+      if (finalLat < -90) finalLat = -90;
+
+      // Create marker with draggable: false and explicit anchor
       const marker = new Mapboxgl.Marker({ 
         element: el, 
-        draggable: false 
-      })
-        .setLngLat([lng, lat])
-        .addTo(map.current);
+        draggable: false,
+        anchor: 'center' // Explicitly set anchor to center
+      });
+      
+      // Set position BEFORE adding to map - this is critical
+      // For user location markers, add extra validation
+      if (location.isCurrentUser) {
+        console.log(`[addMarkersToMap] Setting user location marker position: [${finalLng}, ${finalLat}]`, {
+          originalCoords: { lat, lng },
+          normalizedCoords: { finalLat, finalLng },
+          location
+        });
+        
+        // Double-check coordinates are valid
+        if (finalLng === 0 && finalLat === 0) {
+          console.error(`[addMarkersToMap] User location marker has 0,0 coordinates! This is likely invalid.`, location);
+        }
+      }
+      
+      // Ensure coordinates are valid before setting
+      if (!isFinite(finalLng) || !isFinite(finalLat)) {
+        console.error(`[addMarkersToMap] Cannot set marker position - invalid coordinates: [${finalLng}, ${finalLat}]`);
+        return;
+      }
+      
+      marker.setLngLat([finalLng, finalLat]);
+      
+      // Verify the marker has the correct position before adding
+      const markerPos = marker.getLngLat();
+      if (location.isCurrentUser) {
+        console.log(`[addMarkersToMap] User location marker position after setLngLat:`, {
+          expected: [finalLng, finalLat],
+          actual: [markerPos.lng, markerPos.lat],
+          difference: {
+            lng: Math.abs(markerPos.lng - finalLng),
+            lat: Math.abs(markerPos.lat - finalLat)
+          }
+        });
+      }
+      
+      if (Math.abs(markerPos.lng - finalLng) > 0.0001 || Math.abs(markerPos.lat - finalLat) > 0.0001) {
+        console.warn(`[addMarkersToMap] Marker position mismatch for location ${index}. Expected [${finalLng}, ${finalLat}], got [${markerPos.lng}, ${markerPos.lat}]`);
+        // Re-set if wrong
+        marker.setLngLat([finalLng, finalLat]);
+      }
+      
+      // Add to map - ensure map is ready
+      if (!map.current) {
+        console.error(`[addMarkersToMap] Map instance is null for marker ${index}!`);
+        return;
+      }
+      
+      if (!map.current.isStyleLoaded()) {
+        console.warn(`[addMarkersToMap] Map style not loaded for marker ${index}, waiting...`);
+        map.current.once('style.load', () => {
+          if (marker && map.current) {
+            marker.addTo(map.current);
+            if (location.isCurrentUser) {
+              console.log(`[addMarkersToMap] User location marker added to map after style load`);
+            }
+          }
+        });
+      } else {
+        marker.addTo(map.current);
+        if (location.isCurrentUser) {
+          console.log(`[addMarkersToMap] User location marker added to map immediately`);
+        }
+      }
+      
+      // Store marker reference with a unique key
+      const markerKey = location.isCurrentUser ? 'current_user' : 
+                       location.public_key ? `wallet_${location.public_key}` :
+                       location.id ? `${locationType}_${location.id}` :
+                       `${locationType}_${index}`;
+      markers.current[markerKey] = marker;
+      
+      // After adding, verify position again and re-set if needed (especially for user location)
+      if (location.isCurrentUser) {
+        // Multiple checks to ensure user location marker is positioned correctly
+        const verifyPosition = (attempt = 0) => {
+          if (attempt > 5) return; // Max 5 attempts
+          
+          setTimeout(() => {
+            if (marker && marker.getLngLat) {
+              const currentPos = marker.getLngLat();
+              // If marker is at wrong position (e.g., 0,0 or top-left), re-set it
+              if ((Math.abs(currentPos.lng) < 0.001 && Math.abs(currentPos.lat) < 0.001 && (finalLng !== 0 || finalLat !== 0)) ||
+                  Math.abs(currentPos.lng - finalLng) > 0.1 || Math.abs(currentPos.lat - finalLat) > 0.1) {
+                console.warn(`[addMarkersToMap] User location marker at wrong position [${currentPos.lng}, ${currentPos.lat}], re-setting to [${finalLng}, ${finalLat}] (attempt ${attempt + 1})`);
+                marker.setLngLat([finalLng, finalLat]);
+                // Try again if still wrong
+                verifyPosition(attempt + 1);
+              } else {
+                console.log(`[addMarkersToMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
+              }
+            }
+          }, 100 * (attempt + 1));
+        };
+        verifyPosition();
+      }
       
       // Debug: Log marker creation
-      console.log(`[addMarkersToMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
+      console.log(`[addMarkersToMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
+        isCurrentUser: location.isCurrentUser,
+        public_key: location.public_key,
+        markerKey,
+        originalCoords: { lat, lng },
+        finalCoords: { finalLat, finalLng }
+      });
 
       // Add click and double-click handlers for NFT markers
       if (locationType === 'nft' && onNFTDetails) {
@@ -458,12 +815,14 @@ const SharedMap = ({
         });
       }
 
-      // Add click handler for wallet markers to prevent map click handler from firing
-      if (locationType === 'wallet') {
+      // Add click handler for wallet markers to show details overlay
+      if (locationType === 'wallet' && !location.isCurrentUser) {
         el.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          // Wallet markers just show popup, no special action needed
+          console.log('Wallet marker clicked:', location);
+          setSelectedWallet(location);
+          setShowWalletDetails(true);
         });
       }
 
@@ -528,7 +887,7 @@ const SharedMap = ({
       }
       // Don't restore position - let the map stay where the user positioned it
     });
-  }, [mapLoaded, locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLoaded, locations, onNFTDetails, mainMapFilters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeMapView = useCallback((view) => {
     setMapView(view);
@@ -697,37 +1056,89 @@ const SharedMap = ({
     return control;
   }, [changeMapView]);
 
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const handleSearch = async (query = null) => {
+    const searchTerm = query !== null ? query : searchQuery;
+    
+    // Mark that user has interacted with the map (searching)
+    if (searchTerm.trim()) {
+      userInteractedWithMap.current = true;
+      lastInteractionTime.current = Date.now();
+    }
+    
+    if (!searchTerm.trim()) {
+      setShowSearchResults(false);
+      setSearchResults([]);
+      return;
+    }
 
     setLoading(true);
     try {
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${MAPBOX_TOKEN}`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchTerm)}.json?access_token=${MAPBOX_TOKEN}&limit=5`
       );
       const data = await response.json();
       
       if (data.features && data.features.length > 0) {
         setSearchResults(data.features);
         setShowSearchResults(true);
+        // Clear any previous errors
+        setError('');
       } else {
+        setShowSearchResults(false);
+        setSearchResults([]);
         setError('No results found for your search');
       }
     } catch (error) {
       console.error('Search error:', error);
+      setShowSearchResults(false);
+      setSearchResults([]);
       setError('Search failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  // Real-time search with debouncing
+  useEffect(() => {
+    // Clear any existing timeout
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+
+    // If search query is empty, hide results immediately
+    if (!searchQuery.trim()) {
+      setShowSearchResults(false);
+      setSearchResults([]);
+      return;
+    }
+
+    // Debounce search - wait 300ms after user stops typing
+    searchTimeout.current = setTimeout(() => {
+      handleSearch(searchQuery);
+    }, 300);
+
+    // Cleanup timeout on unmount or when searchQuery changes
+    return () => {
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSearchResultClick = (result) => {
     const [lng, lat] = result.center;
     setSearchQuery(result.place_name);
     setShowSearchResults(false);
     
-    if (map.current) {
-      map.current.flyTo({
+    // Mark that user has interacted with the map (searched)
+    userInteractedWithMap.current = true;
+    lastInteractionTime.current = Date.now();
+    
+    // Use fullscreen map if in fullscreen mode, otherwise use main map
+    const targetMap = isFullscreen && fullscreenMap ? fullscreenMap : map.current;
+    
+    if (targetMap) {
+      targetMap.flyTo({
         center: [lng, lat],
         zoom: 15,
         pitch: mapView === 'globe' || mapView === '3d' || mapView === 'light-globe' ? 60 : 0,
@@ -737,12 +1148,72 @@ const SharedMap = ({
   };
 
   const initializeFullscreenMap = useCallback((container) => {
+    // Check if map exists and if it's still attached to a valid container
     if (fullscreenMap) {
-      console.log('Fullscreen map already initialized');
-      return;
+      try {
+        const existingContainer = fullscreenMap.getContainer();
+        // If container is valid and matches, map is already initialized
+        if (existingContainer && existingContainer === container && container.offsetWidth > 0 && container.offsetHeight > 0) {
+          console.log('[initializeFullscreenMap] Fullscreen map already initialized and container is valid');
+          return;
+        } else {
+          // Map exists but container is invalid or different - clean it up
+          console.log('[initializeFullscreenMap] Fullscreen map exists but container is invalid, cleaning up...');
+          try {
+            // Clear markers first
+            Object.keys(fullscreenMarkers.current).forEach(key => {
+              const marker = fullscreenMarkers.current[key];
+              if (marker && typeof marker.remove === 'function') {
+                try {
+                  marker.remove();
+                } catch (markerError) {
+                  console.warn('[initializeFullscreenMap] Error removing marker:', markerError);
+                }
+              }
+            });
+            fullscreenMarkers.current = {};
+            
+            // Check if map is still valid before removing
+            try {
+              const oldContainer = fullscreenMap.getContainer();
+              if (oldContainer && typeof fullscreenMap.remove === 'function') {
+                fullscreenMap.remove();
+              }
+            } catch (mapError) {
+              // Map is already destroyed or in invalid state
+              console.warn('[initializeFullscreenMap] Map already destroyed, skipping remove:', mapError);
+            }
+          } catch (error) {
+            console.warn('[initializeFullscreenMap] Error cleaning up old map:', error);
+          } finally {
+            setFullscreenMap(null);
+            hasFullscreenInitialFitBounds.current = false;
+          }
+        }
+      } catch (error) {
+        // Map instance is in an invalid state, clean it up
+        console.warn('[initializeFullscreenMap] Map instance is invalid, cleaning up:', error);
+        try {
+          // Try to get container to check if map is still valid
+          try {
+            const oldContainer = fullscreenMap.getContainer();
+            if (oldContainer && typeof fullscreenMap.remove === 'function') {
+              fullscreenMap.remove();
+            }
+          } catch (containerError) {
+            // Map is already destroyed
+            console.warn('[initializeFullscreenMap] Map already destroyed:', containerError);
+          }
+        } catch (removeError) {
+          console.warn('[initializeFullscreenMap] Error removing invalid map:', removeError);
+        } finally {
+          setFullscreenMap(null);
+          hasFullscreenInitialFitBounds.current = false;
+        }
+      }
     }
 
-    console.log('Initializing fullscreen map with container:', container);
+    console.log('[initializeFullscreenMap] Initializing fullscreen map with container:', container);
 
     if (!process.env.REACT_APP_MAPBOX_TOKEN) {
       console.error('Mapbox token not configured');
@@ -850,14 +1321,143 @@ const SharedMap = ({
         }), 'bottom-right');
 
         // Add geolocate control
-        const geolocateControl = new Mapboxgl.GeolocateControl({
+        const fullscreenGeolocateControlInstance = new Mapboxgl.GeolocateControl({
           positionOptions: {
-            enableHighAccuracy: true
+            enableHighAccuracy: true,
+            timeout: 15000, // Increased timeout to 15 seconds
+            maximumAge: 30000 // Allow cached locations up to 30 seconds since we already have location from watchPosition
           },
           trackUserLocation: true,
-          showUserHeading: true
+          showUserHeading: true,
+          showAccuracyCircle: true,
+          fitBoundsOptions: {
+            maxZoom: 15
+          }
         });
-        fullscreenMapInstance.addControl(geolocateControl, 'top-right');
+        fullscreenMapInstance.addControl(fullscreenGeolocateControlInstance, 'top-right');
+        fullscreenGeolocateControl.current = fullscreenGeolocateControlInstance;
+        
+        // Function to clear error state from fullscreen geolocate button
+        const clearFullscreenGeolocateErrorState = () => {
+          // Try multiple times to ensure it clears
+          const tryClear = (attempt = 0) => {
+            const fullscreenGeolocateButton = fullscreenMapInstance?.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+            if (fullscreenGeolocateButton) {
+              // Remove error classes that cause red color
+              fullscreenGeolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+              // Also remove any other error-related classes
+              fullscreenGeolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error-state');
+              // Reset button appearance if we have valid location
+              if (userLocation && userLocation.latitude && userLocation.longitude) {
+                fullscreenGeolocateButton.style.opacity = '1';
+                fullscreenGeolocateButton.style.color = '';
+                // Force remove inline styles that might cause red color
+                const computedStyle = window.getComputedStyle(fullscreenGeolocateButton);
+                if (computedStyle.color === 'rgb(255, 0, 0)' || computedStyle.color === 'red') {
+                  fullscreenGeolocateButton.style.color = '';
+                }
+              }
+              console.log('[SharedMap] Cleared fullscreen geolocate error state');
+            } else if (attempt < 3) {
+              // Retry if button not found yet
+              setTimeout(() => tryClear(attempt + 1), 200);
+            }
+          };
+          tryClear();
+        };
+        
+        // Listen to all geolocate events
+        fullscreenGeolocateControlInstance.on('geolocate', (e) => {
+          console.log('[SharedMap] Fullscreen geolocate event - location found:', e.coords);
+          // Location is already tracked by watchPosition in parent component
+          // Clear any error state when location is successfully found
+          clearFullscreenGeolocateErrorState();
+        });
+        
+        fullscreenGeolocateControlInstance.on('error', (e) => {
+          // Log specific error codes - check both e.error.code and e.code (different error formats)
+          const errorCode = (e && e.error && typeof e.error.code === 'number') ? e.error.code : 
+                           (e && typeof e.code === 'number') ? e.code : null;
+          
+          // Check if we already have location from watchPosition
+          const hasLocation = userLocation && userLocation.latitude && userLocation.longitude;
+          
+          if (errorCode !== null) {
+            if (errorCode === 1) {
+              console.error('[SharedMap] Fullscreen geolocation permission denied - user needs to grant permission');
+            } else if (errorCode === 2) {
+              console.error('[SharedMap] Fullscreen geolocation position unavailable');
+            } else if (errorCode === 3) {
+              // Timeout is less critical if we already have location from watchPosition
+              if (hasLocation) {
+                console.log('[SharedMap] Fullscreen geolocation timeout (but we have location from watchPosition, clearing error state)');
+              } else {
+                console.warn('[SharedMap] Fullscreen geolocation timeout - will retry');
+              }
+            } else {
+              console.error('[SharedMap] Fullscreen geolocation error code:', errorCode);
+            }
+          } else {
+            console.error('[SharedMap] Fullscreen geolocation error (unknown format):', e);
+          }
+          
+          // If we have location from watchPosition, clear error state immediately
+          // This allows the control to recover since we already have location
+          if (hasLocation) {
+            clearFullscreenGeolocateErrorState();
+          }
+        });
+        
+        fullscreenGeolocateControlInstance.on('trackuserlocationstart', () => {
+          console.log('[SharedMap] Fullscreen started tracking user location via geolocate control');
+          // Clear error state when tracking starts
+          clearFullscreenGeolocateErrorState();
+        });
+        
+        fullscreenGeolocateControlInstance.on('trackuserlocationend', () => {
+          console.log('[SharedMap] Fullscreen stopped tracking user location via geolocate control');
+        });
+        
+        // Add click handler to the fullscreen geolocate button to ensure it works
+        setTimeout(() => {
+          const fullscreenGeolocateButton = fullscreenMapInstance.getContainer().querySelector('.mapboxgl-ctrl-geolocate');
+          if (fullscreenGeolocateButton) {
+            fullscreenGeolocateButton.addEventListener('click', (e) => {
+              console.log('[SharedMap] Fullscreen geolocate button clicked');
+              // Clear error state on click attempt
+              setTimeout(clearFullscreenGeolocateErrorState, 500);
+            });
+          }
+        }, 500);
+        
+        // Auto-trigger geolocate when fullscreen map is ready
+        const tryFullscreenAutoTrigger = () => {
+          if (userLocation && userLocation.latitude && userLocation.longitude) {
+            try {
+              console.log('[SharedMap] Attempting to auto-trigger fullscreen geolocate control with location:', userLocation);
+              // Try to trigger the control (without centering the map)
+              fullscreenGeolocateControlInstance.trigger();
+              console.log('[SharedMap] Successfully triggered fullscreen geolocate control');
+            } catch (error) {
+              console.warn('[SharedMap] Could not auto-trigger fullscreen geolocate:', error);
+              // Don't center the map automatically - let user control the view
+              setTimeout(() => {
+                try {
+                  fullscreenGeolocateControlInstance.trigger();
+                  console.log('[SharedMap] Successfully triggered fullscreen geolocate on retry');
+                } catch (retryError) {
+                  console.log('[SharedMap] Fullscreen geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
+                }
+              }, 2000);
+            }
+          }
+        };
+        
+        // Try after map and style are loaded
+        setTimeout(tryFullscreenAutoTrigger, 500);
+        fullscreenMapInstance.once('style.load', () => {
+          setTimeout(tryFullscreenAutoTrigger, 500);
+        });
 
         // Add fullscreen control
         fullscreenMapInstance.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
@@ -890,16 +1490,39 @@ const SharedMap = ({
             return;
           }
           
-          // Additional check: ensure map is fully rendered
-          requestAnimationFrame(() => {
-            console.log('[FullscreenMap] Map ready, checking locations:', locations?.length || 0);
-            if (locations && locations.length > 0) {
-              console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
-              addMarkersToFullscreenMap(fullscreenMapInstance);
-            } else {
-              console.warn('[FullscreenMap] No locations available to add to fullscreen map. Locations:', locations);
+          // Wait for map to be fully rendered - use multiple checks
+          const ensureMapReady = () => {
+            // Check if map container has dimensions
+            const container = fullscreenMapInstance.getContainer();
+            if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) {
+              console.log('[FullscreenMap] Container not sized yet, waiting...');
+              setTimeout(ensureMapReady, 100);
+              return;
             }
-          });
+            
+            // Additional check: ensure map is fully rendered
+            requestAnimationFrame(() => {
+              // Double-check map is ready
+              if (!fullscreenMapInstance.loaded() || !fullscreenMapInstance.isStyleLoaded()) {
+                console.log('[FullscreenMap] Map not fully ready in requestAnimationFrame, retrying...');
+                setTimeout(ensureMapReady, 100);
+                return;
+              }
+              
+              console.log('[FullscreenMap] Map fully ready, checking locations:', locations?.length || 0);
+              if (locations && locations.length > 0) {
+                console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
+                // Add a small delay to ensure map projection is fully initialized
+                setTimeout(() => {
+                  addMarkersToFullscreenMap(fullscreenMapInstance);
+                }, 200);
+              } else {
+                console.warn('[FullscreenMap] No locations available to add to fullscreen map. Locations:', locations);
+              }
+            });
+          };
+          
+          ensureMapReady();
         };
         
         addMarkersWhenReady();
@@ -952,6 +1575,10 @@ const SharedMap = ({
       });
 
       fullscreenMapInstance.on('click', (e) => {
+        // Mark that user has interacted with the map (clicked)
+        userInteractedWithMap.current = true;
+        lastInteractionTime.current = Date.now();
+        
         if (onLocationClick) {
           onLocationClick(e.lngLat);
         }
@@ -1002,20 +1629,26 @@ const SharedMap = ({
     }
     
     // Filter locations based on filter state (only for fullscreen map)
+    // Also exclude user location marker (isCurrentUser) from fullscreen map
     const filteredLocations = locations.filter(location => {
+      // Exclude user location marker from fullscreen map
+      if (location.isCurrentUser) {
+        return false;
+      }
+      
       const locationType = location.type || location.marker_type;
       // If no type is set, show it (for backward compatibility)
       if (!locationType) {
         console.log('[addMarkersToFullscreenMap] Location has no type, showing by default:', location);
         return true;
       }
-      if (locationType === 'wallet') return filters.showWallets;
-      if (locationType === 'nft') return filters.showNFTs;
-      if (locationType === 'contract_rule') return filters.showContractRules;
+      if (locationType === 'wallet') return fullscreenMapFilters.showWallets;
+      if (locationType === 'nft') return fullscreenMapFilters.showNFTs;
+      if (locationType === 'contract_rule') return fullscreenMapFilters.showContractRules;
       return true; // Show unknown types by default
     });
     
-    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, 'filters:', filters, 'sample location:', filteredLocations[0]);
+    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, 'filters:', fullscreenMapFilters, 'sample location:', filteredLocations[0]);
 
     // Use requestAnimationFrame to ensure smooth updates, but also wait for map to be ready
     requestAnimationFrame(() => {
@@ -1063,12 +1696,54 @@ const SharedMap = ({
       fullscreenMarkers.current = {};
 
       filteredLocations.forEach((location, index) => {
-        const lat = parseFloat(location.latitude);
-        const lng = parseFloat(location.longitude);
+        // Parse and validate coordinates more strictly - handle both number and string types
+        let lat = typeof location.latitude === 'number' ? location.latitude : parseFloat(location.latitude);
+        let lng = typeof location.longitude === 'number' ? location.longitude : parseFloat(location.longitude);
         
-        if (isNaN(lat) || isNaN(lng)) {
-          console.warn(`[addMarkersToFullscreenMap] Invalid coordinates for location ${index}:`, location);
+        // Debug log for user location markers
+        if (location.isCurrentUser) {
+          console.log(`[addMarkersToFullscreenMap] Processing user location marker:`, {
+            index,
+            latitude: location.latitude,
+            longitude: location.longitude,
+            parsedLat: lat,
+            parsedLng: lng,
+            isNaNLat: isNaN(lat),
+            isNaNLng: isNaN(lng),
+            isFiniteLat: isFinite(lat),
+            isFiniteLng: isFinite(lng)
+          });
+        }
+        
+        // Validate coordinates are numbers and within valid ranges
+        if (isNaN(lat) || isNaN(lng) || !isFinite(lat) || !isFinite(lng)) {
+          console.warn(`[addMarkersToFullscreenMap] Invalid coordinates for location ${index}:`, { 
+            lat, 
+            lng, 
+            location,
+            isCurrentUser: location.isCurrentUser
+          });
           return;
+        }
+        
+        // Ensure coordinates are within valid WGS84 ranges
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+          console.warn(`[addMarkersToFullscreenMap] Coordinates out of range for location ${index}:`, { lat, lng });
+          return;
+        }
+        
+        // Normalize longitude to -180 to 180 range
+        while (lng > 180) lng -= 360;
+        while (lng < -180) lng += 360;
+        
+        // Normalize latitude to -90 to 90 range
+        if (lat > 90) lat = 90;
+        if (lat < -90) lat = -90;
+        
+        // Additional validation: reject coordinates that are exactly 0,0 (likely invalid)
+        if (lat === 0 && lng === 0) {
+          console.warn(`[addMarkersToFullscreenMap] Coordinates are 0,0 (likely invalid) for location ${index}:`, location);
+          // Don't return - allow 0,0 if it's actually valid (Null Island)
         }
 
       // Determine location type
@@ -1110,7 +1785,8 @@ const SharedMap = ({
         // Smart Contract Execution Rule marker
         const hasMatch = location.hasMatch;
         const hasExecution = location.hasExecution;
-        
+
+        // Simple, stable styling – avoid animations that could hide the icon
         el.style.cssText = `
           width: 36px;
           height: 36px;
@@ -1125,45 +1801,29 @@ const SharedMap = ({
           font-size: 18px;
           color: white;
           font-weight: bold;
-          position: relative;
-          ${hasMatch || hasExecution ? 'animation: pulseMarker 1.5s ease-in-out infinite;' : ''}
         `;
+        // Keep the 📜 icon clearly visible
         el.textContent = '📜';
-        
-        // Add indicator ring for matches/executions
-        if (hasMatch || hasExecution) {
-          const ring = document.createElement('div');
-          ring.style.cssText = `
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 8px;
-            border: 3px solid ${hasExecution ? '#4caf50' : '#ff9800'};
-            animation: ringPulse 1.5s ease-in-out infinite;
-            pointer-events: none;
-            top: -3px;
-            left: -3px;
-          `;
-          el.appendChild(ring);
-        }
       } else if (locationType === 'wallet') {
-        // Wallet marker
+        // Wallet marker - distinguish current user from other users
+        const isCurrentUser = location.isCurrentUser;
         el.style.cssText = `
-          width: 30px;
-          height: 30px;
+          width: ${isCurrentUser ? '36px' : '30px'};
+          height: ${isCurrentUser ? '36px' : '30px'};
           border-radius: 50%;
-          background-color: #1976d2;
-          border: 3px solid white;
+          background-color: ${isCurrentUser ? '#4caf50' : '#1976d2'};
+          border: 3px solid ${isCurrentUser ? '#2e7d32' : 'white'};
           cursor: pointer;
           box-shadow: 0 2px 8px rgba(0,0,0,0.3);
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 14px;
+          font-size: ${isCurrentUser ? '18px' : '14px'};
           color: white;
           font-weight: bold;
+          ${isCurrentUser ? 'animation: pulseMarker 2s ease-in-out infinite;' : ''}
         `;
-        el.textContent = '💳';
+        el.textContent = isCurrentUser ? '📍' : '💳';
       } else {
         // Default marker
         el.style.cssText = `
@@ -1188,25 +1848,92 @@ const SharedMap = ({
       // Ensure marker is positioned correctly by setting coordinates before adding to map
       let marker = null;
       try {
+        // Create marker with validated coordinates
         marker = new Mapboxgl.Marker({ 
           element: el, 
-          draggable: false 
+          draggable: false,
+          anchor: 'center' // Explicitly set anchor to center
         });
         
-        // Set position before adding to map to prevent appearing at default position
-        marker.setLngLat([lng, lat]);
+        // Use normalized coordinates (already normalized above)
+        const finalLng = lng; // Already normalized
+        const finalLat = lat; // Already normalized
+        
+        // For user location markers, add extra validation
+        if (location.isCurrentUser) {
+          console.log(`[addMarkersToFullscreenMap] Setting user location marker position: [${finalLng}, ${finalLat}]`);
+        }
+        
+        // Set position BEFORE adding to map - this is critical
+        marker.setLngLat([finalLng, finalLat]);
+        
+        // Verify the marker has the correct position before adding
+        const markerPos = marker.getLngLat();
+        if (Math.abs(markerPos.lng - finalLng) > 0.0001 || Math.abs(markerPos.lat - finalLat) > 0.0001) {
+          console.warn(`[addMarkersToFullscreenMap] Marker position mismatch for location ${index}. Expected [${finalLng}, ${finalLat}], got [${markerPos.lng}, ${markerPos.lat}]`);
+        }
         
         // Only add to map if it's fully loaded and valid
         if (mapInstance && typeof mapInstance.loaded === 'function' && typeof mapInstance.isStyleLoaded === 'function') {
           if (mapInstance.loaded() && mapInstance.isStyleLoaded()) {
             try {
+              // Add marker to map
               marker.addTo(mapInstance);
               
-              // Debug: Log marker creation
-              console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
+              // Store marker reference with a unique key (same as main map)
+              const markerKey = location.isCurrentUser ? 'current_user' : 
+                               location.public_key ? `wallet_${location.public_key}` :
+                               location.id ? `${locationType}_${location.id}` :
+                               `${locationType}_${index}`;
+              fullscreenMarkers.current[markerKey] = marker;
               
-              // Store marker reference
-              fullscreenMarkers.current[`marker_${index}`] = marker;
+              // After adding, verify position again and re-set if needed (especially for user location)
+              if (location.isCurrentUser) {
+                // Multiple checks to ensure user location marker is positioned correctly
+                const verifyPosition = (attempt = 0) => {
+                  if (attempt > 5) return; // Max 5 attempts
+                  
+                  setTimeout(() => {
+                    if (marker && marker.getLngLat) {
+                      const currentPos = marker.getLngLat();
+                      // If marker is at wrong position (e.g., 0,0 or top-left), re-set it
+                      if ((Math.abs(currentPos.lng) < 0.001 && Math.abs(currentPos.lat) < 0.001 && (finalLng !== 0 || finalLat !== 0)) ||
+                          Math.abs(currentPos.lng - finalLng) > 0.1 || Math.abs(currentPos.lat - finalLat) > 0.1) {
+                        console.warn(`[addMarkersToFullscreenMap] User location marker at wrong position [${currentPos.lng}, ${currentPos.lat}], re-setting to [${finalLng}, ${finalLat}] (attempt ${attempt + 1})`);
+                        marker.setLngLat([finalLng, finalLat]);
+                        // Try again if still wrong
+                        verifyPosition(attempt + 1);
+                      } else {
+                        console.log(`[addMarkersToFullscreenMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
+                      }
+                    }
+                  }, 100 * (attempt + 1));
+                };
+                verifyPosition();
+              } else {
+                // For other markers, single check
+                setTimeout(() => {
+                  if (marker && marker.getLngLat) {
+                    const currentPos = marker.getLngLat();
+                    // If marker is at wrong position (e.g., 0,0 or top-left), re-set it
+                    if ((Math.abs(currentPos.lng) < 0.001 && Math.abs(currentPos.lat) < 0.001 && (finalLng !== 0 || finalLat !== 0)) ||
+                        Math.abs(currentPos.lng - finalLng) > 0.1 || Math.abs(currentPos.lat - finalLat) > 0.1) {
+                      console.warn(`[addMarkersToFullscreenMap] Marker ${index} at wrong position [${currentPos.lng}, ${currentPos.lat}], re-setting to [${finalLng}, ${finalLat}]`);
+                      marker.setLngLat([finalLng, finalLat]);
+                    }
+                  }
+                }, 100);
+              }
+              
+              // Debug: Log marker creation
+              console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
+                isCurrentUser: location.isCurrentUser,
+                public_key: location.public_key,
+                locationId: location.id,
+                ruleName: location.rule_name,
+                contractName: location.contract_name,
+                markerKey
+              });
             } catch (addError) {
               console.error(`[addMarkersToFullscreenMap] Error adding marker ${index} to map:`, addError);
               // Clean up marker element if adding failed
@@ -1289,49 +2016,23 @@ const SharedMap = ({
         });
       }
 
-      // Add click and double-click handlers for contract_rule markers in fullscreen
-      if (locationType === 'contract_rule') {
-        let clickTimeout;
-        
+      // Add click handler for contract rule markers
+      if (locationType === 'contract_rule' && onLocationClick) {
         el.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          
-          // Clear any existing timeout
-          if (clickTimeout) {
-            clearTimeout(clickTimeout);
-          }
-          
-          // Set a timeout to allow double-click to be detected
-          clickTimeout = setTimeout(() => {
-            console.log('Contract rule marker clicked in fullscreen:', location);
-            // Call onLocationClick if available, or trigger a custom event
-            if (onLocationClick) {
-              onLocationClick(location);
-            }
-          }, 200); // 200ms delay to allow double-click detection
+          onLocationClick(location);
         });
+      }
 
-        // Add double-click zoom functionality
-        el.addEventListener('dblclick', (e) => {
+      // Add click handler for wallet markers in fullscreen map
+      if (locationType === 'wallet' && !location.isCurrentUser) {
+        el.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          
-          // Clear the click timeout to prevent single-click from firing
-          if (clickTimeout) {
-            clearTimeout(clickTimeout);
-            clickTimeout = null;
-          }
-          
-          console.log('Contract rule marker double-clicked in fullscreen, zooming in:', location);
-          
-          if (mapInstance) {
-            mapInstance.flyTo({
-              center: [lng, lat],
-              zoom: 18,
-              duration: 1000
-            });
-          }
+          console.log('Wallet marker clicked in fullscreen:', location);
+          setSelectedWallet(location);
+          setShowWalletDetails(true);
         });
       }
 
@@ -1344,11 +2045,11 @@ const SharedMap = ({
             popupHTML = `
               <div style="padding: 12px; min-width: 200px;">
                 <h3 style="margin: 0 0 8px 0; color: #667eea;">📜 ${location.rule_name || 'Contract Rule'}</h3>
-                ${location.contract_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
-                ${location.function_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
-                ${location.trigger_on ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
-                ${location.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
-                ${location.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
+                ${location.contract_name ? `<p style="margin: 4px 0;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
+                ${location.function_name ? `<p style="margin: 4px 0;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
+                ${location.trigger_on ? `<p style="margin: 4px 0;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
+                ${location.radius_meters ? `<p style="margin: 4px 0;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
+                ${location.auto_execute ? `<p style="margin: 4px 0; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
                 <p style="margin: 4px 0; font-size: 11px; color: #999;">
                   Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
                 </p>
@@ -1408,7 +2109,7 @@ const SharedMap = ({
       }
       // Don't restore position - let the map stay where the user positioned it
     });
-  }, [locations, filters, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [locations, fullscreenMapFilters, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFullscreen = () => {
     const newFullscreenState = !isFullscreen;
@@ -1417,11 +2118,25 @@ const SharedMap = ({
     if (newFullscreenState) {
       // Opening fullscreen - reset fitBounds flag and initialize map after dialog opens
       hasFullscreenInitialFitBounds.current = false;
+      // Wait for dialog to be fully rendered and container to have dimensions
       setTimeout(() => {
-        if (fullscreenMapContainer.current && !fullscreenMap) {
-          initializeFullscreenMap(fullscreenMapContainer.current);
+        if (fullscreenMapContainer.current) {
+          // Ensure container has dimensions before initializing
+          const container = fullscreenMapContainer.current;
+          if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+            console.log('[toggleFullscreen] Container ready, initializing fullscreen map');
+            initializeFullscreenMap(container);
+          } else {
+            // Retry if container not ready
+            console.log('[toggleFullscreen] Container not sized yet, retrying...');
+            setTimeout(() => {
+              if (fullscreenMapContainer.current) {
+                initializeFullscreenMap(fullscreenMapContainer.current);
+              }
+            }, 200);
+          }
         }
-      }, 100);
+      }, 200);
     } else {
       // Closing fullscreen - ensure main map is still visible
       // The main map should remain intact, but we can trigger a resize to ensure it renders
@@ -1509,7 +2224,7 @@ const SharedMap = ({
         clearTimeout(markerUpdateTimeout.current);
       }
     };
-  }, [locations, mapLoaded, addMarkersToMap]);
+  }, [locations, mapLoaded, addMarkersToMap, mainMapFilters]);
 
   // Handle zoom target
   useEffect(() => {
@@ -1535,28 +2250,37 @@ const SharedMap = ({
     fullscreenMarkerUpdateTimeout.current = setTimeout(() => {
       if (!fullscreenMap) return;
       
-      // Ensure map is fully loaded before adding markers
-      if (fullscreenMap.loaded() && fullscreenMap.isStyleLoaded()) {
+      // Ensure map is fully loaded and container has dimensions
+      const container = fullscreenMap.getContainer();
+      const hasDimensions = container && container.offsetWidth > 0 && container.offsetHeight > 0;
+      
+      if (fullscreenMap.loaded() && fullscreenMap.isStyleLoaded() && hasDimensions) {
         console.log('[SharedMap] Locations changed, updating fullscreen map markers:', locations.length);
         addMarkersToFullscreenMap(fullscreenMap);
       } else {
-        // Wait for map to be fully loaded
+        // Wait for map to be fully loaded and container to have dimensions
         console.log('[SharedMap] Fullscreen map not ready, waiting for load...', { 
           loaded: fullscreenMap.loaded(), 
-          styleLoaded: fullscreenMap.isStyleLoaded() 
+          styleLoaded: fullscreenMap.isStyleLoaded(),
+          hasDimensions
         });
         
         const waitForReady = () => {
-          if (fullscreenMap && fullscreenMap.loaded() && fullscreenMap.isStyleLoaded()) {
+          const container = fullscreenMap.getContainer();
+          const hasDimensions = container && container.offsetWidth > 0 && container.offsetHeight > 0;
+          
+          if (fullscreenMap && fullscreenMap.loaded() && fullscreenMap.isStyleLoaded() && hasDimensions) {
             console.log('[SharedMap] Fullscreen map ready, updating markers:', locations.length);
             addMarkersToFullscreenMap(fullscreenMap);
           } else {
-            // Wait for both events
+            // Wait for map to be ready or container to have dimensions
             if (!fullscreenMap.loaded()) {
               fullscreenMap.once('load', waitForReady);
-            }
-            if (!fullscreenMap.isStyleLoaded()) {
+            } else if (!fullscreenMap.isStyleLoaded()) {
               fullscreenMap.once('style.load', waitForReady);
+            } else if (!hasDimensions) {
+              // Retry after a short delay if container doesn't have dimensions
+              setTimeout(waitForReady, 100);
             }
           }
         };
@@ -1569,45 +2293,337 @@ const SharedMap = ({
         clearTimeout(fullscreenMarkerUpdateTimeout.current);
       }
     };
-  }, [locations, fullscreenMap, addMarkersToFullscreenMap]);
+  }, [locations, fullscreenMap, addMarkersToFullscreenMap, fullscreenMapFilters]);
 
-  // Ensure main map is visible when exiting fullscreen
+  // DISABLED: Auto-centering map on userLocation changes
+  // This was causing the map to constantly move back to user location, which is annoying
+  // Users can manually use the geolocate control button if they want to center on their location
+  // useEffect(() => {
+  //   if (userLocation && userLocation.latitude && userLocation.longitude) {
+  //     // Update main map center
+  //     if (map.current && mapLoaded) {
+  //       // Check if geolocate control is actively tracking
+  //       const isTracking = geolocateControl.current?._watchState === 'ACTIVE_LOCK' || 
+  //                         geolocateControl.current?._watchState === 'ACTIVE';
+  //       
+  //       // Always update center from watchPosition, but use different animation if geolocate is tracking
+  //       if (isTracking) {
+  //         // If geolocate is tracking, just update center smoothly without zoom change
+  //         map.current.easeTo({
+  //           center: [userLocation.longitude, userLocation.latitude],
+  //           duration: 1000
+  //         });
+  //       } else {
+  //         // If geolocate is not tracking, fly to location (first time or when user moves significantly)
+  //         const currentCenter = map.current.getCenter();
+  //         const distance = Math.sqrt(
+  //           Math.pow(currentCenter.lng - userLocation.longitude, 2) + 
+  //           Math.pow(currentCenter.lat - userLocation.latitude, 2)
+  //         );
+  //         
+  //         // Only fly if distance is significant (more than ~100m)
+  //         if (distance > 0.001) {
+  //           map.current.flyTo({
+  //             center: [userLocation.longitude, userLocation.latitude],
+  //             zoom: map.current.getZoom() < 15 ? 15 : map.current.getZoom(),
+  //             duration: 1000
+  //           });
+  //         }
+  //       }
+  //     }
+  //     
+  //     // Update fullscreen map center
+  //     if (fullscreenMap && fullscreenMap.loaded()) {
+  //       // Check if fullscreen geolocate control is actively tracking
+  //       const isFullscreenTracking = fullscreenGeolocateControl.current?._watchState === 'ACTIVE_LOCK' || 
+  //                                    fullscreenGeolocateControl.current?._watchState === 'ACTIVE';
+  //       
+  //       if (isFullscreenTracking) {
+  //         fullscreenMap.easeTo({
+  //           center: [userLocation.longitude, userLocation.latitude],
+  //           duration: 1000
+  //         });
+  //       } else {
+  //         const currentCenter = fullscreenMap.getCenter();
+  //         const distance = Math.sqrt(
+  //           Math.pow(currentCenter.lng - userLocation.longitude, 2) + 
+  //           Math.pow(currentCenter.lat - userLocation.latitude, 2)
+  //         );
+  //         
+  //         if (distance > 0.001) {
+  //           fullscreenMap.flyTo({
+  //             center: [userLocation.longitude, userLocation.latitude],
+  //             zoom: fullscreenMap.getZoom() < 15 ? 15 : fullscreenMap.getZoom(),
+  //             duration: 1000
+  //           });
+  //         }
+  //       }
+  //     }
+  //   }
+  // }, [userLocation, mapLoaded, fullscreenMap]);
+
+  // Auto-trigger geolocate control when userLocation is available
+  // This will work if geolocation permission was already granted (from watchPosition)
+  // Keep trying to activate it to ensure it stays on by default
   useEffect(() => {
-    if (!isFullscreen && map.current && mapContainer.current) {
-      console.log('[SharedMap] Exited fullscreen, ensuring main map is visible');
-      // Ensure container is visible
-      mapContainer.current.style.display = 'block';
-      mapContainer.current.style.visibility = 'visible';
-      mapContainer.current.style.height = '100%';
-      mapContainer.current.style.width = '100%';
-      
-      // Force map resize after a short delay to ensure container is rendered
-      setTimeout(() => {
-        if (map.current) {
-          console.log('[SharedMap] Resizing main map after fullscreen exit');
-          map.current.resize();
-          // Call resize again to ensure it takes effect
-          setTimeout(() => {
-            if (map.current) {
-              map.current.resize();
+    if (userLocation && userLocation.latitude && userLocation.longitude && mapLoaded) {
+      // Try to auto-trigger main map geolocate
+      if (geolocateControl.current && map.current) {
+        const tryTrigger = () => {
+          try {
+            // Check if control is ready and not already tracking
+            if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
+              const watchState = geolocateControl.current._watchState;
+              // Only trigger if not already actively tracking
+              if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+                console.log('[SharedMap] Auto-triggering geolocate control (current state:', watchState, ')');
+                geolocateControl.current.trigger();
+                console.log('[SharedMap] Successfully auto-triggered geolocate');
+              } else {
+                console.log('[SharedMap] Geolocate control already active, state:', watchState);
+              }
             }
-          }, 100);
-        }
-      }, 100);
+          } catch (error) {
+            // Browser may require user interaction for first-time permission
+            console.log('[SharedMap] Auto-trigger failed (may need user interaction):', error.message);
+          }
+        };
+        
+        // Try multiple times with increasing delays to ensure control is ready
+        tryTrigger();
+        setTimeout(tryTrigger, 500);
+        setTimeout(tryTrigger, 1500);
+        setTimeout(tryTrigger, 3000);
+        
+        // Keep trying periodically to ensure it stays active
+        // BUT: Don't interfere if user has recently searched or interacted with the map
+        const keepActiveInterval = setInterval(() => {
+          // Don't auto-trigger if user has interacted with map in the last 30 seconds
+          const timeSinceInteraction = Date.now() - lastInteractionTime.current;
+          if (userInteractedWithMap.current && timeSinceInteraction < 30000) {
+            console.log('[SharedMap] Skipping geolocate auto-trigger - user recently interacted with map');
+            return;
+          }
+          
+          if (geolocateControl.current && map.current) {
+            const watchState = geolocateControl.current._watchState;
+            // If not tracking, try to activate again
+            if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+              tryTrigger();
+            }
+          }
+        }, 10000); // Check every 10 seconds
+        
+        return () => {
+          clearInterval(keepActiveInterval);
+        };
+      }
+      
+      // Try to auto-trigger fullscreen map geolocate
+      if (fullscreenGeolocateControl.current && fullscreenMap && fullscreenMap.loaded()) {
+        const tryFullscreenTrigger = () => {
+          try {
+            if (fullscreenGeolocateControl.current && typeof fullscreenGeolocateControl.current.trigger === 'function') {
+              const watchState = fullscreenGeolocateControl.current._watchState;
+              if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+                console.log('[SharedMap] Auto-triggering fullscreen geolocate control');
+                fullscreenGeolocateControl.current.trigger();
+                console.log('[SharedMap] Successfully auto-triggered fullscreen geolocate');
+              }
+            }
+          } catch (error) {
+            console.log('[SharedMap] Fullscreen auto-trigger failed:', error.message);
+          }
+        };
+        
+        tryFullscreenTrigger();
+        setTimeout(tryFullscreenTrigger, 500);
+        setTimeout(tryFullscreenTrigger, 1500);
+      }
     }
-  }, [isFullscreen]);
+  }, [userLocation, mapLoaded, fullscreenMap]);
+
+  // Periodically clear geolocate error state when we have valid location
+  // This helps recover from error states automatically
+  useEffect(() => {
+    if (!userLocation || !userLocation.latitude || !userLocation.longitude) {
+      return;
+    }
+
+    const clearErrorState = () => {
+      // Clear error state on main map
+      if (map.current && geolocateControl.current) {
+        const geolocateButton = map.current.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+        if (geolocateButton) {
+          if (geolocateButton.classList.contains('mapboxgl-ctrl-geolocate-error')) {
+            geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+            geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error-state');
+            geolocateButton.style.opacity = '1';
+            geolocateButton.style.color = '';
+            console.log('[SharedMap] Cleared error state from main map geolocate button');
+          }
+        }
+      }
+
+      // Clear error state on fullscreen map - more aggressive clearing
+      if (fullscreenMap && fullscreenGeolocateControl.current) {
+        const fullscreenGeolocateButton = fullscreenMap.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+        if (fullscreenGeolocateButton) {
+          // Always try to clear error state, not just if class exists
+          fullscreenGeolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+          fullscreenGeolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error-state');
+          fullscreenGeolocateButton.style.opacity = '1';
+          // Force remove any red color styling
+          const computedStyle = window.getComputedStyle(fullscreenGeolocateButton);
+          if (computedStyle.color === 'rgb(255, 0, 0)' || computedStyle.color === 'red') {
+            fullscreenGeolocateButton.style.color = '';
+          }
+          // Also check child elements (the icon inside the button)
+          const icon = fullscreenGeolocateButton.querySelector('span, svg, .mapboxgl-ctrl-icon');
+          if (icon) {
+            icon.style.color = '';
+            const iconStyle = window.getComputedStyle(icon);
+            if (iconStyle.color === 'rgb(255, 0, 0)' || iconStyle.color === 'red') {
+              icon.style.color = '';
+            }
+          }
+        }
+      }
+    };
+
+    // Clear immediately if we have location
+    clearErrorState();
+
+    // Set up periodic check every 2 seconds to clear error state (more frequent for fullscreen)
+    const interval = setInterval(clearErrorState, 2000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [userLocation, mapLoaded, fullscreenMap]);
+
+  // Ensure main map is visible when exiting fullscreen and clean up fullscreen map
+  useEffect(() => {
+    if (!isFullscreen) {
+      // Clean up fullscreen map when dialog closes
+      if (fullscreenMap) {
+        console.log('[SharedMap] Cleaning up fullscreen map on dialog close');
+        try {
+          // Clear markers first
+          Object.keys(fullscreenMarkers.current).forEach(key => {
+            const marker = fullscreenMarkers.current[key];
+            if (marker && typeof marker.remove === 'function') {
+              try {
+                marker.remove();
+              } catch (markerError) {
+                console.warn('[SharedMap] Error removing marker:', markerError);
+              }
+            }
+          });
+          fullscreenMarkers.current = {};
+          
+          // Check if map is still valid before removing
+          try {
+            // Try to get the container - if this fails, the map is already destroyed
+            const container = fullscreenMap.getContainer();
+            if (container && typeof fullscreenMap.remove === 'function') {
+              fullscreenMap.remove();
+            }
+          } catch (mapError) {
+            // Map is already destroyed or in invalid state
+            console.warn('[SharedMap] Map already destroyed or invalid, skipping remove:', mapError);
+          }
+        } catch (error) {
+          console.warn('[SharedMap] Error cleaning up fullscreen map:', error);
+        } finally {
+          // Always clear the state, even if removal failed
+          setFullscreenMap(null);
+          fullscreenGeolocateControl.current = null; // Clear the ref to prevent conflicts
+          hasFullscreenInitialFitBounds.current = false;
+        }
+      }
+      
+      // Re-activate geolocate control on main map after fullscreen closes
+      // This ensures it works properly after fullscreen cleanup
+      if (map.current && geolocateControl.current && userLocation && userLocation.latitude && userLocation.longitude) {
+        setTimeout(() => {
+          try {
+            // Clear any error state
+            const geolocateButton = map.current?.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+            if (geolocateButton) {
+              geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+              geolocateButton.style.opacity = '1';
+            }
+            
+            // Try to reactivate tracking if location is available
+            if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
+              console.log('[SharedMap] Reactivating geolocate control after fullscreen close');
+              geolocateControl.current.trigger();
+            }
+          } catch (error) {
+            console.warn('[SharedMap] Could not reactivate geolocate control:', error);
+          }
+        }, 500);
+      }
+      
+      // Ensure main map is visible
+      if (map.current && mapContainer.current) {
+        console.log('[SharedMap] Exited fullscreen, ensuring main map is visible');
+        // Ensure container is visible
+        mapContainer.current.style.display = 'block';
+        mapContainer.current.style.visibility = 'visible';
+        mapContainer.current.style.height = '100%';
+        mapContainer.current.style.width = '100%';
+        
+        // Force map resize after a short delay to ensure container is rendered
+        setTimeout(() => {
+          if (map.current) {
+            console.log('[SharedMap] Resizing main map after fullscreen exit');
+            map.current.resize();
+            // Call resize again to ensure it takes effect
+            setTimeout(() => {
+              if (map.current) {
+                map.current.resize();
+              }
+            }, 100);
+          }
+        }, 100);
+      }
+    }
+  }, [isFullscreen, fullscreenMap, userLocation]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Clean up main map
       if (map.current) {
-        map.current.remove();
-        map.current = null;
-        markers.current = {};
+        try {
+          // Check if map is still valid before removing
+          const container = map.current.getContainer();
+          if (container && typeof map.current.remove === 'function') {
+            map.current.remove();
+          }
+        } catch (error) {
+          console.warn('[SharedMap] Error removing main map on unmount:', error);
+        } finally {
+          map.current = null;
+          markers.current = {};
+        }
       }
+      
+      // Clean up fullscreen map
       if (fullscreenMap) {
-        fullscreenMap.remove();
-        setFullscreenMap(null);
+        try {
+          // Check if map is still valid before removing
+          const container = fullscreenMap.getContainer();
+          if (container && typeof fullscreenMap.remove === 'function') {
+            fullscreenMap.remove();
+          }
+        } catch (error) {
+          console.warn('[SharedMap] Error removing fullscreen map on unmount:', error);
+        } finally {
+          setFullscreenMap(null);
+        }
       }
     };
   }, [fullscreenMap]);
@@ -1703,23 +2719,92 @@ const SharedMap = ({
           )}
           
           {showControls && (
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              {/* Search Box */}
-              <TextField
-                size="small"
-                placeholder="Search location..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{ minWidth: 200 }}
-              />
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', position: 'relative' }}>
+              {/* Search Box with autocomplete dropdown */}
+              <Box sx={{ position: 'relative' }}>
+                <TextField
+                  size="small"
+                  placeholder="Search location..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  onFocus={() => {
+                    // Show results when search box is focused if there are results
+                    if (searchResults.length > 0) {
+                      setShowSearchResults(true);
+                    }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setShowSearchResults(false);
+                            setSearchResults([]);
+                          }}
+                          sx={{ p: 0.5 }}
+                        >
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                  sx={{ minWidth: 200 }}
+                />
+                
+                {/* Search Results Dropdown - Positioned directly under search box */}
+                {!isFullscreen && showSearchResults && searchResults.length > 0 && (
+                  <Box sx={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1002,
+                    background: 'white',
+                    borderRadius: 1,
+                    boxShadow: 3,
+                    maxHeight: '300px',
+                    overflow: 'auto',
+                    mt: 0.5,
+                    border: '1px solid #e0e0e0'
+                  }}>
+                    {searchResults.map((result, index) => (
+                      <Box
+                        key={index}
+                        sx={{
+                          p: 1.5,
+                          cursor: 'pointer',
+                          borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none',
+                          '&:hover': { bgcolor: '#f5f5f5' }
+                        }}
+                        onClick={() => handleSearchResultClick(result)}
+                      >
+                        <Typography variant="body2" fontWeight="bold">
+                          {result.place_name}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+              
+              {/* Filter Toggle Button */}
+              <Tooltip title="Toggle Filters">
+                <IconButton 
+                  size="small" 
+                  onClick={() => setShowMainMapFilters(!showMainMapFilters)}
+                  color={showMainMapFilters ? 'primary' : 'default'}
+                >
+                  <FilterListIcon />
+                </IconButton>
+              </Tooltip>
               
               <Tooltip title="Reset View">
                 <IconButton size="small" onClick={resetView}>
@@ -1736,36 +2821,59 @@ const SharedMap = ({
           )}
         </Box>
 
-        {/* Search Results */}
-        {showSearchResults && searchResults.length > 0 && (
-          <Box sx={{
-            position: 'absolute',
-            top: '80px',
-            left: '20px',
-            right: '20px',
-            zIndex: 1001,
-            background: 'white',
-            borderRadius: 1,
-            boxShadow: 3,
-            maxHeight: '300px',
-            overflow: 'auto'
-          }}>
-            {searchResults.map((result, index) => (
-              <Box
-                key={index}
-                sx={{
-                  p: 2,
-                  cursor: 'pointer',
-                  borderBottom: '1px solid #eee',
-                  '&:hover': { bgcolor: '#f5f5f5' }
-                }}
-                onClick={() => handleSearchResultClick(result)}
-              >
-                <Typography variant="body2" fontWeight="bold">
-                  {result.place_name}
-                </Typography>
-              </Box>
-            ))}
+        {/* Filters Panel - Show on main map (bottom left) */}
+        {!isFullscreen && showMainMapFilters && (
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 20,
+              left: 20,
+              zIndex: 1000,
+              backgroundColor: 'rgba(255, 255, 255, 0.95)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: 2,
+              p: 2,
+              minWidth: 200,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+              Filters
+            </Typography>
+            <Divider sx={{ mb: 1 }} />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={mainMapFilters.showWallets}
+                  onChange={(e) => setMainMapFilters(prev => ({ ...prev, showWallets: e.target.checked }))}
+                />
+              }
+              label={<Typography variant="caption">Wallets</Typography>}
+              sx={{ mb: 0.5, display: 'block' }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={mainMapFilters.showNFTs}
+                  onChange={(e) => setMainMapFilters(prev => ({ ...prev, showNFTs: e.target.checked }))}
+                />
+              }
+              label={<Typography variant="caption">NFTs</Typography>}
+              sx={{ mb: 0.5, display: 'block' }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={mainMapFilters.showContractRules}
+                  onChange={(e) => setMainMapFilters(prev => ({ ...prev, showContractRules: e.target.checked }))}
+                />
+              }
+              label={<Typography variant="caption" sx={{ color: '#667eea' }}>Contract Rules</Typography>}
+              sx={{ display: 'block' }}
+            />
           </Box>
         )}
 
@@ -1780,8 +2888,8 @@ const SharedMap = ({
             left: 0,
             right: 0,
             bottom: 0,
-            display: 'block',
-            visibility: 'visible'
+            display: isFullscreen ? 'none' : 'block', // Hide main map when in fullscreen
+            visibility: isFullscreen ? 'hidden' : 'visible'
           }} 
         />
 
@@ -1874,30 +2982,89 @@ const SharedMap = ({
               </Typography>
             )}
             
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              {/* Search Box */}
-              <TextField
-                size="small"
-                placeholder="Search location..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{ minWidth: 200 }}
-              />
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', position: 'relative' }}>
+              {/* Search Box with autocomplete dropdown */}
+              <Box sx={{ position: 'relative' }}>
+                <TextField
+                  inputRef={fullscreenSearchBoxRef}
+                  size="small"
+                  placeholder="Search location..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  onFocus={() => {
+                    // Show results when search box is focused if there are results
+                    if (searchResults.length > 0) {
+                      setShowSearchResults(true);
+                    }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setSearchQuery('');
+                            setShowSearchResults(false);
+                            setSearchResults([]);
+                          }}
+                          sx={{ p: 0.5 }}
+                        >
+                          <ClearIcon fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                  sx={{ minWidth: 200 }}
+                />
+                
+                {/* Search Results Dropdown - Positioned directly under search box */}
+                {isFullscreen && showSearchResults && searchResults.length > 0 && (
+                  <Box sx={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 1002,
+                    background: 'white',
+                    borderRadius: 1,
+                    boxShadow: 3,
+                    maxHeight: '300px',
+                    overflow: 'auto',
+                    mt: 0.5,
+                    border: '1px solid #e0e0e0'
+                  }}>
+                    {searchResults.map((result, index) => (
+                      <Box
+                        key={index}
+                        sx={{
+                          p: 1.5,
+                          cursor: 'pointer',
+                          borderBottom: index < searchResults.length - 1 ? '1px solid #eee' : 'none',
+                          '&:hover': { bgcolor: '#f5f5f5' }
+                        }}
+                        onClick={() => handleSearchResultClick(result)}
+                      >
+                        <Typography variant="body2" fontWeight="bold">
+                          {result.place_name}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+              </Box>
               
               {/* Filter Toggle Button */}
               <Tooltip title="Toggle Filters">
                 <IconButton 
                   size="small" 
-                  onClick={() => setShowFilters(!showFilters)}
-                  color={showFilters ? 'primary' : 'default'}
+                  onClick={() => setShowFullscreenMapFilters(!showFullscreenMapFilters)}
+                  color={showFullscreenMapFilters ? 'primary' : 'default'}
                 >
                   <FilterListIcon />
                 </IconButton>
@@ -1919,13 +3086,15 @@ const SharedMap = ({
         </DialogTitle>
 
         <DialogContent sx={{ p: 0, position: 'relative', mt: '100px' }}>
-          {/* Filters Panel */}
-          {showFilters && (
+          {/* Search results are now shown directly under the search box in DialogTitle */}
+
+          {/* Filters Panel - Moved to bottom left */}
+          {showFullscreenMapFilters && (
             <Box
               sx={{
                 position: 'absolute',
-                top: 20,
-                right: 20,
+                bottom: 20,
+                left: 20,
                 zIndex: 1000,
                 backgroundColor: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(10px)',
@@ -1943,8 +3112,8 @@ const SharedMap = ({
                 control={
                   <Switch
                     size="small"
-                    checked={filters.showWallets}
-                    onChange={(e) => setFilters(prev => ({ ...prev, showWallets: e.target.checked }))}
+                    checked={fullscreenMapFilters.showWallets}
+                    onChange={(e) => setFullscreenMapFilters(prev => ({ ...prev, showWallets: e.target.checked }))}
                   />
                 }
                 label={<Typography variant="caption">Wallets</Typography>}
@@ -1954,8 +3123,8 @@ const SharedMap = ({
                 control={
                   <Switch
                     size="small"
-                    checked={filters.showNFTs}
-                    onChange={(e) => setFilters(prev => ({ ...prev, showNFTs: e.target.checked }))}
+                    checked={fullscreenMapFilters.showNFTs}
+                    onChange={(e) => setFullscreenMapFilters(prev => ({ ...prev, showNFTs: e.target.checked }))}
                   />
                 }
                 label={<Typography variant="caption">NFTs</Typography>}
@@ -1965,8 +3134,8 @@ const SharedMap = ({
                 control={
                   <Switch
                     size="small"
-                    checked={filters.showContractRules}
-                    onChange={(e) => setFilters(prev => ({ ...prev, showContractRules: e.target.checked }))}
+                    checked={fullscreenMapFilters.showContractRules}
+                    onChange={(e) => setFullscreenMapFilters(prev => ({ ...prev, showContractRules: e.target.checked }))}
                   />
                 }
                 label={<Typography variant="caption" sx={{ color: '#667eea' }}>Contract Rules</Typography>}
@@ -1983,6 +3152,201 @@ const SharedMap = ({
             }} 
           />
         </DialogContent>
+      </Dialog>
+
+      {/* Wallet Details Dialog */}
+      <Dialog
+        open={showWalletDetails}
+        onClose={() => setShowWalletDetails(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)'
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          pb: 2
+        }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+              💳 Wallet Details
+            </Typography>
+          </Box>
+          <IconButton
+            onClick={() => setShowWalletDetails(false)}
+            sx={{ color: 'white' }}
+            size="small"
+          >
+            <FullscreenExitIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedWallet && (
+            <Box>
+              {/* Distance from user */}
+              {userLocation && userLocation.latitude && userLocation.longitude && (
+                <Card sx={{ mb: 2, background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)' }}>
+                  <CardContent>
+                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                        📍 Distance from You
+                      </Typography>
+                    </Box>
+                    <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1565c0', mb: 1 }}>
+                      {formatDistance(calculateDistance(
+                        userLocation.latitude,
+                        userLocation.longitude,
+                        parseFloat(selectedWallet.latitude),
+                        parseFloat(selectedWallet.longitude)
+                      ))}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {calculateDistance(
+                        userLocation.latitude,
+                        userLocation.longitude,
+                        parseFloat(selectedWallet.latitude),
+                        parseFloat(selectedWallet.longitude)
+                      ).toFixed(3)} kilometers away
+                    </Typography>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Wallet Information */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Public Key
+                </Typography>
+                <Typography variant="body1" sx={{ 
+                  fontFamily: 'monospace', 
+                  wordBreak: 'break-all',
+                  backgroundColor: '#f5f5f5',
+                  padding: 1,
+                  borderRadius: 1
+                }}>
+                  {selectedWallet.public_key || 'N/A'}
+                </Typography>
+              </Box>
+
+              {selectedWallet.description && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Description
+                  </Typography>
+                  <Typography variant="body1">
+                    {selectedWallet.description}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Parse description for additional info */}
+              {selectedWallet.description && selectedWallet.description.includes('|') && (
+                <Box sx={{ mb: 2 }}>
+                  {selectedWallet.description.split('|').map((part, index) => {
+                    const trimmed = part.trim();
+                    if (!trimmed) return null;
+                    const [key, value] = trimmed.split(':').map(s => s.trim());
+                    if (!key || !value) return null;
+                    return (
+                      <Box key={index} sx={{ mb: 1 }}>
+                        <Chip 
+                          label={String(`${key}: ${value}`)}
+                          size="small"
+                          sx={{ mr: 1, mb: 0.5 }}
+                        />
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {/* Location Coordinates */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  Location
+                </Typography>
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                  Lat: {parseFloat(selectedWallet.latitude).toFixed(6)}, 
+                  Lng: {parseFloat(selectedWallet.longitude).toFixed(6)}
+                </Typography>
+              </Box>
+
+              {/* Additional wallet data if available */}
+              {selectedWallet.provider_name && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Provider
+                  </Typography>
+                  <Typography variant="body1">
+                    {selectedWallet.provider_name}
+                  </Typography>
+                </Box>
+              )}
+
+              {selectedWallet.wallet_type && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Wallet Type
+                  </Typography>
+                  <Chip 
+                    label={String(selectedWallet.wallet_type)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+
+              {selectedWallet.tracking_status && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Tracking Status
+                  </Typography>
+                  <Chip 
+                    label={String(selectedWallet.tracking_status)}
+                    color={String(selectedWallet.tracking_status).toLowerCase() === 'active' ? 'success' : 'default'}
+                    size="small"
+                  />
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, pt: 1 }}>
+          <Button 
+            onClick={() => {
+              if (selectedWallet) {
+                const targetMap = isFullscreen && fullscreenMap ? fullscreenMap : map.current;
+                if (targetMap) {
+                  targetMap.flyTo({
+                    center: [parseFloat(selectedWallet.longitude), parseFloat(selectedWallet.latitude)],
+                    zoom: 15,
+                    duration: 1000
+                  });
+                }
+              }
+            }}
+            variant="outlined"
+            startIcon={<SearchIcon />}
+          >
+            Focus on Map
+          </Button>
+          <Button 
+            onClick={() => setShowWalletDetails(false)}
+            variant="contained"
+          >
+            Close
+          </Button>
+        </DialogActions>
       </Dialog>
     </>
   );

@@ -104,17 +104,25 @@ api.interceptors.response.use(
             // These endpoints are informational and shouldn't cause logout on auth errors
             const nonCriticalEndpoints = [
                 '/location/nearby',
+                '/location/update',  // Location updates (may fail if API key not set up)
                 '/contracts/rules/',  // Contract rule details
                 '/contracts/'  // Contract details (read-only operations)
             ];
             const isNonCritical = nonCriticalEndpoints.some(endpoint => {
                 const url = error.config.url || '';
+                const fullUrl = error.config.baseURL ? `${error.config.baseURL}${url}` : url;
+                
                 // Match the endpoint pattern but exclude write operations
                 if (endpoint === '/contracts/') {
                     // Only skip for GET requests to /contracts/ (read operations)
-                    return url.includes('/contracts/') && error.config.method?.toLowerCase() === 'get';
+                    return (url.includes('/contracts/') || fullUrl.includes('/contracts/')) && 
+                           error.config.method?.toLowerCase() === 'get';
                 }
-                return url.includes(endpoint);
+                // For /location/update, allow all methods (it's a background update that shouldn't cause logout)
+                if (endpoint === '/location/update') {
+                    return url.includes('/location/update') || fullUrl.includes('/location/update');
+                }
+                return url.includes(endpoint) || fullUrl.includes(endpoint);
             });
             
             if (isNonCritical) {

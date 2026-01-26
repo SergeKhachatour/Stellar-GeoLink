@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Container,
     Typography,
@@ -67,6 +67,7 @@ const WalletProviderDashboard = () => {
     const [isFullscreenMapOpen, setIsFullscreenMapOpen] = useState(false); // Reserved for future fullscreen map features
     const [selectedAnalytics, setSelectedAnalytics] = useState(null);
     const [openAnalyticsDialog, setOpenAnalyticsDialog] = useState(false);
+    const locationUpdateTimeout = useRef(null); // Debounce location updates
     const [sendPaymentOpen, setSendPaymentOpen] = useState(false);
     const [receivePaymentOpen, setReceivePaymentOpen] = useState(false);
     const [userLocation, setUserLocation] = useState(null);
@@ -262,8 +263,9 @@ const WalletProviderDashboard = () => {
     useEffect(() => {
         fetchDashboardData();
         
-        // Get user's current location for map features
+        // Get user's current location and enable continuous tracking
         if (navigator.geolocation) {
+            // First get current position immediately
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     setUserLocation({
@@ -273,8 +275,40 @@ const WalletProviderDashboard = () => {
                 },
                 (error) => {
                     console.warn('Could not get user location:', error);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+            
+            // Then watch position for continuous updates as user navigates
+            const watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const newLocation = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    };
+                    setUserLocation(newLocation);
+                    console.log('[WalletProviderDashboard] Location updated:', newLocation);
+                },
+                (error) => {
+                    console.warn('[WalletProviderDashboard] Location tracking error:', error);
+                },
+                { 
+                    enableHighAccuracy: true, 
+                    timeout: 10000, 
+                    maximumAge: 5000 // Update every 5 seconds max
                 }
             );
+            
+            // Cleanup watchPosition on unmount
+            return () => {
+                if (watchId !== null) {
+                    navigator.geolocation.clearWatch(watchId);
+                }
+                // Clear any pending location updates
+                if (locationUpdateTimeout.current) {
+                    clearTimeout(locationUpdateTimeout.current);
+                }
+            };
         }
 
         // Listen for rule changes from ContractManagement
@@ -287,7 +321,82 @@ const WalletProviderDashboard = () => {
             window.removeEventListener('contractRuleChanged', handleRuleChange);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [user, isConnected, publicKey, connectWalletViewOnly]);
+
+    // Automatically update wallet location when user location changes
+    useEffect(() => {
+        // Only update if user is connected, has a public key, and location is available
+        if (!userLocation || !userLocation.latitude || !userLocation.longitude) {
+            return;
+        }
+
+        if (!isConnected || !publicKey) {
+            console.log('[WalletProviderDashboard] Not updating wallet location - wallet not connected');
+            return;
+        }
+
+        // Debounce location updates to avoid too many API calls (update every 10 seconds)
+        if (locationUpdateTimeout.current) {
+            clearTimeout(locationUpdateTimeout.current);
+        }
+
+        locationUpdateTimeout.current = setTimeout(async () => {
+            try {
+                // Check if user has API key (required for /location/update endpoint)
+                if (!apiKey || !apiKey.api_key) {
+                    console.log('[WalletProviderDashboard] Skipping wallet location update - no API key available');
+                    return;
+                }
+
+                console.log('[WalletProviderDashboard] Updating wallet location automatically:', {
+                    public_key: publicKey,
+                    latitude: userLocation.latitude,
+                    longitude: userLocation.longitude
+                });
+
+                // Update wallet location in database
+                // Note: This endpoint requires API key authentication
+                // If it fails with 401/403, it won't cause logout (added to non-critical endpoints)
+                try {
+                    await api.post('/location/update', {
+                        public_key: publicKey,
+                        blockchain: 'Stellar',
+                        latitude: userLocation.latitude,
+                        longitude: userLocation.longitude,
+                        description: 'Auto-updated from user location tracking'
+                    }, {
+                        headers: {
+                            'X-API-Key': apiKey.api_key  // Add API key to request header
+                        }
+                    });
+
+                    console.log('[WalletProviderDashboard] Wallet location updated successfully');
+                    
+                    // Refresh wallet locations to show updated position
+                    fetchWalletLocations();
+                } catch (updateError) {
+                    // Handle specific error cases - prevent them from propagating to interceptor
+                    if (updateError.response?.status === 401 || updateError.response?.status === 403) {
+                        console.warn('[WalletProviderDashboard] Location update failed - authentication error. This is expected if API key is invalid.');
+                        // Don't throw - prevent logout
+                        return;
+                    }
+                    // For other errors, log but don't throw
+                    console.warn('[WalletProviderDashboard] Location update failed:', updateError.message);
+                }
+            } catch (error) {
+                // Catch any unexpected errors
+                console.warn('[WalletProviderDashboard] Error in location update process:', error);
+                // Don't show error to user - this is background update
+            }
+        }, 10000); // Update every 10 seconds
+
+        return () => {
+            if (locationUpdateTimeout.current) {
+                clearTimeout(locationUpdateTimeout.current);
+            }
+        };
+    }, [userLocation, isConnected, publicKey, apiKey]); // Added apiKey to dependencies
 
     // Check for new matches and executions
     const checkForMatchesAndExecutions = async () => {
@@ -691,8 +800,59 @@ const WalletProviderDashboard = () => {
                             }}>
                                 <SharedMap 
                                     locations={[
-                                        // Wallet locations
+                                        // Current user's wallet location (always show at current location if connected)
+                                        ...(userLocation && userLocation.latitude && userLocation.longitude && 
+                                            isConnected && publicKey
+                                            ? (() => {
+                                                const userLat = parseFloat(userLocation.latitude);
+                                                const userLng = parseFloat(userLocation.longitude);
+                                                
+                                                // Validate coordinates before adding
+                                                if (isNaN(userLat) || isNaN(userLng) || !isFinite(userLat) || !isFinite(userLng)) {
+                                                    console.warn('[WalletProviderDashboard] Invalid user location coordinates:', {
+                                                        latitude: userLocation.latitude,
+                                                        longitude: userLocation.longitude,
+                                                        parsedLat: userLat,
+                                                        parsedLng: userLng
+                                                    });
+                                                    return [];
+                                                }
+                                                
+                                                // Ensure coordinates are within valid ranges
+                                                if (userLat < -90 || userLat > 90 || userLng < -180 || userLng > 180) {
+                                                    console.warn('[WalletProviderDashboard] User location coordinates out of range:', {
+                                                        latitude: userLat,
+                                                        longitude: userLng
+                                                    });
+                                                    return [];
+                                                }
+                                                
+                                                console.log('[WalletProviderDashboard] Adding user location marker:', {
+                                                    latitude: userLat,
+                                                    longitude: userLng,
+                                                    public_key: publicKey
+                                                });
+                                                
+                                                return [{
+                                                    latitude: userLat,
+                                                    longitude: userLng,
+                                                    public_key: publicKey,
+                                                    description: `Provider: ${user?.provider_name || 'You'} | Type: Connected Wallet | Status: active`,
+                                                    provider_name: user?.provider_name || 'You',
+                                                    wallet_type: 'Connected Wallet',
+                                                    tracking_status: 'active',
+                                                    type: 'wallet',
+                                                    marker_type: 'wallet',
+                                                    isCurrentUser: true
+                                                }];
+                                            })()
+                                            : []),
+                                        // Wallet locations (other users - exclude current user's wallet if it's in the list)
                                         ...walletLocations
+                                            .filter(location => 
+                                                // Exclude if it's the current user's wallet (we show it above at current location)
+                                                !(isConnected && publicKey && location.public_key === publicKey)
+                                            )
                                             .filter(location => location.latitude && location.longitude && 
                                                 !isNaN(parseFloat(location.latitude)) && !isNaN(parseFloat(location.longitude)))
                                             .map(location => ({
@@ -700,6 +860,9 @@ const WalletProviderDashboard = () => {
                                                 longitude: parseFloat(location.longitude),
                                                 public_key: location.public_key,
                                                 description: `Provider: ${location.provider_name} | Type: ${location.wallet_type} | Status: ${location.tracking_status}`,
+                                                provider_name: location.provider_name,
+                                                wallet_type: location.wallet_type,
+                                                tracking_status: location.tracking_status,
                                                 type: 'wallet',
                                                 marker_type: 'wallet'
                                             })),
@@ -752,6 +915,7 @@ const WalletProviderDashboard = () => {
                                     zoomTarget={zoomTarget}
                                     initialMapStyle="light-globe"
                                     onFullscreenMapReady={handleFullscreenMapReady}
+                                    userLocation={userLocation}
                                 />
                             </CardContent>
                         </Card>
@@ -1160,6 +1324,7 @@ const WalletProviderDashboard = () => {
                 }}
                 item={selectedContractRule}
                 itemType="contract_rule"
+                userLocation={userLocation}
             />
 
             {/* NFT Details Dialog */}

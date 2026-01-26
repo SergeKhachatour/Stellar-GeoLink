@@ -44,7 +44,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as turf from '@turf/turf';
 
-const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
+const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft', userLocation: propUserLocation = null }) => {
   const { publicKey, isConnected, secretKey } = useWallet();
   const [contract, setContract] = useState(null);
   const [ruleDetails, setRuleDetails] = useState(null); // Full rule details for contract_rule
@@ -210,8 +210,18 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         fetchContractDetails(item.contract_address);
       }
 
-      // Get user location
-      if (navigator.geolocation) {
+      // Get user location - use prop if available, otherwise fetch
+      if (propUserLocation && propUserLocation.latitude && propUserLocation.longitude) {
+        // Use userLocation from parent component (already tracked via watchPosition)
+        setUserLocation(propUserLocation);
+        checkProximity(propUserLocation, item);
+        
+        // Fetch nearby wallets if this is a contract rule
+        if (itemType === 'contract_rule' && item.latitude && item.longitude) {
+          fetchNearbyWallets(item.latitude, item.longitude, itemRadius);
+        }
+      } else if (navigator.geolocation) {
+        // Fallback: fetch location if not provided as prop
         navigator.geolocation.getCurrentPosition(
           (position) => {
             const loc = {
@@ -247,14 +257,16 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft' }) => {
         mapRef.current = null;
       }
     }
-  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius, checkProximity]);
+  }, [open, item, itemType, fetchRuleDetails, fetchNearbyWallets, itemRadius, checkProximity, propUserLocation]);
   
-  // Recalculate distance whenever item or userLocation changes
+  // Recalculate distance whenever item, userLocation, or propUserLocation changes
   useEffect(() => {
-    if (userLocation && item && item.latitude && item.longitude) {
-      checkProximity(userLocation, item);
+    // Use propUserLocation if available (from parent's watchPosition), otherwise use local userLocation state
+    const currentUserLocation = propUserLocation || userLocation;
+    if (currentUserLocation && item && item.latitude && item.longitude) {
+      checkProximity(currentUserLocation, item);
     }
-  }, [item, userLocation, checkProximity]); // Recalculate when item changes (different marker clicked)
+  }, [item, userLocation, propUserLocation, checkProximity]); // Recalculate when item or location changes
   
   // Calculate distanceText early to avoid initialization errors
   const distanceText = distance 
