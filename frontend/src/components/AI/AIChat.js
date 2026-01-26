@@ -333,11 +333,12 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
 
       // Increase timeout for AI chat requests, especially for location-based queries
       // Location queries can take longer due to database operations
+      // Increased to 120 seconds for complex location-based queries like "show nearby wallets"
       const response = await api.post(endpoint, {
         messages: [...messages, userMessage],
         userContext
       }, {
-        timeout: 60000 // 60 seconds for AI chat requests (location queries can be slow)
+        timeout: 120000 // 120 seconds (2 minutes) for AI chat requests (location queries can be very slow)
       });
 
       if (response.data.choices && response.data.choices[0]) {
