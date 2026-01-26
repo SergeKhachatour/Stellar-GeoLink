@@ -252,7 +252,19 @@ const SharedMap = ({
   }, [userLocation, onLocationClick, onMapReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addMarkersToMap = useCallback(() => {
-    if (!map.current || !mapLoaded) return;
+    if (!map.current || !mapLoaded) {
+      console.log('[addMarkersToMap] Map not ready:', { hasMap: !!map.current, mapLoaded });
+      return;
+    }
+    
+    // Ensure map style is loaded before adding markers
+    if (!map.current.isStyleLoaded()) {
+      console.log('[addMarkersToMap] Map style not loaded, waiting...');
+      map.current.once('style.load', () => {
+        addMarkersToMap();
+      });
+      return;
+    }
     
     // Use requestAnimationFrame to ensure smooth updates
     requestAnimationFrame(() => {
@@ -267,8 +279,11 @@ const SharedMap = ({
       markers.current = {};
 
       if (!locations || locations.length === 0) {
+        console.log('[addMarkersToMap] No locations to add');
         return;
       }
+      
+      console.log('[addMarkersToMap] Adding', locations.length, 'markers to regular map');
 
       locations.forEach((location, index) => {
       const lat = parseFloat(location.latitude);
@@ -387,6 +402,9 @@ const SharedMap = ({
       })
         .setLngLat([lng, lat])
         .addTo(map.current);
+      
+      // Debug: Log marker creation
+      console.log(`[addMarkersToMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
 
       // Add click and double-click handlers for NFT markers
       if (locationType === 'nft' && onNFTDetails) {
@@ -1129,6 +1147,9 @@ const SharedMap = ({
       })
         .setLngLat([lng, lat])
         .addTo(mapInstance);
+      
+      // Debug: Log marker creation
+      console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
 
       // Add click and double-click handlers for NFT markers
       if (locationType === 'nft' && onNFTDetails) {
