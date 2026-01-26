@@ -972,16 +972,21 @@ const SharedMap = ({
       return;
     }
     
-    // Filter locations based on filter state
+    // Filter locations based on filter state (only for fullscreen map)
     const filteredLocations = locations.filter(location => {
       const locationType = location.type || location.marker_type;
+      // If no type is set, show it (for backward compatibility)
+      if (!locationType) {
+        console.log('[addMarkersToFullscreenMap] Location has no type, showing by default:', location);
+        return true;
+      }
       if (locationType === 'wallet') return filters.showWallets;
       if (locationType === 'nft') return filters.showNFTs;
       if (locationType === 'contract_rule') return filters.showContractRules;
       return true; // Show unknown types by default
     });
     
-    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, ')');
+    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, 'filters:', filters, 'sample location:', filteredLocations[0]);
 
     // Use requestAnimationFrame to ensure smooth updates
     requestAnimationFrame(() => {
@@ -1499,9 +1504,9 @@ const SharedMap = ({
         }
       }
       /* CRITICAL: Prevent marker animation/transition on zoom for 3D globe projection */
+      /* Allow transforms (Mapbox needs this for positioning) but prevent transitions */
       .location-marker {
         transition: none !important;
-        transform: none !important;
         will-change: auto !important;
       }
       .mapboxgl-marker {
