@@ -95,28 +95,45 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
           }
         },
         (error) => {
-          console.error('[AIChat] Geolocation error:', error);
+          // Handle different error types appropriately
           let errorMessage = 'Unable to retrieve location';
+          let isCritical = true;
+          
           switch(error.code) {
             case error.PERMISSION_DENIED:
               errorMessage = 'Location access denied. Please enable location permissions in your browser settings.';
+              console.error('[AIChat] Geolocation permission denied:', error);
               break;
             case error.POSITION_UNAVAILABLE:
               errorMessage = 'Location information unavailable.';
+              console.warn('[AIChat] Geolocation position unavailable:', error.message);
+              isCritical = false;
               break;
             case error.TIMEOUT:
               errorMessage = 'Location request timed out.';
+              // Timeout is not critical - just means it took too long, will retry
+              // console.log('[AIChat] Geolocation timeout (will retry with fallback):', error.message);
+              isCritical = false;
               break;
             default:
               errorMessage = `Location error: ${error.message || 'Unknown error'}`;
+              console.warn('[AIChat] Geolocation error:', error);
+              isCritical = false;
               break;
           }
-          console.warn(`[AIChat] ${errorMessage}`);
+          
+          // Only log as error if it's a critical error (permission denied)
+          if (isCritical) {
+            console.error(`[AIChat] ${errorMessage}`);
+          } else {
+            // console.log(`[AIChat] ${errorMessage}`);
+          }
+          
           // Don't set userLocation to null - keep previous value if available
           
           // Try fallback with relaxed settings if timeout or unavailable
           if (error.code === error.TIMEOUT || error.code === error.POSITION_UNAVAILABLE) {
-            console.log('[AIChat] Attempting fallback location request with relaxed settings...');
+            // console.log('[AIChat] Attempting fallback location request with relaxed settings...');
             setTimeout(() => {
               navigator.geolocation.getCurrentPosition(
                 (position) => {
@@ -125,12 +142,16 @@ const AIChat = ({ isPublic = false, initialOpen = false }) => {
                     longitude: position.coords.longitude,
                     accuracy: position.coords.accuracy
                   };
-                  console.log('[AIChat] ✅ Fallback location retrieved:', location);
+                  // console.log('[AIChat] ✅ Fallback location retrieved:', location);
                   setUserLocation(location);
                   updateUserLocation(location);
                 },
                 (fallbackError) => {
-                  console.warn('[AIChat] ❌ Fallback location request also failed:', fallbackError.message);
+                  // Only log fallback errors if they're not timeouts
+                  if (fallbackError.code !== fallbackError.TIMEOUT) {
+                    console.warn('[AIChat] Fallback location request failed:', fallbackError.message);
+                  }
+                  // console.log('[AIChat] Fallback location request also timed out (this is normal)');
                 },
                 {
                   enableHighAccuracy: false,
