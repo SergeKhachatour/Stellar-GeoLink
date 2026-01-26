@@ -229,7 +229,7 @@ const SharedMap = ({
       map.current = new Mapboxgl.Map(mapConfig);
 
       map.current.on('load', () => {
-        console.log('Shared map loaded');
+        // console.log('Shared map loaded');
         setMapLoaded(true);
         
         // Add navigation control
@@ -281,7 +281,7 @@ const SharedMap = ({
         
         // Listen to all geolocate events for debugging
         geolocateControlInstance.on('geolocate', (e) => {
-          console.log('[SharedMap] Geolocate event - location found:', e.coords);
+          // console.log('[SharedMap] Geolocate event - location found:', e.coords);
           // Location is already tracked by watchPosition in parent component
           // Clear any error state when location is successfully found
           clearGeolocateErrorState();
@@ -303,7 +303,7 @@ const SharedMap = ({
             } else if (errorCode === 3) {
               // Timeout is less critical if we already have location from watchPosition
               if (hasLocation) {
-                console.log('[SharedMap] Geolocation timeout (but we have location from watchPosition, clearing error state)');
+                // console.log('[SharedMap] Geolocation timeout (but we have location from watchPosition, clearing error state)');
               } else {
                 console.warn('[SharedMap] Geolocation timeout - will retry');
               }
@@ -322,13 +322,13 @@ const SharedMap = ({
         });
         
         geolocateControlInstance.on('trackuserlocationstart', () => {
-          console.log('[SharedMap] Started tracking user location via geolocate control');
+          // console.log('[SharedMap] Started tracking user location via geolocate control');
           // Clear error state when tracking starts
           clearGeolocateErrorState();
         });
         
         geolocateControlInstance.on('trackuserlocationend', () => {
-          console.log('[SharedMap] Stopped tracking user location via geolocate control');
+          // console.log('[SharedMap] Stopped tracking user location via geolocate control');
         });
         
         // Add click handler to the geolocate button to ensure it works
@@ -337,7 +337,7 @@ const SharedMap = ({
           const geolocateButton = map.current.getContainer().querySelector('.mapboxgl-ctrl-geolocate');
           if (geolocateButton) {
             geolocateButton.addEventListener('click', (e) => {
-              console.log('[SharedMap] Geolocate button clicked');
+              // console.log('[SharedMap] Geolocate button clicked');
               // Clear error state on click attempt
               setTimeout(clearGeolocateErrorState, 500);
             });
@@ -349,20 +349,20 @@ const SharedMap = ({
         const tryAutoTrigger = () => {
           if (userLocation && userLocation.latitude && userLocation.longitude) {
             try {
-              console.log('[SharedMap] Attempting to auto-trigger geolocate control with location:', userLocation);
+              // console.log('[SharedMap] Attempting to auto-trigger geolocate control with location:', userLocation);
               // Try to trigger the control to start tracking (without centering the map)
               geolocateControlInstance.trigger();
-              console.log('[SharedMap] Successfully triggered geolocate control - tracking should be active');
+              // console.log('[SharedMap] Successfully triggered geolocate control - tracking should be active');
             } catch (error) {
-              console.warn('[SharedMap] Could not auto-trigger geolocate:', error);
+              // console.warn('[SharedMap] Could not auto-trigger geolocate:', error);
               // Don't center the map automatically - let user control the view
               // Retry after a longer delay
               setTimeout(() => {
                 try {
                   geolocateControlInstance.trigger();
-                  console.log('[SharedMap] Successfully triggered geolocate on retry');
+                  // console.log('[SharedMap] Successfully triggered geolocate on retry');
                 } catch (retryError) {
-                  console.log('[SharedMap] Geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
+                  // console.log('[SharedMap] Geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
                 }
               }, 2000);
             }
@@ -453,34 +453,34 @@ const SharedMap = ({
       markers.current = {};
 
       if (!locations || locations.length === 0) {
-        console.log('[addMarkersToMap] No locations to add');
+        // console.log('[addMarkersToMap] No locations to add');
         return;
       }
       
       // Debug: Log all locations, especially user location
       const userLocationMarker = locations.find(loc => loc.isCurrentUser);
       if (userLocationMarker) {
-        console.log('[addMarkersToMap] Found user location marker in locations array:', {
-          latitude: userLocationMarker.latitude,
-          longitude: userLocationMarker.longitude,
-          isCurrentUser: userLocationMarker.isCurrentUser,
-          type: userLocationMarker.type,
-          marker_type: userLocationMarker.marker_type
-        });
+        // console.log('[addMarkersToMap] Found user location marker in locations array:', {
+        //   latitude: userLocationMarker.latitude,
+        //   longitude: userLocationMarker.longitude,
+        //   isCurrentUser: userLocationMarker.isCurrentUser,
+        //   type: userLocationMarker.type,
+        //   marker_type: userLocationMarker.marker_type
+        // });
       } else {
-        console.warn('[addMarkersToMap] No user location marker found in locations array!', {
-          locationsCount: locations.length,
-          locations: locations.map(loc => ({
-            type: loc.type,
-            marker_type: loc.marker_type,
-            isCurrentUser: loc.isCurrentUser,
-            latitude: loc.latitude,
-            longitude: loc.longitude
-          }))
-        });
+        // console.warn('[addMarkersToMap] No user location marker found in locations array!', {
+        //   locationsCount: locations.length,
+        //   locations: locations.map(loc => ({
+        //     type: loc.type,
+        //     marker_type: loc.marker_type,
+        //     isCurrentUser: loc.isCurrentUser,
+        //     latitude: loc.latitude,
+        //     longitude: loc.longitude
+        //   }))
+        // });
       }
       
-      console.log('[addMarkersToMap] Adding', locations.length, 'markers to regular map');
+      // console.log('[addMarkersToMap] Adding', locations.length, 'markers to regular map');
 
       // Filter locations based on main map filter state
       const filteredLocations = locations.filter(location => {
@@ -660,11 +660,11 @@ const SharedMap = ({
       // Set position BEFORE adding to map - this is critical
       // For user location markers, add extra validation
       if (location.isCurrentUser) {
-        console.log(`[addMarkersToMap] Setting user location marker position: [${finalLng}, ${finalLat}]`, {
-          originalCoords: { lat, lng },
-          normalizedCoords: { finalLat, finalLng },
-          location
-        });
+        // console.log(`[addMarkersToMap] Setting user location marker position: [${finalLng}, ${finalLat}]`, {
+        //   originalCoords: { lat, lng },
+        //   normalizedCoords: { finalLat, finalLng },
+        //   location
+        // });
         
         // Double-check coordinates are valid
         if (finalLng === 0 && finalLat === 0) {
@@ -683,14 +683,14 @@ const SharedMap = ({
       // Verify the marker has the correct position before adding
       const markerPos = marker.getLngLat();
       if (location.isCurrentUser) {
-        console.log(`[addMarkersToMap] User location marker position after setLngLat:`, {
-          expected: [finalLng, finalLat],
-          actual: [markerPos.lng, markerPos.lat],
-          difference: {
-            lng: Math.abs(markerPos.lng - finalLng),
-            lat: Math.abs(markerPos.lat - finalLat)
-          }
-        });
+        // console.log(`[addMarkersToMap] User location marker position after setLngLat:`, {
+        //   expected: [finalLng, finalLat],
+        //   actual: [markerPos.lng, markerPos.lat],
+        //   difference: {
+        //     lng: Math.abs(markerPos.lng - finalLng),
+        //     lat: Math.abs(markerPos.lat - finalLat)
+        //   }
+        // });
       }
       
       if (Math.abs(markerPos.lng - finalLng) > 0.0001 || Math.abs(markerPos.lat - finalLat) > 0.0001) {
@@ -711,14 +711,14 @@ const SharedMap = ({
           if (marker && map.current) {
             marker.addTo(map.current);
             if (location.isCurrentUser) {
-              console.log(`[addMarkersToMap] User location marker added to map after style load`);
+              // console.log(`[addMarkersToMap] User location marker added to map after style load`);
             }
           }
         });
       } else {
         marker.addTo(map.current);
         if (location.isCurrentUser) {
-          console.log(`[addMarkersToMap] User location marker added to map immediately`);
+          // console.log(`[addMarkersToMap] User location marker added to map immediately`);
         }
       }
       
@@ -746,7 +746,7 @@ const SharedMap = ({
                 // Try again if still wrong
                 verifyPosition(attempt + 1);
               } else {
-                console.log(`[addMarkersToMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
+                // console.log(`[addMarkersToMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
               }
             }
           }, 100 * (attempt + 1));
@@ -755,7 +755,7 @@ const SharedMap = ({
       }
       
       // Debug: Log marker creation
-      console.log(`[addMarkersToMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
+      // console.log(`[addMarkersToMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
         isCurrentUser: location.isCurrentUser,
         public_key: location.public_key,
         markerKey,
@@ -794,7 +794,7 @@ const SharedMap = ({
             clickTimeout = null;
           }
           
-          console.log('NFT marker double-clicked, zooming in:', location);
+          // console.log('NFT marker double-clicked, zooming in:', location);
           
           if (map.current) {
             map.current.flyTo({
@@ -820,7 +820,7 @@ const SharedMap = ({
         el.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();
-          console.log('Wallet marker clicked:', location);
+          // console.log('Wallet marker clicked:', location);
           setSelectedWallet(location);
           setShowWalletDetails(true);
         });
@@ -1434,19 +1434,19 @@ const SharedMap = ({
         const tryFullscreenAutoTrigger = () => {
           if (userLocation && userLocation.latitude && userLocation.longitude) {
             try {
-              console.log('[SharedMap] Attempting to auto-trigger fullscreen geolocate control with location:', userLocation);
+              // console.log('[SharedMap] Attempting to auto-trigger fullscreen geolocate control with location:', userLocation);
               // Try to trigger the control (without centering the map)
               fullscreenGeolocateControlInstance.trigger();
-              console.log('[SharedMap] Successfully triggered fullscreen geolocate control');
+              // console.log('[SharedMap] Successfully triggered fullscreen geolocate control');
             } catch (error) {
-              console.warn('[SharedMap] Could not auto-trigger fullscreen geolocate:', error);
+              // console.warn('[SharedMap] Could not auto-trigger fullscreen geolocate:', error);
               // Don't center the map automatically - let user control the view
               setTimeout(() => {
                 try {
                   fullscreenGeolocateControlInstance.trigger();
-                  console.log('[SharedMap] Successfully triggered fullscreen geolocate on retry');
+                  // console.log('[SharedMap] Successfully triggered fullscreen geolocate on retry');
                 } catch (retryError) {
-                  console.log('[SharedMap] Fullscreen geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
+                  // console.log('[SharedMap] Fullscreen geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
                 }
               }, 2000);
             }
@@ -1511,7 +1511,7 @@ const SharedMap = ({
               
               console.log('[FullscreenMap] Map fully ready, checking locations:', locations?.length || 0);
               if (locations && locations.length > 0) {
-                console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
+                // console.log('[FullscreenMap] Adding', locations.length, 'markers to fullscreen map');
                 // Add a small delay to ensure map projection is fully initialized
                 setTimeout(() => {
                   addMarkersToFullscreenMap(fullscreenMapInstance);
@@ -1605,7 +1605,7 @@ const SharedMap = ({
     
     // Ensure map is fully loaded and ready before adding markers
     if (!mapInstance.loaded() || !mapInstance.isStyleLoaded()) {
-      console.log('[addMarkersToFullscreenMap] Map not fully loaded, waiting...', { loaded: mapInstance.loaded(), styleLoaded: mapInstance.isStyleLoaded() });
+      // console.log('[addMarkersToFullscreenMap] Map not fully loaded, waiting...', { loaded: mapInstance.loaded(), styleLoaded: mapInstance.isStyleLoaded() });
       const waitForLoad = () => {
         if (mapInstance.loaded() && mapInstance.isStyleLoaded()) {
           addMarkersToFullscreenMap(mapInstance);
@@ -1639,7 +1639,7 @@ const SharedMap = ({
       const locationType = location.type || location.marker_type;
       // If no type is set, show it (for backward compatibility)
       if (!locationType) {
-        console.log('[addMarkersToFullscreenMap] Location has no type, showing by default:', location);
+        // console.log('[addMarkersToFullscreenMap] Location has no type, showing by default:', location);
         return true;
       }
       if (locationType === 'wallet') return fullscreenMapFilters.showWallets;
@@ -1648,7 +1648,7 @@ const SharedMap = ({
       return true; // Show unknown types by default
     });
     
-    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, 'filters:', fullscreenMapFilters, 'sample location:', filteredLocations[0]);
+    // console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, 'filters:', fullscreenMapFilters, 'sample location:', filteredLocations[0]);
 
     // Use requestAnimationFrame to ensure smooth updates, but also wait for map to be ready
     requestAnimationFrame(() => {
@@ -1702,17 +1702,17 @@ const SharedMap = ({
         
         // Debug log for user location markers
         if (location.isCurrentUser) {
-          console.log(`[addMarkersToFullscreenMap] Processing user location marker:`, {
-            index,
-            latitude: location.latitude,
-            longitude: location.longitude,
-            parsedLat: lat,
-            parsedLng: lng,
-            isNaNLat: isNaN(lat),
-            isNaNLng: isNaN(lng),
-            isFiniteLat: isFinite(lat),
-            isFiniteLng: isFinite(lng)
-          });
+          // console.log(`[addMarkersToFullscreenMap] Processing user location marker:`, {
+          //   index,
+          //   latitude: location.latitude,
+          //   longitude: location.longitude,
+          //   parsedLat: lat,
+          //   parsedLng: lng,
+          //   isNaNLat: isNaN(lat),
+          //   isNaNLng: isNaN(lng),
+          //   isFiniteLat: isFinite(lat),
+          //   isFiniteLng: isFinite(lng)
+          // });
         }
         
         // Validate coordinates are numbers and within valid ranges
@@ -1861,7 +1861,7 @@ const SharedMap = ({
         
         // For user location markers, add extra validation
         if (location.isCurrentUser) {
-          console.log(`[addMarkersToFullscreenMap] Setting user location marker position: [${finalLng}, ${finalLat}]`);
+          // console.log(`[addMarkersToFullscreenMap] Setting user location marker position: [${finalLng}, ${finalLat}]`);
         }
         
         // Set position BEFORE adding to map - this is critical
@@ -1904,7 +1904,7 @@ const SharedMap = ({
                         // Try again if still wrong
                         verifyPosition(attempt + 1);
                       } else {
-                        console.log(`[addMarkersToFullscreenMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
+                        // console.log(`[addMarkersToFullscreenMap] User location marker correctly positioned at [${currentPos.lng}, ${currentPos.lat}]`);
                       }
                     }
                   }, 100 * (attempt + 1));
@@ -1926,14 +1926,14 @@ const SharedMap = ({
               }
               
               // Debug: Log marker creation
-              console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
-                isCurrentUser: location.isCurrentUser,
-                public_key: location.public_key,
-                locationId: location.id,
-                ruleName: location.rule_name,
-                contractName: location.contract_name,
-                markerKey
-              });
+              // console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${finalLng}, ${finalLat}] for type: ${locationType}`, {
+              //   isCurrentUser: location.isCurrentUser,
+              //   public_key: location.public_key,
+              //   locationId: location.id,
+              //   ruleName: location.rule_name,
+              //   contractName: location.contract_name,
+              //   markerKey
+              // });
             } catch (addError) {
               console.error(`[addMarkersToFullscreenMap] Error adding marker ${index} to map:`, addError);
               // Clean up marker element if adding failed
@@ -2166,7 +2166,7 @@ const SharedMap = ({
           }
           // Re-add markers to main map to ensure they're visible
           if (mapLoaded && locations && locations.length > 0) {
-            console.log('[toggleFullscreen] Re-adding', locations.length, 'markers to main map');
+            // console.log('[toggleFullscreen] Re-adding', locations.length, 'markers to main map');
             addMarkersToMap();
           }
           // Force a repaint by triggering a resize event
@@ -2270,7 +2270,7 @@ const SharedMap = ({
           const hasDimensions = container && container.offsetWidth > 0 && container.offsetHeight > 0;
           
           if (fullscreenMap && fullscreenMap.loaded() && fullscreenMap.isStyleLoaded() && hasDimensions) {
-            console.log('[SharedMap] Fullscreen map ready, updating markers:', locations.length);
+            // console.log('[SharedMap] Fullscreen map ready, updating markers:', locations.length);
             addMarkersToFullscreenMap(fullscreenMap);
           } else {
             // Wait for map to be ready or container to have dimensions
@@ -2367,36 +2367,36 @@ const SharedMap = ({
   // Keep trying to activate it to ensure it stays on by default
   useEffect(() => {
     if (userLocation && userLocation.latitude && userLocation.longitude && mapLoaded) {
+      // DISABLED: Auto-triggering causes map to constantly re-center
+      // This interferes with user navigation and search
+      // The geolocate control will still work when user clicks it manually
+      // User's location is already tracked via watchPosition in parent component
       // Try to auto-trigger main map geolocate
-      if (geolocateControl.current && map.current) {
-        const tryTrigger = () => {
-          try {
-            // Check if control is ready and not already tracking
-            if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
-              const watchState = geolocateControl.current._watchState;
-              // Only trigger if not already actively tracking
-              if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-                console.log('[SharedMap] Auto-triggering geolocate control (current state:', watchState, ')');
-                geolocateControl.current.trigger();
-                console.log('[SharedMap] Successfully auto-triggered geolocate');
-              } else {
-                console.log('[SharedMap] Geolocate control already active, state:', watchState);
-              }
-            }
-          } catch (error) {
-            // Browser may require user interaction for first-time permission
-            console.log('[SharedMap] Auto-trigger failed (may need user interaction):', error.message);
-          }
-        };
-        
-        // DISABLED: Auto-triggering causes map to constantly re-center
-        // This interferes with user navigation and search
-        // The geolocate control will still work when user clicks it manually
-        // User's location is already tracked via watchPosition in parent component
-        // tryTrigger();
-        // setTimeout(tryTrigger, 500);
-        // setTimeout(tryTrigger, 1500);
-        // setTimeout(tryTrigger, 3000);
+      // if (geolocateControl.current && map.current) {
+      //   const tryTrigger = () => {
+      //     try {
+      //       // Check if control is ready and not already tracking
+      //       if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
+      //         const watchState = geolocateControl.current._watchState;
+      //         // Only trigger if not already actively tracking
+      //         if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+      //           // console.log('[SharedMap] Auto-triggering geolocate control (current state:', watchState, ')');
+      //           geolocateControl.current.trigger();
+      //           // console.log('[SharedMap] Successfully auto-triggered geolocate');
+      //         } else {
+      //           // console.log('[SharedMap] Geolocate control already active, state:', watchState);
+      //         }
+      //       }
+      //     } catch (error) {
+      //       // Browser may require user interaction for first-time permission
+      //       // console.log('[SharedMap] Auto-trigger failed (may need user interaction):', error.message);
+      //     }
+      //   };
+      //   
+      //   tryTrigger();
+      //   setTimeout(tryTrigger, 500);
+      //   setTimeout(tryTrigger, 1500);
+      //   setTimeout(tryTrigger, 3000);
         
         // DISABLED: Periodic auto-triggering causes map to constantly re-center
         // This interferes with user navigation and search
@@ -2421,30 +2421,30 @@ const SharedMap = ({
         // No cleanup needed since we're not using intervals
       }
       
+      // DISABLED: Auto-triggering causes map to constantly re-center
+      // This interferes with user navigation and search
+      // The geolocate control will still work when user clicks it manually
       // Try to auto-trigger fullscreen map geolocate
-      if (fullscreenGeolocateControl.current && fullscreenMap && fullscreenMap.loaded()) {
-        const tryFullscreenTrigger = () => {
-          try {
-            if (fullscreenGeolocateControl.current && typeof fullscreenGeolocateControl.current.trigger === 'function') {
-              const watchState = fullscreenGeolocateControl.current._watchState;
-              if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
-                console.log('[SharedMap] Auto-triggering fullscreen geolocate control');
-                fullscreenGeolocateControl.current.trigger();
-                console.log('[SharedMap] Successfully auto-triggered fullscreen geolocate');
-              }
-            }
-          } catch (error) {
-            console.log('[SharedMap] Fullscreen auto-trigger failed:', error.message);
-          }
-        };
-        
-        // DISABLED: Auto-triggering causes map to constantly re-center
-        // This interferes with user navigation and search
-        // The geolocate control will still work when user clicks it manually
-        // tryFullscreenTrigger();
-        // setTimeout(tryFullscreenTrigger, 500);
-        // setTimeout(tryFullscreenTrigger, 1500);
-      }
+      // if (fullscreenGeolocateControl.current && fullscreenMap && fullscreenMap.loaded()) {
+      //   const tryFullscreenTrigger = () => {
+      //     try {
+      //       if (fullscreenGeolocateControl.current && typeof fullscreenGeolocateControl.current.trigger === 'function') {
+      //         const watchState = fullscreenGeolocateControl.current._watchState;
+      //         if (watchState !== 'ACTIVE' && watchState !== 'ACTIVE_LOCK') {
+      //           // console.log('[SharedMap] Auto-triggering fullscreen geolocate control');
+      //           fullscreenGeolocateControl.current.trigger();
+      //           // console.log('[SharedMap] Successfully auto-triggered fullscreen geolocate');
+      //         }
+      //       }
+      //     } catch (error) {
+      //       // console.log('[SharedMap] Fullscreen auto-trigger failed:', error.message);
+      //     }
+      //   };
+      //   
+      //   tryFullscreenTrigger();
+      //   setTimeout(tryFullscreenTrigger, 500);
+      //   setTimeout(tryFullscreenTrigger, 1500);
+      // }
     }
   }, [userLocation, mapLoaded, fullscreenMap]);
 
@@ -2465,7 +2465,7 @@ const SharedMap = ({
             geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error-state');
             geolocateButton.style.opacity = '1';
             geolocateButton.style.color = '';
-            console.log('[SharedMap] Cleared error state from main map geolocate button');
+            // console.log('[SharedMap] Cleared error state from main map geolocate button');
           }
         }
       }
