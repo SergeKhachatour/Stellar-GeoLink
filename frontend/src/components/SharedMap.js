@@ -1019,15 +1019,45 @@ const SharedMap = ({
 
     // Use requestAnimationFrame to ensure smooth updates, but also wait for map to be ready
     requestAnimationFrame(() => {
-      if (!mapInstance || !mapInstance.loaded() || !mapInstance.isStyleLoaded()) {
-        console.warn('[addMarkersToFullscreenMap] Map not ready in requestAnimationFrame, skipping');
+      if (!mapInstance) {
+        console.warn('[addMarkersToFullscreenMap] No map instance in requestAnimationFrame, skipping');
+        return;
+      }
+      
+      // Double-check map is ready
+      if (typeof mapInstance.loaded !== 'function' || typeof mapInstance.isStyleLoaded !== 'function') {
+        console.warn('[addMarkersToFullscreenMap] Map instance methods not available, skipping');
+        return;
+      }
+      
+      if (!mapInstance.loaded() || !mapInstance.isStyleLoaded()) {
+        console.warn('[addMarkersToFullscreenMap] Map not ready in requestAnimationFrame, waiting...', {
+          loaded: mapInstance.loaded(),
+          styleLoaded: mapInstance.isStyleLoaded()
+        });
+        // Wait for map to be ready
+        const waitForReady = () => {
+          if (mapInstance && mapInstance.loaded() && mapInstance.isStyleLoaded()) {
+            addMarkersToFullscreenMap(mapInstance);
+          } else {
+            setTimeout(waitForReady, 100);
+          }
+        };
+        waitForReady();
         return;
       }
 
-      // Clear existing fullscreen markers only
-      Object.values(fullscreenMarkers.current).forEach(marker => {
-        if (marker && marker.remove) {
-          marker.remove();
+      // Clear existing fullscreen markers only - ensure we remove them properly
+      Object.keys(fullscreenMarkers.current).forEach(key => {
+        const marker = fullscreenMarkers.current[key];
+        if (marker) {
+          try {
+            if (typeof marker.remove === 'function') {
+              marker.remove();
+            }
+          } catch (removeError) {
+            console.warn(`[addMarkersToFullscreenMap] Error removing marker ${key}:`, removeError);
+          }
         }
       });
       fullscreenMarkers.current = {};
@@ -1156,22 +1186,63 @@ const SharedMap = ({
 
       // Create marker with draggable: false to prevent animation
       // Ensure marker is positioned correctly by setting coordinates before adding to map
-      const marker = new Mapboxgl.Marker({ 
-        element: el, 
-        draggable: false 
-      });
-      
-      // Set position before adding to map to prevent appearing at default position
-      marker.setLngLat([lng, lat]);
-      
-      // Only add to map if it's fully loaded
-      if (mapInstance && mapInstance.loaded() && mapInstance.isStyleLoaded()) {
-        marker.addTo(mapInstance);
+      let marker = null;
+      try {
+        marker = new Mapboxgl.Marker({ 
+          element: el, 
+          draggable: false 
+        });
         
-        // Debug: Log marker creation
-        console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
-      } else {
-        console.warn(`[addMarkersToFullscreenMap] Map not ready for marker ${index}, skipping`);
+        // Set position before adding to map to prevent appearing at default position
+        marker.setLngLat([lng, lat]);
+        
+        // Only add to map if it's fully loaded and valid
+        if (mapInstance && typeof mapInstance.loaded === 'function' && typeof mapInstance.isStyleLoaded === 'function') {
+          if (mapInstance.loaded() && mapInstance.isStyleLoaded()) {
+            try {
+              marker.addTo(mapInstance);
+              
+              // Debug: Log marker creation
+              console.log(`[addMarkersToFullscreenMap] Created marker ${index} at [${lng}, ${lat}] for type: ${locationType}`);
+              
+              // Store marker reference
+              fullscreenMarkers.current[`marker_${index}`] = marker;
+            } catch (addError) {
+              console.error(`[addMarkersToFullscreenMap] Error adding marker ${index} to map:`, addError);
+              // Clean up marker element if adding failed
+              if (marker && marker.remove) {
+                marker.remove();
+              }
+              marker = null;
+              return;
+            }
+          } else {
+            console.warn(`[addMarkersToFullscreenMap] Map not ready for marker ${index}, skipping. Loaded: ${mapInstance.loaded()}, StyleLoaded: ${mapInstance.isStyleLoaded()}`);
+            if (marker && marker.remove) {
+              marker.remove();
+            }
+            marker = null;
+            return;
+          }
+        } else {
+          console.warn(`[addMarkersToFullscreenMap] Invalid map instance for marker ${index}, skipping`);
+          if (marker && marker.remove) {
+            marker.remove();
+          }
+          marker = null;
+          return;
+        }
+      } catch (markerError) {
+        console.error(`[addMarkersToFullscreenMap] Error creating marker ${index}:`, markerError);
+        if (marker && marker.remove) {
+          marker.remove();
+        }
+        marker = null;
+        return;
+      }
+
+      // Only add event handlers and popup if marker was successfully created and added
+      if (!marker) {
         return;
       }
 
@@ -1264,43 +1335,45 @@ const SharedMap = ({
         });
       }
 
-      // Add popup
-      if (location.public_key || location.description || location.rule_name) {
-        let popupHTML = '';
-        
-        if (locationType === 'contract_rule') {
-          popupHTML = `
-            <div style="padding: 12px; min-width: 200px;">
-              <h3 style="margin: 0 0 8px 0; color: #667eea;">📜 ${location.rule_name || 'Contract Rule'}</h3>
-              ${location.contract_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
-              ${location.function_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
-              ${location.trigger_on ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
-              ${location.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
-              ${location.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
-              <p style="margin: 4px 0; font-size: 11px; color: #999;">
-                Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
-              </p>
-            </div>
-          `;
-        } else {
-          popupHTML = `
-            <div style="padding: 12px; min-width: 200px;">
-              <h4 style="margin: 0 0 8px 0; color: #1976d2;">Location ${index + 1}</h4>
-              ${location.public_key ? `<p style="margin: 4px 0; font-family: monospace; font-size: 12px; color: #666;">${location.public_key.substring(0, 20)}...</p>` : ''}
-              ${location.description ? `<p style="margin: 4px 0; color: #333;">${location.description}</p>` : ''}
-              <p style="margin: 4px 0; font-size: 11px; color: #999;">
-                Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
-              </p>
-            </div>
-          `;
+      // Add popup (only if marker was successfully created)
+      if (marker && (location.public_key || location.description || location.rule_name)) {
+        try {
+          let popupHTML = '';
+          
+          if (locationType === 'contract_rule') {
+            popupHTML = `
+              <div style="padding: 12px; min-width: 200px;">
+                <h3 style="margin: 0 0 8px 0; color: #667eea;">📜 ${location.rule_name || 'Contract Rule'}</h3>
+                ${location.contract_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Contract:</strong> ${location.contract_name}</p>` : ''}
+                ${location.function_name ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Function:</strong> ${location.function_name}</p>` : ''}
+                ${location.trigger_on ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Trigger:</strong> ${location.trigger_on}</p>` : ''}
+                ${location.radius_meters ? `<p style="margin: 4px 0; font-size: 12px;"><strong>Radius:</strong> ${location.radius_meters}m</p>` : ''}
+                ${location.auto_execute ? `<p style="margin: 4px 0; font-size: 12px; color: #4caf50;"><strong>Auto-execute:</strong> Enabled</p>` : ''}
+                <p style="margin: 4px 0; font-size: 11px; color: #999;">
+                  Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
+                </p>
+              </div>
+            `;
+          } else {
+            popupHTML = `
+              <div style="padding: 12px; min-width: 200px;">
+                <h4 style="margin: 0 0 8px 0; color: #1976d2;">Location ${index + 1}</h4>
+                ${location.public_key ? `<p style="margin: 4px 0; font-family: monospace; font-size: 12px; color: #666;">${location.public_key.substring(0, 20)}...</p>` : ''}
+                ${location.description ? `<p style="margin: 4px 0; color: #333;">${location.description}</p>` : ''}
+                <p style="margin: 4px 0; font-size: 11px; color: #999;">
+                  Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}
+                </p>
+              </div>
+            `;
+          }
+          
+          const popup = new Mapboxgl.Popup({ offset: 25 })
+            .setHTML(popupHTML);
+          marker.setPopup(popup);
+        } catch (popupError) {
+          console.error(`[addMarkersToFullscreenMap] Error adding popup to marker ${index}:`, popupError);
         }
-        
-        const popup = new Mapboxgl.Popup({ offset: 25 })
-          .setHTML(popupHTML);
-        marker.setPopup(popup);
       }
-
-        fullscreenMarkers.current[`marker_${index}`] = marker;
       });
 
       // Only fit bounds on initial load, not on every data refresh (prevents map reset)
