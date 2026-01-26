@@ -158,10 +158,10 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   // Initialize map function
   const initializeMap = useCallback(() => {
     if (!mapContainer.current || map.current) {
-      console.log('[AIMap] Map initialization skipped:', {
-        hasContainer: !!mapContainer.current,
-        hasMap: !!map.current
-      });
+      // console.log('[AIMap] Map initialization skipped:', {
+      //   hasContainer: !!mapContainer.current,
+      //   hasMap: !!map.current
+      // });
       return;
     }
     
@@ -170,7 +170,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       return;
     }
 
-    console.log('[AIMap] Initializing map...');
+    // console.log('[AIMap] Initializing map...');
     
     // Set up global error handlers BEFORE creating the map to catch fog errors early
     const originalError = window.console.error;
@@ -235,7 +235,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
                 'space-color': 'rgb(240, 240, 240)', // Light gray space
                 'star-intensity': 0 // No stars for light style
               });
-              console.log('[AIMap] Fog configured for light style');
+              // console.log('[AIMap] Fog configured for light style');
             }
           }
         } catch (e) {
@@ -272,12 +272,12 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       
       // Configure fog when style loads (most reliable)
       map.current.once('style.load', () => {
-        setTimeout(configureFog, 100);
+        configureFog(); // Remove delay for faster initialization
       });
       
       // Configure fog when map loads
       map.current.once('load', () => {
-        setTimeout(configureFog, 100);
+        configureFog(); // Remove delay for faster initialization
       });
       
       // Also try to configure fog after a delay (fallback)
@@ -285,10 +285,10 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         if (map.current && map.current.loaded && map.current.isStyleLoaded()) {
           configureFog();
         }
-      }, 1000);
+      }, 500); // Reduced from 1000ms to 500ms
 
       map.current.on('load', () => {
-        console.log('[AIMap] Map loaded successfully');
+        // console.log('[AIMap] Map loaded successfully');
         setMapInitialized(true);
         
         // Get user location when map loads
@@ -340,27 +340,27 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   useEffect(() => {
     // Only initialize if visible and container is available
     if (!visible) {
-      console.log('[AIMap] Map not visible, skipping initialization');
+      // console.log('[AIMap] Map not visible, skipping initialization');
       return;
     }
     
     if (!mapContainer.current) {
-      console.log('[AIMap] Map container not available yet, will retry');
-      // Retry after a short delay to allow ref to be set
+      // console.log('[AIMap] Map container not available yet, will retry');
+      // Retry after a shorter delay to allow ref to be set
       const timer = setTimeout(() => {
         if (mapContainer.current && !map.current) {
           initializeMap();
         }
-      }, 100);
+      }, 50); // Reduced from 100ms to 50ms
       return () => clearTimeout(timer);
     }
     
     if (map.current) {
-      console.log('[AIMap] Map already initialized');
+      // console.log('[AIMap] Map already initialized');
       // If map exists but container was removed from DOM, we need to reattach
       // Check if map's container is still in the DOM
       if (map.current.getContainer() && !document.body.contains(map.current.getContainer())) {
-        console.log('[AIMap] Map container was removed from DOM, reinitializing...');
+        // console.log('[AIMap] Map container was removed from DOM, reinitializing...');
         // Remove old map instance
         map.current.remove();
         map.current = null;
@@ -687,7 +687,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       // Add click event to marker element to show NFT info (matching home page)
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        console.log('[AIMap] NFT marker clicked:', nft);
+        // console.log('[AIMap] NFT marker clicked:', nft);
         // Prepare NFT data with full_ipfs_url for dialog
         const nftData = {
           ...nft,
@@ -1205,31 +1205,31 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
   // Update map based on mapData
   useEffect(() => {
-    console.log('[AIMap] Map data effect triggered:', {
-      hasMap: !!map.current,
-      mapInitialized,
-      hasMapData: !!mapData,
-      mapDataType: mapData?.type,
-      mapDataKeys: mapData ? Object.keys(mapData) : [],
-      dataCount: mapData?.data?.length
-    });
+    // console.log('[AIMap] Map data effect triggered:', {
+    //   hasMap: !!map.current,
+    //   mapInitialized,
+    //   hasMapData: !!mapData,
+    //   mapDataType: mapData?.type,
+    //   mapDataKeys: mapData ? Object.keys(mapData) : [],
+    //   dataCount: mapData?.data?.length
+    // });
     
     if (!map.current || !mapInitialized || !mapData) {
-      if (!map.current) console.log('[AIMap] Map not initialized yet');
-      if (!mapInitialized) console.log('[AIMap] Map not loaded yet');
-      if (!mapData) console.log('[AIMap] No map data provided');
+      // if (!map.current) console.log('[AIMap] Map not initialized yet');
+      // if (!mapInitialized) console.log('[AIMap] Map not loaded yet');
+      // if (!mapData) console.log('[AIMap] No map data provided');
       return;
     }
 
     const { type, data, center, zoom } = mapData;
-    console.log('[AIMap] Processing map data:', { 
-      type, 
-      dataCount: data?.length, 
-      center, 
-      zoom,
-      dataSample: data?.[0],
-      fullMapData: mapData // Log full mapData for debugging
-    });
+    // console.log('[AIMap] Processing map data:', { 
+    //   type, 
+    //   dataCount: data?.length, 
+    //   center, 
+    //   zoom,
+    //   dataSample: data?.[0],
+    //   fullMapData: mapData // Log full mapData for debugging
+    // });
     
     if (!data || !Array.isArray(data) || data.length === 0) {
       console.warn('[AIMap] Map data has no valid data array:', { 
@@ -1246,7 +1246,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
 
     switch (type) {
       case 'combined':
-        console.log('[AIMap] Creating combined markers (wallets + NFTs + contract rules)');
+        // console.log('[AIMap] Creating combined markers (wallets + NFTs + contract rules)');
         clearMarkers();
         
         // Separate wallets, NFTs, and contract rules
@@ -1301,11 +1301,11 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         }
         break;
       case 'wallets':
-        console.log('[AIMap] Creating wallet markers for type "wallets"');
-        console.log('[AIMap] Wallet data array:', data);
-        console.log('[AIMap] First wallet sample:', data?.[0]);
+        // console.log('[AIMap] Creating wallet markers for type "wallets"');
+        // console.log('[AIMap] Wallet data array:', data);
+        // console.log('[AIMap] First wallet sample:', data?.[0]);
         if (!data || !Array.isArray(data) || data.length === 0) {
-          console.warn('[AIMap] No wallet data to display');
+          // console.warn('[AIMap] No wallet data to display');
           return;
         }
         clearMarkers();
@@ -1326,7 +1326,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
         }
         break;
       case 'contract_rules':
-        console.log('[AIMap] Creating contract rule markers');
+        // console.log('[AIMap] Creating contract rule markers');
         clearMarkers();
         if (userLocation) {
           createUserLocationMarker(userLocation, map.current, radius);
@@ -1383,7 +1383,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
   }, [mapData, mapInitialized, filters, createWalletMarkers, createNFTMarkers, createContractRuleMarkers, createStellarMarkers, createGeofenceVisualization, createUserLocationMarker, clearMarkers]);
 
   useEffect(() => {
-    console.log('[AIMap] Visibility changed:', visible);
+    // console.log('[AIMap] Visibility changed:', visible);
     
     // When map becomes visible, ensure it's properly displayed
     if (visible && map.current && mapInitialized) {
@@ -1391,15 +1391,15 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       setTimeout(() => {
         if (map.current) {
           map.current.resize();
-          console.log('[AIMap] Map resized after becoming visible');
+          // console.log('[AIMap] Map resized after becoming visible');
         }
-      }, 100);
+      }, 50); // Reduced from 100ms to 50ms
     }
   }, [visible, mapInitialized]);
 
   // Always render the container, but hide it when not visible
   // This ensures the map instance stays attached to the DOM
-  console.log('[AIMap] Rendering map container, visible:', visible);
+  // console.log('[AIMap] Rendering map container, visible:', visible);
 
   const handleNFTDetailsClose = () => {
     setNftDetailsOpen(false);
@@ -1443,7 +1443,7 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
     setProximityRadius(newRadius);
     // Update context so AI service can use the new radius
     updateContextProximityRadius(newRadius);
-    console.log('[AIMap] Proximity radius changed to:', newRadius);
+    // console.log('[AIMap] Proximity radius changed to:', newRadius);
     // Location intelligence will update automatically via useEffect
   };
 
