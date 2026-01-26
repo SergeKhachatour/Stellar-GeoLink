@@ -16,8 +16,14 @@ import {
   Search as SearchIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  FilterList as FilterListIcon
 } from '@mui/icons-material';
+import {
+  FormControlLabel,
+  Switch,
+  Divider
+} from '@mui/material';
 import Mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
@@ -88,8 +94,15 @@ const SharedMap = ({
   const [fullscreenMap, setFullscreenMap] = useState(null);
   const fullscreenMapContainer = useRef(null);
   const hasInitialFitBounds = useRef(false); // Track if we've done initial fitBounds
+  const hasFullscreenInitialFitBounds = useRef(false); // Track if fullscreen map has done initial fitBounds
   const markerUpdateTimeout = useRef(null); // Debounce marker updates
   const fullscreenMarkerUpdateTimeout = useRef(null); // Debounce fullscreen marker updates
+  const [filters, setFilters] = useState({
+    showWallets: true,
+    showNFTs: true,
+    showContractRules: true
+  });
+  const [showFilters, setShowFilters] = useState(false);
 
   const initializeMap = useCallback((container) => {
     if (map.current) {
@@ -367,7 +380,11 @@ const SharedMap = ({
         el.textContent = (index + 1).toString();
       }
 
-      const marker = new Mapboxgl.Marker(el)
+      // Create marker with draggable: false to prevent animation
+      const marker = new Mapboxgl.Marker({ 
+        element: el, 
+        draggable: false 
+      })
         .setLngLat([lng, lat])
         .addTo(map.current);
 
@@ -793,8 +810,11 @@ const SharedMap = ({
 
       const fullscreenMapInstance = new Mapboxgl.Map(fullscreenMapConfig);
 
-      fullscreenMapInstance.on('load', () => {
+        fullscreenMapInstance.on('load', () => {
         console.log('Fullscreen map loaded');
+        
+        // Reset fullscreen fitBounds flag when map loads
+        hasFullscreenInitialFitBounds.current = false;
         
         // Add navigation control
         const navControl = new Mapboxgl.NavigationControl({
@@ -952,7 +972,16 @@ const SharedMap = ({
       return;
     }
     
-    console.log('[addMarkersToFullscreenMap] Adding', locations.length, 'markers to fullscreen map');
+    // Filter locations based on filter state
+    const filteredLocations = locations.filter(location => {
+      const locationType = location.type || location.marker_type;
+      if (locationType === 'wallet') return filters.showWallets;
+      if (locationType === 'nft') return filters.showNFTs;
+      if (locationType === 'contract_rule') return filters.showContractRules;
+      return true; // Show unknown types by default
+    });
+    
+    console.log('[addMarkersToFullscreenMap] Adding', filteredLocations.length, 'filtered markers to fullscreen map (total:', locations.length, ')');
 
     // Use requestAnimationFrame to ensure smooth updates
     requestAnimationFrame(() => {
@@ -966,7 +995,7 @@ const SharedMap = ({
       });
       fullscreenMarkers.current = {};
 
-      locations.forEach((location, index) => {
+      filteredLocations.forEach((location, index) => {
         const lat = parseFloat(location.latitude);
         const lng = parseFloat(location.longitude);
         
@@ -1088,7 +1117,11 @@ const SharedMap = ({
         el.textContent = (index + 1).toString();
       }
 
-      const marker = new Mapboxgl.Marker(el)
+      // Create marker with draggable: false to prevent animation
+      const marker = new Mapboxgl.Marker({ 
+        element: el, 
+        draggable: false 
+      })
         .setLngLat([lng, lat])
         .addTo(mapInstance);
 
@@ -1220,12 +1253,12 @@ const SharedMap = ({
         fullscreenMarkers.current[`marker_${index}`] = marker;
       });
 
-      // Fit map to show all locations after markers are added
-      if (locations.length > 0) {
+      // Only fit bounds on initial load, not on every data refresh (prevents map reset)
+      if (!hasFullscreenInitialFitBounds.current && filteredLocations.length > 0) {
         const bounds = new Mapboxgl.LngLatBounds();
         let validLocations = 0;
         
-        locations.forEach(location => {
+        filteredLocations.forEach(location => {
           const lat = parseFloat(location.latitude);
           const lng = parseFloat(location.longitude);
           
@@ -1241,15 +1274,18 @@ const SharedMap = ({
             if (mapInstance && !mapInstance.isStyleLoaded()) {
               mapInstance.once('style.load', () => {
                 mapInstance.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+                hasFullscreenInitialFitBounds.current = true;
               });
             } else {
               mapInstance.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+              hasFullscreenInitialFitBounds.current = true;
             }
           }, 100);
         }
       }
+      // Don't restore position - let the map stay where the user positioned it
     });
-  }, [locations, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [locations, filters, onNFTDetails]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleFullscreen = () => {
     const newFullscreenState = !isFullscreen;
@@ -1433,7 +1469,7 @@ const SharedMap = ({
     };
   }, [fullscreenMap]);
 
-  // Add CSS for pulse animations
+  // Add CSS for pulse animations and stable markers (CRITICAL for 3D globe projection)
   useEffect(() => {
     const styleId = 'shared-map-pulse-animations';
     if (document.getElementById(styleId)) return; // Already added
@@ -1460,6 +1496,19 @@ const SharedMap = ({
           transform: scale(1.5);
           opacity: 0;
         }
+      }
+      /* CRITICAL: Prevent marker animation/transition on zoom for 3D globe projection */
+      .location-marker {
+        transition: none !important;
+        transform: none !important;
+        will-change: auto !important;
+      }
+      .mapboxgl-marker {
+        transition: none !important;
+      }
+      .mapboxgl-marker svg,
+      .mapboxgl-marker div {
+        transition: none !important;
       }
     `;
     document.head.appendChild(style);
@@ -1682,7 +1731,7 @@ const SharedMap = ({
               </Typography>
             )}
             
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Search Box */}
               <TextField
                 size="small"
@@ -1700,6 +1749,17 @@ const SharedMap = ({
                 sx={{ minWidth: 200 }}
               />
               
+              {/* Filter Toggle Button */}
+              <Tooltip title="Toggle Filters">
+                <IconButton 
+                  size="small" 
+                  onClick={() => setShowFilters(!showFilters)}
+                  color={showFilters ? 'primary' : 'default'}
+                >
+                  <FilterListIcon />
+                </IconButton>
+              </Tooltip>
+              
               <Tooltip title="Reset View">
                 <IconButton size="small" onClick={resetView}>
                   <RefreshIcon />
@@ -1716,6 +1776,62 @@ const SharedMap = ({
         </DialogTitle>
 
         <DialogContent sx={{ p: 0, position: 'relative', mt: '100px' }}>
+          {/* Filters Panel */}
+          {showFilters && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 20,
+                right: 20,
+                zIndex: 1000,
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                backdropFilter: 'blur(10px)',
+                borderRadius: 2,
+                p: 2,
+                minWidth: 200,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                Filters
+              </Typography>
+              <Divider sx={{ mb: 1 }} />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showWallets}
+                    onChange={(e) => setFilters(prev => ({ ...prev, showWallets: e.target.checked }))}
+                  />
+                }
+                label={<Typography variant="caption">Wallets</Typography>}
+                sx={{ mb: 0.5, display: 'block' }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showNFTs}
+                    onChange={(e) => setFilters(prev => ({ ...prev, showNFTs: e.target.checked }))}
+                  />
+                }
+                label={<Typography variant="caption">NFTs</Typography>}
+                sx={{ mb: 0.5, display: 'block' }}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={filters.showContractRules}
+                    onChange={(e) => setFilters(prev => ({ ...prev, showContractRules: e.target.checked }))}
+                  />
+                }
+                label={<Typography variant="caption" sx={{ color: '#667eea' }}>Contract Rules</Typography>}
+                sx={{ display: 'block' }}
+              />
+            </Box>
+          )}
+          
           <Box 
             ref={fullscreenMapContainer} 
             sx={{ 
