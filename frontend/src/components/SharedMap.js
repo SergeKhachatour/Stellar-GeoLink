@@ -344,41 +344,18 @@ const SharedMap = ({
           }
         }, 500);
         
-        // Auto-trigger geolocate when map is fully loaded and userLocation is available
-        // This ensures tracking is on by default when location is available
-        const tryAutoTrigger = () => {
-          if (userLocation && userLocation.latitude && userLocation.longitude) {
-            try {
-              // console.log('[SharedMap] Attempting to auto-trigger geolocate control with location:', userLocation);
-              // Try to trigger the control to start tracking (without centering the map)
-              geolocateControlInstance.trigger();
-              // console.log('[SharedMap] Successfully triggered geolocate control - tracking should be active');
-            } catch (error) {
-              // console.warn('[SharedMap] Could not auto-trigger geolocate:', error);
-              // Don't center the map automatically - let user control the view
-              // Retry after a longer delay
-              setTimeout(() => {
-                try {
-                  geolocateControlInstance.trigger();
-                  // console.log('[SharedMap] Successfully triggered geolocate on retry');
-                } catch (retryError) {
-                  // console.log('[SharedMap] Geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
-                }
-              }, 2000);
-            }
-          }
-        };
-        
-        // Try immediately after a short delay
-        setTimeout(tryAutoTrigger, 500);
-        // Also try after map style is loaded
-        map.current.once('style.load', () => {
-          setTimeout(tryAutoTrigger, 500);
-        });
-        // Try again after map is fully loaded
-        map.current.once('load', () => {
-          setTimeout(tryAutoTrigger, 1000);
-        });
+        // DISABLED: Auto-trigger geolocate control
+        // This was causing the map to constantly re-center on user location, interfering with navigation
+        // Users can manually click the geolocate button if they want to center on their location
+        // const tryAutoTrigger = () => {
+        //   if (userLocation && userLocation.latitude && userLocation.longitude) {
+        //     try {
+        //       geolocateControlInstance.trigger();
+        //     } catch (error) {
+        //       // Silently fail - user can click button manually
+        //     }
+        //   }
+        // };
 
         // Add custom 3D control
         const custom3DControl = createCustom3DControl();
@@ -1430,34 +1407,18 @@ const SharedMap = ({
           }
         }, 500);
         
-        // Auto-trigger geolocate when fullscreen map is ready
-        const tryFullscreenAutoTrigger = () => {
-          if (userLocation && userLocation.latitude && userLocation.longitude) {
-            try {
-              // console.log('[SharedMap] Attempting to auto-trigger fullscreen geolocate control with location:', userLocation);
-              // Try to trigger the control (without centering the map)
-              fullscreenGeolocateControlInstance.trigger();
-              // console.log('[SharedMap] Successfully triggered fullscreen geolocate control');
-            } catch (error) {
-              // console.warn('[SharedMap] Could not auto-trigger fullscreen geolocate:', error);
-              // Don't center the map automatically - let user control the view
-              setTimeout(() => {
-                try {
-                  fullscreenGeolocateControlInstance.trigger();
-                  // console.log('[SharedMap] Successfully triggered fullscreen geolocate on retry');
-                } catch (retryError) {
-                  // console.log('[SharedMap] Fullscreen geolocate auto-trigger requires user interaction. Location button is available for manual activation.');
-                }
-              }, 2000);
-            }
-          }
-        };
-        
-        // Try after map and style are loaded
-        setTimeout(tryFullscreenAutoTrigger, 500);
-        fullscreenMapInstance.once('style.load', () => {
-          setTimeout(tryFullscreenAutoTrigger, 500);
-        });
+        // DISABLED: Auto-trigger geolocate control for fullscreen map
+        // This was causing the map to constantly re-center on user location, interfering with navigation
+        // Users can manually click the geolocate button if they want to center on their location
+        // const tryFullscreenAutoTrigger = () => {
+        //   if (userLocation && userLocation.latitude && userLocation.longitude) {
+        //     try {
+        //       fullscreenGeolocateControlInstance.trigger();
+        //     } catch (error) {
+        //       // Silently fail - user can click button manually
+        //     }
+        //   }
+        // };
 
         // Add fullscreen control
         fullscreenMapInstance.addControl(new Mapboxgl.FullscreenControl(), 'top-right');
@@ -2542,28 +2503,23 @@ const SharedMap = ({
         }
       }
       
-      // Re-activate geolocate control on main map after fullscreen closes
-      // This ensures it works properly after fullscreen cleanup
-      if (map.current && geolocateControl.current && userLocation && userLocation.latitude && userLocation.longitude) {
-        setTimeout(() => {
-          try {
-            // Clear any error state
-            const geolocateButton = map.current?.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
-            if (geolocateButton) {
-              geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
-              geolocateButton.style.opacity = '1';
-            }
-            
-            // Try to reactivate tracking if location is available
-            if (geolocateControl.current && typeof geolocateControl.current.trigger === 'function') {
-              console.log('[SharedMap] Reactivating geolocate control after fullscreen close');
-              geolocateControl.current.trigger();
-            }
-          } catch (error) {
-            console.warn('[SharedMap] Could not reactivate geolocate control:', error);
-          }
-        }, 500);
-      }
+      // DISABLED: Re-activate geolocate control after fullscreen closes
+      // This was causing the map to auto-center on user location, interfering with navigation
+      // Users can manually click the geolocate button if they want to center on their location
+      // if (map.current && geolocateControl.current && userLocation && userLocation.latitude && userLocation.longitude) {
+      //   setTimeout(() => {
+      //     try {
+      //       // Clear any error state
+      //       const geolocateButton = map.current?.getContainer()?.querySelector('.mapboxgl-ctrl-geolocate');
+      //       if (geolocateButton) {
+      //         geolocateButton.classList.remove('mapboxgl-ctrl-geolocate-error');
+      //         geolocateButton.style.opacity = '1';
+      //       }
+      //     } catch (error) {
+      //       console.warn('[SharedMap] Could not clear geolocate error state:', error);
+      //     }
+      //   }, 500);
+      // }
       
       // Ensure main map is visible
       if (map.current && mapContainer.current) {

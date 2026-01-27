@@ -321,12 +321,13 @@ const AIMap = ({ mapData, visible, onMapReady }) => {
       map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
       
       // Add geolocate control for user location
+      // trackUserLocation: false prevents automatic centering and tracking
       map.current.addControl(
         new mapboxgl.GeolocateControl({
           positionOptions: {
             enableHighAccuracy: true
           },
-          trackUserLocation: true,
+          trackUserLocation: false, // Disable auto-tracking to prevent constant re-centering
           showUserHeading: true
         }),
         'top-right'
