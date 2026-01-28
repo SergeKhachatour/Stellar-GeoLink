@@ -388,10 +388,19 @@ class BackgroundAIService {
         //   console.log(`[BackgroundAI] ✅ No rate limiting configured for rule ${rule.id} (max_executions: ${rule.max_executions_per_public_key ?? 'NULL'}, time_window: ${rule.execution_time_window_seconds ?? 'NULL'})`);
         // }
         
+        // Update location tracking FIRST (before duration check)
+        // This ensures tracking is always maintained so duration can accumulate properly
+        // Location tracking must be updated regardless of whether duration requirement is met
+        await pool.query(
+          'SELECT update_rule_location_tracking($1, $2, $3, $4, $5)',
+          [rule.id, public_key, actualLatitude, actualLongitude, true]
+        );
+        
         // Check location duration requirement (only if rule has a duration requirement set)
         // Skip check if min_location_duration_seconds is NULL or 0
         if (rule.min_location_duration_seconds && rule.min_location_duration_seconds > 0) {
           // Get detailed location duration information for logging from rule_location_tracking table
+          // Query AFTER updating tracking to get the latest data
           const locationDurationQuery = await pool.query(
             `SELECT 
                entered_location_at,
@@ -445,13 +454,6 @@ class BackgroundAIService {
         // else {
         //   console.log(`[BackgroundAI] ✅ No minimum location duration requirement for rule ${rule.id} (min_location_duration_seconds: ${rule.min_location_duration_seconds || 'NULL'})`);
         // }
-        
-        // Update location tracking BEFORE checking WebAuthn
-        // This ensures time-based triggers can accumulate duration even when WebAuthn is required
-        await pool.query(
-          'SELECT update_rule_location_tracking($1, $2, $3, $4, $5)',
-          [rule.id, public_key, actualLatitude, actualLongitude, true]
-        );
         
         // NOW check WebAuthn requirement (after advanced settings checks pass)
         if (requiresWebAuthn) {
