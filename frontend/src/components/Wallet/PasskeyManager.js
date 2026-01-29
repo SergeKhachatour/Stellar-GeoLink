@@ -335,7 +335,7 @@ const PasskeyManager = () => {
                 <ListItemText
                   primary={
                     editingName === passkey.credentialId ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <TextField
                           size="small"
                           value={editingNameValue}
@@ -367,12 +367,13 @@ const PasskeyManager = () => {
                         </IconButton>
                       </Box>
                     ) : (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body1">
+                      <Box component="div" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" component="span">
                           {passkey.name || `Passkey ${index + 1}`}
                         </Typography>
                         {passkey.isOnContract && (
                           <Box
+                            component="span"
                             sx={{
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -392,6 +393,7 @@ const PasskeyManager = () => {
                         )}
                         {passkey.isDefault && (
                           <Box
+                            component="span"
                             sx={{
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -440,17 +442,17 @@ const PasskeyManager = () => {
                     )
                   }
                   secondary={
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">
+                    <Box component="div">
+                      <Typography variant="body2" color="text.secondary" component="span" sx={{ display: 'block' }}>
                         Registered: {new Date(passkey.registeredAt).toLocaleString()}
                       </Typography>
                       {passkey.role && (
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" component="span" sx={{ display: 'block' }}>
                           Role: {passkey.role}
                         </Typography>
                       )}
                       {walletEncrypted && passkey.credentialId === walletEncryptionHelper.getStoredCredentialId() && (
-                        <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                        <Typography variant="caption" color="success.main" component="span" sx={{ display: 'block', mt: 0.5 }}>
                           🔐 Used for wallet encryption
                         </Typography>
                       )}

@@ -2603,7 +2603,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         let query, params;
         if (publicKey && userId) {
             query = `
-                SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
+                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2619,11 +2619,22 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     luq.longitude,
                     luq.received_at,
                     luq.processed_at,
-                    luq.execution_results
+                    luq.execution_results,
+                    -- Extract matched_public_key from execution_results for this specific rule
+                    COALESCE(
+                        (SELECT result->>'matched_public_key' 
+                         FROM jsonb_array_elements(luq.execution_results) AS result 
+                         WHERE (result->>'rule_id')::integer = cer.id 
+                           AND result->>'skipped' = 'true' 
+                           AND result->>'reason' = 'requires_webauthn'
+                         LIMIT 1),
+                        luq.public_key
+                    ) as matched_public_key
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 WHERE (luq.public_key = $1 OR luq.user_id = $2)
+                    AND cer.function_name NOT ILIKE '%deposit%'
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND EXISTS (
@@ -2634,6 +2645,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
                         AND (
                             result->>'matched_public_key' = luq.public_key 
                             OR result->>'matched_public_key' IS NULL
@@ -2667,6 +2679,16 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                             )
                             AND luq2.received_at > luq.received_at
                     )
+                    -- Exclude very old entries (older than 7 days) - they should be cleaned up
+                    AND luq.received_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+                    -- Also exclude entries that have been marked as superseded (even if not 7 days old yet)
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(luq.execution_results) AS superseded_result
+                        WHERE (superseded_result->>'rule_id')::integer = cer.id
+                            AND (superseded_result->>'reason')::text = 'superseded_by_newer_execution'
+                            AND COALESCE((superseded_result->>'skipped')::boolean, false) = true
+                    )
                     AND (
                         -- Only apply rate limit check if rule has rate limiting configured
                         cer.max_executions_per_public_key IS NULL 
@@ -2690,13 +2712,13 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                                 AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
-                ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
+                ORDER BY luq.received_at DESC, cer.id, luq.public_key
                 LIMIT $3
             `;
             params = [publicKey, userId, parseInt(limit)];
         } else if (publicKey) {
             query = `
-                SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
+                SELECT
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2717,6 +2739,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 WHERE luq.public_key = $1
+                    AND cer.function_name NOT ILIKE '%deposit%'
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND EXISTS (
@@ -2727,6 +2750,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
                         AND (
                             result->>'matched_public_key' = luq.public_key 
                             OR result->>'matched_public_key' IS NULL
@@ -2780,7 +2804,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                                 AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
-                ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
+                ORDER BY luq.received_at DESC, cer.id, luq.public_key
                 LIMIT $2
             `;
             params = [publicKey, parseInt(limit)];
@@ -2789,7 +2813,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
             }
             query = `
-                SELECT DISTINCT ON (cer.id, luq.public_key, luq.id)
+                SELECT 
                     cer.id as rule_id,
                     cer.rule_name,
                     cer.function_name,
@@ -2805,11 +2829,22 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     luq.longitude,
                     luq.received_at,
                     luq.processed_at,
-                    luq.execution_results
+                    luq.execution_results,
+                    -- Extract matched_public_key from execution_results for this specific rule
+                    COALESCE(
+                        (SELECT result->>'matched_public_key' 
+                         FROM jsonb_array_elements(luq.execution_results) AS result 
+                         WHERE (result->>'rule_id')::integer = cer.id 
+                           AND result->>'skipped' = 'true' 
+                           AND result->>'reason' = 'requires_webauthn'
+                         LIMIT 1),
+                        luq.public_key
+                    ) as matched_public_key
                 FROM location_update_queue luq
                 JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
                 JOIN custom_contracts cc ON cer.contract_id = cc.id
                 WHERE luq.user_id = $1
+                    AND cer.function_name NOT ILIKE '%deposit%'
                     AND luq.status IN ('matched', 'executed')
                     AND luq.execution_results IS NOT NULL
                     AND EXISTS (
@@ -2820,6 +2855,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                         AND (result->>'rule_id')::integer = cer.id
                         AND COALESCE((result->>'rejected')::boolean, false) = false
                         AND COALESCE((result->>'completed')::boolean, false) = false
+                        AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
                         AND (
                             result->>'matched_public_key' = luq.public_key 
                             OR result->>'matched_public_key' IS NULL
@@ -2873,7 +2909,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                                 AND reh.last_execution_at >= CURRENT_TIMESTAMP - (COALESCE(cer.execution_time_window_seconds, 0) || ' seconds')::INTERVAL
                         ) < cer.max_executions_per_public_key
                     )
-                ORDER BY cer.id, luq.public_key, luq.id, luq.received_at DESC
+                ORDER BY luq.received_at DESC, cer.id, luq.public_key
                 LIMIT $2
             `;
             params = [userId, parseInt(limit)];
@@ -2948,7 +2984,9 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
         // Process results to extract skipped rules
         // Each public key should have its own pending rule entry
         const pendingRules = [];
-        const processedKeys = new Set(); // Track rule_id + public_key combinations
+        const processedKeys = new Set();
+        
+        console.log(`[PendingRules] 📊 Processing ${result.rows.length} database row(s) to extract pending rules...`); // Track rule_id + public_key combinations
 
         console.log(`[PendingRules] 📊 Query returned ${result.rows.length} row(s) for ${publicKey ? `public_key ${publicKey.substring(0, 8)}...` : ''}${userId ? ` OR user_id ${userId}` : ''}`);
         
@@ -3172,7 +3210,7 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                 } else {
                     // Fallback: try to infer common parameter names
                     const matchedPublicKey = row.public_key || skippedResult.matched_public_key;
-                    const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+                    const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address', 'address'];
                     
                     // First, clear/reset any WebAuthn parameters that might have incorrect values
                     // These should NEVER be set to addresses or other values
@@ -3224,6 +3262,20 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
                     }
                 }
 
+                // Log what's being added to pending rules
+                console.log(`[PendingRules] ➕ Adding pending rule:`, {
+                    rule_id: row.rule_id,
+                    rule_name: row.rule_name,
+                    function_name: row.function_name,
+                    update_id: row.update_id,
+                    public_key: row.public_key?.substring(0, 12) + '...',
+                    matched_public_key: (row.public_key || skippedResult.matched_public_key)?.substring(0, 12) + '...',
+                    reason: skippedResult.reason,
+                    location: `(${parseFloat(row.latitude)}, ${parseFloat(row.longitude)})`,
+                    requires_webauthn: row.requires_webauthn,
+                    has_system_generated_params: Object.keys(systemGenerated).length > 0
+                });
+                
                 pendingRules.push({
                     rule_id: row.rule_id,
                     rule_name: row.rule_name,
@@ -3246,6 +3298,24 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
             }
         }
 
+        // Log summary of pending rules
+        console.log(`[PendingRules] 📊 Summary: Found ${pendingRules.length} pending rule(s)`, {
+            total_pending: pendingRules.length,
+            by_reason: pendingRules.reduce((acc, pr) => {
+                // Extract reason from message or default
+                const reason = pr.message?.includes('WebAuthn') ? 'requires_webauthn' : 
+                              pr.message?.includes('rate limit') ? 'rate_limit_exceeded' :
+                              pr.message?.includes('duration') ? 'insufficient_location_duration' :
+                              pr.message?.includes('auto-execute') ? 'auto_execute_disabled' :
+                              pr.message?.includes('confirmation') ? 'requires_confirmation' :
+                              pr.message?.includes('target wallet') ? 'target_wallet_mismatch' : 'unknown';
+                acc[reason] = (acc[reason] || 0) + 1;
+                return acc;
+            }, {}),
+            unique_rules: [...new Set(pendingRules.map(pr => pr.rule_id))].length,
+            unique_public_keys: [...new Set(pendingRules.map(pr => pr.matched_public_key))].length
+        });
+        
         res.json({
             success: true,
             pending_rules: pendingRules,
@@ -3254,6 +3324,1481 @@ router.get('/rules/pending', authenticateContractUser, async (req, res) => {
     } catch (error) {
         console.error('Error fetching pending rules:', error);
         res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/deposits:
+ *   get:
+ *     summary: Get pending deposit actions for wallet provider
+ *     description: Returns pending deposit execution rules for wallets managed by the authenticated wallet provider. Only deposit functions are returned.
+ *     tags: [Contracts]
+ *     security:
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: public_key
+ *         schema:
+ *           type: string
+ *         description: Filter by specific wallet public key
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *         description: Maximum number of results
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, in_progress, completed, failed, cancelled]
+ *         description: Filter by status
+ *     responses:
+ *       200:
+ *         description: List of pending deposit actions
+ *       401:
+ *         description: Authentication required
+ */
+// Get pending deposit actions - Wallet Provider API key OR JWT authentication (for GeoLink users)
+router.get('/rules/pending/deposits', authenticateContractUser, async (req, res) => {
+    try {
+        // Allow wallet provider API key OR JWT authentication (for GeoLink users)
+        const isWalletProvider = req.userType === 'wallet_provider' || req.user?.role === 'wallet_provider';
+        const isJWTUser = !req.userType && req.user?.id; // JWT auth doesn't set userType
+        
+        if (!isWalletProvider && !isJWTUser) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'This endpoint requires authentication (Wallet Provider API key or JWT token)'
+            });
+        }
+
+        const userId = req.user?.id || req.userId;
+        const publicKey = req.user?.public_key;
+        const { public_key: filterPublicKey, limit = 50, status } = req.query;
+
+        if (!userId && !publicKey) {
+            return res.status(401).json({ error: 'User ID or public key not found. Authentication required.' });
+        }
+        
+        // For JWT users, filter by their public_key to only show their own deposit actions
+        // For wallet providers, they can see all deposits (or filter by public_key query param)
+        const effectivePublicKey = isJWTUser ? publicKey : filterPublicKey;
+
+        // Build query to get pending deposit rules
+        // Filter for deposit functions only
+        let query = `
+            SELECT 
+                cer.id as rule_id,
+                cer.rule_name,
+                cer.function_name,
+                cer.function_parameters,
+                cc.function_mappings,
+                cer.contract_id,
+                cc.contract_name,
+                cc.contract_address,
+                cc.requires_webauthn,
+                luq.id as update_id,
+                luq.public_key,
+                luq.latitude,
+                luq.longitude,
+                luq.received_at,
+                luq.processed_at,
+                luq.execution_results,
+                COALESCE(
+                    (SELECT result->>'matched_public_key' 
+                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                     WHERE (result->>'rule_id')::integer = cer.id 
+                       AND result->>'skipped' = 'true' 
+                       AND result->>'reason' = 'requires_webauthn'
+                     LIMIT 1),
+                    luq.public_key
+                ) as matched_public_key
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE cer.function_name ILIKE '%deposit%'
+                AND luq.status IN ('matched', 'executed')
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 
+                    FROM jsonb_array_elements(luq.execution_results) AS result
+                    WHERE result->>'skipped' = 'true'
+                    AND (result->>'reason')::text IN ('requires_webauthn', 'requires_confirmation')
+                    AND (result->>'rule_id')::integer = cer.id
+                    AND COALESCE((result->>'rejected')::boolean, false) = false
+                    AND COALESCE((result->>'completed')::boolean, false) = false
+                    AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS completed_result
+                    WHERE (completed_result->>'rule_id')::integer = cer.id
+                    AND COALESCE((completed_result->>'completed')::boolean, false) = true
+                )
+                AND luq.received_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS superseded_result
+                    WHERE (superseded_result->>'rule_id')::integer = cer.id
+                        AND (superseded_result->>'reason')::text = 'superseded_by_newer_execution'
+                )
+        `;
+
+        const params = [];
+        let paramIndex = 1;
+
+        // Filter by public key if provided (for wallet providers) or required (for JWT users)
+        if (effectivePublicKey) {
+            query += ` AND (luq.public_key = $${paramIndex} OR COALESCE((SELECT result->>'matched_public_key' FROM jsonb_array_elements(luq.execution_results) AS result WHERE (result->>'rule_id')::integer = cer.id LIMIT 1), luq.public_key) = $${paramIndex})`;
+            params.push(effectivePublicKey);
+            paramIndex++;
+        } else if (isJWTUser) {
+            // JWT users must have a public_key to see deposits
+            return res.status(400).json({ 
+                error: 'Public key required',
+                message: 'JWT-authenticated users must have a public_key associated with their account to view deposit actions'
+            });
+        }
+
+        query += ` ORDER BY luq.received_at DESC LIMIT $${paramIndex}`;
+        params.push(parseInt(limit));
+
+        const result = await pool.query(query, params);
+
+        const pendingDeposits = [];
+        const processedKeys = new Set();
+
+        for (const row of result.rows) {
+            const uniqueKey = `${row.rule_id}_${row.matched_public_key}`;
+            if (processedKeys.has(uniqueKey)) continue;
+            processedKeys.add(uniqueKey);
+
+            // Parse execution_results
+            let executionResults = [];
+            try {
+                executionResults = typeof row.execution_results === 'string'
+                    ? JSON.parse(row.execution_results)
+                    : row.execution_results || [];
+            } catch (e) {
+                continue;
+            }
+
+            const skippedResult = executionResults.find(r => 
+                r.rule_id === row.rule_id && 
+                r.skipped === true && 
+                r.reason === 'requires_webauthn' &&
+                !r.completed &&
+                !r.rejected
+            );
+
+            if (!skippedResult) continue;
+
+            // Parse function_parameters
+            let functionParams = {};
+            try {
+                functionParams = typeof row.function_parameters === 'string'
+                    ? JSON.parse(row.function_parameters)
+                    : row.function_parameters || {};
+            } catch (e) {
+                functionParams = {};
+            }
+
+            // Get function mappings
+            let functionMappings = {};
+            try {
+                if (row.function_mappings) {
+                    functionMappings = typeof row.function_mappings === 'string'
+                        ? JSON.parse(row.function_mappings)
+                        : row.function_mappings || {};
+                }
+            } catch (e) {
+                functionMappings = {};
+            }
+
+            const mapping = functionMappings?.[row.function_name];
+            const populatedParams = { ...functionParams };
+            const systemGenerated = {};
+
+            // Populate parameters
+            if (mapping?.parameters) {
+                mapping.parameters.forEach(param => {
+                    const paramName = param.name;
+                    const mappedFrom = param.mapped_from;
+
+                    if (paramName === 'user_address' && (param.type === 'Address' || param.type === 'address')) {
+                        if (!populatedParams[paramName] || populatedParams[paramName] === '') {
+                            populatedParams[paramName] = row.matched_public_key;
+                            systemGenerated[paramName] = true;
+                        }
+                    } else if (paramName === 'signer_address' && (param.type === 'Address' || param.type === 'address')) {
+                        if (!populatedParams[paramName] || populatedParams[paramName] === '') {
+                            populatedParams[paramName] = '[Will be system-generated from your wallet]';
+                            systemGenerated[paramName] = true;
+                        }
+                    } else if (paramName.includes('webauthn') || paramName === 'signature_payload') {
+                        populatedParams[paramName] = '[Will be system-generated during WebAuthn authentication]';
+                        systemGenerated[paramName] = true;
+                    }
+                });
+            }
+
+            // Generate action ID
+            const actionId = `deposit_${row.update_id}_${row.rule_id}_${row.matched_public_key.substring(0, 8)}`;
+
+            // Determine status
+            let depositStatus = 'pending';
+            if (skippedResult.completed) {
+                depositStatus = 'completed';
+            } else if (skippedResult.rejected) {
+                depositStatus = 'cancelled';
+            } else if (skippedResult.failed) {
+                depositStatus = 'failed';
+            }
+
+            // Filter by status if provided
+            if (status && depositStatus !== status) {
+                continue;
+            }
+
+            // Calculate expiration (24 hours from received_at)
+            const expiresAt = new Date(new Date(row.received_at).getTime() + 24 * 60 * 60 * 1000);
+
+            pendingDeposits.push({
+                id: actionId,
+                rule_id: row.rule_id,
+                rule_name: row.rule_name,
+                contract_id: row.contract_id,
+                contract_name: row.contract_name,
+                contract_address: row.contract_address,
+                function_name: row.function_name,
+                matched_public_key: row.matched_public_key,
+                update_id: row.update_id,
+                received_at: row.received_at,
+                parameters: populatedParams,
+                location: {
+                    latitude: row.latitude != null ? Number(row.latitude) : null,
+                    longitude: row.longitude != null ? Number(row.longitude) : null
+                },
+                expires_at: expiresAt.toISOString(),
+                status: depositStatus
+            });
+        }
+
+        res.json({
+            success: true,
+            pending_deposits: pendingDeposits,
+            total: pendingDeposits.length
+        });
+    } catch (error) {
+        console.error('Error fetching pending deposits:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/deposits/{action_id}:
+ *   get:
+ *     summary: Get deposit action details
+ *     description: Returns detailed information about a specific pending deposit action
+ *     tags: [Contracts]
+ *     security:
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: action_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Deposit action ID
+ *     responses:
+ *       200:
+ *         description: Deposit action details
+ *       404:
+ *         description: Deposit action not found
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/rules/pending/deposits/:action_id', authenticateContractUser, async (req, res) => {
+    try {
+        // Allow wallet provider API key OR JWT authentication (for GeoLink users)
+        const isWalletProvider = req.userType === 'wallet_provider' || req.user?.role === 'wallet_provider';
+        const isJWTUser = !req.userType && req.user?.id;
+        
+        if (!isWalletProvider && !isJWTUser) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'This endpoint requires authentication (Wallet Provider API key or JWT token)'
+            });
+        }
+
+        const { action_id } = req.params;
+        
+        // Parse action_id: deposit_{update_id}_{rule_id}_{public_key_prefix}
+        const parts = action_id.split('_');
+        if (parts.length < 4 || parts[0] !== 'deposit') {
+            return res.status(400).json({ error: 'Invalid action ID format' });
+        }
+
+        const updateId = parseInt(parts[1]);
+        const ruleId = parseInt(parts[2]);
+
+        // Query for the specific deposit action
+        const query = `
+            SELECT 
+                cer.id as rule_id,
+                cer.rule_name,
+                cer.function_name,
+                cer.function_parameters,
+                cc.function_mappings,
+                cer.contract_id,
+                cc.contract_name,
+                cc.contract_address,
+                cc.requires_webauthn,
+                luq.id as update_id,
+                luq.public_key,
+                luq.latitude,
+                luq.longitude,
+                luq.received_at,
+                luq.execution_results,
+                COALESCE(
+                    (SELECT result->>'matched_public_key' 
+                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                     WHERE (result->>'rule_id')::integer = cer.id 
+                       AND result->>'skipped' = 'true' 
+                       AND result->>'reason' = 'requires_webauthn'
+                     LIMIT 1),
+                    luq.public_key
+                ) as matched_public_key
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE luq.id = $1
+                AND cer.id = $2
+                AND cer.function_name ILIKE '%deposit%'
+                AND luq.execution_results IS NOT NULL
+        `;
+
+        const result = await pool.query(query, [updateId, ruleId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Deposit action not found' });
+        }
+
+        const row = result.rows[0];
+        
+        // For JWT users, verify the deposit action belongs to their public_key
+        if (isJWTUser && req.user?.public_key) {
+            const matchedPublicKey = row.matched_public_key || row.public_key;
+            if (matchedPublicKey !== req.user.public_key) {
+                return res.status(403).json({ 
+                    error: 'Forbidden',
+                    message: 'This deposit action does not belong to your account'
+                });
+            }
+        }
+
+        // Parse execution_results
+        let executionResults = [];
+        try {
+            executionResults = typeof row.execution_results === 'string'
+                ? JSON.parse(row.execution_results)
+                : row.execution_results || [];
+        } catch (e) {
+            return res.status(500).json({ error: 'Error parsing execution results' });
+        }
+
+        const skippedResult = executionResults.find(r => 
+            r.rule_id === row.rule_id && 
+            r.skipped === true && 
+            r.reason === 'requires_webauthn' &&
+            !r.completed &&
+            !r.rejected
+        );
+
+        if (!skippedResult) {
+            return res.status(404).json({ error: 'Deposit action not found or already completed' });
+        }
+
+        // Parse function_parameters and mappings
+        let functionParams = {};
+        try {
+            functionParams = typeof row.function_parameters === 'string'
+                ? JSON.parse(row.function_parameters)
+                : row.function_parameters || {};
+        } catch (e) {
+            functionParams = {};
+        }
+
+        let functionMappings = {};
+        try {
+            if (row.function_mappings) {
+                functionMappings = typeof row.function_mappings === 'string'
+                    ? JSON.parse(row.function_mappings)
+                    : row.function_mappings || {};
+            }
+        } catch (e) {
+            functionMappings = {};
+        }
+
+        // Get function parameter definitions from discovered functions or mapping
+        const mapping = functionMappings?.[row.function_name];
+        const functionParameterDefinitions = mapping?.parameters || [];
+
+        // Populate parameters
+        const populatedParams = { ...functionParams };
+        if (mapping?.parameters) {
+            mapping.parameters.forEach(param => {
+                const paramName = param.name;
+                if (paramName === 'user_address' && (param.type === 'Address' || param.type === 'address')) {
+                    if (!populatedParams[paramName] || populatedParams[paramName] === '') {
+                        populatedParams[paramName] = row.matched_public_key;
+                    }
+                }
+            });
+        }
+
+        const expiresAt = new Date(new Date(row.received_at).getTime() + 24 * 60 * 60 * 1000);
+        let depositStatus = 'pending';
+        if (skippedResult.completed) {
+            depositStatus = 'completed';
+        } else if (skippedResult.rejected) {
+            depositStatus = 'cancelled';
+        } else if (skippedResult.failed) {
+            depositStatus = 'failed';
+        }
+
+        res.json({
+            success: true,
+            deposit_action: {
+                id: action_id,
+                rule_id: row.rule_id,
+                rule_name: row.rule_name,
+                contract_id: row.contract_id,
+                contract_name: row.contract_name,
+                contract_address: row.contract_address,
+                function_name: row.function_name,
+                function_parameters: functionParameterDefinitions,
+                matched_public_key: row.matched_public_key,
+                parameters: populatedParams,
+                location: {
+                    latitude: row.latitude,
+                    longitude: row.longitude
+                },
+                expires_at: expiresAt.toISOString(),
+                status: depositStatus
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching deposit action details:', error);
+        res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/deposits/{action_id}/execute:
+ *   post:
+ *     summary: Execute deposit transaction
+ *     description: Executes a deposit transaction on behalf of the matched wallet using WebAuthn authentication
+ *     tags: [Contracts]
+ *     security:
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: action_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Deposit action ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - public_key
+ *               - webauthn_signature
+ *               - webauthn_authenticator_data
+ *               - webauthn_client_data
+ *               - signature_payload
+ *             properties:
+ *               public_key:
+ *                 type: string
+ *               webauthn_signature:
+ *                 type: string
+ *               webauthn_authenticator_data:
+ *                 type: string
+ *               webauthn_client_data:
+ *                 type: string
+ *               signature_payload:
+ *                 type: string
+ *               passkey_public_key_spki:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Deposit executed successfully
+ *       400:
+ *         description: Invalid request or execution failed
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Deposit action not found
+ */
+router.post('/rules/pending/deposits/:action_id/execute', authenticateContractUser, async (req, res) => {
+    try {
+        // Allow wallet provider API key OR JWT authentication (for GeoLink users)
+        const isWalletProvider = req.userType === 'wallet_provider' || req.user?.role === 'wallet_provider';
+        const isJWTUser = !req.userType && req.user?.id;
+        
+        if (!isWalletProvider && !isJWTUser) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'This endpoint requires authentication (Wallet Provider API key or JWT token)'
+            });
+        }
+
+        const { action_id } = req.params;
+        const { 
+            public_key, 
+            webauthn_signature, 
+            webauthn_authenticator_data, 
+            webauthn_client_data, 
+            signature_payload,
+            passkey_public_key_spki
+        } = req.body;
+
+        if (!public_key || !webauthn_signature || !webauthn_authenticator_data || !webauthn_client_data || !signature_payload) {
+            return res.status(400).json({ 
+                error: 'Missing required parameters',
+                required: ['public_key', 'webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'signature_payload']
+            });
+        }
+
+        // Parse action_id
+        const parts = action_id.split('_');
+        if (parts.length < 4 || parts[0] !== 'deposit') {
+            return res.status(400).json({ error: 'Invalid action ID format' });
+        }
+
+        const updateId = parseInt(parts[1]);
+        const ruleId = parseInt(parts[2]);
+
+        // Get deposit action details including function parameters
+        const query = `
+            SELECT 
+                cer.id as rule_id,
+                cer.function_name,
+                cer.function_parameters,
+                cer.contract_id,
+                cc.contract_address,
+                cc.function_mappings,
+                luq.id as update_id,
+                luq.public_key,
+                luq.execution_results,
+                COALESCE(
+                    (SELECT result->>'matched_public_key' 
+                     FROM jsonb_array_elements(luq.execution_results) AS result 
+                     WHERE (result->>'rule_id')::integer = cer.id 
+                       AND result->>'skipped' = 'true' 
+                       AND result->>'reason' = 'requires_webauthn'
+                     LIMIT 1),
+                    luq.public_key
+                ) as matched_public_key
+            FROM location_update_queue luq
+            JOIN contract_execution_rules cer ON cer.id = ANY(luq.matched_rule_ids)
+            JOIN custom_contracts cc ON cer.contract_id = cc.id
+            WHERE luq.id = $1
+                AND cer.id = $2
+                AND cer.function_name ILIKE '%deposit%'
+                AND luq.execution_results IS NOT NULL
+        `;
+
+        const result = await pool.query(query, [updateId, ruleId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Deposit action not found' });
+        }
+
+        const row = result.rows[0];
+
+        // Verify public_key matches matched_public_key
+        if (public_key !== row.matched_public_key) {
+            return res.status(400).json({ 
+                error: 'Public key mismatch',
+                message: `Public key ${public_key} does not match matched_public_key ${row.matched_public_key}`
+            });
+        }
+        
+        // For JWT users, also verify the deposit action belongs to their account
+        if (isJWTUser && req.user?.public_key && public_key !== req.user.public_key) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'You can only execute deposit actions for your own wallet'
+            });
+        }
+
+        // Parse execution_results to verify it's still pending
+        let executionResults = [];
+        try {
+            executionResults = typeof row.execution_results === 'string'
+                ? JSON.parse(row.execution_results)
+                : row.execution_results || [];
+        } catch (e) {
+            return res.status(500).json({ error: 'Error parsing execution results' });
+        }
+
+        const skippedResult = executionResults.find(r => 
+            r.rule_id === row.rule_id && 
+            r.skipped === true && 
+            r.reason === 'requires_webauthn' &&
+            !r.completed &&
+            !r.rejected
+        );
+
+        if (!skippedResult) {
+            return res.status(400).json({ 
+                error: 'Deposit action already completed or cancelled',
+                status: 'completed_or_cancelled'
+            });
+        }
+
+        // Execute the deposit using the existing execute endpoint logic
+        // We'll call the contract execution service directly
+        const executeRequest = {
+            body: {
+                function_name: row.function_name,
+                parameters: {
+                    user_address: public_key,
+                    webauthn_signature: webauthn_signature,
+                    webauthn_authenticator_data: webauthn_authenticator_data,
+                    webauthn_client_data: webauthn_client_data,
+                    signature_payload: signature_payload
+                },
+                user_public_key: public_key,
+                rule_id: ruleId,
+                update_id: updateId,
+                matched_public_key: public_key,
+                passkeyPublicKeySPKI: passkey_public_key_spki,
+                webauthnSignature: webauthn_signature,
+                webauthnAuthenticatorData: webauthn_authenticator_data,
+                webauthnClientData: webauthn_client_data,
+                signaturePayload: signature_payload
+            },
+            params: { id: row.contract_id },
+            user: req.user,
+            userId: req.userId
+        };
+
+        // Use the existing execute endpoint logic by creating a mock request/response
+        // Actually, we should reuse the execute logic - let's create a helper function
+        // For now, we'll forward to the execute endpoint internally
+        
+        // Import the execute handler logic (we'll need to refactor it)
+        // For now, let's call the execute endpoint directly via internal routing
+        const StellarSdk = require('@stellar/stellar-sdk');
+        const contractIntrospection = require('../services/contractIntrospection');
+        
+        // Get contract details (including network)
+        const contractResult = await pool.query(
+            `SELECT contract_address, network, function_mappings, requires_webauthn, use_smart_wallet
+             FROM custom_contracts
+             WHERE id = $1 AND is_active = true`,
+            [row.contract_id]
+        );
+
+        if (contractResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Contract not found' });
+        }
+
+        const contract = contractResult.rows[0];
+        const functionMappings = typeof contract.function_mappings === 'string'
+            ? JSON.parse(contract.function_mappings)
+            : contract.function_mappings;
+
+        const mapping = functionMappings?.[row.function_name];
+        if (!mapping) {
+            return res.status(400).json({ error: `Function mapping not found for: ${row.function_name}` });
+        }
+
+        // Parse function_parameters from rule to get asset, amount, etc.
+        let functionParams = {};
+        try {
+            functionParams = typeof row.function_parameters === 'string'
+                ? JSON.parse(row.function_parameters)
+                : row.function_parameters || {};
+        } catch (e) {
+            console.warn('[Deposit Execute] ⚠️  Could not parse function_parameters:', e.message);
+        }
+
+        // Process parameters - include all function parameters plus WebAuthn data
+        let processedParameters = {
+            ...functionParams, // Include asset, amount, etc. from function_parameters
+            user_address: public_key, // Override with actual public key
+            webauthn_signature: webauthn_signature,
+            webauthn_authenticator_data: webauthn_authenticator_data,
+            webauthn_client_data: webauthn_client_data,
+            signature_payload: signature_payload
+        };
+
+        // Process WebAuthn signature
+        const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } = require('../utils/webauthnUtils');
+        
+        try {
+            const derSignatureBytes = Buffer.from(webauthn_signature, 'base64');
+            let rawSignature64;
+
+            if (derSignatureBytes.length === 64) {
+                rawSignature64 = normalizeECDSASignature(derSignatureBytes);
+            } else if (derSignatureBytes.length >= 70 && derSignatureBytes.length <= 72) {
+                const decodedSignature = decodeDERSignature(derSignatureBytes);
+                rawSignature64 = normalizeECDSASignature(decodedSignature);
+            } else {
+                throw new Error(`Invalid signature length: ${derSignatureBytes.length} bytes`);
+            }
+
+            if (rawSignature64.length !== 64) {
+                throw new Error(`Invalid signature length after decoding: ${rawSignature64.length} bytes`);
+            }
+
+            processedParameters = {
+                ...processedParameters,
+                signature_payload: signature_payload,
+                webauthn_signature: rawSignature64.toString('base64'),
+                webauthn_authenticator_data: webauthn_authenticator_data,
+                webauthn_client_data: webauthn_client_data
+            };
+        } catch (error) {
+            console.error(`[Deposit Execute] ❌ Error processing WebAuthn signature:`, error);
+            return res.status(400).json({
+                error: 'Failed to process WebAuthn signature',
+                message: error.message
+            });
+        }
+
+        // Map parameters
+        const mappedParams = contractIntrospection.mapFieldsToContract(processedParameters, mapping);
+
+        // Ensure WebAuthn parameters are included
+        const webAuthnParamNames = ['webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'signature_payload'];
+        webAuthnParamNames.forEach(webAuthnParamName => {
+            if (processedParameters[webAuthnParamName] !== undefined && processedParameters[webAuthnParamName] !== null) {
+                const existingWebAuthnParam = mappedParams.find(p => p.name === webAuthnParamName);
+                if (!existingWebAuthnParam) {
+                    const mappingParam = mapping?.parameters?.find(p => p.name === webAuthnParamName);
+                    mappedParams.push({
+                        name: webAuthnParamName,
+                        type: mappingParam?.type || 'Bytes',
+                        value: processedParameters[webAuthnParamName]
+                    });
+                }
+            }
+        });
+
+        // Convert to ScVal
+        const scValParams = mappedParams
+            .filter(param => param.value !== undefined && param.value !== null && param.value !== '')
+            .map(param => contractIntrospection.convertToScVal(param.value, param.type));
+
+        // Check if secret key is provided for signing
+        const { user_secret_key } = req.body;
+        
+        if (!user_secret_key) {
+            return res.status(400).json({
+                error: 'Secret key required',
+                message: 'Deposit execution requires the user\'s secret key to sign the transaction',
+                note: 'XYZ-Wallet should provide the user\'s secret key to execute the deposit. Alternatively, execute the transaction in XYZ-Wallet and use the complete endpoint to report completion.'
+            });
+        }
+
+        // Execute contract function using the existing execute endpoint logic
+        // We'll forward to the main execute endpoint internally
+        // Create a mock request object for the execute endpoint
+        const executeReq = {
+            params: { id: row.contract_id },
+            body: {
+                function_name: row.function_name,
+                parameters: processedParameters,
+                user_public_key: public_key,
+                user_secret_key: user_secret_key,
+                rule_id: ruleId,
+                update_id: updateId,
+                matched_public_key: public_key,
+                passkeyPublicKeySPKI: passkey_public_key_spki,
+                webauthnSignature: webauthn_signature,
+                webauthnAuthenticatorData: webauthn_authenticator_data,
+                webauthnClientData: webauthn_client_data,
+                signaturePayload: signature_payload
+            },
+            user: req.user,
+            userId: req.userId,
+            userType: req.userType
+        };
+
+        // Create a response object to capture the result
+        let executeResponse = null;
+        let executeError = null;
+        const executeRes = {
+            status: (code) => {
+                executeResponse = { statusCode: code };
+                return executeRes;
+            },
+            json: (data) => {
+                executeResponse = { statusCode: executeResponse?.statusCode || 200, data };
+                return executeRes;
+            },
+            headersSent: false
+        };
+
+        // Call the execute endpoint handler
+        // We need to get the handler function - let's extract it or call it directly
+        // Actually, let's use the contract execution service directly
+        try {
+            const StellarSdk = require('@stellar/stellar-sdk');
+            const network = contract.network || 'testnet';
+            const server = new StellarSdk.SorobanRpc.Server(
+                network === 'mainnet' 
+                    ? 'https://rpc.mainnet.stellar.org:443'
+                    : 'https://soroban-testnet.stellar.org:443'
+            );
+
+            // Get source account
+            let sourceAccount;
+            try {
+                sourceAccount = await server.getAccount(public_key);
+            } catch (error) {
+                if (error.status === 404) {
+                    return res.status(400).json({
+                        error: 'Account not found',
+                        message: `Account ${public_key} does not exist on the ${network} network`
+                    });
+                }
+                throw error;
+            }
+
+            // Build transaction
+            const contractInstance = new StellarSdk.Contract(contract.contract_address);
+            const operation = contractInstance.call(
+                row.function_name,
+                ...scValParams
+            );
+
+            const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+                fee: StellarSdk.BASE_FEE,
+                networkPassphrase: network === 'mainnet' 
+                    ? StellarSdk.Networks.PUBLIC
+                    : StellarSdk.Networks.TESTNET
+            })
+            .addOperation(operation)
+            .setTimeout(30)
+            .build();
+
+            // Simulate transaction
+            const simulateResult = await server.simulateTransaction(transaction);
+            if (StellarSdk.SorobanRpc.Api.isSimulationError(simulateResult)) {
+                return res.status(400).json({
+                    error: 'Transaction simulation failed',
+                    message: simulateResult.error,
+                    details: simulateResult
+                });
+            }
+
+            // Prepare transaction for signing
+            transaction.setSorobanData(simulateResult);
+
+            // Sign transaction
+            const keypair = StellarSdk.Keypair.fromSecret(user_secret_key);
+            transaction.sign(keypair);
+
+            // Submit transaction
+            const sendResult = await server.sendTransaction(transaction);
+            
+            if (sendResult.errorResult) {
+                return res.status(400).json({
+                    error: 'Transaction submission failed',
+                    message: sendResult.errorResult,
+                    transaction_hash: sendResult.hash
+                });
+            }
+
+            // Wait for transaction to complete
+            let txResult;
+            const startTime = Date.now();
+            const timeout = 60000; // 60 seconds
+
+            while (Date.now() - startTime < timeout) {
+                txResult = await server.getTransaction(sendResult.hash);
+                
+                if (txResult.status !== StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+                    break;
+                }
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            if (!txResult || txResult.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+                return res.status(500).json({
+                    error: 'Transaction timeout',
+                    transaction_hash: sendResult.hash,
+                    message: 'Transaction did not complete within 60 seconds'
+                });
+            }
+
+            if (txResult.status === StellarSdk.SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+                // Update execution results
+                const updateQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                        SELECT jsonb_agg(
+                            CASE
+                                WHEN (result.value->>'rule_id')::integer = $1::integer
+                                    AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                                    AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                                    AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                                    AND COALESCE((result.value->>'completed')::boolean, false) = false
+                                    AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $6
+                                THEN (result.value - 'reason') || jsonb_build_object(
+                                    'completed', true,
+                                    'completed_at', $3::text,
+                                    'transaction_hash', $4::text,
+                                    'ledger', $5::text,
+                                    'success', true,
+                                    'skipped', false,
+                                    'direct_execution', true,
+                                    'executed_by', 'wallet_provider',
+                                    'matched_public_key', COALESCE(result.value->>'matched_public_key', $6::text)
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        )
+                        FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    ),
+                    status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+                    processed_at = NOW()
+                    WHERE luq.id = $7::integer
+                        AND luq.execution_results IS NOT NULL
+                        AND EXISTS (
+                            SELECT 1
+                            FROM jsonb_array_elements(luq.execution_results) AS r
+                            WHERE (r->>'rule_id')::integer = $1::integer
+                                AND COALESCE((r->>'skipped')::boolean, false) = true
+                                AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                                AND COALESCE((r->>'rejected')::boolean, false) = false
+                                AND COALESCE((r->>'completed')::boolean, false) = false
+                                AND COALESCE(r->>'matched_public_key', luq.public_key) = $6
+                        )
+                    RETURNING luq.id
+                `;
+
+                await pool.query(updateQuery, [
+                    ruleId,
+                    req.userId,
+                    new Date().toISOString(),
+                    sendResult.hash,
+                    txResult.ledger ? txResult.ledger.toString() : null,
+                    public_key,
+                    updateId
+                ]);
+
+                // Record execution history
+                try {
+                    await pool.query(
+                        `INSERT INTO rule_execution_history (rule_id, public_key, transaction_hash, last_execution_at)
+                         VALUES ($1, $2, $3, NOW())
+                         ON CONFLICT (rule_id, public_key) 
+                         DO UPDATE SET 
+                             transaction_hash = EXCLUDED.transaction_hash,
+                             last_execution_at = EXCLUDED.last_execution_at,
+                             execution_count = rule_execution_history.execution_count + 1`,
+                        [ruleId, public_key, sendResult.hash]
+                    );
+                } catch (error) {
+                    console.warn('[Deposit Execute] ⚠️  Could not record execution history:', error.message);
+                }
+
+                const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${sendResult.hash}`;
+
+                return res.json({
+                    success: true,
+                    message: 'Deposit executed successfully',
+                    transaction_hash: sendResult.hash,
+                    ledger: txResult.ledger,
+                    stellar_expert_url: stellarExpertUrl,
+                    deposit_action: {
+                        id: action_id,
+                        status: 'completed',
+                        completed_at: new Date().toISOString()
+                    }
+                });
+            } else {
+                // Mark as failed in execution_results
+                const failUpdateQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                        SELECT jsonb_agg(
+                            CASE
+                                WHEN (result.value->>'rule_id')::integer = $1::integer
+                                    AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $5
+                                THEN result.value || jsonb_build_object(
+                                    'failed', true,
+                                    'failed_at', $3::text,
+                                    'error', $4::text,
+                                    'transaction_hash', $6::text
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        )
+                        FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    )
+                    WHERE luq.id = $7::integer
+                `;
+                
+                try {
+                    await pool.query(failUpdateQuery, [
+                        ruleId,
+                        req.userId,
+                        new Date().toISOString(),
+                        `Transaction failed with status: ${txResult.status}`,
+                        public_key,
+                        sendResult.hash,
+                        updateId
+                    ]);
+                } catch (error) {
+                    console.warn('[Deposit Execute] ⚠️  Could not update failure status:', error.message);
+                }
+                
+                return res.status(400).json({
+                    success: false,
+                    error: 'Deposit execution failed',
+                    message: `Transaction failed with status: ${txResult.status}`,
+                    transaction_hash: sendResult.hash,
+                    status: txResult.status,
+                    result: txResult.resultXdr || txResult.errorResultXdr,
+                    deposit_action: {
+                        id: action_id,
+                        status: 'failed',
+                        failed_at: new Date().toISOString(),
+                        error_details: txResult.resultXdr || txResult.errorResultXdr
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('[Deposit Execute] ❌ Error executing deposit:', error);
+            
+            // Try to mark as failed in execution_results
+            try {
+                const failUpdateQuery = `
+                    UPDATE location_update_queue luq
+                    SET execution_results = (
+                        SELECT jsonb_agg(
+                            CASE
+                                WHEN (result.value->>'rule_id')::integer = $1::integer
+                                    AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $5
+                                THEN result.value || jsonb_build_object(
+                                    'failed', true,
+                                    'failed_at', $3::text,
+                                    'error', $4::text
+                                )
+                                ELSE result.value
+                            END
+                            ORDER BY result.ordinality
+                        )
+                        FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+                    )
+                    WHERE luq.id = $6::integer
+                `;
+                
+                await pool.query(failUpdateQuery, [
+                    ruleId,
+                    req.userId,
+                    new Date().toISOString(),
+                    error.message || error.toString(),
+                    public_key,
+                    updateId
+                ]);
+            } catch (updateError) {
+                console.warn('[Deposit Execute] ⚠️  Could not update failure status:', updateError.message);
+            }
+            
+            return res.status(500).json({
+                success: false,
+                error: 'Deposit execution failed',
+                message: error.message || 'Unknown error occurred',
+                deposit_action: {
+                    id: action_id,
+                    status: 'failed',
+                    failed_at: new Date().toISOString(),
+                    error_details: error.toString()
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error('Error executing deposit:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Internal server error', 
+            message: error.message,
+            details: error.toString()
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/deposits/{action_id}/complete:
+ *   post:
+ *     summary: Report deposit completion
+ *     description: Reports that a deposit transaction has been completed. Used when XYZ-Wallet executes the deposit directly.
+ *     tags: [Contracts]
+ *     security:
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: action_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Deposit action ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - public_key
+ *               - transaction_hash
+ *             properties:
+ *               public_key:
+ *                 type: string
+ *               transaction_hash:
+ *                 type: string
+ *               ledger:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Deposit completion reported successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Deposit action not found
+ */
+router.post('/rules/pending/deposits/:action_id/complete', authenticateContractUser, async (req, res) => {
+    try {
+        // Allow wallet provider API key OR JWT authentication (for GeoLink users)
+        const isWalletProvider = req.userType === 'wallet_provider' || req.user?.role === 'wallet_provider';
+        const isJWTUser = !req.userType && req.user?.id;
+        
+        if (!isWalletProvider && !isJWTUser) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'This endpoint requires authentication (Wallet Provider API key or JWT token)'
+            });
+        }
+
+        const { action_id } = req.params;
+        const { public_key, transaction_hash, ledger } = req.body;
+
+        if (!public_key || !transaction_hash) {
+            return res.status(400).json({ 
+                error: 'Missing required parameters',
+                required: ['public_key', 'transaction_hash']
+            });
+        }
+
+        // Parse action_id
+        const parts = action_id.split('_');
+        if (parts.length < 4 || parts[0] !== 'deposit') {
+            return res.status(400).json({ error: 'Invalid action ID format' });
+        }
+
+        const updateId = parseInt(parts[1]);
+        const ruleId = parseInt(parts[2]);
+        const userId = req.user?.id || req.userId;
+        
+        // For JWT users, verify the deposit action belongs to their public_key
+        if (isJWTUser && req.user?.public_key && public_key !== req.user.public_key) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'You can only report completion for deposit actions belonging to your own wallet'
+            });
+        }
+
+        // Verify and update the deposit action
+        const updateQuery = `
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE
+                        WHEN (result.value->>'rule_id')::integer = $1::integer
+                            AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                            AND COALESCE(result.value->>'reason', '') = 'requires_webauthn'
+                            AND COALESCE((result.value->>'rejected')::boolean, false) = false
+                            AND COALESCE((result.value->>'completed')::boolean, false) = false
+                            AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $6
+                        THEN (result.value - 'reason') || jsonb_build_object(
+                            'completed', true,
+                            'completed_at', $3::text,
+                            'transaction_hash', $4::text,
+                            'success', true,
+                            'skipped', false,
+                            'direct_execution', true,
+                            'executed_by', 'wallet_provider',
+                            'matched_public_key', COALESCE(result.value->>'matched_public_key', $6::text)
+                        )
+                        ELSE result.value
+                    END
+                    ORDER BY result.ordinality
+                )
+                FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+            ),
+            status = CASE WHEN luq.status = 'matched' THEN 'executed' ELSE luq.status END,
+            processed_at = NOW()
+            WHERE luq.id = $7::integer
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS r
+                    WHERE (r->>'rule_id')::integer = $1::integer
+                        AND COALESCE((r->>'skipped')::boolean, false) = true
+                        AND COALESCE(r->>'reason', '') = 'requires_webauthn'
+                        AND COALESCE((r->>'rejected')::boolean, false) = false
+                        AND COALESCE((r->>'completed')::boolean, false) = false
+                        AND COALESCE(r->>'matched_public_key', luq.public_key) = $6
+                )
+            RETURNING luq.id, luq.received_at, luq.public_key
+        `;
+
+        const updateResult = await pool.query(updateQuery, [
+            ruleId,
+            userId,
+            new Date().toISOString(),
+            transaction_hash,
+            ledger || null,
+            public_key,
+            updateId
+        ]);
+
+        if (updateResult.rows.length === 0) {
+            return res.status(404).json({ 
+                error: 'Deposit action not found or already completed',
+                message: 'The deposit action may have already been completed or does not exist'
+            });
+        }
+
+        // Record execution in rule_execution_history for rate limiting
+        try {
+            await pool.query(
+                `INSERT INTO rule_execution_history (rule_id, public_key, transaction_hash, last_execution_at)
+                 VALUES ($1, $2, $3, NOW())
+                 ON CONFLICT (rule_id, public_key) 
+                 DO UPDATE SET 
+                     transaction_hash = EXCLUDED.transaction_hash,
+                     last_execution_at = EXCLUDED.last_execution_at,
+                     execution_count = rule_execution_history.execution_count + 1`,
+                [ruleId, public_key, transaction_hash]
+            );
+        } catch (error) {
+            console.warn('[Deposit Complete] ⚠️  Could not record execution history:', error.message);
+        }
+
+        // Get network from contract
+        let network = 'testnet';
+        try {
+            const contractQuery = await pool.query(
+                `SELECT network FROM custom_contracts WHERE id = (
+                    SELECT contract_id FROM contract_execution_rules WHERE id = $1
+                )`,
+                [ruleId]
+            );
+            if (contractQuery.rows.length > 0) {
+                network = contractQuery.rows[0].network || 'testnet';
+            }
+        } catch (error) {
+            console.warn('[Deposit Complete] ⚠️  Could not fetch network from contract, defaulting to testnet:', error.message);
+        }
+        
+        // Build StellarExpert URL
+        const stellarExpertUrl = `https://stellar.expert/explorer/${network}/tx/${transaction_hash}`;
+
+        res.json({
+            success: true,
+            message: 'Deposit completion reported successfully',
+            deposit_action: {
+                id: action_id,
+                status: 'completed',
+                completed_at: new Date().toISOString(),
+                transaction_hash: transaction_hash,
+                ledger: ledger,
+                stellar_expert_url: stellarExpertUrl
+            }
+        });
+    } catch (error) {
+        console.error('Error reporting deposit completion:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * @swagger
+ * /api/contracts/rules/pending/deposits/{action_id}/cancel:
+ *   post:
+ *     summary: Cancel deposit action
+ *     description: Cancels a pending deposit action (e.g., if user declines or action expires)
+ *     tags: [Contracts]
+ *     security:
+ *       - WalletProviderAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: action_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Deposit action ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - public_key
+ *             properties:
+ *               public_key:
+ *                 type: string
+ *               reason:
+ *                 type: string
+ *                 enum: [user_declined, expired, insufficient_balance, other]
+ *     responses:
+ *       200:
+ *         description: Deposit action cancelled successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         description: Authentication required
+ *       404:
+ *         description: Deposit action not found
+ */
+router.post('/rules/pending/deposits/:action_id/cancel', authenticateContractUser, async (req, res) => {
+    try {
+        // Allow wallet provider API key OR JWT authentication (for GeoLink users)
+        const isWalletProvider = req.userType === 'wallet_provider' || req.user?.role === 'wallet_provider';
+        const isJWTUser = !req.userType && req.user?.id;
+        
+        if (!isWalletProvider && !isJWTUser) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'This endpoint requires authentication (Wallet Provider API key or JWT token)'
+            });
+        }
+
+        const { action_id } = req.params;
+        const { public_key, reason = 'user_declined' } = req.body;
+
+        if (!public_key) {
+            return res.status(400).json({ 
+                error: 'Missing required parameter',
+                required: ['public_key']
+            });
+        }
+
+        // Parse action_id
+        const parts = action_id.split('_');
+        if (parts.length < 4 || parts[0] !== 'deposit') {
+            return res.status(400).json({ error: 'Invalid action ID format' });
+        }
+
+        const updateId = parseInt(parts[1]);
+        const ruleId = parseInt(parts[2]);
+        const userId = req.user?.id || req.userId;
+        
+        // For JWT users, verify the deposit action belongs to their public_key
+        if (isJWTUser && req.user?.public_key && public_key !== req.user.public_key) {
+            return res.status(403).json({ 
+                error: 'Forbidden',
+                message: 'You can only cancel deposit actions belonging to your own wallet'
+            });
+        }
+
+        // Update the deposit action to mark as cancelled/rejected
+        const updateQuery = `
+            UPDATE location_update_queue luq
+            SET execution_results = (
+                SELECT jsonb_agg(
+                    CASE
+                        WHEN (result.value->>'rule_id')::integer = $1::integer
+                            AND COALESCE((result.value->>'skipped')::boolean, false) = true
+                            AND COALESCE((result.value->>'completed')::boolean, false) = false
+                            AND COALESCE(result.value->>'matched_public_key', luq.public_key) = $5
+                        THEN result.value || jsonb_build_object(
+                            'rejected', true,
+                            'rejected_at', $3::text,
+                            'rejection_reason', $4::text,
+                            'cancelled_by', 'wallet_provider'
+                        )
+                        ELSE result.value
+                    END
+                    ORDER BY result.ordinality
+                )
+                FROM jsonb_array_elements(luq.execution_results) WITH ORDINALITY AS result(value, ordinality)
+            )
+            WHERE luq.id = $6::integer
+                AND luq.execution_results IS NOT NULL
+                AND EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(luq.execution_results) AS r
+                    WHERE (r->>'rule_id')::integer = $1::integer
+                        AND COALESCE((r->>'skipped')::boolean, false) = true
+                        AND COALESCE((r->>'completed')::boolean, false) = false
+                        AND COALESCE((r->>'rejected')::boolean, false) = false
+                        AND COALESCE(r->>'matched_public_key', luq.public_key) = $5
+                )
+            RETURNING luq.id
+        `;
+
+        const updateResult = await pool.query(updateQuery, [
+            ruleId,
+            userId,
+            new Date().toISOString(),
+            reason,
+            public_key,
+            updateId
+        ]);
+
+        if (updateResult.rows.length === 0) {
+            return res.status(404).json({ 
+                error: 'Deposit action not found or already completed/cancelled',
+                message: 'The deposit action may have already been completed or cancelled'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Deposit action cancelled',
+            deposit_action: {
+                id: action_id,
+                status: 'cancelled',
+                cancelled_at: new Date().toISOString(),
+                reason: reason
+            }
+        });
+    } catch (error) {
+        console.error('Error cancelling deposit action:', error);
+        res.status(500).json({ 
+            error: 'Internal server error', 
+            details: error.message 
+        });
     }
 });
 
@@ -3284,11 +4829,30 @@ router.post('/rules/pending/cleanup', authenticateContractUser, async (req, res)
         }
 
         console.log('[QueueCleanup] 🔧 Starting queue cleanup and realignment...');
+        
+        // First, re-evaluate expired rate limits
+        const backgroundAIService = require('../services/backgroundAIService');
+        const rateLimitStats = await backgroundAIService.reEvaluateExpiredRateLimits();
+        console.log('[QueueCleanup] 📊 Rate limit re-evaluation:', rateLimitStats);
+        
+        // Clean up very old pending rules (older than 7 days) - run this FIRST to mark old entries
+        const oldCleanupStats = await backgroundAIService.cleanupVeryOldPendingRules();
+        console.log('[QueueCleanup] 📊 Very old entries cleanup:', oldCleanupStats);
+        
+        // Also run the full periodic cleanup to mark superseded entries
+        await backgroundAIService.runPeriodicCleanup();
+        console.log('[QueueCleanup] ✅ Full periodic cleanup completed');
+        
         const cleanupStats = {
             markedSkipped: 0,
             deletedEntries: 0,
             rateLimitSkipped: 0,
-            supersededSkipped: 0
+            supersededSkipped: 0,
+            rateLimitReEvaluated: rateLimitStats.reEvaluated || 0,
+            rateLimitUpdatedToWebAuthn: rateLimitStats.updatedToWebAuthn || 0,
+            rateLimitStillBlocked: rateLimitStats.stillBlocked || 0,
+            veryOldMarkedSuperseded: oldCleanupStats.markedSuperseded || 0,
+            veryOldDeleted: oldCleanupStats.deleted || 0
         };
 
         // Step 1: Find all completed executions to identify what should be considered "latest"
@@ -3722,7 +5286,16 @@ router.post('/rules/pending/cleanup', authenticateContractUser, async (req, res)
         res.json({
             success: true,
             message: 'Queue cleanup completed',
-            stats: cleanupStats
+            stats: cleanupStats,
+            rateLimitReEvaluation: {
+                reEvaluated: rateLimitStats.reEvaluated || 0,
+                updatedToWebAuthn: rateLimitStats.updatedToWebAuthn || 0,
+                stillBlocked: rateLimitStats.stillBlocked || 0
+            },
+            veryOldCleanup: {
+                markedSuperseded: oldCleanupStats.markedSuperseded || 0,
+                deleted: oldCleanupStats.deleted || 0
+            }
         });
     } catch (error) {
         console.error('[QueueCleanup] ❌ Error during cleanup:', error);
@@ -5721,6 +7294,61 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             return res.status(401).json({ error: 'User ID not found. Authentication required.' });
         }
 
+        // Early parameter normalization: Handle 'address' parameter - map it to 'destination' if destination is missing or empty
+        // This must happen BEFORE smart wallet routing and other parameter processing
+        // Ensure parameters is an object
+        if (!parameters || typeof parameters !== 'object') {
+            parameters = parameters || {};
+        }
+        
+        // Helper to check if a value is effectively empty (null, undefined, or empty string)
+        const isEmpty = (val) => !val || val === '' || val === null || val === undefined;
+        
+        // Check if destination is effectively empty (treat empty strings as missing)
+        const destinationIsEmpty = isEmpty(parameters.destination);
+        
+        // Check for 'address' in parameters object or req.body (must be non-empty)
+        const addressValue = (!isEmpty(parameters.address)) 
+            ? parameters.address 
+            : (!isEmpty(req.body.address) ? req.body.address : null);
+        
+        // If we have an address value and destination is empty, map it
+        if (addressValue && destinationIsEmpty) {
+            // Map 'address' to 'destination' as the most common case
+            parameters.destination = addressValue;
+            console.log(`[Execute] ✅ Early mapping: Mapped 'address' parameter to 'destination': ${addressValue?.substring(0, 8)}...`);
+        }
+        
+        // Also check if destination is in req.body directly (must be non-empty)
+        if (!isEmpty(req.body.destination) && destinationIsEmpty) {
+            parameters.destination = req.body.destination;
+            console.log(`[Execute] ✅ Early mapping: Set destination from req.body.destination: ${req.body.destination?.substring(0, 8)}...`);
+        }
+        
+        // If destination is still empty after mapping, try to get it from matched_public_key (for pending rules)
+        if (isEmpty(parameters.destination) && matched_public_key) {
+            parameters.destination = matched_public_key;
+            console.log(`[Execute] ✅ Early mapping: Set destination from matched_public_key: ${matched_public_key?.substring(0, 8)}...`);
+        }
+
+        // Early auto-population: Auto-populate signer_address and user_address from user's public key if missing
+        // This must happen BEFORE smart wallet routing and other parameter processing
+        if (user_public_key) {
+            if (!parameters.signer_address || parameters.signer_address === '') {
+                parameters.signer_address = user_public_key;
+                console.log(`[Execute] ✅ Early auto-population: Set signer_address from user_public_key`);
+            }
+            if (!parameters.user_address || parameters.user_address === '') {
+                parameters.user_address = user_public_key;
+                console.log(`[Execute] ✅ Early auto-population: Set user_address from user_public_key`);
+            }
+        }
+        
+        // Debug: Log parameters keys for troubleshooting
+        console.log(`[Execute] 📋 Parameters keys after early normalization:`, Object.keys(parameters || {}).join(', '));
+        console.log(`[Execute] 📋 Destination value:`, parameters.destination ? `${parameters.destination.substring(0, 8)}...` : 'undefined/null');
+        console.log(`[Execute] 📋 User address value:`, parameters.user_address ? `${parameters.user_address.substring(0, 8)}...` : 'undefined/null');
+
         // If rule_id is provided, validate quorum before execution
         if (rule_id) {
             const quorumResult = await pool.query(
@@ -5769,9 +7397,18 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // console.log(`[Execute] Contract config - Raw DB value: requires_webauthn = ${contract.requires_webauthn} (type: ${typeof contract.requires_webauthn})`);
 
         // Helper function to detect if a function is payment-related
+        // Note: 'deposit' functions are NOT treated as payment functions for smart wallet routing
+        // Deposit functions should execute directly on the contract, not route through smart wallet payment
         const isPaymentFunction = (funcName, funcParams) => {
-            const paymentPatterns = ['transfer', 'payment', 'send', 'pay', 'withdraw', 'deposit'];
             const funcNameLower = funcName.toLowerCase();
+            
+            // Exclude deposit functions - they should execute directly on the contract
+            if (funcNameLower.includes('deposit')) {
+                return false;
+            }
+            
+            // Payment patterns (excluding deposit)
+            const paymentPatterns = ['transfer', 'payment', 'send', 'pay', 'withdraw'];
             
             // Check function name
             if (paymentPatterns.some(pattern => funcNameLower.includes(pattern))) {
@@ -5779,12 +7416,15 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             }
             
             // Check parameters for payment-related fields
+            // For smart wallet routing, we need destination (not user_address) and amount
             const paymentParams = ['destination', 'recipient', 'to', 'amount', 'asset', 'asset_address'];
             if (funcParams && typeof funcParams === 'object') {
                 const paramKeys = Object.keys(funcParams).map(k => k.toLowerCase());
                 const hasDestination = paymentParams.some(p => paramKeys.includes(p.toLowerCase()));
                 const hasAmount = paramKeys.some(k => k.includes('amount'));
-                if (hasDestination && hasAmount) {
+                // Only treat as payment if it has destination (not user_address) and amount
+                // user_address is for deposits, which should not route through smart wallet payment
+                if (hasDestination && hasAmount && !paramKeys.includes('user_address')) {
                     return true;
                 }
             }
@@ -5795,13 +7435,21 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // Check if we should route through smart wallet
         // If payment_source is explicitly 'smart-wallet', always route through smart wallet
         // Otherwise, check contract settings
+        // IMPORTANT: Deposit functions should NOT route through smart wallet payment
+        // They should execute directly on the contract
         const paymentSource = req.body.payment_source; // 'wallet' or 'smart-wallet'
         const contractsConfig = require('../config/contracts');
         const hasSmartWalletContractId = contract.smart_wallet_contract_id || contractsConfig.SMART_WALLET_CONTRACT_ID;
-        const shouldRouteThroughSmartWallet = (paymentSource === 'smart-wallet') ||
-                                             (contract.use_smart_wallet && 
-                                              hasSmartWalletContractId &&
-                                              isPaymentFunction(function_name, parameters));
+        const isDepositFunction = function_name.toLowerCase().includes('deposit');
+        const shouldRouteThroughSmartWallet = !isDepositFunction && // Never route deposits through smart wallet payment
+                                             ((paymentSource === 'smart-wallet') ||
+                                              (contract.use_smart_wallet && 
+                                               hasSmartWalletContractId &&
+                                               isPaymentFunction(function_name, parameters)));
+        
+        if (isDepositFunction) {
+            console.log(`[Execute] 🏦 Deposit function detected - will execute directly on contract, not through smart wallet payment`);
+        }
         
         // console.log('[Execute] 🔄 Smart wallet routing decision:', {
         //     paymentSource,
@@ -5833,7 +7481,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             // Extract payment parameters from function parameters
             const extractPaymentParams = (params) => {
                 // Common parameter name mappings
-                const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+                // Note: user_address is also a valid destination parameter (used by deposit functions)
+                const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address', 'address', 'user_address'];
                 const amountKeys = ['amount', 'value', 'quantity'];
                 const assetKeys = ['asset', 'asset_address', 'token', 'token_address'];
                 
@@ -5841,17 +7490,27 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 let amount = null;
                 let asset = null;
                 
+                // Debug: Log what we're searching in
+                console.log(`[Execute] 🔍 extractPaymentParams - params keys:`, params ? Object.keys(params).join(', ') : 'params is null/undefined');
+                console.log(`[Execute] 🔍 extractPaymentParams - params.address:`, params?.address);
+                console.log(`[Execute] 🔍 extractPaymentParams - params.destination:`, params?.destination);
+                
                 // Find destination
                 for (const key of destinationKeys) {
-                    if (params[key]) {
+                    // Check if key exists and has a non-empty value (not null, undefined, or empty string)
+                    if (params && params[key] !== undefined && params[key] !== null && params[key] !== '') {
                         destination = params[key];
+                        console.log(`[Execute] ✅ Found destination via key '${key}': ${destination?.substring(0, 8)}...`);
                         break;
                     }
                     // Case-insensitive search
-                    const foundKey = Object.keys(params).find(k => k.toLowerCase() === key.toLowerCase());
-                    if (foundKey) {
-                        destination = params[foundKey];
-                        break;
+                    if (params) {
+                        const foundKey = Object.keys(params).find(k => k.toLowerCase() === key.toLowerCase());
+                        if (foundKey && params[foundKey] !== undefined && params[foundKey] !== null && params[foundKey] !== '') {
+                            destination = params[foundKey];
+                            console.log(`[Execute] ✅ Found destination via case-insensitive key '${foundKey}' (searching for '${key}'): ${destination?.substring(0, 8)}...`);
+                            break;
+                        }
                     }
                 }
                 
@@ -5887,18 +7546,63 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             let paymentParams = extractPaymentParams(parameters);
             // console.log(`[Execute] 📋 Extracted payment params:`, JSON.stringify(paymentParams));
             
-            // If destination is missing, try to extract it from signature_payload
-            if (!paymentParams.destination && parameters.signature_payload) {
+            // Helper to check if a value is effectively empty
+            const isEmpty = (val) => !val || val === '' || val === null || val === undefined;
+            
+            // If destination is missing but user_address is present, use user_address as destination
+            // This is common for deposit functions where user_address is the deposit target
+            if (isEmpty(paymentParams.destination) && !isEmpty(parameters.user_address)) {
+                paymentParams.destination = parameters.user_address;
+                console.log(`[Execute] ✅ Using user_address as destination: ${paymentParams.destination?.substring(0, 8)}...`);
+            }
+            
+            // If destination is missing or empty, try to extract it from signature_payload
+            if (isEmpty(paymentParams.destination) && parameters.signature_payload) {
                 try {
                     const payload = typeof parameters.signature_payload === 'string' 
                         ? JSON.parse(parameters.signature_payload) 
                         : parameters.signature_payload;
-                    if (payload.destination) {
+                    if (payload.destination && !isEmpty(payload.destination)) {
                         paymentParams.destination = payload.destination;
-                        // console.log(`[Execute] 📋 Extracted destination from signature_payload: ${paymentParams.destination}`);
+                        console.log(`[Execute] ✅ Extracted destination from signature_payload: ${paymentParams.destination?.substring(0, 8)}...`);
                     }
                 } catch (e) {
                     console.warn(`[Execute] ⚠️ Could not parse signature_payload:`, e.message);
+                }
+            }
+            
+            // If destination is still missing or empty, try matched_public_key
+            if (isEmpty(paymentParams.destination) && matched_public_key) {
+                paymentParams.destination = matched_public_key;
+                console.log(`[Execute] ✅ Set destination from matched_public_key: ${matched_public_key?.substring(0, 8)}...`);
+            }
+            
+            // If destination is still missing or empty, try to fetch from location_update_queue for pending rules
+            if (isEmpty(paymentParams.destination) && rule_id) {
+                try {
+                    const matchedKeyQuery = `
+                        SELECT luq.public_key
+                        FROM location_update_queue luq
+                        WHERE luq.user_id = $1
+                            AND luq.status IN ('matched', 'executed')
+                            AND luq.execution_results IS NOT NULL
+                            AND EXISTS (
+                                SELECT 1 
+                                FROM jsonb_array_elements(luq.execution_results) AS result
+                                WHERE result->>'skipped' = 'true'
+                                AND result->>'reason' = 'requires_webauthn'
+                                AND (result->>'rule_id')::integer = $2
+                            )
+                        ORDER BY luq.received_at DESC
+                        LIMIT 1
+                    `;
+                    const matchedKeyResult = await pool.query(matchedKeyQuery, [userId, rule_id]);
+                    if (matchedKeyResult.rows.length > 0) {
+                        paymentParams.destination = matchedKeyResult.rows[0].public_key;
+                        console.log(`[Execute] ✅ Fetched destination from location_update_queue: ${paymentParams.destination?.substring(0, 8)}...`);
+                    }
+                } catch (error) {
+                    console.warn(`[Execute] ⚠️  Could not fetch destination from location_update_queue:`, error.message);
                 }
             }
             
@@ -5984,14 +7688,45 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 }
             }
             
-            if (!paymentParams.destination || !paymentParams.amount) {
-                console.log(`[Execute] ❌ Missing payment parameters - destination: ${paymentParams.destination}, amount: ${paymentParams.amount}`);
+            // Check if destination and amount are effectively present (not empty strings)
+            // For deposit functions, user_address can serve as the destination
+            const hasDestination = paymentParams.destination && paymentParams.destination !== '';
+            const hasUserAddress = !isEmpty(parameters.user_address);
+            const hasAmount = paymentParams.amount && paymentParams.amount !== '' && paymentParams.amount !== '0' && paymentParams.amount !== 0;
+            
+            // For deposit functions, user_address is acceptable as destination
+            const isDepositFunction = function_name.toLowerCase().includes('deposit');
+            const hasValidDestination = hasDestination || (isDepositFunction && hasUserAddress);
+            
+            if (!hasValidDestination || !hasAmount) {
+                console.log(`[Execute] ❌ Missing payment parameters - destination: ${paymentParams.destination || 'missing'}, user_address: ${parameters?.user_address || 'missing'}, amount: ${paymentParams.amount || 'missing'}`);
+                console.log(`[Execute] 🔍 Debug - parameters object keys:`, Object.keys(parameters || {}));
+                console.log(`[Execute] 🔍 Debug - parameters.destination:`, parameters?.destination);
+                console.log(`[Execute] 🔍 Debug - parameters.user_address:`, parameters?.user_address);
+                console.log(`[Execute] 🔍 Debug - parameters.address:`, parameters?.address);
+                console.log(`[Execute] 🔍 Debug - req.body.address:`, req.body?.address);
+                console.log(`[Execute] 🔍 Debug - isDepositFunction:`, isDepositFunction);
                 return res.status(400).json({ 
                     error: 'Payment function requires destination and amount parameters',
-                    received_params: Object.keys(parameters),
-                    expected_params: ['destination (or recipient/to)', 'amount (or value/quantity)'],
-                    note: 'Destination and amount can be provided directly or in signature_payload'
+                    received_params: Object.keys(parameters || {}),
+                    expected_params: ['destination (or recipient/to/address/user_address)', 'amount (or value/quantity)'],
+                    note: 'Destination and amount can be provided directly, as "address" or "user_address" parameter, or in signature_payload. For deposit functions, user_address is acceptable as destination. Empty strings are treated as missing.',
+                    debug: {
+                        destination_value: paymentParams.destination,
+                        user_address_value: parameters?.user_address,
+                        amount_value: paymentParams.amount,
+                        has_destination: hasDestination,
+                        has_user_address: hasUserAddress,
+                        has_amount: hasAmount,
+                        is_deposit_function: isDepositFunction
+                    }
                 });
+            }
+            
+            // If we have user_address but no destination, use user_address as destination for smart wallet routing
+            if (!hasDestination && hasUserAddress && isDepositFunction) {
+                paymentParams.destination = parameters.user_address;
+                console.log(`[Execute] ✅ Using user_address as destination for deposit function: ${paymentParams.destination?.substring(0, 8)}...`);
             }
 
             // Convert amount to stroops if needed (assuming it's in XLM)
@@ -6840,6 +8575,38 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
             console.log(`[Execute] 🚫 WebAuthn parameters removed - requires_webauthn: ${contract.requires_webauthn}, use_smart_wallet: ${contract.use_smart_wallet}`);
         }
         
+        // Handle 'address' parameter - map it to 'destination' if destination is missing
+        // This must happen BEFORE auto-population logic so that 'address' is recognized
+        if (processedParameters.address && !processedParameters.destination) {
+            // Check if function expects 'destination' parameter (or similar)
+            const destinationKeys = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+            if (mapping && mapping.parameters) {
+                const destinationParam = mapping.parameters.find(p => 
+                    destinationKeys.includes(p.name) && 
+                    (p.type === 'Address' || p.type === 'address')
+                );
+                if (destinationParam) {
+                    processedParameters[destinationParam.name] = processedParameters.address;
+                    console.log(`[Execute] ✅ Mapped 'address' parameter to '${destinationParam.name}'`);
+                    // Remove 'address' to avoid confusion
+                    delete processedParameters.address;
+                }
+            }
+        }
+        
+        // Auto-populate signer_address from user's public key if missing
+        // This must happen BEFORE the pending rule auto-population logic
+        if (user_public_key && mapping && mapping.parameters) {
+            const signerAddressParam = mapping.parameters.find(p => 
+                (p.name === 'signer_address' || p.name === 'signerAddress') && 
+                (p.type === 'Address' || p.type === 'address')
+            );
+            if (signerAddressParam && (!processedParameters[signerAddressParam.name] || processedParameters[signerAddressParam.name] === '')) {
+                processedParameters[signerAddressParam.name] = user_public_key;
+                console.log(`[Execute] ✅ Auto-populated ${signerAddressParam.name} from user_public_key`);
+            }
+        }
+        
         // Auto-populate missing parameters for pending rule execution
         // This ensures all required parameters are present when executing from pending rules
         if (rule_id && mapping && mapping.parameters) {
@@ -6912,6 +8679,9 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 // Auto-populate based on parameter name and type
                 if (!currentValue || currentValue === '') {
                     if (paramName === 'signer_address' && (param.type === 'Address' || param.type === 'address')) {
+                        currentValue = user_public_key;
+                        console.log(`[Execute] ✅ Auto-populated ${paramName} from user_public_key: ${currentValue}`);
+                    } else if (paramName === 'user_address' && (param.type === 'Address' || param.type === 'address')) {
                         currentValue = user_public_key;
                         console.log(`[Execute] ✅ Auto-populated ${paramName} from user_public_key: ${currentValue}`);
                     } else if (paramName === 'destination' && (param.type === 'Address' || param.type === 'address')) {
@@ -7008,7 +8778,21 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 
                 // Always prioritize signaturePayload from req.body if it exists
                 const payloadToCheck = signaturePayload || processedParameters.signature_payload;
-                const hasOldFormat = payloadToCheck && (
+                
+                // Check if signaturePayload is base64-encoded intentBytes (new Intent-based format)
+                // Intent bytes are base64-encoded and won't contain JSON string patterns
+                const isBase64IntentBytes = payloadToCheck && (
+                    typeof payloadToCheck === 'string' &&
+                    !payloadToCheck.includes('"function"') && 
+                    !payloadToCheck.includes('"contract_id"') &&
+                    !payloadToCheck.includes('function:') &&
+                    !payloadToCheck.includes('contract_id:') &&
+                    !payloadToCheck.includes('"source"') && // Not the new payment format either
+                    !payloadToCheck.includes('"destination"') &&
+                    payloadToCheck.length > 50 // Base64 intentBytes are typically longer
+                );
+                
+                const hasOldFormat = payloadToCheck && !isBase64IntentBytes && (
                     payloadToCheck.includes('"function"') || 
                     payloadToCheck.includes('"contract_id"') ||
                     payloadToCheck.includes('function:') ||
@@ -7016,7 +8800,7 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 );
                 
                 // If signaturePayload from req.body exists, check it specifically (not the fallback)
-                const reqBodyHasOldFormat = signaturePayload && (
+                const reqBodyHasOldFormat = signaturePayload && !isBase64IntentBytes && (
                     signaturePayload.includes('"function"') || 
                     signaturePayload.includes('"contract_id"') ||
                     signaturePayload.includes('function:') ||
@@ -7024,10 +8808,14 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 );
                 
                 // If signaturePayload from req.body exists and is NOT in old format, use it and ignore processedParameters.signature_payload
-                // This ensures we use the regenerated payload from the frontend
-                if (signaturePayload && !reqBodyHasOldFormat) {
-                    // Frontend has already regenerated the payload in correct format - use it
-                    console.log(`[Execute] ✅ Using signaturePayload from request body (frontend regenerated in correct format)`);
+                // This ensures we use the regenerated payload from the frontend OR base64-encoded intentBytes
+                if (signaturePayload && (!reqBodyHasOldFormat || isBase64IntentBytes)) {
+                    // Frontend has already regenerated the payload in correct format OR provided base64-encoded intentBytes - use it
+                    if (isBase64IntentBytes) {
+                        console.log(`[Execute] ✅ Using base64-encoded intentBytes as signature_payload (Intent-based WebAuthn)`);
+                    } else {
+                        console.log(`[Execute] ✅ Using signaturePayload from request body (frontend regenerated in correct format)`);
+                    }
                     // Don't check processedParameters.signature_payload - use the one from req.body
                     // Update processedParameters to use the correct payload
                     processedParameters.signature_payload = signaturePayload;
@@ -7041,9 +8829,13 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                 // 2. OR payload doesn't exist
                 // 3. OR payload has old format BUT no WebAuthn signature (meaning signature will be created after regeneration)
                 // DO NOT regenerate if WebAuthn signature already exists - it was created for the existing payload
+                // DO NOT regenerate if signaturePayload is base64-encoded intentBytes (new Intent-based format)
                 const hasWebAuthnSignature = webauthnSignature && webauthnAuthenticatorData && webauthnClientData;
                 
-                if ((isPaymentFunction || hasOldFormat || !existingPayload) && !hasWebAuthnSignature) {
+                // Check if payload exists (either from req.body or processedParameters)
+                const existingPayload = payloadToCheck || processedParameters.signature_payload;
+                
+                if ((isPaymentFunction || hasOldFormat || !existingPayload) && !hasWebAuthnSignature && !isBase64IntentBytes) {
                     // Convert asset to contract address format if needed
                     let assetForPayload = processedParameters.asset || 'native';
                     if (assetForPayload === 'XLM' || assetForPayload === 'native' || assetForPayload === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
@@ -7079,8 +8871,8 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                         amount: amountForPayload,
                         asset: assetForPayload.substring(0, 8) + '...'
                     });
-                } else if (hasWebAuthnSignature && (hasOldFormat || !payloadToCheck)) {
-                    // WebAuthn signature exists but payload is old format or missing
+                } else if (hasWebAuthnSignature && (hasOldFormat || !payloadToCheck) && !isBase64IntentBytes) {
+                    // WebAuthn signature exists but payload is old format or missing (and not base64 intentBytes)
                     // For payment functions, we need the new format. For non-payment functions, old format is acceptable.
                     if (isPaymentFunction) {
                         // Payment functions must use new format
@@ -7107,10 +8899,16 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
                             processedParameters.signature_payload = signaturePayload;
                         }
                     }
-                } else if (hasWebAuthnSignature && payloadToCheck && !hasOldFormat) {
+                } else if (hasWebAuthnSignature && ((payloadToCheck && !hasOldFormat) || isBase64IntentBytes)) {
                     // WebAuthn signature exists and payload is valid - use existing payload
-                    signaturePayload = payloadToCheck;
-                    console.log(`[Execute] ℹ️  Using existing signature payload (WebAuthn signature was created for this payload)`);
+                    // OR base64-encoded intentBytes (Intent-based format)
+                    if (isBase64IntentBytes) {
+                        signaturePayload = payloadToCheck || signaturePayload;
+                        console.log(`[Execute] ℹ️  Using base64-encoded intentBytes as signature_payload (Intent-based WebAuthn)`);
+                    } else {
+                        signaturePayload = payloadToCheck;
+                        console.log(`[Execute] ℹ️  Using existing signature payload (WebAuthn signature was created for this payload)`);
+                    }
                 }
                 
                 // Update parameters with processed WebAuthn data
@@ -7141,6 +8939,31 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
         // console.log(`[Execute] 📋 Mapped parameters (${mappedParams.length} total):`, 
         //     mappedParams.map(p => `${p.name}(${p.type})=${p.value !== undefined && p.value !== null ? (typeof p.value === 'string' && p.value.length > 50 ? p.value.substring(0, 50) + '...' : p.value) : 'undefined/null'}`).join(', ')
         // );
+        
+        // Ensure WebAuthn parameters are included in mappedParams if they exist in processedParameters
+        // These might not be in the mapping but are required for contract execution
+        const webAuthnParamNames = ['webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'signature_payload'];
+        webAuthnParamNames.forEach(webAuthnParamName => {
+            if (processedParameters[webAuthnParamName] !== undefined && processedParameters[webAuthnParamName] !== null) {
+                const existingWebAuthnParam = mappedParams.find(p => p.name === webAuthnParamName);
+                if (!existingWebAuthnParam) {
+                    // Find the parameter type from mapping or default to Bytes
+                    const mappingParam = mapping?.parameters?.find(p => p.name === webAuthnParamName);
+                    mappedParams.push({
+                        name: webAuthnParamName,
+                        type: mappingParam?.type || 'Bytes',
+                        value: processedParameters[webAuthnParamName]
+                    });
+                    console.log(`[Execute] ✅ Added WebAuthn parameter ${webAuthnParamName} to mappedParams`);
+                } else {
+                    // Update existing parameter if value is missing
+                    if (!existingWebAuthnParam.value || existingWebAuthnParam.value === '') {
+                        existingWebAuthnParam.value = processedParameters[webAuthnParamName];
+                        console.log(`[Execute] ✅ Updated WebAuthn parameter ${webAuthnParamName} in mappedParams`);
+                    }
+                }
+            }
+        });
         
         // If mapping didn't find all parameters, try direct lookup as fallback
         // Also convert values that need conversion (XLM -> contract address, etc.)
@@ -8203,7 +10026,10 @@ router.post('/:id/execute', authenticateContractUser, async (req, res) => {
 router.post('/:id/test-function', authenticateContractUser, async (req, res) => {
     try {
         const { id } = req.params;
-        const { function_name, parameters } = req.body;
+        const { function_name, parameters: parametersFromBody, user_public_key } = req.body;
+        
+        // Use parameters from body, but make a copy so we can modify it
+        let parameters = parametersFromBody ? { ...parametersFromBody } : {};
 
         if (!function_name) {
             return res.status(400).json({ error: 'Function name is required' });
@@ -8258,13 +10084,55 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
             });
         }
 
+        // Get function parameters from discovered function
+        const functionParams = discoveredFunction.parameters || [];
+        
+        // Auto-populate signer_address and user_address from user's public key if missing
+        const userPublicKey = req.user?.public_key || req.body.user_public_key;
+        if (userPublicKey) {
+            // Check if function has signer_address parameter
+            const signerAddressParam = functionParams.find(p => 
+                (p.name === 'signer_address' || p.name === 'signerAddress') && 
+                (p.type === 'Address' || p.type === 'address')
+            );
+            if (signerAddressParam && (!parameters[signerAddressParam.name] || parameters[signerAddressParam.name] === '')) {
+                parameters[signerAddressParam.name] = userPublicKey;
+                console.log(`[Test Function] ✅ Auto-populated ${signerAddressParam.name} from user_public_key`);
+            }
+            
+            // Check if function has user_address parameter
+            const userAddressParam = functionParams.find(p => 
+                (p.name === 'user_address' || p.name === 'userAddress') && 
+                (p.type === 'Address' || p.type === 'address')
+            );
+            if (userAddressParam && (!parameters[userAddressParam.name] || parameters[userAddressParam.name] === '')) {
+                parameters[userAddressParam.name] = userPublicKey;
+                console.log(`[Test Function] ✅ Auto-populated ${userAddressParam.name} from user_public_key`);
+            }
+        }
+        
+        // Handle 'address' parameter - map it to 'destination' if destination is missing
+        if (parameters.address && !parameters.destination) {
+            // Check if function expects 'destination' parameter
+            const destinationParam = functionParams.find(p => 
+                (p.name === 'destination' || p.name === 'recipient' || p.name === 'to') && 
+                (p.type === 'Address' || p.type === 'address')
+            );
+            if (destinationParam) {
+                parameters[destinationParam.name] = parameters.address;
+                console.log(`[Test Function] ✅ Mapped 'address' parameter to '${destinationParam.name}'`);
+                // Remove 'address' to avoid confusion
+                delete parameters.address;
+            }
+        }
+        
         // Get function mapping - auto-generate if missing
         let mapping = functionMappings?.[function_name];
         
         // If mapping doesn't exist, auto-generate it from discovered function
         if (!mapping && discoveredFunction) {
             console.log(`[Test Function] Auto-generating mapping for function: ${function_name}`);
-            const parameters = (discoveredFunction.parameters || []).map(param => ({
+            const mappingParams = functionParams.map(param => ({
                 name: param.name || 'unknown',
                 type: param.type || 'unknown',
                 mapped_from: param.mapped_from || contractIntrospection.inferParameterMapping(
@@ -8274,7 +10142,7 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
             }));
             
             mapping = {
-                parameters: parameters,
+                parameters: mappingParams,
                 return_type: discoveredFunction.return_type || 'void',
                 auto_execute: false,
                 requires_confirmation: true
@@ -8290,25 +10158,29 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
             );
             console.log(`[Test Function] Saved auto-generated mapping for function: ${function_name}`);
         }
-
+        
         // Validate parameters against discovered function signature
         const validationErrors = [];
-        const functionParams = discoveredFunction.parameters || [];
         
         // Check required parameters
         functionParams.forEach(param => {
-            if (parameters[param.name] === undefined && param.required !== false) {
+            const paramValue = parameters[param.name];
+            if ((paramValue === undefined || paramValue === null || paramValue === '') && param.required !== false) {
                 validationErrors.push(`Missing required parameter: ${param.name} (type: ${param.type})`);
             }
         });
-
-        // Check for unknown parameters
+        
+        // Check for unknown parameters (but allow 'address' as alias for destination)
         Object.keys(parameters).forEach(paramName => {
+            if (paramName === 'address') {
+                // 'address' is allowed as alias, skip validation
+                return;
+            }
             if (!functionParams.find(p => p.name === paramName)) {
                 validationErrors.push(`Unknown parameter: ${paramName}`);
             }
         });
-
+        
         if (validationErrors.length > 0) {
             return res.status(400).json({
                 error: 'Parameter validation failed',
@@ -8317,7 +10189,9 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
                     name: p.name,
                     type: p.type,
                     required: p.required !== false
-                }))
+                })),
+                received_parameters: Object.keys(parameters),
+                note: 'Tip: You can use "address" as an alias for "destination" parameter'
             });
         }
         
@@ -8325,6 +10199,29 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
         let scValParams = [];
         
         if (mapping) {
+            // Ensure auto-populated values are in parameters before mapping
+            // This ensures mapFieldsToContract can find them
+            if (userPublicKey && mapping.parameters) {
+                mapping.parameters.forEach(param => {
+                    const paramName = param.name;
+                    if ((paramName === 'signer_address' || paramName === 'signerAddress' || 
+                         paramName === 'user_address' || paramName === 'userAddress') &&
+                        (param.type === 'Address' || param.type === 'address')) {
+                        if (!parameters[paramName] || parameters[paramName] === '') {
+                            parameters[paramName] = userPublicKey;
+                            console.log(`[Test Function] ✅ Pre-mapping: Auto-populated ${paramName} from user_public_key`);
+                        }
+                        // Also set mapped_from key if it exists
+                        if (param.mapped_from && param.mapped_from !== paramName) {
+                            if (!parameters[param.mapped_from] || parameters[param.mapped_from] === '') {
+                                parameters[param.mapped_from] = userPublicKey;
+                                console.log(`[Test Function] ✅ Pre-mapping: Auto-populated ${param.mapped_from} (mapped_from) from user_public_key`);
+                            }
+                        }
+                    }
+                });
+            }
+            
             // If mapping exists, validate parameter mapping
             try {
                 mappedParams = contractIntrospection.mapFieldsToContract(parameters, mapping);
@@ -8334,6 +10231,21 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
                     message: error.message,
                     details: 'Check that parameter names and types match the function mapping',
                     note: 'Function exists and parameters are valid, but mapping configuration needs adjustment'
+                });
+            }
+            
+            // After mapping, check if any required Address parameters are still missing and auto-populate
+            if (userPublicKey) {
+                mappedParams.forEach((mappedParam, index) => {
+                    if ((mappedParam.type === 'Address' || mappedParam.type === 'address') &&
+                        (!mappedParam.value || mappedParam.value === '')) {
+                        const paramName = mappedParam.name;
+                        if (paramName === 'signer_address' || paramName === 'signerAddress' ||
+                            paramName === 'user_address' || paramName === 'userAddress') {
+                            mappedParams[index].value = userPublicKey;
+                            console.log(`[Test Function] ✅ Post-mapping: Auto-populated ${paramName} from user_public_key`);
+                        }
+                    }
                 });
             }
 
@@ -8347,17 +10259,45 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
                     error: 'Parameter conversion failed',
                     message: error.message,
                     details: 'Check that parameter values match expected types',
-                    note: 'Function exists and parameters are valid, but value conversion failed'
+                    note: 'Function exists and parameters are valid, but value conversion failed',
+                    parameter_details: mappedParams.map(p => ({
+                        name: p.name,
+                        type: p.type,
+                        value: p.value,
+                        is_undefined: p.value === undefined,
+                        is_null: p.value === null,
+                        is_empty: p.value === ''
+                    }))
                 });
             }
         } else {
             // No mapping configured - just validate parameter structure
             // This is okay for testing, but execution will require mapping
-            mappedParams = functionParams.map(param => ({
-                name: param.name,
-                type: param.type,
-                value: parameters[param.name]
-            }));
+            mappedParams = functionParams.map(param => {
+                let value = parameters[param.name];
+                
+                // Auto-populate signer_address if missing
+                if ((param.name === 'signer_address' || param.name === 'signerAddress') && 
+                    (param.type === 'Address' || param.type === 'address') && 
+                    (!value || value === '')) {
+                    value = userPublicKey;
+                    console.log(`[Test Function] ✅ Auto-populated ${param.name} from user_public_key`);
+                }
+                
+                // Auto-populate user_address if missing
+                if ((param.name === 'user_address' || param.name === 'userAddress') && 
+                    (param.type === 'Address' || param.type === 'address') && 
+                    (!value || value === '')) {
+                    value = userPublicKey;
+                    console.log(`[Test Function] ✅ Auto-populated ${param.name} from user_public_key`);
+                }
+                
+                return {
+                    name: param.name,
+                    type: param.type,
+                    value: value
+                };
+            });
         }
 
         // Actually simulate the contract call using Stellar SDK
@@ -8449,8 +10389,8 @@ router.post('/:id/test-function', authenticateContractUser, async (req, res) => 
         
         // Use a dummy account for simulation (read-only, no signing needed)
         // Get user's public key from request if available, otherwise use a dummy
-        const userPublicKey = req.user?.public_key || 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-        const dummyAccount = new StellarSdk.Account(userPublicKey, '0');
+        const dummyPublicKey = userPublicKey || req.user?.public_key || 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+        const dummyAccount = new StellarSdk.Account(dummyPublicKey, '0');
         
         const transaction = new StellarSdk.TransactionBuilder(dummyAccount, {
             fee: StellarSdk.BASE_FEE,

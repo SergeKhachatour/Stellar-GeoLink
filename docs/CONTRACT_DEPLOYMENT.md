@@ -88,11 +88,8 @@ WEBAUTHN_DISPATCHER_CONTRACT_ID=CDGRO2434K4NT37VZRILKJYCWNWNIF2M3DUTA47SCKO7TBPC
 REACT_APP_WEBAUTHN_DISPATCHER_CONTRACT_ID=CDGRO2434K4NT37VZRILKJYCWNWNIF2M3DUTA47SCKO7TBPCDEF5ZICV
 ```
 
-### Optional: Intent-Based Execution
-```bash
-# Frontend (optional)
-REACT_APP_USE_EXECUTION_ENGINE=true
-```
+### Intent Preview (Always Enabled)
+Intent preview is always shown before contract execution. No configuration needed.
 
 ## Summary
 

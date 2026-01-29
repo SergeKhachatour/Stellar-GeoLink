@@ -1651,6 +1651,8 @@ const ContractDetailsOverlay = ({ open, onClose, item, itemType = 'nft', userLoc
         }}
         maxWidth="sm"
         fullWidth
+        sx={{ zIndex: 1600 }} // Higher than contract details overlay (1500)
+        PaperProps={{ sx: { zIndex: 1600 } }}
       >
         <DialogTitle sx={{ 
           display: 'flex', 

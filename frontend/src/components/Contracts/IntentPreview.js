@@ -21,7 +21,9 @@ import {
   AccordionDetails,
   Alert,
   IconButton,
-  Tooltip
+  Tooltip,
+  TextField,
+  InputAdornment
 } from '@mui/material';
 import {
   ExpandMore as ExpandMoreIcon,
@@ -38,17 +40,26 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
   const [intentBytes, setIntentBytes] = useState(null);
   const [challenge, setChallenge] = useState(null);
   const [copied, setCopied] = useState({});
+  const [editableArgs, setEditableArgs] = useState([]);
+  const [modifiedIntent, setModifiedIntent] = useState(null);
 
   useEffect(() => {
     if (open && intent) {
+      // Initialize editable args from intent
+      setEditableArgs(intent.args ? [...intent.args] : []);
+      setModifiedIntent(null);
       loadIntentDetails();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, intent]);
 
-  const loadIntentDetails = async () => {
+  const loadIntentDetails = async (intentToEncode = null) => {
     try {
-      const bytes = await encodeIntentBytes(intent);
+      // Use provided intent, modified intent, or original intent
+      const intentToUse = intentToEncode || modifiedIntent || intent;
+      if (!intentToUse) return;
+      
+      const bytes = await encodeIntentBytes(intentToUse);
       setIntentBytes(bytes);
       
       const challenge32 = await challengeFromIntent(bytes);
@@ -56,6 +67,53 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
     } catch (error) {
       console.error('Failed to load intent details:', error);
     }
+  };
+
+  // Update intent details when editable args change (debounced)
+  useEffect(() => {
+    if (editableArgs.length > 0 && intent) {
+      const updatedIntent = {
+        ...intent,
+        args: editableArgs
+      };
+      setModifiedIntent(updatedIntent);
+      
+      // Debounce the reload to avoid too many recalculations
+      const timeoutId = setTimeout(() => {
+        loadIntentDetails(updatedIntent);
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editableArgs]);
+
+  const handleArgChange = (index, newValue) => {
+    const updatedArgs = [...editableArgs];
+    updatedArgs[index] = {
+      ...updatedArgs[index],
+      value: newValue
+    };
+    setEditableArgs(updatedArgs);
+  };
+
+  const getDisplayType = (arg) => {
+    // Check if type includes Address (case-insensitive)
+    const type = arg.type || 'String';
+    const name = (arg.name || '').toLowerCase();
+    
+    // Check type first
+    if (type.toLowerCase().includes('address')) {
+      return 'Address';
+    }
+    
+    // Also check parameter name for common address field names
+    const addressFieldNames = ['address', 'destination', 'recipient', 'to', 'signer_address', 'signer', 'from', 'sender'];
+    if (addressFieldNames.some(fieldName => name.includes(fieldName))) {
+      return 'Address';
+    }
+    
+    return type;
   };
 
   const copyToClipboard = (text, key) => {
@@ -166,26 +224,37 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
               </Typography>
             </AccordionSummary>
             <AccordionDetails>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {intent.args.map((arg, index) => (
-                  <Card key={index} variant="outlined">
-                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                        <Box>
-                          <Typography variant="body2" fontWeight="bold">
-                            {arg.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Type: {arg.type}
-                          </Typography>
-                          <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                            {typeof arg.value === 'object' ? JSON.stringify(arg.value) : String(arg.value)}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                ))}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {editableArgs.map((arg, index) => {
+                  const displayType = getDisplayType(arg);
+                  const isAddressType = displayType === 'Address';
+                  const isNumberType = displayType.includes('I128') || displayType.includes('U128') || 
+                                     displayType.includes('u32') || displayType.includes('i32');
+                  
+                  return (
+                    <TextField
+                      key={index}
+                      fullWidth
+                      label={arg.name}
+                      value={arg.value || ''}
+                      onChange={(e) => handleArgChange(index, e.target.value)}
+                      type={isNumberType ? 'number' : 'text'}
+                      helperText={`Type: ${displayType}`}
+                      InputProps={{
+                        startAdornment: isAddressType ? (
+                          <InputAdornment position="start">
+                            <Chip label="Address" size="small" sx={{ mr: 1 }} />
+                          </InputAdornment>
+                        ) : null
+                      }}
+                      sx={{
+                        '& .MuiInputBase-root': {
+                          fontFamily: isAddressType ? 'monospace' : 'inherit'
+                        }
+                      }}
+                    />
+                  );
+                })}
               </Box>
             </AccordionDetails>
           </Accordion>
@@ -305,7 +374,15 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
           Cancel
         </Button>
         <Button
-          onClick={onConfirm}
+          onClick={() => {
+            // Pass modified intent if available
+            if (modifiedIntent) {
+              // Update the intent in parent component before confirming
+              onConfirm(modifiedIntent);
+            } else {
+              onConfirm();
+            }
+          }}
           variant="contained"
           disabled={loading || (intent.exp <= Math.floor(Date.now() / 1000))}
           startIcon={loading ? <ScheduleIcon /> : <CheckCircleIcon />}

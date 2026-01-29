@@ -73,7 +73,9 @@ import {
   ContentCopy as ContentCopyIcon,
   CheckBox as CheckBoxIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
-  SmartToy as SmartToyIcon
+  SmartToy as SmartToyIcon,
+  Refresh as RefreshIcon,
+  CleaningServices as CleaningServicesIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -134,6 +136,8 @@ const ContractManagement = () => {
   const [rules, setRules] = useState([]);
   const [pendingRules, setPendingRules] = useState([]);
   const [loadingPendingRules, setLoadingPendingRules] = useState(false);
+  const [pendingDeposits, setPendingDeposits] = useState([]);
+  const [loadingPendingDeposits, setLoadingPendingDeposits] = useState(false);
   const [completedRules, setCompletedRules] = useState([]);
   const [loadingCompletedRules, setLoadingCompletedRules] = useState(false);
   const [rejectedRules, setRejectedRules] = useState([]);
@@ -248,6 +252,10 @@ const ContractManagement = () => {
   const [rejectedRulesPage, setRejectedRulesPage] = useState(0);
   const [rejectedRulesRowsPerPage, setRejectedRulesRowsPerPage] = useState(10);
   
+  // Cleanup states
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [cleanupStats, setCleanupStats] = useState(null);
+  
   // Quick Map View States
   const [mapViewOpen, setMapViewOpen] = useState(false);
   const [selectedRuleForMap, setSelectedRuleForMap] = useState(null);
@@ -272,8 +280,10 @@ const ContractManagement = () => {
       if (tabValue === 2) {
         loadPendingRules();
       } else if (tabValue === 3) {
-        loadCompletedRules();
+        loadPendingDeposits();
       } else if (tabValue === 4) {
+        loadCompletedRules();
+      } else if (tabValue === 5) {
         loadRejectedRules();
       }
     }
@@ -288,12 +298,16 @@ const ContractManagement = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showActiveRulesOnly, isAuthenticated]);
 
-  // Auto-refresh pending rules count every 5 seconds
+  // Auto-refresh pending rules and deposits count every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (tabValue === 2 && !batchExecuting) {
-        // Only refresh if we're on the pending rules tab and not executing a batch
-        loadPendingRules();
+      if (!batchExecuting) {
+        // Refresh based on current tab
+        if (tabValue === 2) {
+          loadPendingRules();
+        } else if (tabValue === 3) {
+          loadPendingDeposits();
+        }
       }
     }, 10000); // Refresh every 10 seconds (increased from 5 to reduce flickering)
 
@@ -527,6 +541,21 @@ const ContractManagement = () => {
     }
   };
 
+  const loadPendingDeposits = async () => {
+    try {
+      setLoadingPendingDeposits(true);
+      const response = await api.get('/contracts/rules/pending/deposits');
+      if (response.data.success) {
+        setPendingDeposits(response.data.pending_deposits || []);
+      }
+    } catch (err) {
+      console.error('Error loading pending deposits:', err);
+      setError(err.response?.data?.error || 'Failed to load pending deposits');
+    } finally {
+      setLoadingPendingDeposits(false);
+    }
+  };
+
   const loadPendingRules = async () => {
     // Don't refresh if batch execution is in progress
     if (batchExecuting) {
@@ -687,6 +716,175 @@ const ContractManagement = () => {
       setError(err.response?.data?.error || 'Failed to load rejected rules');
     } finally {
       setLoadingRejectedRules(false);
+    }
+  };
+
+  const handleExecuteDeposit = async (deposit) => {
+    try {
+      // Get user's secret key from wallet context (already available at component level)
+      const userSecretKey = secretKey || localStorage.getItem('stellar_secret_key');
+      
+      if (!userSecretKey) {
+        setError('Secret key required to execute deposit. Please connect your wallet or enter your secret key.');
+        return;
+      }
+
+      // Verify the deposit belongs to the current user
+      if (user?.public_key && deposit.matched_public_key !== user.public_key) {
+        setError('You can only execute deposits for your own wallet');
+        return;
+      }
+
+      // Get contract details
+      const contract = contracts.find(c => c.id === deposit.contract_id);
+      if (!contract) {
+        setError('Contract not found');
+        return;
+      }
+
+      // Filter out WebAuthn fields from parameters before creating intent
+      const webauthnFieldNames = [
+        'signature_payload',
+        'webauthn_signature',
+        'webauthn_authenticator_data',
+        'webauthn_client_data',
+        'webauthn_client_data_json'
+      ];
+      const intentParams = {};
+      for (const [key, value] of Object.entries(deposit.parameters || {})) {
+        if (!webauthnFieldNames.includes(key) && 
+            value && 
+            typeof value === 'string' && 
+            !value.includes('[Will be') && 
+            !value.includes('system-generated')) {
+          intentParams[key] = value;
+        }
+      }
+
+      // Convert parameters to typed args using introspection
+      let typedArgs = [];
+      if (contract.discovered_functions) {
+        const discoveredFunctions = typeof contract.discovered_functions === 'string'
+          ? JSON.parse(contract.discovered_functions)
+          : contract.discovered_functions;
+        
+        const func = discoveredFunctions[deposit.function_name];
+        if (func && func.parameters && Array.isArray(func.parameters)) {
+          typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, intentParams);
+        } else {
+          // Fallback: create typed args from parameters object
+          typedArgs = Object.entries(intentParams).map(([name, value]) => ({
+            name,
+            type: 'String', // Default type
+            value
+          }));
+        }
+      } else {
+        // Fallback: create typed args from parameters object
+        typedArgs = Object.entries(intentParams).map(([name, value]) => ({
+          name,
+          type: 'String', // Default type
+          value
+        }));
+      }
+
+      // Create contract call intent
+      const intent = intentService.createContractCallIntent({
+        contractId: contract.contract_address,
+        fn: deposit.function_name,
+        args: typedArgs,
+        signer: deposit.matched_public_key,
+        network: contract.network || 'testnet',
+        ruleBinding: deposit.rule_id ? deposit.rule_id.toString() : null
+      });
+
+      // Encode intent to bytes
+      const intentBytes = await intentService.encodeIntentBytes(intent);
+      const signaturePayload = Buffer.from(intentBytes).toString('base64');
+
+      // Generate WebAuthn challenge from intent bytes
+      const challenge = await intentService.challengeFromIntent(intentBytes);
+
+      // Convert challenge to base64 for WebAuthn
+      const challengeBase64 = Buffer.from(challenge).toString('base64');
+
+      // Perform WebAuthn authentication
+      const webauthnResult = await webauthnService.authenticateUser({
+        challenge: challengeBase64,
+        publicKey: deposit.matched_public_key
+      });
+
+      if (!webauthnResult) {
+        setError('WebAuthn authentication failed or was cancelled');
+        return;
+      }
+
+      // Execute deposit
+      const response = await api.post(
+        `/contracts/rules/pending/deposits/${deposit.id}/execute`,
+        {
+          public_key: deposit.matched_public_key,
+          user_secret_key: userSecretKey,
+          webauthn_signature: webauthnResult.signature,
+          webauthn_authenticator_data: webauthnResult.authenticatorData,
+          webauthn_client_data: webauthnResult.clientDataJSON,
+          signature_payload: signaturePayload,
+          passkey_public_key_spki: webauthnResult.publicKeySPKI
+        }
+      );
+
+      if (response.data.success) {
+        setSuccess(`Deposit executed successfully! Transaction: ${response.data.transaction_hash}`);
+        if (response.data.stellar_expert_url) {
+          console.log('View transaction:', response.data.stellar_expert_url);
+        }
+        // Reload deposits to update the list
+        await loadPendingDeposits();
+        // Also reload completed rules to show the completed deposit
+        await loadCompletedRules();
+      }
+    } catch (err) {
+      console.error('Error executing deposit:', err);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to execute deposit');
+    }
+  };
+
+  const handleCleanupPendingRules = async () => {
+    try {
+      setCleaningUp(true);
+      setCleanupStats(null);
+      setError('');
+      setSuccess('');
+      
+      const response = await api.post('/contracts/rules/pending/cleanup');
+      
+      if (response.data.success) {
+        const stats = response.data.stats || {};
+        const rateLimitStats = response.data.rateLimitReEvaluation || {};
+        
+        setCleanupStats({
+          ...stats,
+          rateLimitReEvaluation: rateLimitStats
+        });
+        
+        setSuccess(`Cleanup completed! Re-evaluated ${rateLimitStats.reEvaluated || 0} expired rate limit(s).`);
+        
+        // Refresh pending rules to show updated data
+        await loadPendingRules();
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => {
+          setSuccess('');
+          setCleanupStats(null);
+        }, 5000);
+      } else {
+        setError(response.data.error || 'Cleanup failed');
+      }
+    } catch (err) {
+      console.error('Error cleaning up pending rules:', err);
+      setError(err.response?.data?.error || 'Failed to cleanup pending rules');
+    } finally {
+      setCleaningUp(false);
     }
   };
 
@@ -1900,18 +2098,55 @@ const ContractManagement = () => {
   }, [pendingRules, selectedPendingRules, getPendingRuleKey]);
 
   // Helper function to detect if a function is payment-related
+  // Generic function to check if a function requires destination/amount parameters
+  // This is based on introspection, not hardcoded function names
+  const requiresDestinationAndAmount = (rule, contract, functionParams = {}) => {
+    if (!contract || !contract.discovered_functions) {
+      return false;
+    }
+    
+    try {
+      const discoveredFunctions = typeof contract.discovered_functions === 'string'
+        ? JSON.parse(contract.discovered_functions)
+        : contract.discovered_functions;
+      
+      const func = discoveredFunctions[rule?.function_name];
+      if (!func || !func.parameters || !Array.isArray(func.parameters)) {
+        return false;
+      }
+      
+      // Check if function has both destination-like and amount-like parameters
+      const paramNames = func.parameters.map(p => (p.name || p.parameter_name || '').toLowerCase());
+      const destinationParams = ['destination', 'recipient', 'to', 'to_address', 'destination_address'];
+      const amountParams = ['amount', 'value', 'quantity'];
+      
+      const hasDestination = paramNames.some(name => 
+        destinationParams.some(dest => name.includes(dest))
+      );
+      const hasAmount = paramNames.some(name => 
+        amountParams.some(amt => name.includes(amt))
+      );
+      
+      return hasDestination && hasAmount;
+    } catch (e) {
+      console.warn('[ContractManagement] Error checking function parameters:', e);
+      return false;
+    }
+  };
+
+  // Legacy function for backward compatibility - now uses introspection
   const isPaymentFunction = (functionName, functionParams) => {
     if (!functionName) return false;
     
+    // For backward compatibility, still check function name patterns
     const paymentPatterns = ['transfer', 'payment', 'send', 'pay', 'withdraw', 'deposit'];
     const funcNameLower = functionName.toLowerCase();
     
-    // Check function name
     if (paymentPatterns.some(pattern => funcNameLower.includes(pattern))) {
       return true;
     }
     
-    // Check parameters for payment-related fields
+    // Check parameters for payment-related fields (generic check)
     if (functionParams && typeof functionParams === 'object') {
       const paymentParams = ['destination', 'recipient', 'to', 'amount', 'asset', 'asset_address'];
       const paramKeys = Object.keys(functionParams).map(k => k.toLowerCase());
@@ -2809,16 +3044,25 @@ const ContractManagement = () => {
   };
 
   // Handle intent preview confirmation and execute with backend API
-  const handleIntentPreviewConfirm = async () => {
-    if (!currentIntent) {
-      console.error('[ContractManagement] handleIntentPreviewConfirm called but currentIntent is null');
+  const handleIntentPreviewConfirm = async (modifiedIntent = null) => {
+    // Use modified intent if provided, otherwise use current intent
+    const intentToUse = modifiedIntent || currentIntent;
+    
+    if (!intentToUse) {
+      console.error('[ContractManagement] handleIntentPreviewConfirm called but intent is null');
       return;
     }
     
+    // Update currentIntent with modified values if provided
+    if (modifiedIntent) {
+      setCurrentIntent(modifiedIntent);
+    }
+    
     console.log('[ContractManagement] Intent preview confirmed, starting execution...', {
-      hasCurrentIntent: !!currentIntent,
+      hasCurrentIntent: !!intentToUse,
       hasCurrentIntentRule: !!currentIntentRule,
-      intentNonce: currentIntent.nonce
+      intentNonce: intentToUse.nonce,
+      hasModifiedIntent: !!modifiedIntent
     });
     
     // Close the intent preview dialog
@@ -2831,17 +3075,44 @@ const ContractManagement = () => {
       console.error('[ContractManagement] No rule found for intent execution:', {
         hasCurrentIntentRule: !!currentIntentRule,
         hasExecuteConfirmDialogRule: !!executeConfirmDialog.rule,
-        currentIntent: currentIntent
+        currentIntent: intentToUse
       });
       setError('No rule found for execution. Please try executing again.');
       setExecutingRule(false);
       return;
     }
 
-    // Continue with backend execution flow, but skip intent creation since we already have it
-    // This will handle WebAuthn, payments, smart wallet routing, etc.
-    console.log('[ContractManagement] Calling handleConfirmExecute with skipIntentCreation=true');
-    await handleConfirmExecute(rule, null, true); // Pass skipIntentCreation = true
+      // CRITICAL: Encode Intent to bytes and derive challenge BEFORE WebAuthn authentication
+      // The challenge will be used for WebAuthn, and intentBytes will be used for signature_payload
+      try {
+        const intentBytes = await intentService.encodeIntentBytes(intentToUse);
+        const challenge = await intentService.challengeFromIntent(intentBytes);
+        
+        console.log('[ContractManagement] ✅ Intent encoded to bytes:', {
+          intentBytesLength: intentBytes.length,
+          challengeLength: challenge.length,
+          intentNonce: intentToUse.nonce
+        });
+        
+        // Store intentBytes and challenge for use in execution
+        // Update state to ensure the modified Intent is available in handleConfirmExecute
+        const intentWithBytes = {
+          ...intentToUse,
+          _intentBytes: intentBytes,
+          _challenge: challenge
+        };
+        setCurrentIntent(intentWithBytes);
+        
+        // Continue with backend execution flow, but skip intent creation since we already have it
+        // This will handle WebAuthn, payments, smart wallet routing, etc.
+        // Use the updated intentWithBytes for execution
+        console.log('[ContractManagement] Calling handleConfirmExecute with skipIntentCreation=true');
+        await handleConfirmExecute(rule, null, true); // Pass skipIntentCreation = true
+    } catch (intentError) {
+      console.error('[ContractManagement] ❌ Failed to encode Intent:', intentError);
+      setError(`Failed to prepare Intent for execution: ${intentError.message}`);
+      setExecutingRule(false);
+    }
   };
 
   // Helper function to check for missing required parameters
@@ -2910,20 +3181,70 @@ const ContractManagement = () => {
       ? JSON.parse(rule.function_parameters)
       : rule.function_parameters || {});
 
-    // Check for missing required parameters (unless params were just provided)
-    if (!providedParams && contract) {
+    // CRITICAL: Check for missing required parameters (including destination) BEFORE creating Intent
+    // This ensures all required fields are provided before we encode the Intent
+    if (contract) {
       const { missing, parameters } = checkMissingParameters(rule, contract, functionParams);
       
-      console.log('[ContractManagement] Parameter check:', {
-        missingCount: missing.length,
-        missingParams: missing.map(p => p.name || p.parameter_name),
-        hasProvidedParams: !!providedParams,
-        functionParams: Object.keys(functionParams)
-      });
+      // Check if function requires destination and amount (generic check based on introspection)
+      const needsDestinationAndAmount = requiresDestinationAndAmount(rule, contract, functionParams);
       
-      if (missing.length > 0) {
-        // Show parameter dialog
-        console.log('[ContractManagement] Showing parameter dialog for missing parameters:', missing.map(p => p.name || p.parameter_name));
+      if (needsDestinationAndAmount) {
+        // Find destination parameter name from introspection
+        const destinationParam = parameters.find(p => {
+          const name = (p.name || p.parameter_name || '').toLowerCase();
+          return ['destination', 'recipient', 'to', 'to_address', 'destination_address'].some(dest => name.includes(dest));
+        });
+        
+        if (destinationParam) {
+          const destParamName = destinationParam.name || destinationParam.parameter_name;
+          let destination = functionParams[destParamName] || 
+                           functionParams.destination || 
+                           functionParams.recipient || 
+                           functionParams.to || 
+                           functionParams.to_address || 
+                           functionParams.destination_address || '';
+          
+          // Check if destination is a placeholder or empty
+          const isPlaceholder = destination && (
+            destination.includes('[Will be') || 
+            destination.includes('system-generated') ||
+            destination.trim() === ''
+          );
+          
+          // Resolve destination from matched_public_key if available (for pending rules)
+          if ((!destination || isPlaceholder) && rule.matched_public_key) {
+            destination = rule.matched_public_key;
+            console.log('[ContractManagement] ✅ Resolved destination from matched_public_key before Intent creation:', destination.substring(0, 8) + '...');
+            functionParams = {
+              ...functionParams,
+              [destParamName]: destination,
+              destination: destination,
+              recipient: destination,
+              to: destination,
+              to_address: destination,
+              destination_address: destination
+            };
+          }
+          
+          // Validate destination is resolved - if missing, show parameter dialog
+          if (!destination || destination.includes('[Will be') || destination.includes('system-generated')) {
+            console.log('[ContractManagement] ⚠️ Destination not resolved, showing parameter dialog');
+            // Add destination to missing parameters if not already there
+            const destMissing = missing.find(m => {
+              const name = (m.name || m.parameter_name || '').toLowerCase();
+              return name === destParamName.toLowerCase();
+            });
+            if (!destMissing) {
+              missing.push(destinationParam);
+            }
+          }
+        }
+      }
+      
+      // If there are missing parameters, show parameter dialog
+      if (missing.length > 0 && !providedParams) {
+        console.log('[ContractManagement] Missing required parameters, showing parameter dialog:', missing.map(p => p.name || p.parameter_name));
         setParameterDialogData({
           functionName: rule.function_name,
           parameters: parameters,
@@ -2933,16 +3254,49 @@ const ContractManagement = () => {
         });
         setPendingExecution({ rule, contract, isReadOnly });
         setParameterDialogOpen(true);
-        setExecutingRule(false); // Don't start execution yet
+        setExecutingRule(false);
         return; // Wait for user to provide parameters
       }
     }
+    
+    // Remove all placeholders from functionParams before Intent creation
+    const cleanedParams = {};
+    for (const [key, value] of Object.entries(functionParams)) {
+      if (typeof value === 'string' && (
+        value.includes('[Will be') || 
+        value.includes('system-generated')
+      )) {
+        console.warn(`[ContractManagement] ⚠️ Removing placeholder value for ${key}: ${value}`);
+        // Skip placeholders - they should have been resolved above
+        continue;
+      }
+      cleanedParams[key] = value;
+    }
+    functionParams = cleanedParams;
+    
     
     // Always create intent and show preview before execution (unless skipping)
     let intent = null;
     if (contract && !skipIntentCreation) {
       console.log('[ContractManagement] Creating new intent (skipIntentCreation=false)');
       try {
+        // CRITICAL: Filter out WebAuthn fields from functionParams before creating typedArgs
+        // WebAuthn fields are part of AuthProof, not Intent
+        const webauthnFieldNames = [
+          'signature_payload',
+          'webauthn_signature',
+          'webauthn_authenticator_data',
+          'webauthn_client_data',
+          'webauthn_client_data_json'
+        ];
+        const intentParams = {};
+        for (const [key, value] of Object.entries(functionParams)) {
+          if (!webauthnFieldNames.includes(key)) {
+            intentParams[key] = value;
+          }
+        }
+        console.log('[ContractManagement] Filtered WebAuthn fields from Intent params. Remaining:', Object.keys(intentParams));
+        
         // Convert function params to typed args
         let typedArgs = [];
         if (contract.discovered_functions) {
@@ -2953,24 +3307,29 @@ const ContractManagement = () => {
           const func = discoveredFunctions[rule.function_name];
           if (func && func.parameters && Array.isArray(func.parameters)) {
             // Use introspected parameters to preserve correct types (Address, I128, U128, etc.)
-            typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, functionParams);
+            // This will also filter out WebAuthn fields and placeholders
+            typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, intentParams);
             console.log('[ContractManagement] Created typed args from introspection:', typedArgs.map(a => ({ name: a.name, type: a.type })));
           } else {
             // Fallback: convert parameters object to typed args (shouldn't happen if introspection is available)
             console.warn('[ContractManagement] No introspected parameters found, inferring types from values');
-            typedArgs = Object.entries(functionParams).map(([name, value]) => ({
+            typedArgs = Object.entries(intentParams)
+              .filter(([name]) => !webauthnFieldNames.includes(name)) // Double-check: exclude WebAuthn fields
+              .map(([name, value]) => ({
+                name,
+                type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',
+                value
+              }));
+          }
+        } else {
+          // No introspection available, infer types from values
+          typedArgs = Object.entries(intentParams)
+            .filter(([name]) => !webauthnFieldNames.includes(name)) // Double-check: exclude WebAuthn fields
+            .map(([name, value]) => ({
               name,
               type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',
               value
             }));
-          }
-        } else {
-          // No introspection available, infer types from values
-          typedArgs = Object.entries(functionParams).map(([name, value]) => ({
-            name,
-            type: typeof value === 'string' ? 'String' : typeof value === 'number' ? 'I128' : 'String',
-            value
-          }));
         }
 
         // Determine auth mode
@@ -3204,20 +3563,47 @@ const ContractManagement = () => {
         // For now, if paymentSource is 'wallet' and it's a payment function, we still execute through the contract
         // but the contract should handle routing based on use_smart_wallet setting
         
-        // Create signature payload from function parameters
-        // For payment functions (especially those requiring WebAuthn), ALWAYS use the new format
-        // Format: {source, destination, amount, asset, memo, timestamp}
-        // This matches the format expected by the smart wallet contract
+        // CRITICAL: Use Intent bytes for WebAuthn if Intent was already created
+        // Otherwise, fall back to legacy JSON signaturePayload for backward compatibility
         let signaturePayload;
+        let intentBytes = null;
+        let challenge = null;
+        let authProof = null;
         
-        // Check if this is a payment function
-        const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
-                             rule.function_name.toLowerCase().includes('payment') ||
-                             rule.function_name.toLowerCase().includes('transfer') ||
-                             rule.function_name.toLowerCase().includes('send') ||
-                             rule.function_name.toLowerCase().includes('pay');
-        
-        if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
+        // Check if Intent was already created (from intent preview)
+        // CRITICAL: Check currentIntent from state, not from closure
+        const intentFromState = currentIntent; // Use current state value
+        if (intentFromState && intentFromState._intentBytes && intentFromState._challenge) {
+          // Use Intent bytes for WebAuthn authentication
+          intentBytes = intentFromState._intentBytes;
+          challenge = intentFromState._challenge;
+          
+          console.log('[ContractManagement] ✅ Using Intent bytes for WebAuthn authentication:', {
+            intentBytesLength: intentBytes.length,
+            challengeLength: challenge.length,
+            intentNonce: intentFromState.nonce,
+            hasIntentBytes: !!intentBytes,
+            hasChallenge: !!challenge
+          });
+        } else {
+          console.log('[ContractManagement] ⚠️ Intent bytes not available, using legacy path:', {
+            hasCurrentIntent: !!intentFromState,
+            hasIntentBytes: !!(intentFromState && intentFromState._intentBytes),
+            hasChallenge: !!(intentFromState && intentFromState._challenge)
+          });
+          // Legacy path: Create signature payload from function parameters (backward compatibility)
+          // For payment functions (especially those requiring WebAuthn), ALWAYS use the new format
+          // Format: {source, destination, amount, asset, memo, timestamp}
+          // This matches the format expected by the smart wallet contract
+          
+          // Check if this is a payment function
+          const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
+                               rule.function_name.toLowerCase().includes('payment') ||
+                               rule.function_name.toLowerCase().includes('transfer') ||
+                               rule.function_name.toLowerCase().includes('send') ||
+                               rule.function_name.toLowerCase().includes('pay');
+          
+          if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
           // For payment functions, create signature payload in the format expected by the smart wallet contract
           // Format: {source, destination, amount, asset, memo, timestamp}
           // This matches the format used in SendPayment component
@@ -3281,6 +3667,7 @@ const ContractManagement = () => {
             timestamp: Date.now()
           });
         }
+        } // Close the else block from line 3322 (legacy signaturePayload path)
 
         setExecutionStatus('Authenticating with passkey...');
         setExecutionStep(1);
@@ -3289,31 +3676,76 @@ const ContractManagement = () => {
         await new Promise(resolve => setTimeout(resolve, 300));
         
         // Authenticate with passkey
-        const authResult = await webauthnService.authenticateWithPasskey(
-          credentialId,
-          signaturePayload
-        );
+        let authResult;
+        if (intentBytes && challenge) {
+          // Use Intent challenge for WebAuthn authentication
+          console.log('[ContractManagement] Authenticating with Intent challenge');
+          authResult = await webauthnService.authenticateWithPasskey(
+            credentialId,
+            challenge // Use Intent challenge instead of JSON signaturePayload
+          );
+          
+          // Create AuthProof from WebAuthn result and Intent bytes
+          authProof = intentService.createAuthProof({
+            intentBytes: intentBytes,
+            webauthnSignature: authResult.signature,
+            webauthnAuthenticatorData: authResult.authenticatorData,
+            webauthnClientDataJSON: authResult.clientDataJSON
+          });
+          
+          // signature_payload is base64-encoded intentBytes (from AuthProof)
+          signaturePayload = authProof.signature_payload;
+          
+          console.log('[ContractManagement] ✅ Created AuthProof from Intent:', {
+            signaturePayloadLength: signaturePayload.length,
+            hasWebAuthnSignature: !!authProof.webauthn_signature,
+            hasAuthenticatorData: !!authProof.webauthn_authenticator_data
+          });
+          
+          // Prepare WebAuthn data using AuthProof
+          webauthnData = {
+            passkeyPublicKeySPKI,
+            webauthnSignature: authProof.webauthn_signature,
+            webauthnAuthenticatorData: authProof.webauthn_authenticator_data,
+            webauthnClientData: authProof.webauthn_client_data_json,
+            signaturePayload: authProof.signature_payload // Base64-encoded intentBytes
+          };
+          
+          // Update function parameters with WebAuthn data from AuthProof
+          functionParams = {
+            ...functionParams,
+            signature_payload: authProof.signature_payload,
+            webauthn_signature: authProof.webauthn_signature,
+            webauthn_authenticator_data: authProof.webauthn_authenticator_data,
+            webauthn_client_data: authProof.webauthn_client_data_json
+          };
+        } else {
+          // Legacy path: Use JSON signaturePayload
+          console.log('[ContractManagement] Using legacy JSON signaturePayload for WebAuthn');
+          authResult = await webauthnService.authenticateWithPasskey(
+            credentialId,
+            signaturePayload
+          );
 
-        // Prepare WebAuthn data
-        // IMPORTANT: Use the regenerated signaturePayload (not the old one from functionParams)
-        console.log('[ContractManagement] Using regenerated signaturePayload:', signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined');
-        webauthnData = {
-          passkeyPublicKeySPKI,
-          webauthnSignature: authResult.signature,
-          webauthnAuthenticatorData: authResult.authenticatorData,
-          webauthnClientData: authResult.clientDataJSON,
-          signaturePayload // This should be the regenerated payload in correct format
-        };
+          // Prepare WebAuthn data (legacy format)
+          console.log('[ContractManagement] Using legacy WebAuthn data format:', signaturePayload ? (signaturePayload.length > 100 ? signaturePayload.substring(0, 100) + '...' : signaturePayload) : 'undefined');
+          webauthnData = {
+            passkeyPublicKeySPKI,
+            webauthnSignature: authResult.signature,
+            webauthnAuthenticatorData: authResult.authenticatorData,
+            webauthnClientData: authResult.clientDataJSON,
+            signaturePayload // Legacy JSON format
+          };
 
-        // Update function parameters with WebAuthn data
-        // Use the regenerated signaturePayload, not the old one
-        functionParams = {
-          ...functionParams,
-          signature_payload: signaturePayload, // Use regenerated payload
-          webauthn_signature: authResult.signature,
-          webauthn_authenticator_data: authResult.authenticatorData,
-          webauthn_client_data: authResult.clientDataJSON
-        };
+          // Update function parameters with WebAuthn data
+          functionParams = {
+            ...functionParams,
+            signature_payload: signaturePayload,
+            webauthn_signature: authResult.signature,
+            webauthn_authenticator_data: authResult.authenticatorData,
+            webauthn_client_data: authResult.clientDataJSON
+          };
+        }
         
         console.log('[ContractManagement] Updated functionParams.signature_payload:', functionParams.signature_payload ? (functionParams.signature_payload.length > 100 ? functionParams.signature_payload.substring(0, 100) + '...' : functionParams.signature_payload) : 'undefined');
       } else {
@@ -4567,6 +4999,23 @@ const ContractManagement = () => {
           <Tab 
             label={
               <Box display="flex" alignItems="center" gap={1}>
+                <Typography variant="body2" noWrap>Deposit Actions</Typography>
+                {isAuthenticated && (
+                  <Chip 
+                    label={loadingPendingDeposits ? '...' : pendingDeposits.length} 
+                    size="small" 
+                    color="warning"
+                    sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                  />
+                )}
+              </Box>
+            } 
+            {...a11yProps(3)}
+            disabled={!isAuthenticated}
+          />
+          <Tab 
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
                 <Typography variant="body2" noWrap>Completed Rules</Typography>
                 {isAuthenticated && (
                   <Chip 
@@ -4578,7 +5027,7 @@ const ContractManagement = () => {
                 )}
               </Box>
             } 
-            {...a11yProps(3)}
+            {...a11yProps(4)}
             disabled={!isAuthenticated}
           />
           <Tab 
@@ -4595,7 +5044,7 @@ const ContractManagement = () => {
                 )}
               </Box>
             } 
-            {...a11yProps(4)}
+            {...a11yProps(5)}
             disabled={!isAuthenticated}
           />
         </Tabs>
@@ -5292,6 +5741,45 @@ const ContractManagement = () => {
             </Button>
           </Box>
           
+          {/* Cleanup Button */}
+          <Box display="flex" justifyContent="flex-end" mb={2}>
+            <Tooltip title="Re-evaluate expired rate limits and cleanup stale pending rules">
+              <Button
+                variant="outlined"
+                color="secondary"
+                size="small"
+                startIcon={cleaningUp ? <CircularProgress size={16} /> : <CleaningServicesIcon />}
+                onClick={handleCleanupPendingRules}
+                disabled={cleaningUp}
+                sx={{ minWidth: 150 }}
+              >
+                {cleaningUp ? 'Cleaning...' : 'Cleanup Queue'}
+              </Button>
+            </Tooltip>
+          </Box>
+          
+          {/* Cleanup Success/Error Messages */}
+          {success && cleanupStats && (
+            <Alert severity="success" sx={{ mb: 2 }} onClose={() => { setSuccess(''); setCleanupStats(null); }}>
+              <Typography variant="body2" gutterBottom>
+                {success}
+              </Typography>
+              {cleanupStats.rateLimitReEvaluation && (
+                <Typography variant="caption" component="div">
+                  Rate Limit Re-evaluation: {cleanupStats.rateLimitReEvaluation.reEvaluated || 0} re-evaluated, 
+                  {cleanupStats.rateLimitReEvaluation.updatedToWebAuthn || 0} updated to requires_webauthn, 
+                  {cleanupStats.rateLimitReEvaluation.stillBlocked || 0} still blocked
+                </Typography>
+              )}
+            </Alert>
+          )}
+          
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+              {error}
+            </Alert>
+          )}
+          
           {batchExecuting && batchExecutionProgress.currentRule && (
             <Alert severity="info" sx={{ mb: 2 }}>
               <Typography variant="body2">
@@ -5566,8 +6054,105 @@ const ContractManagement = () => {
         )}
       </TabPanel>
 
-      {/* Completed Rules Tab */}
+      {/* Deposit Actions Tab */}
       <TabPanel value={tabValue} index={3}>
+        {!isAuthenticated ? (
+          <Alert severity="info">
+            Please log in to view deposit actions.
+          </Alert>
+        ) : (
+          <>
+            <Box mb={3}>
+              <Alert severity="info" icon={<AccountBalanceWalletIcon />}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Pending Deposit Actions
+                </Typography>
+                <Typography variant="body2">
+                  Complete deposit transactions that require your authentication. These deposits were triggered by location-based execution rules.
+                </Typography>
+              </Alert>
+            </Box>
+            
+            {loadingPendingDeposits ? (
+              <Box display="flex" justifyContent="center" p={4}>
+                <CircularProgress />
+              </Box>
+            ) : pendingDeposits.length === 0 ? (
+              <Alert severity="success">
+                No pending deposit actions. All deposits have been completed.
+              </Alert>
+            ) : (
+              <TableContainer component={Paper}>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Rule</TableCell>
+                      <TableCell>Contract</TableCell>
+                      <TableCell>Function</TableCell>
+                      <TableCell>Amount</TableCell>
+                      <TableCell>Location</TableCell>
+                      <TableCell>Received</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {pendingDeposits.map((deposit) => (
+                      <TableRow key={deposit.id}>
+                        <TableCell>{deposit.rule_name}</TableCell>
+                        <TableCell>{deposit.contract_name}</TableCell>
+                        <TableCell>{deposit.function_name}</TableCell>
+                        <TableCell>
+                          {deposit.parameters?.amount 
+                            ? `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} XLM`
+                            : deposit.parameters?.asset || 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          {deposit.location?.latitude != null && deposit.location?.longitude != null
+                            ? `${Number(deposit.location.latitude).toFixed(4)}, ${Number(deposit.location.longitude).toFixed(4)}`
+                            : 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          {deposit.received_at 
+                            ? new Date(deposit.received_at).toLocaleString()
+                            : 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip 
+                            label={deposit.status} 
+                            color={
+                              deposit.status === 'completed' ? 'success' :
+                              deposit.status === 'failed' ? 'error' :
+                              deposit.status === 'cancelled' ? 'default' : 'warning'
+                            }
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {deposit.status === 'pending' && (
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              size="small"
+                              onClick={() => handleExecuteDeposit(deposit)}
+                              startIcon={<PlayArrowIcon />}
+                            >
+                              Execute
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </>
+        )}
+      </TabPanel>
+
+      {/* Completed Rules Tab */}
+      <TabPanel value={tabValue} index={4}>
         {!isAuthenticated && (
           <Alert severity="info">
             Please log in to view completed rules.
@@ -5773,7 +6358,7 @@ const ContractManagement = () => {
       </TabPanel>
 
       {/* Rejected Rules Tab */}
-      <TabPanel value={tabValue} index={4}>
+      <TabPanel value={tabValue} index={5}>
         {!isAuthenticated && (
           <Alert severity="info">
             Please log in to view rejected rules.

@@ -108,11 +108,9 @@ GeoLink now implements a secure, generic contract execution system with two auth
 - ✅ Copy-to-clipboard functionality
 
 ### ContractManagement Integration
-- ✅ Creates intent before execution (if enabled)
-- ✅ Shows intent preview dialog
-- ✅ Executes using ExecutionEngine (classic or WebAuthn lanes)
-- ✅ Falls back to backend execution if ExecutionEngine fails
-- ✅ Enable via `REACT_APP_USE_EXECUTION_ENGINE=true`
+- ✅ Always creates intent before execution
+- ✅ Always shows intent preview dialog
+- ✅ Always executes using backend API (handles WebAuthn, payments, smart wallet routing, etc.)
 
 ## Security Considerations
 

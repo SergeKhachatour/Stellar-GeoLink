@@ -109,7 +109,8 @@ const SharedMap = ({
   onNFTDetails = null,
   zoomTarget = null,
   initialMapStyle = "satellite",
-  onFullscreenMapReady = null // Callback to expose fullscreen map instance
+  onFullscreenMapReady = null, // Callback to expose fullscreen map instance
+  enableAdvanced3D = false // Enable advanced 3D controls for wallet provider
 }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
@@ -150,6 +151,14 @@ const SharedMap = ({
   const fullscreenSearchBoxRef = useRef(null); // Ref for fullscreen search box positioning
   const userInteractedWithMap = useRef(false); // Track if user has searched or interacted with map
   const lastInteractionTime = useRef(0); // Track when user last interacted (search, click, etc.)
+  
+  // Advanced 3D state
+  const [showAdvanced3D, setShowAdvanced3D] = useState(false);
+  const [pitch, setPitch] = useState(0);
+  const [bearing, setBearing] = useState(0);
+  const [enable3DBuildings, setEnable3DBuildings] = useState(false);
+  const [enableTerrain, setEnableTerrain] = useState(false);
+  const defaultViewState = useRef({ center: [0, 0], zoom: 1, pitch: 0, bearing: 0 }); // Store default view
 
   const initializeMap = useCallback((container) => {
     if (map.current) {
@@ -357,9 +366,15 @@ const SharedMap = ({
         //   }
         // };
 
-        // Add custom 3D control
-        const custom3DControl = createCustom3DControl();
-        map.current.addControl(custom3DControl, 'top-left');
+        // Add advanced 3D control if enabled (includes map style controls)
+        if (enableAdvanced3D) {
+          const advanced3DControl = createAdvanced3DControl();
+          map.current.addControl(advanced3DControl, 'top-left');
+        } else {
+          // Only add custom 3D control if advanced 3D is not enabled
+          const custom3DControl = createCustom3DControl();
+          map.current.addControl(custom3DControl, 'top-left');
+        }
 
         // Move all top controls down to avoid title overlay
         setTimeout(() => {
@@ -1032,6 +1047,560 @@ const SharedMap = ({
     
     return control;
   }, [changeMapView]);
+
+  const createAdvanced3DControl = useCallback(() => {
+    const control = {
+      onAdd: function(mapInstance) {
+        this._map = mapInstance;
+        this._container = document.createElement('div');
+        this._container.className = 'mapboxgl-ctrl';
+        this._container.style.background = 'rgba(255, 255, 255, 0.95)';
+        this._container.style.borderRadius = '4px';
+        this._container.style.padding = '4px';
+        this._container.style.minWidth = 'auto';
+        this._container.style.width = 'auto';
+        this._container.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+        this._container.style.zIndex = '1000';
+        this._container.style.fontSize = '12px';
+
+        // Toggle button to show/hide advanced controls (compact)
+        const toggleButton = document.createElement('button');
+        toggleButton.innerHTML = '🎮';
+        toggleButton.title = '3D Tools';
+        toggleButton.style.width = '32px';
+        toggleButton.style.height = '32px';
+        toggleButton.style.padding = '0';
+        toggleButton.style.margin = '0';
+        toggleButton.style.border = '1px solid #ddd';
+        toggleButton.style.borderRadius = '4px';
+        toggleButton.style.background = showAdvanced3D ? '#1976d2' : '#f5f5f5';
+        toggleButton.style.color = showAdvanced3D ? 'white' : '#333';
+        toggleButton.style.cursor = 'pointer';
+        toggleButton.style.fontSize = '16px';
+        toggleButton.style.display = 'flex';
+        toggleButton.style.alignItems = 'center';
+        toggleButton.style.justifyContent = 'center';
+        
+        let isExpanded = false;
+        toggleButton.onclick = () => {
+          isExpanded = !isExpanded;
+          setShowAdvanced3D(isExpanded);
+          toggleButton.style.background = isExpanded ? '#1976d2' : '#f5f5f5';
+          toggleButton.style.color = isExpanded ? 'white' : '#333';
+          controlsPanel.style.display = isExpanded ? 'block' : 'none';
+          // Update button icon
+          toggleButton.innerHTML = isExpanded ? '▼' : '🎮';
+          toggleButton.title = isExpanded ? 'Hide 3D Tools' : 'Show 3D Tools';
+        };
+        this._container.appendChild(toggleButton);
+
+        // Controls panel (initially hidden, compact design)
+        const controlsPanel = document.createElement('div');
+        controlsPanel.style.display = 'none';
+        controlsPanel.style.marginTop = '4px';
+        controlsPanel.style.padding = '6px';
+        controlsPanel.style.background = 'rgba(255, 255, 255, 0.98)';
+        controlsPanel.style.borderRadius = '4px';
+        controlsPanel.style.border = '1px solid #ddd';
+        controlsPanel.style.minWidth = '180px';
+
+        // Map Style Section
+        const styleSection = document.createElement('div');
+        styleSection.style.marginBottom = '8px';
+        styleSection.style.paddingBottom = '6px';
+        styleSection.style.borderBottom = '1px solid #eee';
+        
+        const styleLabel = document.createElement('div');
+        styleLabel.textContent = 'Map Style:';
+        styleLabel.style.fontSize = '11px';
+        styleLabel.style.fontWeight = 'bold';
+        styleLabel.style.marginBottom = '4px';
+        styleSection.appendChild(styleLabel);
+        
+        const styleButtonsContainer = document.createElement('div');
+        styleButtonsContainer.style.display = 'flex';
+        styleButtonsContainer.style.gap = '4px';
+        styleButtonsContainer.style.flexWrap = 'wrap';
+        
+        // Globe View Button
+        const buttonGlobe = document.createElement('button');
+        buttonGlobe.innerHTML = '🌍';
+        buttonGlobe.title = 'Globe View';
+        buttonGlobe.style.width = '28px';
+        buttonGlobe.style.height = '28px';
+        buttonGlobe.style.padding = '0';
+        buttonGlobe.style.border = '1px solid #ddd';
+        buttonGlobe.style.borderRadius = '3px';
+        buttonGlobe.style.background = mapView === 'globe' ? '#1976d2' : '#f5f5f5';
+        buttonGlobe.style.color = mapView === 'globe' ? 'white' : '#333';
+        buttonGlobe.style.cursor = 'pointer';
+        buttonGlobe.style.fontSize = '14px';
+        buttonGlobe.onclick = () => {
+          changeMapView('globe');
+          // Update button states
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          buttonGlobe.style.background = '#1976d2';
+          buttonGlobe.style.color = 'white';
+        };
+        styleButtonsContainer.appendChild(buttonGlobe);
+
+        // 2D Streets View Button
+        const button2D = document.createElement('button');
+        button2D.innerHTML = '🗺️';
+        button2D.title = 'Streets View';
+        button2D.style.width = '28px';
+        button2D.style.height = '28px';
+        button2D.style.padding = '0';
+        button2D.style.border = '1px solid #ddd';
+        button2D.style.borderRadius = '3px';
+        button2D.style.background = mapView === 'streets' ? '#1976d2' : '#f5f5f5';
+        button2D.style.color = mapView === 'streets' ? 'white' : '#333';
+        button2D.style.cursor = 'pointer';
+        button2D.style.fontSize = '14px';
+        button2D.onclick = () => {
+          changeMapView('streets');
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          button2D.style.background = '#1976d2';
+          button2D.style.color = 'white';
+        };
+        styleButtonsContainer.appendChild(button2D);
+
+        // Satellite View Button
+        const buttonSat = document.createElement('button');
+        buttonSat.innerHTML = '🛰️';
+        buttonSat.title = 'Satellite View';
+        buttonSat.style.width = '28px';
+        buttonSat.style.height = '28px';
+        buttonSat.style.padding = '0';
+        buttonSat.style.border = '1px solid #ddd';
+        buttonSat.style.borderRadius = '3px';
+        buttonSat.style.background = mapView === 'satellite' ? '#1976d2' : '#f5f5f5';
+        buttonSat.style.color = mapView === 'satellite' ? 'white' : '#333';
+        buttonSat.style.cursor = 'pointer';
+        buttonSat.style.fontSize = '14px';
+        buttonSat.onclick = () => {
+          changeMapView('satellite');
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          buttonSat.style.background = '#1976d2';
+          buttonSat.style.color = 'white';
+        };
+        styleButtonsContainer.appendChild(buttonSat);
+
+        // Light View Button
+        const buttonLight = document.createElement('button');
+        buttonLight.innerHTML = '☀️';
+        buttonLight.title = 'Light View';
+        buttonLight.style.width = '28px';
+        buttonLight.style.height = '28px';
+        buttonLight.style.padding = '0';
+        buttonLight.style.border = '1px solid #ddd';
+        buttonLight.style.borderRadius = '3px';
+        buttonLight.style.background = mapView === 'light' ? '#1976d2' : '#f5f5f5';
+        buttonLight.style.color = mapView === 'light' ? 'white' : '#333';
+        buttonLight.style.cursor = 'pointer';
+        buttonLight.style.fontSize = '14px';
+        buttonLight.onclick = () => {
+          changeMapView('light');
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          buttonLight.style.background = '#1976d2';
+          buttonLight.style.color = 'white';
+        };
+        styleButtonsContainer.appendChild(buttonLight);
+
+        // Dark View Button
+        const buttonDark = document.createElement('button');
+        buttonDark.innerHTML = '🌙';
+        buttonDark.title = 'Dark View';
+        buttonDark.style.width = '28px';
+        buttonDark.style.height = '28px';
+        buttonDark.style.padding = '0';
+        buttonDark.style.border = '1px solid #ddd';
+        buttonDark.style.borderRadius = '3px';
+        buttonDark.style.background = mapView === 'dark' ? '#1976d2' : '#f5f5f5';
+        buttonDark.style.color = mapView === 'dark' ? 'white' : '#333';
+        buttonDark.style.cursor = 'pointer';
+        buttonDark.style.fontSize = '14px';
+        buttonDark.onclick = () => {
+          changeMapView('dark');
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          buttonDark.style.background = '#1976d2';
+          buttonDark.style.color = 'white';
+        };
+        styleButtonsContainer.appendChild(buttonDark);
+        
+        styleSection.appendChild(styleButtonsContainer);
+        controlsPanel.appendChild(styleSection);
+
+        // 2D/3D/Globe Toggle Section
+        const viewModeSection = document.createElement('div');
+        viewModeSection.style.marginBottom = '8px';
+        viewModeSection.style.paddingBottom = '6px';
+        viewModeSection.style.borderBottom = '1px solid #eee';
+        
+        const viewModeLabel = document.createElement('div');
+        viewModeLabel.textContent = 'View Mode:';
+        viewModeLabel.style.fontSize = '11px';
+        viewModeLabel.style.fontWeight = 'bold';
+        viewModeLabel.style.marginBottom = '4px';
+        viewModeSection.appendChild(viewModeLabel);
+        
+        const viewModeButtonsContainer = document.createElement('div');
+        viewModeButtonsContainer.style.display = 'flex';
+        viewModeButtonsContainer.style.gap = '4px';
+        
+        // 2D Button
+        const button2DMode = document.createElement('button');
+        button2DMode.textContent = '2D';
+        button2DMode.title = '2D View';
+        button2DMode.style.flex = '1';
+        button2DMode.style.padding = '4px';
+        button2DMode.style.border = '1px solid #ddd';
+        button2DMode.style.borderRadius = '3px';
+        button2DMode.style.background = '#f5f5f5';
+        button2DMode.style.color = '#333';
+        button2DMode.style.cursor = 'pointer';
+        button2DMode.style.fontSize = '11px';
+        button2DMode.onclick = () => {
+          if (this._map) {
+            this._map.setProjection('mercator');
+            this._map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+            setPitch(0);
+            setBearing(0);
+            pitchSlider.value = 0;
+            bearingSlider.value = 0;
+            pitchLabel.textContent = 'Pitch: 0°';
+            bearingLabel.textContent = 'Rot: 0°';
+            [button2DMode, button3DMode, buttonGlobeMode].forEach(btn => {
+              btn.style.background = '#f5f5f5';
+              btn.style.color = '#333';
+            });
+            button2DMode.style.background = '#1976d2';
+            button2DMode.style.color = 'white';
+          }
+        };
+        viewModeButtonsContainer.appendChild(button2DMode);
+
+        // 3D Button
+        const button3DMode = document.createElement('button');
+        button3DMode.textContent = '3D';
+        button3DMode.title = '3D View';
+        button3DMode.style.flex = '1';
+        button3DMode.style.padding = '4px';
+        button3DMode.style.border = '1px solid #ddd';
+        button3DMode.style.borderRadius = '3px';
+        button3DMode.style.background = '#f5f5f5';
+        button3DMode.style.color = '#333';
+        button3DMode.style.cursor = 'pointer';
+        button3DMode.style.fontSize = '11px';
+        button3DMode.onclick = () => {
+          if (this._map) {
+            this._map.setProjection('mercator');
+            this._map.easeTo({ pitch: 60, bearing: 0, duration: 500 });
+            setPitch(60);
+            setBearing(0);
+            pitchSlider.value = 60;
+            bearingSlider.value = 0;
+            pitchLabel.textContent = 'Pitch: 60°';
+            bearingLabel.textContent = 'Rot: 0°';
+            [button2DMode, button3DMode, buttonGlobeMode].forEach(btn => {
+              btn.style.background = '#f5f5f5';
+              btn.style.color = '#333';
+            });
+            button3DMode.style.background = '#1976d2';
+            button3DMode.style.color = 'white';
+          }
+        };
+        viewModeButtonsContainer.appendChild(button3DMode);
+
+        // Globe Button
+        const buttonGlobeMode = document.createElement('button');
+        buttonGlobeMode.textContent = 'Globe';
+        buttonGlobeMode.title = 'Globe View';
+        buttonGlobeMode.style.flex = '1';
+        buttonGlobeMode.style.padding = '4px';
+        buttonGlobeMode.style.border = '1px solid #ddd';
+        buttonGlobeMode.style.borderRadius = '3px';
+        buttonGlobeMode.style.background = '#f5f5f5';
+        buttonGlobeMode.style.color = '#333';
+        buttonGlobeMode.style.cursor = 'pointer';
+        buttonGlobeMode.style.fontSize = '11px';
+        buttonGlobeMode.onclick = () => {
+          if (this._map) {
+            this._map.setProjection('globe');
+            this._map.easeTo({ pitch: 60, bearing: 0, duration: 500 });
+            setPitch(60);
+            setBearing(0);
+            pitchSlider.value = 60;
+            bearingSlider.value = 0;
+            pitchLabel.textContent = 'Pitch: 60°';
+            bearingLabel.textContent = 'Rot: 0°';
+            [button2DMode, button3DMode, buttonGlobeMode].forEach(btn => {
+              btn.style.background = '#f5f5f5';
+              btn.style.color = '#333';
+            });
+            buttonGlobeMode.style.background = '#1976d2';
+            buttonGlobeMode.style.color = 'white';
+          }
+        };
+        viewModeButtonsContainer.appendChild(buttonGlobeMode);
+        
+        viewModeSection.appendChild(viewModeButtonsContainer);
+        controlsPanel.appendChild(viewModeSection);
+
+        // Pitch slider (compact)
+        const pitchLabel = document.createElement('label');
+        pitchLabel.textContent = `Pitch: ${pitch}°`;
+        pitchLabel.style.display = 'block';
+        pitchLabel.style.marginBottom = '2px';
+        pitchLabel.style.fontSize = '11px';
+        controlsPanel.appendChild(pitchLabel);
+
+        const pitchSlider = document.createElement('input');
+        pitchSlider.type = 'range';
+        pitchSlider.min = '0';
+        pitchSlider.max = '85';
+        pitchSlider.value = pitch;
+        pitchSlider.style.width = '100%';
+        pitchSlider.style.marginBottom = '6px';
+        pitchSlider.style.height = '4px';
+        pitchSlider.oninput = (e) => {
+          const newPitch = parseInt(e.target.value);
+          setPitch(newPitch);
+          pitchLabel.textContent = `Pitch: ${newPitch}°`;
+          if (this._map) {
+            this._map.easeTo({ pitch: newPitch, duration: 300 });
+          }
+        };
+        controlsPanel.appendChild(pitchSlider);
+
+        // Bearing slider (compact)
+        const bearingLabel = document.createElement('label');
+        bearingLabel.textContent = `Rot: ${bearing}°`;
+        bearingLabel.style.display = 'block';
+        bearingLabel.style.marginBottom = '2px';
+        bearingLabel.style.fontSize = '11px';
+        controlsPanel.appendChild(bearingLabel);
+
+        const bearingSlider = document.createElement('input');
+        bearingSlider.type = 'range';
+        bearingSlider.min = '-180';
+        bearingSlider.max = '180';
+        bearingSlider.value = bearing;
+        bearingSlider.style.width = '100%';
+        bearingSlider.style.marginBottom = '6px';
+        bearingSlider.style.height = '4px';
+        bearingSlider.oninput = (e) => {
+          const newBearing = parseInt(e.target.value);
+          setBearing(newBearing);
+          bearingLabel.textContent = `Rotation: ${newBearing}°`;
+          if (this._map) {
+            this._map.easeTo({ bearing: newBearing, duration: 300 });
+          }
+        };
+        controlsPanel.appendChild(bearingSlider);
+
+        // 3D Buildings toggle (compact)
+        const buildingsContainer = document.createElement('div');
+        buildingsContainer.style.display = 'flex';
+        buildingsContainer.style.alignItems = 'center';
+        buildingsContainer.style.justifyContent = 'space-between';
+        buildingsContainer.style.marginBottom = '4px';
+
+        const buildingsLabel = document.createElement('label');
+        buildingsLabel.textContent = '3D Buildings';
+        buildingsLabel.style.fontSize = '11px';
+        buildingsContainer.appendChild(buildingsLabel);
+
+        const buildingsToggle = document.createElement('input');
+        buildingsToggle.type = 'checkbox';
+        buildingsToggle.checked = enable3DBuildings;
+        buildingsToggle.onchange = (e) => {
+          setEnable3DBuildings(e.target.checked);
+          if (this._map && this._map.isStyleLoaded()) {
+            const layers = this._map.getStyle().layers;
+            const buildingLayer = layers.find(layer => layer.id === '3d-buildings');
+            
+            if (e.target.checked) {
+              // Add 3D buildings layer if it doesn't exist
+              if (!buildingLayer) {
+                this._map.addLayer({
+                  'id': '3d-buildings',
+                  'source': 'composite',
+                  'source-layer': 'building',
+                  'filter': ['==', 'extrude', 'true'],
+                  'type': 'fill-extrusion',
+                  'minzoom': 14,
+                  'paint': {
+                    'fill-extrusion-color': '#aaa',
+                    'fill-extrusion-height': [
+                      'interpolate',
+                      ['linear'],
+                      ['zoom'],
+                      14, 0,
+                      14.05, ['get', 'height']
+                    ],
+                    'fill-extrusion-base': [
+                      'interpolate',
+                      ['linear'],
+                      ['zoom'],
+                      14, 0,
+                      14.05, ['get', 'min_height']
+                    ],
+                    'fill-extrusion-opacity': 0.6
+                  }
+                });
+              } else {
+                this._map.setLayoutProperty('3d-buildings', 'visibility', 'visible');
+              }
+            } else {
+              // Hide 3D buildings
+              if (buildingLayer) {
+                this._map.setLayoutProperty('3d-buildings', 'visibility', 'none');
+              }
+            }
+          }
+        };
+        buildingsContainer.appendChild(buildingsToggle);
+        controlsPanel.appendChild(buildingsContainer);
+
+        // Terrain toggle (compact)
+        const terrainContainer = document.createElement('div');
+        terrainContainer.style.display = 'flex';
+        terrainContainer.style.alignItems = 'center';
+        terrainContainer.style.justifyContent = 'space-between';
+        terrainContainer.style.marginBottom = '6px';
+
+        const terrainLabel = document.createElement('label');
+        terrainLabel.textContent = 'Terrain';
+        terrainLabel.style.fontSize = '11px';
+        terrainContainer.appendChild(terrainLabel);
+
+        const terrainToggle = document.createElement('input');
+        terrainToggle.type = 'checkbox';
+        terrainToggle.checked = enableTerrain;
+        terrainToggle.onchange = (e) => {
+          setEnableTerrain(e.target.checked);
+          if (this._map && this._map.isStyleLoaded()) {
+            if (e.target.checked) {
+              // Add terrain source
+              this._map.addSource('mapbox-dem', {
+                'type': 'raster-dem',
+                'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                'tileSize': 512,
+                'maxzoom': 14
+              });
+              this._map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+            } else {
+              // Remove terrain
+              this._map.setTerrain(null);
+              if (this._map.getSource('mapbox-dem')) {
+                this._map.removeSource('mapbox-dem');
+              }
+            }
+          }
+        };
+        terrainContainer.appendChild(terrainToggle);
+        controlsPanel.appendChild(terrainContainer);
+
+        // Reset button (compact)
+        const resetButton = document.createElement('button');
+        resetButton.textContent = '🔄 Reset';
+        resetButton.style.width = '100%';
+        resetButton.style.padding = '4px';
+        resetButton.style.border = '1px solid #ddd';
+        resetButton.style.borderRadius = '3px';
+        resetButton.style.background = '#f5f5f5';
+        resetButton.style.cursor = 'pointer';
+        resetButton.style.fontSize = '11px';
+        resetButton.onclick = () => {
+          const defaultView = defaultViewState.current;
+          setPitch(0);
+          setBearing(0);
+          setEnable3DBuildings(false);
+          setEnableTerrain(false);
+          pitchSlider.value = 0;
+          bearingSlider.value = 0;
+          buildingsToggle.checked = false;
+          terrainToggle.checked = false;
+          pitchLabel.textContent = 'Pitch: 0°';
+          bearingLabel.textContent = 'Rot: 0°';
+          
+          // Reset to Light Globe View (globe projection with light style)
+          changeMapView('light-globe');
+          [buttonGlobe, button2D, buttonSat, buttonLight, buttonDark].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          // Highlight both globe and light buttons to show it's light-globe
+          buttonGlobe.style.background = '#1976d2';
+          buttonGlobe.style.color = 'white';
+          buttonLight.style.background = '#1976d2';
+          buttonLight.style.color = 'white';
+          
+          // Reset view mode to Globe
+          [button2DMode, button3DMode, buttonGlobeMode].forEach(btn => {
+            btn.style.background = '#f5f5f5';
+            btn.style.color = '#333';
+          });
+          buttonGlobeMode.style.background = '#1976d2';
+          buttonGlobeMode.style.color = 'white';
+          
+          if (this._map) {
+            // Set to globe projection with light style
+            this._map.setStyle('mapbox://styles/mapbox/light-v11');
+            this._map.setProjection('globe');
+            
+            this._map.easeTo({
+              center: defaultView.center,
+              zoom: defaultView.zoom,
+              pitch: 0,
+              bearing: 0,
+              duration: 1000
+            });
+            
+            // Remove 3D buildings and terrain
+            if (this._map.getLayer('3d-buildings')) {
+              this._map.setLayoutProperty('3d-buildings', 'visibility', 'none');
+            }
+            if (this._map.getTerrain()) {
+              this._map.setTerrain(null);
+              if (this._map.getSource('mapbox-dem')) {
+                this._map.removeSource('mapbox-dem');
+              }
+            }
+          }
+        };
+        controlsPanel.appendChild(resetButton);
+
+        this._container.appendChild(controlsPanel);
+
+        return this._container;
+      },
+      onRemove: function() {
+        if (this._container && this._container.parentNode) {
+          this._container.parentNode.removeChild(this._container);
+        }
+        this._map = undefined;
+      }
+    };
+    
+    return control;
+  }, [showAdvanced3D, pitch, bearing, enable3DBuildings, enableTerrain, mapView, setShowAdvanced3D, setPitch, setBearing, setEnable3DBuildings, setEnableTerrain, changeMapView]);
 
   const handleSearch = async (query = null) => {
     const searchTerm = query !== null ? query : searchQuery;

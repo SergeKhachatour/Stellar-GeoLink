@@ -3,7 +3,7 @@
  * Prompts user to enter required function parameters before execution
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -19,9 +19,11 @@ import {
   Select,
   MenuItem,
   Chip,
-  Divider
+  Divider,
+  IconButton,
+  InputAdornment
 } from '@mui/material';
-import { Code } from '@mui/icons-material';
+import { Code, QrCodeScanner, CameraAlt, Close } from '@mui/icons-material';
 
 const FunctionParameterDialog = ({ 
   open, 
@@ -35,6 +37,11 @@ const FunctionParameterDialog = ({
   const [paramValues, setParamValues] = useState({});
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerTargetParam, setScannerTargetParam] = useState(null);
+  const [scannerError, setScannerError] = useState('');
+  const videoRef = useRef(null);
+  const qrScannerRef = useRef(null);
 
   // Initialize param values from existing params or defaults
   useEffect(() => {
@@ -169,12 +176,98 @@ const FunctionParameterDialog = ({
              'webauthn_client_data', 'signature_payload'].includes(paramName);
   });
 
+  // Start QR scanner for address fields
+  const startQRScanner = async (paramName) => {
+    try {
+      // Dynamically import qr-scanner
+      const QrScanner = (await import('qr-scanner')).default;
+      
+      // Check if camera is available
+      const hasCamera = await QrScanner.hasCamera();
+      if (!hasCamera) {
+        setScannerError('No camera found on this device');
+        setIsScannerOpen(true);
+        return;
+      }
+
+      setScannerTargetParam(paramName);
+      setIsScannerOpen(true);
+      setScannerError('');
+
+      // Wait for dialog to render, then start scanner
+      setTimeout(async () => {
+        try {
+          if (videoRef.current) {
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+            if (!isSecure) {
+              setScannerError('Camera access requires HTTPS. Please use the secure version of the site.');
+              setIsScannerOpen(false);
+              return;
+            }
+            
+            const scanner = new QrScanner(
+              videoRef.current,
+              (result) => {
+                console.log('QR Code detected for', paramName, ':', result);
+                handleParamChange(paramName, result.data);
+                setIsScannerOpen(false);
+                stopQRScanner();
+              },
+              {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+                preferredCamera: 'environment',
+                maxScansPerSecond: 5,
+              }
+            );
+            
+            qrScannerRef.current = scanner;
+            await scanner.start();
+          }
+        } catch (error) {
+          console.error('Error starting QR scanner:', error);
+          setScannerError('Failed to start camera. Please check permissions.');
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error loading QR scanner:', error);
+      setScannerError('QR scanner not available. Please install qr-scanner package.');
+      setIsScannerOpen(true);
+    }
+  };
+
+  // Stop QR scanner
+  const stopQRScanner = () => {
+    if (qrScannerRef.current) {
+      try {
+        qrScannerRef.current.stop();
+        qrScannerRef.current.destroy();
+      } catch (e) {
+        console.warn('Error stopping QR scanner:', e);
+      }
+      qrScannerRef.current = null;
+    }
+  };
+
+  // Cleanup scanner on unmount or dialog close
+  useEffect(() => {
+    if (!isScannerOpen) {
+      stopQRScanner();
+    }
+    return () => {
+      stopQRScanner();
+    };
+  }, [isScannerOpen]);
+
   return (
+    <>
     <Dialog 
       open={open} 
       onClose={onClose}
       maxWidth="sm"
       fullWidth
+      sx={{ zIndex: 1400 }} // Higher than contract details overlay (1300)
+      PaperProps={{ sx: { zIndex: 1400 } }}
     >
       <DialogTitle>
         <Box display="flex" alignItems="center" gap={1}>
@@ -214,6 +307,11 @@ const FunctionParameterDialog = ({
                 const value = paramValues[paramName] || '';
                 const error = errors[paramName];
                 const hasError = touched[paramName] && !!error;
+                
+                // Check if this is an address field
+                const isAddressType = paramType.includes('Address') || paramType.includes('address') || 
+                                     paramName.includes('address') || paramName.includes('destination') || 
+                                     paramName === 'to' || paramName === 'recipient';
 
                 return (
                   <Box key={index}>
@@ -240,7 +338,7 @@ const FunctionParameterDialog = ({
                     ) : (
                       <TextField
                         fullWidth
-                        label={`${paramName} ${!isOptional ? '*' : ''}`}
+                        label={`${paramName} ${!isOptional && '*'}`}
                         value={value}
                         onChange={(e) => handleParamChange(paramName, e.target.value)}
                         type={inputType === 'number' ? 'number' : 'text'}
@@ -248,8 +346,20 @@ const FunctionParameterDialog = ({
                         helperText={hasError ? error : getHelperText(param, paramName)}
                         placeholder={paramName === 'destination' ? 'G...' : paramName === 'amount' ? '0.0' : ''}
                         InputProps={{
-                          startAdornment: paramName === 'destination' || paramName === 'to' ? (
+                          startAdornment: isAddressType ? (
                             <Chip label="Address" size="small" sx={{ mr: 1 }} />
+                          ) : null,
+                          endAdornment: isAddressType ? (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => startQRScanner(paramName)}
+                                edge="end"
+                                title="Scan QR Code"
+                                size="small"
+                              >
+                                <QrCodeScanner fontSize="small" />
+                              </IconButton>
+                            </InputAdornment>
                           ) : null
                         }}
                       />
@@ -280,6 +390,80 @@ const FunctionParameterDialog = ({
         </Button>
       </DialogActions>
     </Dialog>
+
+    {/* QR Scanner Dialog */}
+    <Dialog
+      open={isScannerOpen}
+      onClose={() => {
+        setIsScannerOpen(false);
+        stopQRScanner();
+      }}
+      maxWidth="sm"
+      fullWidth
+      sx={{ zIndex: 1500 }} // Higher than parameter dialog
+      PaperProps={{ sx: { zIndex: 1500 } }}
+    >
+      <DialogTitle sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CameraAlt />
+          <Typography variant="h6">Scan QR Code</Typography>
+          {scannerTargetParam && (
+            <Typography variant="body2" color="text.secondary">
+              for {scannerTargetParam}
+            </Typography>
+          )}
+        </Box>
+        <IconButton
+          onClick={() => {
+            setIsScannerOpen(false);
+            stopQRScanner();
+          }}
+          size="small"
+        >
+          <Close />
+        </IconButton>
+      </DialogTitle>
+      
+      <DialogContent sx={{ textAlign: 'center' }}>
+        <video
+          ref={videoRef}
+          style={{
+            width: '100%',
+            maxWidth: '400px',
+            height: '300px',
+            borderRadius: '8px',
+            background: '#000',
+            objectFit: 'cover'
+          }}
+          playsInline
+        />
+        {scannerError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {scannerError}
+          </Alert>
+        )}
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          Position the QR code within the frame
+        </Typography>
+      </DialogContent>
+      
+      <DialogActions>
+        <Button
+          onClick={() => {
+            setIsScannerOpen(false);
+            stopQRScanner();
+          }}
+          variant="outlined"
+        >
+          Cancel
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 };
 

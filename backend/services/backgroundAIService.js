@@ -44,11 +44,16 @@ class BackgroundAIService {
       }
     }, intervalMs);
 
-    // Start periodic queue cleanup (every 10 minutes)
-    // This runs the full cleanup to ensure queue stays clean
+    // Start periodic queue cleanup (every 1 hour)
+    // Only runs cleanup if there are actually old entries to clean up
+    // This reduces unnecessary database load
     this.cleanupInterval = setInterval(async () => {
-      await this.runPeriodicCleanup();
-    }, 10 * 60 * 1000); // 10 minutes
+      // Check if there are old entries before running cleanup
+      const hasOldEntries = await this.checkForOldEntries();
+      if (hasOldEntries) {
+        await this.runPeriodicCleanup();
+      }
+    }, 60 * 60 * 1000); // 1 hour instead of 10 minutes
   }
 
   /**
@@ -67,12 +72,297 @@ class BackgroundAIService {
   }
 
   /**
+   * Re-evaluate expired rate limits
+   * Updates execution_results for rules that were rate_limit_exceeded but the window has now expired
+   */
+  async reEvaluateExpiredRateLimits() {
+    try {
+      console.log('[BackgroundAI] 🔄 Re-evaluating expired rate limits...');
+      
+      // Find all rules with rate_limit_exceeded reason that might have expired
+      const expiredRateLimitQuery = `
+        SELECT 
+          luq.id as update_id,
+          luq.public_key,
+          luq.user_id,
+          luq.execution_results,
+          (result->>'rule_id')::integer as rule_id,
+          result->>'matched_public_key' as matched_public_key,
+          result->>'reason' as reason
+        FROM location_update_queue luq
+        CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result
+        JOIN contract_execution_rules cer ON cer.id = (result->>'rule_id')::integer
+        JOIN custom_contracts cc ON cer.contract_id = cc.id
+        WHERE luq.status IN ('matched', 'executed')
+          AND luq.execution_results IS NOT NULL
+          AND result->>'skipped' = 'true'
+          AND result->>'reason' = 'rate_limit_exceeded'
+          AND COALESCE((result->>'completed')::boolean, false) = false
+          AND cer.max_executions_per_public_key IS NOT NULL
+          AND cer.execution_time_window_seconds IS NOT NULL
+          AND cer.max_executions_per_public_key > 0
+          AND cer.execution_time_window_seconds > 0
+      `;
+      
+      const expiredResults = await pool.query(expiredRateLimitQuery);
+      console.log(`[BackgroundAI] 🔍 Found ${expiredResults.rows.length} rule(s) with rate_limit_exceeded reason`);
+      
+      let reEvaluatedCount = 0;
+      let updatedToWebAuthnCount = 0;
+      let stillBlockedCount = 0;
+      
+      for (const row of expiredResults.rows) {
+        const ruleId = row.rule_id;
+        const publicKey = row.matched_public_key || row.public_key;
+        
+        // Get rule details
+        const ruleQuery = await pool.query(
+          `SELECT 
+            cer.max_executions_per_public_key,
+            cer.execution_time_window_seconds,
+            cc.requires_webauthn
+           FROM contract_execution_rules cer
+           JOIN custom_contracts cc ON cer.contract_id = cc.id
+           WHERE cer.id = $1`,
+          [ruleId]
+        );
+        
+        if (ruleQuery.rows.length === 0) continue;
+        
+        const rule = ruleQuery.rows[0];
+        const maxExecutions = rule.max_executions_per_public_key;
+        const timeWindow = rule.execution_time_window_seconds;
+        const requiresWebAuthn = rule.requires_webauthn === true || rule.requires_webauthn === 'true' || rule.requires_webauthn === 1;
+        
+        // Check current rate limit status
+        const rateLimitCheck = await pool.query(
+          `SELECT COUNT(*) as count
+           FROM rule_execution_history
+           WHERE rule_id = $1 AND public_key = $2
+             AND last_execution_at >= CURRENT_TIMESTAMP - ($3 || ' seconds')::INTERVAL`,
+          [ruleId, publicKey, timeWindow]
+        );
+        
+        const currentCount = parseInt(rateLimitCheck.rows[0].count);
+        const isStillBlocked = currentCount >= maxExecutions;
+        
+        if (!isStillBlocked) {
+          // Rate limit window has expired, re-evaluate
+          console.log(`[BackgroundAI] ✅ Rate limit expired for Rule ${ruleId} (public_key: ${publicKey.substring(0, 12)}...): ${currentCount}/${maxExecutions} in ${timeWindow}s window`);
+          
+          // Update execution_results
+          let executionResults = typeof row.execution_results === 'string' 
+            ? JSON.parse(row.execution_results) 
+            : row.execution_results;
+          
+          const updatedResults = executionResults.map(result => {
+            if (result.rule_id === ruleId && 
+                result.reason === 'rate_limit_exceeded' &&
+                (result.matched_public_key || row.public_key) === publicKey) {
+              
+              // If rule requires WebAuthn, change reason to requires_webauthn
+              // Otherwise, mark as ready (but still skipped since it requires WebAuthn or other checks)
+              const newReason = requiresWebAuthn ? 'requires_webauthn' : result.reason;
+              
+              console.log(`[BackgroundAI] 🔄 Updating Rule ${ruleId} reason from 'rate_limit_exceeded' to '${newReason}'`);
+              
+              return {
+                ...result,
+                reason: newReason,
+                rate_limit_expired: true,
+                rate_limit_re_evaluated_at: new Date().toISOString(),
+                previous_reason: 'rate_limit_exceeded'
+              };
+            }
+            return result;
+          });
+          
+          // Update the database
+          await pool.query(
+            `UPDATE location_update_queue 
+             SET execution_results = $1::jsonb
+             WHERE id = $2`,
+            [JSON.stringify(updatedResults), row.update_id]
+          );
+          
+          reEvaluatedCount++;
+          if (requiresWebAuthn) {
+            updatedToWebAuthnCount++;
+          }
+        } else {
+          // Still blocked by rate limit
+          console.log(`[BackgroundAI] ⚠️ Rule ${ruleId} still rate-limited: ${currentCount}/${maxExecutions} in ${timeWindow}s window`);
+          stillBlockedCount++;
+        }
+      }
+      
+      if (reEvaluatedCount > 0) {
+        console.log(`[BackgroundAI] ✅ Re-evaluated ${reEvaluatedCount} expired rate limit(s): ${updatedToWebAuthnCount} updated to requires_webauthn, ${stillBlockedCount} still blocked`);
+      }
+      
+      return {
+        reEvaluated: reEvaluatedCount,
+        updatedToWebAuthn: updatedToWebAuthnCount,
+        stillBlocked: stillBlockedCount
+      };
+    } catch (error) {
+      console.error('[BackgroundAI] ❌ Error re-evaluating expired rate limits:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up very old pending rules (older than 7 days)
+   * These are entries that have been pending for too long and should be removed
+   */
+  async cleanupVeryOldPendingRules() {
+    try {
+      console.log('[BackgroundAI] 🧹 Cleaning up very old pending rules (older than 7 days)...');
+      
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      // Mark very old pending rules as superseded
+      const markOldSupersededQuery = `
+        UPDATE location_update_queue luq
+        SET execution_results = (
+          SELECT jsonb_agg(
+            CASE 
+              WHEN COALESCE((result->>'completed')::boolean, false) = false
+                AND COALESCE((result->>'skipped')::boolean, false) = true
+                AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
+                AND luq.received_at < $1::timestamp
+              THEN result || jsonb_build_object(
+                'reason', 'superseded_by_newer_execution',
+                'superseded_at', CURRENT_TIMESTAMP::text,
+                'superseded_reason', 'very_old_entry'
+              )
+              ELSE result
+            END
+          )
+          FROM jsonb_array_elements(luq.execution_results) AS result
+        )
+        WHERE luq.status IN ('matched', 'executed')
+          AND luq.execution_results IS NOT NULL
+          AND luq.received_at < $1::timestamp
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(luq.execution_results) AS result
+            WHERE COALESCE((result->>'completed')::boolean, false) = false
+              AND COALESCE((result->>'skipped')::boolean, false) = true
+              AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
+          )
+      `;
+      
+      const markResult = await pool.query(markOldSupersededQuery, [sevenDaysAgo]);
+      
+      // Also delete very old entries that have no valid pending rules
+      const deleteOldQuery = `
+        DELETE FROM location_update_queue luq
+        WHERE luq.status IN ('matched', 'executed')
+          AND luq.execution_results IS NOT NULL
+          AND luq.received_at < $1::timestamp
+          -- Only delete if all execution results are skipped/superseded (no valid pending rules)
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(luq.execution_results) AS result
+            WHERE COALESCE((result->>'completed')::boolean, false) = false
+              AND COALESCE((result->>'skipped')::boolean, false) = true
+              AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rate_limit_exceeded', 'rejected')
+          )
+          -- Don't delete entries that have completed rules
+          AND NOT EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(luq.execution_results) AS result
+            WHERE COALESCE((result->>'completed')::boolean, false) = true
+          )
+      `;
+      
+      const deleteResult = await pool.query(deleteOldQuery, [sevenDaysAgo]);
+      
+      if (markResult.rowCount > 0 || deleteResult.rowCount > 0) {
+        console.log(`[BackgroundAI] ✅ Cleaned up very old pending rules: ${markResult.rowCount} marked as superseded, ${deleteResult.rowCount} deleted`);
+      }
+      
+      return {
+        markedSuperseded: markResult.rowCount,
+        deleted: deleteResult.rowCount
+      };
+    } catch (error) {
+      console.error('[BackgroundAI] ❌ Error cleaning up very old pending rules:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if there are old entries that need cleanup
+   * Returns true if there are entries older than 7 days or rate-limited entries that might have expired
+   */
+  async checkForOldEntries() {
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      // Check for very old entries
+      const oldEntriesCheck = await pool.query(
+        `SELECT COUNT(*) as count
+         FROM location_update_queue luq
+         WHERE luq.status IN ('matched', 'executed')
+           AND luq.execution_results IS NOT NULL
+           AND luq.received_at < $1::timestamp
+           AND EXISTS (
+             SELECT 1
+             FROM jsonb_array_elements(luq.execution_results) AS result
+             WHERE COALESCE((result->>'completed')::boolean, false) = false
+               AND COALESCE((result->>'skipped')::boolean, false) = true
+               AND (result->>'reason')::text NOT IN ('superseded_by_newer_execution', 'rejected')
+           )`,
+        [sevenDaysAgo]
+      );
+      
+      const oldCount = parseInt(oldEntriesCheck.rows[0].count);
+      
+      // Check for expired rate limits
+      const expiredRateLimitCheck = await pool.query(
+        `SELECT COUNT(*) as count
+         FROM location_update_queue luq
+         CROSS JOIN LATERAL jsonb_array_elements(luq.execution_results) AS result
+         JOIN contract_execution_rules cer ON cer.id = (result->>'rule_id')::integer
+         WHERE luq.status IN ('matched', 'executed')
+           AND luq.execution_results IS NOT NULL
+           AND result->>'skipped' = 'true'
+           AND result->>'reason' = 'rate_limit_exceeded'
+           AND COALESCE((result->>'completed')::boolean, false) = false
+           AND cer.max_executions_per_public_key IS NOT NULL
+           AND cer.execution_time_window_seconds IS NOT NULL
+           AND cer.max_executions_per_public_key > 0
+           AND cer.execution_time_window_seconds > 0`,
+        []
+      );
+      
+      const expiredRateLimitCount = parseInt(expiredRateLimitCheck.rows[0].count);
+      
+      return oldCount > 0 || expiredRateLimitCount > 0;
+    } catch (error) {
+      console.error('[BackgroundAI] ❌ Error checking for old entries:', error.message);
+      // If check fails, run cleanup anyway to be safe
+      return true;
+    }
+  }
+
+  /**
    * Run periodic full cleanup of the queue
-   * This is called every 10 minutes to ensure the queue stays clean
+   * This is called periodically (every hour) or on-demand when old entries are detected
    */
   async runPeriodicCleanup() {
     try {
       // console.log('[BackgroundAI] 🧹 Running periodic queue cleanup...');
+      
+      // First, re-evaluate expired rate limits
+      await this.reEvaluateExpiredRateLimits();
+      
+      // Clean up very old pending rules (older than 7 days)
+      await this.cleanupVeryOldPendingRules();
       
       // Mark old pending rules as superseded
       const markSupersededQuery = `
@@ -259,6 +549,20 @@ class BackgroundAIService {
       // ESSENTIAL: Log rules found for this location update
       if (rules.length > 0) {
         console.log(`[BackgroundAI] 🔍 Evaluating ${rules.length} rule(s) for location update ${update_id}:`, rules.map(r => `Rule ${r.id} (${r.rule_name})`).join(', '));
+        // Log detailed info for each rule found
+        rules.forEach(rule => {
+          console.log(`[BackgroundAI] 📋 Rule ${rule.id} (${rule.rule_name}) details:`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            function_name: rule.function_name,
+            requires_webauthn: rule.requires_webauthn,
+            is_active: rule.is_active,
+            contract_id: rule.contract_id,
+            target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 8) + '...' : 'NULL (any wallet)'
+          });
+        });
+      } else {
+        console.log(`[BackgroundAI] ⚠️ No active rules found for location update ${update_id} at (${actualLatitude}, ${actualLongitude}) for public_key ${public_key.substring(0, 8)}...`);
       }
 
       if (rules.length === 0) {
@@ -291,8 +595,75 @@ class BackgroundAIService {
       for (const rule of rules) {
         const executionStartTime = Date.now();
         
-        // Check if WebAuthn is required for this rule
+        // Log which rule we're processing with ALL advanced settings
+        console.log(`[BackgroundAI] 🔄 Processing Rule ${rule.id} (${rule.rule_name}) - function: ${rule.function_name}`);
+        console.log(`[BackgroundAI] ⚙️ Advanced Settings for Rule ${rule.id}:`, {
+          rule_id: rule.id,
+          rule_name: rule.rule_name,
+          auto_execute: rule.auto_execute,
+          requires_confirmation: rule.requires_confirmation,
+          requires_webauthn: rule.requires_webauthn,
+          contract_requires_webauthn: rule.requires_webauthn, // From contract
+          max_executions_per_public_key: rule.max_executions_per_public_key,
+          execution_time_window_seconds: rule.execution_time_window_seconds,
+          min_location_duration_seconds: rule.min_location_duration_seconds,
+          submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
+          target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 12) + '...' : 'NULL (any wallet)',
+          rule_type: rule.rule_type,
+          center_latitude: rule.center_latitude,
+          center_longitude: rule.center_longitude,
+          radius_meters: rule.radius_meters
+        });
+        
+        // Check target wallet filtering (advanced setting)
+        if (rule.target_wallet_public_key && rule.target_wallet_public_key !== public_key) {
+          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Target wallet mismatch:`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            target_wallet: rule.target_wallet_public_key.substring(0, 12) + '...',
+            current_wallet: public_key.substring(0, 12) + '...',
+            matches: false
+          });
+          executionResults.push({
+            rule_id: rule.id,
+            success: false,
+            skipped: true,
+            reason: 'target_wallet_mismatch',
+            message: `Rule is configured for a different wallet (target: ${rule.target_wallet_public_key.substring(0, 12)}...)`,
+            matched_public_key: public_key
+          });
+          matchedRuleIds.push(rule.id);
+          continue;
+        } else if (rule.target_wallet_public_key) {
+          console.log(`[BackgroundAI] ✅ Target wallet check passed for rule ${rule.id} (${rule.rule_name}): wallet matches target`);
+        }
+        
+        // Check auto-execute setting (advanced setting)
+        if (rule.auto_execute === false) {
+          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Auto-execute disabled:`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            auto_execute: rule.auto_execute,
+            requires_manual_execution: true
+          });
+          executionResults.push({
+            rule_id: rule.id,
+            success: false,
+            skipped: true,
+            reason: 'auto_execute_disabled',
+            message: 'Rule has auto-execute disabled. Please execute manually via browser UI.',
+            matched_public_key: public_key
+          });
+          matchedRuleIds.push(rule.id);
+          continue;
+        } else {
+          console.log(`[BackgroundAI] ✅ Auto-execute check passed for rule ${rule.id} (${rule.rule_name}): auto_execute=${rule.auto_execute}`);
+        }
+        
+        // Check if WebAuthn is required for this rule FIRST
         // WebAuthn requires browser-based user interaction, so we can't execute it automatically
+        // IMPORTANT: Check WebAuthn BEFORE requires_confirmation so that rules requiring WebAuthn
+        // are marked as 'requires_webauthn' (which deposit endpoints look for) rather than 'requires_confirmation'
         const functionParams = typeof rule.function_parameters === 'string'
           ? JSON.parse(rule.function_parameters)
           : rule.function_parameters || {};
@@ -323,15 +694,42 @@ class BackgroundAIService {
                                          rule.requires_webauthn === 'true' || 
                                          rule.requires_webauthn === 1;
         const requiresWebAuthn = contractRequiresWebAuthn || hasWebAuthnParams;
-        
-        // console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id}:`, {
-        //   contract_requires_webauthn: rule.requires_webauthn,
-        //   contract_requires_webauthn_type: typeof rule.requires_webauthn,
-        //   contract_requires_webauthn_parsed: contractRequiresWebAuthn,
-        //   has_webauthn_params: hasWebAuthnParams,
-        //   requires_webauthn: requiresWebAuthn,
-        //   function_params_keys: Object.keys(functionParams)
-        // });
+
+        // Check requires_confirmation setting (advanced setting)
+        // BUT: If WebAuthn is required, mark as requires_webauthn instead (for deposit endpoint compatibility)
+        if (rule.requires_confirmation === true && !requiresWebAuthn) {
+          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Requires confirmation:`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            requires_confirmation: rule.requires_confirmation,
+            requires_manual_execution: true
+          });
+          executionResults.push({
+            rule_id: rule.id,
+            success: false,
+            skipped: true,
+            reason: 'requires_confirmation',
+            message: 'Rule requires user confirmation. Please execute manually via browser UI.',
+            matched_public_key: public_key
+          });
+          matchedRuleIds.push(rule.id);
+          continue;
+        } else if (rule.requires_confirmation === true && requiresWebAuthn) {
+          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Requires confirmation AND WebAuthn. Marking as requires_webauthn for deposit endpoint compatibility.`);
+          // Will be handled by the WebAuthn check below
+        } else {
+          console.log(`[BackgroundAI] ✅ Confirmation check passed for rule ${rule.id} (${rule.rule_name}): requires_confirmation=${rule.requires_confirmation}`);
+        }
+
+        console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id} (${rule.rule_name}):`, {
+          contract_requires_webauthn: rule.requires_webauthn,
+          contract_requires_webauthn_type: typeof rule.requires_webauthn,
+          contract_requires_webauthn_parsed: contractRequiresWebAuthn,
+          has_webauthn_params: hasWebAuthnParams,
+          requires_webauthn: requiresWebAuthn,
+          function_params_keys: Object.keys(functionParams),
+          function_name: rule.function_name
+        });
         
         // Check advanced settings FIRST (rate limiting, time-based triggers)
         // These checks apply regardless of whether WebAuthn is required
@@ -510,8 +908,38 @@ class BackgroundAIService {
             }
           }
           
+          // Log submit_readonly_to_ledger setting before execution
+          if (rule.submit_readonly_to_ledger) {
+            console.log(`[BackgroundAI] 📤 Rule ${rule.id} (${rule.rule_name}) - submit_readonly_to_ledger enabled:`, {
+              rule_id: rule.id,
+              rule_name: rule.rule_name,
+              submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
+              function_name: rule.function_name,
+              will_submit_to_ledger: true
+            });
+          }
+          
           // Execute the contract function
           const result = await this.executeContractRuleDirectly(rule, parameters, public_key);
+          
+          // Log execution result with all advanced settings context
+          console.log(`[BackgroundAI] 📊 Execution result for Rule ${rule.id} (${rule.rule_name}):`, {
+            rule_id: rule.id,
+            rule_name: rule.rule_name,
+            function_name: rule.function_name,
+            success: result.success !== false,
+            completed: result.completed === true,
+            execution_type: result.execution_type || 'direct',
+            transaction_hash: result.transaction_hash ? result.transaction_hash.substring(0, 16) + '...' : 'N/A',
+            submit_readonly_to_ledger: rule.submit_readonly_to_ledger || false,
+            advanced_settings_summary: {
+              auto_execute: rule.auto_execute,
+              requires_confirmation: rule.requires_confirmation,
+              rate_limit: rule.max_executions_per_public_key ? `${rule.max_executions_per_public_key} per ${rule.execution_time_window_seconds}s` : 'unlimited',
+              min_duration: rule.min_location_duration_seconds ? `${rule.min_location_duration_seconds}s` : 'none',
+              target_wallet: rule.target_wallet_public_key ? 'specific' : 'any'
+            }
+          });
           
           // Mark as completed if execution was successful
           const executionResult = {
@@ -522,7 +950,8 @@ class BackgroundAIService {
             completed_at: result.completed_at || new Date().toISOString(),
             execution_type: result.execution_type || 'direct',
             matched_public_key: public_key,
-            direct_execution: true // Flag to indicate this was executed directly, not from pending
+            direct_execution: true, // Flag to indicate this was executed directly, not from pending
+            advanced_settings_passed: true // All advanced settings checks passed
           };
           
           // Add error if execution failed
@@ -592,12 +1021,36 @@ class BackgroundAIService {
       // pg library will automatically convert JavaScript array to PostgreSQL array format
       const executionResultsJson = JSON.stringify(executionResults);
       
-      // ESSENTIAL: Log summary of what was processed
+      // ESSENTIAL: Log comprehensive summary of what was processed
       const pendingCount = executionResults.filter(r => r.reason === 'requires_webauthn').length;
       const executedCount = executionResults.filter(r => r.success && r.completed).length;
-      if (pendingCount > 0 || executedCount > 0) {
-        console.log(`[BackgroundAI] 📊 Location update ${update_id} processed: ${pendingCount} added to pending, ${executedCount} executed`);
-      }
+      const rateLimitBlocked = executionResults.filter(r => r.reason === 'rate_limit_exceeded').length;
+      const durationBlocked = executionResults.filter(r => r.reason === 'insufficient_location_duration').length;
+      const targetWalletBlocked = executionResults.filter(r => r.reason === 'target_wallet_mismatch').length;
+      const autoExecuteBlocked = executionResults.filter(r => r.reason === 'auto_execute_disabled').length;
+      const confirmationBlocked = executionResults.filter(r => r.reason === 'requires_confirmation').length;
+      const errorCount = executionResults.filter(r => r.error).length;
+      
+      console.log(`[BackgroundAI] 📊 Location update ${update_id} processing summary:`, {
+        update_id: update_id,
+        public_key: public_key.substring(0, 12) + '...',
+        location: `(${actualLatitude}, ${actualLongitude})`,
+        total_rules_evaluated: rules.length,
+        executed: executedCount,
+        pending_webauthn: pendingCount,
+        blocked_by_rate_limit: rateLimitBlocked,
+        blocked_by_duration: durationBlocked,
+        blocked_by_target_wallet: targetWalletBlocked,
+        blocked_by_auto_execute: autoExecuteBlocked,
+        blocked_by_confirmation: confirmationBlocked,
+        errors: errorCount,
+        execution_results: executionResults.map(r => ({
+          rule_id: r.rule_id,
+          reason: r.reason,
+          success: r.success,
+          completed: r.completed
+        }))
+      });
       
       // console.log(`[BackgroundAI] 💾 Saving execution results for update ${update_id}:`, {
       //   status: executionResults.some(r => r.success) ? 'executed' : 'matched',

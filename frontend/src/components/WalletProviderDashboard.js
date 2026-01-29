@@ -799,6 +799,7 @@ const WalletProviderDashboard = () => {
                                 overflow: 'hidden'
                             }}>
                                 <SharedMap 
+                                    enableAdvanced3D={true}
                                     locations={[
                                         // Current user's wallet location (always show at current location if connected)
                                         ...(userLocation && userLocation.latitude && userLocation.longitude && 

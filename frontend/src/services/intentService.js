@@ -34,23 +34,32 @@
  */
 export async function encodeIntentBytes(intent) {
   // Create canonical JSON with stable key ordering
+  // CRITICAL: Intent must NOT include signature_payload or webauthn_* fields
+  // Intent = {v, network, contractId, function, signer, args(final), ruleBinding, nonce, iat, exp}
+  // authMode is metadata, not part of canonical Intent
   const canonical = {
     v: intent.v,
     network: intent.network,
     rpcUrl: intent.rpcUrl,
     contractId: intent.contractId,
     fn: intent.fn,
-    args: intent.args.map(arg => ({
-      name: arg.name,
-      type: arg.type,
-      value: arg.value
-    })),
+    args: intent.args
+      .filter(arg => {
+        // Double-check: exclude any WebAuthn fields that might have slipped through
+        const webauthnFields = ['signature_payload', 'webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'webauthn_client_data_json'];
+        return !webauthnFields.includes(arg.name);
+      })
+      .map(arg => ({
+        name: arg.name,
+        type: arg.type,
+        value: arg.value
+      })),
     signer: intent.signer,
     ...(intent.ruleBinding && { ruleBinding: intent.ruleBinding }),
     nonce: intent.nonce,
     iat: intent.iat,
-    exp: intent.exp,
-    authMode: intent.authMode
+    exp: intent.exp
+    // authMode is NOT part of canonical Intent - it's metadata
   };
 
   // Convert to canonical JSON string (stable key ordering)
@@ -76,22 +85,51 @@ export async function challengeFromIntent(intentBytes) {
 
 /**
  * Convert introspected function arguments to deterministic intent args
+ * CRITICAL: Excludes WebAuthn fields (signature_payload, webauthn_*) from Intent
+ * These fields are part of AuthProof, not Intent
  * @param {Array<{name: string, type: string, value: any}>} introspectedArgs - From contract introspection
  * @param {Object} parameterValues - User-provided parameter values
  * @returns {Array<{name: string, type: string, value: any}>}
  */
 export function convertIntrospectedArgsToIntentArgs(introspectedArgs, parameterValues) {
-  return introspectedArgs.map(param => {
-    // Support both 'name' and 'parameter_name', 'type' and 'parameter_type'
-    const paramName = param.name || param.parameter_name;
-    const paramType = param.type || param.parameter_type || 'String'; // Preserve actual contract types
-    
-    return {
-      name: paramName,
-      type: paramType, // Use actual contract type (Address, I128, U128, etc.)
-      value: parameterValues[paramName] ?? param.default ?? null
-    };
-  });
+  // WebAuthn fields that should NOT be in Intent (they're part of AuthProof)
+  const webauthnFieldNames = [
+    'signature_payload',
+    'webauthn_signature',
+    'webauthn_authenticator_data',
+    'webauthn_client_data',
+    'webauthn_client_data_json'
+  ];
+  
+  return introspectedArgs
+    .filter(param => {
+      // Exclude WebAuthn fields from Intent args
+      const paramName = param.name || param.parameter_name;
+      return !webauthnFieldNames.includes(paramName);
+    })
+    .map(param => {
+      // Support both 'name' and 'parameter_name', 'type' and 'parameter_type'
+      const paramName = param.name || param.parameter_name;
+      const paramType = param.type || param.parameter_type || 'String'; // Preserve actual contract types
+      
+      // Filter out placeholder values - they must be resolved before Intent creation
+      let value = parameterValues[paramName] ?? param.default ?? null;
+      if (typeof value === 'string' && (
+        value.includes('[Will be') || 
+        value.includes('system-generated') ||
+        value.trim() === ''
+      )) {
+        // Placeholder detected - this should be resolved before creating Intent
+        console.warn(`[IntentService] Placeholder value detected for ${paramName}: ${value}. This should be resolved before Intent creation.`);
+        value = null; // Use null instead of placeholder
+      }
+      
+      return {
+        name: paramName,
+        type: paramType, // Use actual contract type (Address, I128, U128, etc.)
+        value: value
+      };
+    });
 }
 
 /**
@@ -189,13 +227,41 @@ export function validateIntent(intent) {
   return { valid: true };
 }
 
+/**
+ * Create AuthProof object from WebAuthn authentication result
+ * AuthProof contains the signature and proof data generated AFTER Intent is signed
+ * @param {Object} params
+ * @param {Uint8Array} params.intentBytes - The encoded Intent bytes that were signed
+ * @param {string} params.webauthnSignature - Base64/Base64URL encoded WebAuthn signature (raw64 format)
+ * @param {string} params.webauthnAuthenticatorData - Base64/Base64URL encoded authenticator data bytes
+ * @param {string} params.webauthnClientDataJSON - Base64/Base64URL encoded client data JSON bytes
+ * @returns {Object} AuthProof object
+ */
+export function createAuthProof({
+  intentBytes,
+  webauthnSignature,
+  webauthnAuthenticatorData,
+  webauthnClientDataJSON
+}) {
+  // Convert intentBytes to base64 for signature_payload
+  const signaturePayload = btoa(String.fromCharCode(...intentBytes));
+  
+  return {
+    signature_payload: signaturePayload, // Base64 encoded intentBytes
+    webauthn_signature: webauthnSignature, // Base64/Base64URL encoded raw64 signature
+    webauthn_authenticator_data: webauthnAuthenticatorData, // Base64/Base64URL encoded authenticator data bytes
+    webauthn_client_data_json: webauthnClientDataJSON // Base64/Base64URL encoded client data JSON bytes
+  };
+}
+
 const intentService = {
   encodeIntentBytes,
   challengeFromIntent,
   convertIntrospectedArgsToIntentArgs,
   generateNonce,
   createContractCallIntent,
-  validateIntent
+  validateIntent,
+  createAuthProof
 };
 
 export default intentService;
