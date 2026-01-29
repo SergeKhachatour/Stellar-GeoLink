@@ -74,7 +74,6 @@ import {
   CheckBox as CheckBoxIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   SmartToy as SmartToyIcon,
-  Refresh as RefreshIcon,
   CleaningServices as CleaningServicesIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
