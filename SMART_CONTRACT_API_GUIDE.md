@@ -395,7 +395,7 @@ X-API-Key: <your_api_key>
 
 **Endpoint**: `GET /api/contracts/nearby`
 
-**Description**: **PUBLIC ENDPOINT** - Get all contract execution rules within a specified radius. This is the main endpoint for wallet apps to discover nearby smart contracts.
+**Description**: **PUBLIC ENDPOINT** - Get **ONLY ACTIVE** contract execution rules within a specified radius. Inactive rules are not shown. This is the main endpoint for wallet apps to discover nearby smart contracts.
 
 **Authentication**: **NONE REQUIRED** (Public endpoint)
 
@@ -427,7 +427,7 @@ GET /api/contracts/nearby?latitude=34.0164&longitude=-118.4951&radius=2000
       "network": "testnet",
       "trigger_on": "enter",
       "auto_execute": false,
-      "is_active": true,  // ⚠️ NOTE: Shows both active AND inactive rules
+      "is_active": true  // ⚠️ NOTE: Only active rules are shown (inactive rules are filtered out)
       "requires_webauthn": false,
       "use_smart_wallet": false,
       "function_mappings": {...},
@@ -444,10 +444,9 @@ GET /api/contracts/nearby?latitude=34.0164&longitude=-118.4951&radius=2000
 ```
 
 **Important Notes**:
-- ✅ **Shows both active AND inactive rules** (like `nearbyNFTs` endpoint)
-- ✅ Inactive rules are marked with `"is_active": false`
+- ✅ **Only shows ACTIVE rules** - Inactive rules are completely filtered out
 - ✅ Only filters out rules where the contract itself is inactive
-- ✅ Wallet apps should check `is_active` field and handle inactive rules appropriately (e.g., gray them out)
+- ✅ All returned rules will have `"is_active": true`
 
 ---
 

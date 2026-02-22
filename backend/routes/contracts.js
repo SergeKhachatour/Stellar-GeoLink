@@ -2001,7 +2001,7 @@ router.get('/public', async (req, res) => {
  * /api/contracts/nearby:
  *   get:
  *     summary: Get nearby smart contract execution rules
- *     description: Returns active contract execution rules within a specified radius of given coordinates. Public endpoint for data consumers (xyz-wallet).
+ *     description: Returns ONLY ACTIVE contract execution rules within a specified radius of given coordinates. Inactive rules are not shown. Public endpoint for data consumers (xyz-wallet).
  *     tags: [Contracts]
  *     parameters:
  *       - in: query
@@ -2034,6 +2034,7 @@ router.get('/public', async (req, res) => {
  *         description: List of nearby contract execution rules
  */
 // Get nearby smart contract execution rules - Public endpoint (for xyz-wallet data consumers)
+// NOTE: Only shows ACTIVE rules - inactive rules are filtered out
 // NOTE: This route MUST be defined BEFORE /:id to avoid route conflicts
 router.get('/nearby', async (req, res) => {
     try {
@@ -2074,9 +2075,9 @@ router.get('/nearby', async (req, res) => {
             WHERE cer.rule_type = 'location'
                 AND cer.center_latitude IS NOT NULL 
                 AND cer.center_longitude IS NOT NULL
-                -- Show both active and inactive rules (inactive still visible in data feed)
-                -- Only filter out if contract itself is inactive
-                AND (cc.is_active = true OR cc.is_active IS NULL)
+                -- Only show active rules in the data feed
+                AND cer.is_active = true
+                AND cc.is_active = true
                 AND ST_DWithin(
                     ST_Point($2, $1)::geography,
                     ST_Point(cer.center_longitude, cer.center_latitude)::geography,
