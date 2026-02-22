@@ -20,7 +20,15 @@ const { extractPublicKeyFromSPKI, decodeDERSignature, normalizeECDSASignature } 
  * Helper function to check if passkey is registered and auto-register if not
  * Returns true if passkey is registered (or was just registered), false otherwise
  */
+// Export ensurePasskeyRegistered for use in other routes
 async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPublicKeySPKI, rpId = null) {
+  console.log('[Smart Wallet] 🔍 ensurePasskeyRegistered called', {
+    userPublicKey: userPublicKey?.substring(0, 8) + '...',
+    hasSecretKey: !!userSecretKey,
+    hasPasskeySPKI: !!passkeyPublicKeySPKI,
+    rpId: rpId
+  });
+  
   // Validate required parameters
   if (!userPublicKey || !userSecretKey || !passkeyPublicKeySPKI) {
     console.warn('[Smart Wallet] ⚠️ Missing required parameters for passkey registration');
@@ -36,6 +44,7 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
   const horizonServer = new StellarSdk.Horizon.Server(contracts.HORIZON_URL);
 
   try {
+    console.log('[Smart Wallet] 🔍 Step 1: Checking if passkey is already registered...');
     // Check if passkey is registered
     const userScAddressForCheck = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
       StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey))
@@ -43,6 +52,7 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
     const userScValForCheck = StellarSdk.xdr.ScVal.scvAddress(userScAddressForCheck);
     
     const getPasskeyOp = contract.call('get_passkey_pubkey', userScValForCheck);
+    console.log('[Smart Wallet] 🔍 Loading account for check...');
     const accountForCheck = await horizonServer.loadAccount(userPublicKey);
     const checkTx = new StellarSdk.TransactionBuilder(
       new StellarSdk.Account(userPublicKey, accountForCheck.sequenceNumber()),
@@ -55,8 +65,14 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
       .setTimeout(30)
       .build();
     
+    console.log('[Smart Wallet] 🔍 Preparing and simulating check transaction...');
     const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
     const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+    
+    console.log('[Smart Wallet] 🔍 Check result:', {
+      hasResult: !!checkResult,
+      hasRetval: !!(checkResult?.result?.retval)
+    });
     
     // If we get a result, passkey is registered
     if (checkResult && checkResult.result && checkResult.result.retval) {
@@ -64,25 +80,33 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
       return true;
     }
     
+    console.log('[Smart Wallet] 🔍 Step 2: Passkey not registered, attempting auto-registration...');
+    
     // Passkey is not registered, register it automatically
-    // console.log('[Smart Wallet] 🔐 Passkey not registered, auto-registering...');
+    console.log('[Smart Wallet] 🔐 Passkey not registered, auto-registering...');
     
     // Extract 65-byte public key from SPKI
+    console.log('[Smart Wallet] 🔍 Extracting passkey public key from SPKI...');
     const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
     let passkeyPubkeyBytes;
     
     if (spkiBytes.length === 65 && spkiBytes[0] === 0x04) {
       passkeyPubkeyBytes = spkiBytes;
+      console.log('[Smart Wallet] ✅ SPKI is already 65 bytes, using directly');
     } else {
+      console.log('[Smart Wallet] 🔍 Extracting public key from SPKI (length:', spkiBytes.length, ')');
       passkeyPubkeyBytes = extractPublicKeyFromSPKI(spkiBytes);
+      console.log('[Smart Wallet] ✅ Extracted public key (length:', passkeyPubkeyBytes.length, ')');
     }
     
     // Generate RP ID hash
     const crypto = require('crypto');
     const rpIdToUse = rpId || 'localhost';
+    console.log('[Smart Wallet] 🔍 Generating RP ID hash for:', rpIdToUse);
     const rpIdHash = crypto.createHash('sha256').update(rpIdToUse).digest();
     
     // Create ScVals
+    console.log('[Smart Wallet] 🔍 Creating ScVals for registration...');
     const userAddressBytes = StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey);
     const userScAddress = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
       StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(userAddressBytes)
@@ -92,8 +116,10 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
     const rpIdHashScVal = StellarSdk.xdr.ScVal.scvBytes(rpIdHash);
     
     // Call register_signer
+    console.log('[Smart Wallet] 🔍 Building register_signer transaction...');
     const registerOp = contract.call('register_signer', userScVal, passkeyPubkeyScVal, rpIdHashScVal);
     
+    console.log('[Smart Wallet] 🔍 Loading account for registration...');
     const account = await horizonServer.loadAccount(userPublicKey);
     const transaction = new StellarSdk.TransactionBuilder(
       new StellarSdk.Account(userPublicKey, account.sequenceNumber()),
@@ -106,20 +132,26 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
       .setTimeout(30)
       .build();
     
+    console.log('[Smart Wallet] 🔍 Preparing registration transaction...');
     const preparedTx = await sorobanServer.prepareTransaction(transaction);
     const keypair = StellarSdk.Keypair.fromSecret(userSecretKey);
     preparedTx.sign(keypair);
     
+    console.log('[Smart Wallet] 🔍 Sending registration transaction...');
     const sendResult = await sorobanServer.sendTransaction(preparedTx);
     console.log(`[Smart Wallet] ✅ Auto-registration transaction sent - Hash: ${sendResult.hash}`);
     
     // Wait a short time for transaction to be processed (3 seconds)
     // Don't wait for full confirmation - payment will proceed and contract will handle if not registered yet
+    console.log('[Smart Wallet] ⏳ Waiting 3 seconds for transaction to be processed...');
     await new Promise(r => setTimeout(r, 3000));
     
     // Quick check if transaction succeeded (non-blocking)
+    console.log('[Smart Wallet] 🔍 Checking registration transaction status...');
     try {
       const txResult = await sorobanServer.getTransaction(sendResult.hash);
+      console.log('[Smart Wallet] 🔍 Transaction status:', txResult.status);
+      
       if (txResult.status === 'SUCCESS') {
         console.log(`[Smart Wallet] ✅ Passkey auto-registered successfully - Hash: ${sendResult.hash}`);
         return true;
@@ -128,18 +160,20 @@ async function ensurePasskeyRegistered(userPublicKey, userSecretKey, passkeyPubl
         // Still return true - transaction was sent, might be processing
         return true;
       } else {
-        // console.log(`[Smart Wallet] ⏳ Auto-registration transaction pending - Hash: ${sendResult.hash}`);
+        console.log(`[Smart Wallet] ⏳ Auto-registration transaction pending - Hash: ${sendResult.hash}`);
         // Transaction is pending, return true to proceed with payment
         // Contract will handle if passkey isn't registered yet
         return true;
       }
     } catch (checkError) {
       console.warn(`[Smart Wallet] ⚠️ Could not check registration status: ${checkError.message}`);
+      console.warn(`[Smart Wallet] ⚠️ Stack:`, checkError.stack);
       // Still return true - transaction was sent
       return true;
     }
   } catch (error) {
     console.error('[Smart Wallet] ❌ Error in ensurePasskeyRegistered:', error.message);
+    console.error('[Smart Wallet] ❌ Stack:', error.stack);
     return false;
   }
 }
@@ -182,7 +216,8 @@ router.get('/balance', authenticateUser, async (req, res) => {
 
     // Configure Soroban RPC server using config
     const network = contracts.STELLAR_NETWORK;
-    console.log(`[Smart Wallet] 🌐 Network: ${network}, Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
+    // Commented out verbose network log - only show for deposits/executions
+    // console.log(`[Smart Wallet] 🌐 Network: ${network}, Soroban RPC: ${contracts.SOROBAN_RPC_URL}`);
     const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
     const networkPassphrase = network === 'testnet'
       ? StellarSdk.Networks.TESTNET
@@ -1435,7 +1470,8 @@ router.post('/register-signer', authenticateUser, async (req, res) => {
       .addOperation(registerOp)
       .setTimeout(30)
       .build();
-    console.log('[Smart Wallet] ✅ Transaction built');
+    // Commented out verbose vault balance transaction log
+    // console.log('[Smart Wallet] ✅ Transaction built');
 
     // Prepare and sign
     console.log('[Smart Wallet] 🔄 Preparing transaction...');
@@ -1487,10 +1523,473 @@ router.post('/register-signer', authenticateUser, async (req, res) => {
 });
 
 /**
+ * Handle payment with signed XDR (secure - no secret key on server)
+ */
+async function handleSignedXDRPayment(req, res, params) {
+  const {
+    signedXDR,
+    userPublicKey,
+    destinationAddress,
+    amount,
+    assetAddress,
+    signaturePayload,
+    passkeyPublicKeySPKI,
+    webauthnSignature,
+    webauthnAuthenticatorData,
+    webauthnClientData,
+    rule_id,
+    matched_public_key
+  } = params;
+
+  try {
+    const StellarSdk = require('@stellar/stellar-sdk');
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+    const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+      ? StellarSdk.Networks.TESTNET
+      : StellarSdk.Networks.PUBLIC;
+
+    // Validate signed XDR
+    let transaction;
+    try {
+      transaction = StellarSdk.TransactionBuilder.fromXDR(signedXDR, networkPassphrase);
+      
+      if (!transaction.signatures || transaction.signatures.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid signed XDR',
+          details: 'Transaction has no signatures'
+        });
+      }
+
+      // Verify transaction source matches userPublicKey
+      if (transaction.source !== userPublicKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Transaction source mismatch',
+          details: `Transaction source ${transaction.source} does not match userPublicKey ${userPublicKey}`
+        });
+      }
+
+      console.log('[Smart Wallet] ✅ Signed XDR validated for payment:', {
+        source: transaction.source,
+        operationCount: transaction.operations.length,
+        signatureCount: transaction.signatures.length
+      });
+    } catch (xdrError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid signed XDR format',
+        details: xdrError.message
+      });
+    }
+
+    // Verify WebAuthn challenge (same as deposit)
+    let signaturePayloadBuffer;
+    if (typeof signaturePayload === 'string') {
+      try {
+        JSON.parse(signaturePayload);
+        signaturePayloadBuffer = Buffer.from(signaturePayload, 'utf8');
+      } catch (e) {
+        if (signaturePayload.startsWith('0x') || /^[0-9a-fA-F]+$/.test(signaturePayload.replace('0x', ''))) {
+          signaturePayloadBuffer = Buffer.from(signaturePayload.replace('0x', ''), 'hex');
+        } else {
+          signaturePayloadBuffer = Buffer.from(signaturePayload, 'base64');
+        }
+      }
+    } else {
+      signaturePayloadBuffer = Buffer.from(signaturePayload);
+    }
+
+    const first32Bytes = signaturePayloadBuffer.slice(0, Math.min(32, signaturePayloadBuffer.length));
+    const padded32Bytes = Buffer.alloc(32);
+    first32Bytes.copy(padded32Bytes, 0);
+    const expectedChallengeBase64Url = padded32Bytes.toString('base64url');
+
+    let actualChallengeBase64Url = null;
+    try {
+      const clientDataJSONString = Buffer.from(webauthnClientData, 'base64').toString('utf8');
+      const clientData = JSON.parse(clientDataJSONString);
+      actualChallengeBase64Url = clientData.challenge;
+    } catch (e) {
+      console.warn('[Smart Wallet] ⚠️ Could not parse clientDataJSON for challenge verification:', e.message);
+    }
+
+    if (expectedChallengeBase64Url !== actualChallengeBase64Url) {
+      return res.status(400).json({
+        success: false,
+        error: 'WebAuthn challenge mismatch',
+        details: 'The challenge in clientDataJSON does not match the first 32 bytes of signaturePayload.',
+        expectedChallenge: expectedChallengeBase64Url,
+        actualChallenge: actualChallengeBase64Url
+      });
+    }
+
+    // Send signed transaction directly (already signed, no need to sign again)
+    console.log('[Smart Wallet] 📤 Sending signed payment transaction to network...');
+    const sendResult = await sorobanServer.sendTransaction(transaction);
+    console.log(`[Smart Wallet] ✅ Payment transaction sent - Hash: ${sendResult.hash}`);
+
+    // PUBLIC-FRIENDLY LOG: Payment transaction submitted (for GeoLink Events feed)
+    if (rule_id) {
+      console.log(`[GeoLink Events] ✅ Payment transaction submitted for Rule ${rule_id}: ${sendResult.hash}`);
+    } else {
+      console.log(`[GeoLink Events] ✅ Payment transaction submitted: ${sendResult.hash}`);
+    }
+
+    // Poll for result
+    console.log('[Smart Wallet] ⏳ Polling for transaction result...');
+    let txResult = null;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      txResult = await sorobanServer.getTransaction(sendResult.hash);
+      console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
+      if (txResult.status === 'SUCCESS') {
+        console.log(`[Smart Wallet] ✅ Payment successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+        return res.json({ 
+          success: true, 
+          hash: sendResult.hash, 
+          ledger: txResult.ledger 
+        });
+      } else if (txResult.status === 'FAILED') {
+        console.error(`[Smart Wallet] ❌ Payment failed - Hash: ${sendResult.hash}`);
+        return res.status(400).json({
+          success: false,
+          error: 'Payment transaction failed',
+          hash: sendResult.hash,
+          result: txResult.resultXdr || txResult.errorResultXdr
+        });
+      }
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: 'Transaction timeout',
+      hash: sendResult.hash,
+      message: 'Transaction did not complete within 20 seconds'
+    });
+  } catch (error) {
+    console.error('[Smart Wallet] ❌ Error in signed XDR payment:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Payment failed',
+      details: error.message
+    });
+  }
+}
+
+/**
+ * Handle deposit with signed XDR (secure - no secret key on server)
+ */
+async function handleSignedXDRDeposit(req, res, params) {
+  const {
+    signedXDR,
+    userPublicKey,
+    amount,
+    signaturePayload,
+    passkeyPublicKeySPKI,
+    webauthnSignature,
+    webauthnAuthenticatorData,
+    webauthnClientData
+  } = params;
+
+  try {
+    const StellarSdk = require('@stellar/stellar-sdk');
+    const sorobanServer = new StellarSdk.rpc.Server(contracts.SOROBAN_RPC_URL);
+    const networkPassphrase = contracts.STELLAR_NETWORK === 'testnet'
+      ? StellarSdk.Networks.TESTNET
+      : StellarSdk.Networks.PUBLIC;
+
+    // Validate signed XDR
+    let transaction;
+    try {
+      transaction = StellarSdk.TransactionBuilder.fromXDR(signedXDR, networkPassphrase);
+      
+      if (!transaction.signatures || transaction.signatures.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid signed XDR',
+          details: 'Transaction has no signatures'
+        });
+      }
+
+      // Verify transaction source matches userPublicKey
+      if (transaction.source !== userPublicKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Transaction source mismatch',
+          details: `Transaction source ${transaction.source} does not match userPublicKey ${userPublicKey}`
+        });
+      }
+
+      console.log('[Smart Wallet] ✅ Signed XDR validated:', {
+        source: transaction.source,
+        operationCount: transaction.operations.length,
+        signatureCount: transaction.signatures.length
+      });
+    } catch (xdrError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid signed XDR format',
+        details: xdrError.message
+      });
+    }
+
+    // Verify WebAuthn challenge (same as before)
+    let signaturePayloadBuffer;
+    if (typeof signaturePayload === 'string') {
+      try {
+        JSON.parse(signaturePayload);
+        signaturePayloadBuffer = Buffer.from(signaturePayload, 'utf8');
+      } catch (e) {
+        if (signaturePayload.startsWith('0x') || /^[0-9a-fA-F]+$/.test(signaturePayload.replace('0x', ''))) {
+          signaturePayloadBuffer = Buffer.from(signaturePayload.replace('0x', ''), 'hex');
+        } else {
+          signaturePayloadBuffer = Buffer.from(signaturePayload, 'base64');
+        }
+      }
+    } else {
+      signaturePayloadBuffer = Buffer.from(signaturePayload);
+    }
+
+    const first32Bytes = signaturePayloadBuffer.slice(0, Math.min(32, signaturePayloadBuffer.length));
+    const padded32Bytes = Buffer.alloc(32);
+    first32Bytes.copy(padded32Bytes, 0);
+    const expectedChallengeBase64Url = padded32Bytes.toString('base64url');
+
+    let actualChallengeBase64Url = null;
+    try {
+      const clientDataJSONString = Buffer.from(webauthnClientData, 'base64').toString('utf8');
+      const clientData = JSON.parse(clientDataJSONString);
+      actualChallengeBase64Url = clientData.challenge;
+    } catch (e) {
+      console.warn('[Smart Wallet] ⚠️ Could not parse clientDataJSON for challenge verification:', e.message);
+    }
+
+    if (expectedChallengeBase64Url !== actualChallengeBase64Url) {
+      return res.status(400).json({
+        success: false,
+        error: 'WebAuthn challenge mismatch',
+        details: 'The challenge in clientDataJSON does not match the first 32 bytes of signaturePayload.',
+        expectedChallenge: expectedChallengeBase64Url,
+        actualChallenge: actualChallengeBase64Url
+      });
+    }
+
+    // Note: For signed XDR, we can't auto-register passkey because we don't have userSecretKey
+    // But we can at least check if the passkey is registered and fail early with a clear error
+    if (passkeyPublicKeySPKI) {
+      console.log('[Smart Wallet] ⚠️ Passkey auto-registration skipped (signed XDR mode - no secret key available)');
+      console.log('[Smart Wallet] 🔍 Checking if passkey is registered (read-only check)...');
+      
+      try {
+        const contract = new StellarSdk.Contract(contracts.SMART_WALLET_CONTRACT_ID);
+        const userScAddressForCheck = StellarSdk.xdr.ScAddress.scAddressTypeAccount(
+          StellarSdk.xdr.PublicKey.publicKeyTypeEd25519(StellarSdk.StrKey.decodeEd25519PublicKey(userPublicKey))
+        );
+        const userScValForCheck = StellarSdk.xdr.ScVal.scvAddress(userScAddressForCheck);
+        
+        const getPasskeyOp = contract.call('get_passkey_pubkey', userScValForCheck);
+        const horizonServer = new StellarSdk.Horizon.Server(contracts.HORIZON_URL);
+        const accountForCheck = await horizonServer.loadAccount(userPublicKey);
+        const checkTx = new StellarSdk.TransactionBuilder(
+          new StellarSdk.Account(userPublicKey, accountForCheck.sequenceNumber()),
+          {
+            fee: StellarSdk.BASE_FEE,
+            networkPassphrase: networkPassphrase
+          }
+        )
+          .addOperation(getPasskeyOp)
+          .setTimeout(30)
+          .build();
+        
+        const preparedCheckTx = await sorobanServer.prepareTransaction(checkTx);
+        const checkResult = await sorobanServer.simulateTransaction(preparedCheckTx);
+        
+        if (checkResult && checkResult.result && checkResult.result.retval) {
+          let registeredPubkeyScVal;
+          const retval = checkResult.result.retval;
+          
+          if (retval && typeof retval === 'object' && typeof retval.switch === 'function') {
+            registeredPubkeyScVal = retval;
+          } else if (typeof retval === 'string') {
+            registeredPubkeyScVal = StellarSdk.xdr.ScVal.fromXDR(retval, 'base64');
+          }
+          
+          if (registeredPubkeyScVal && registeredPubkeyScVal.switch && registeredPubkeyScVal.switch().name === 'scvBytes') {
+            const registeredPubkeyBytes = registeredPubkeyScVal.bytes();
+            const registeredPubkeyHex = Buffer.from(registeredPubkeyBytes).toString('hex');
+            
+            // Extract passkey from SPKI
+            const { extractPublicKeyFromSPKI } = require('../utils/webauthnUtils');
+            const spkiBytes = Buffer.from(passkeyPublicKeySPKI, 'base64');
+            let signingPubkeyBytes;
+            if (spkiBytes.length === 65 && spkiBytes[0] === 0x04) {
+              signingPubkeyBytes = spkiBytes;
+            } else {
+              signingPubkeyBytes = extractPublicKeyFromSPKI(spkiBytes);
+            }
+            const signingPubkeyHex = Buffer.from(signingPubkeyBytes).toString('hex');
+            
+            console.log('[Smart Wallet] 🔍 Passkey check:', {
+              registered: registeredPubkeyHex.substring(0, 32) + '...',
+              signing: signingPubkeyHex.substring(0, 32) + '...',
+              match: registeredPubkeyHex === signingPubkeyHex
+            });
+            
+            if (registeredPubkeyHex !== signingPubkeyHex) {
+              console.error('[Smart Wallet] ❌ Passkey mismatch detected!');
+              return res.status(400).json({
+                success: false,
+                error: 'Passkey mismatch',
+                details: 'The passkey used for signing does not match the passkey registered on the contract. The contract stores only one passkey per public key.',
+                suggestion: 'Please use the same passkey that is registered on the contract, or register the passkey before attempting the deposit.',
+                registeredPasskey: registeredPubkeyHex.substring(0, 32) + '...',
+                signingPasskey: signingPubkeyHex.substring(0, 32) + '...',
+                note: 'To register the passkey, you need to call the register_signer function on the smart wallet contract. This requires your secret key, so it cannot be done with signed XDR alone.'
+              });
+            } else {
+              console.log('[Smart Wallet] ✅ Passkey is registered and matches');
+            }
+          } else {
+            console.warn('[Smart Wallet] ⚠️ Could not parse registered passkey, proceeding anyway');
+          }
+        } else {
+          console.error('[Smart Wallet] ❌ Passkey is NOT registered on the contract!');
+          return res.status(400).json({
+            success: false,
+            error: 'Passkey not registered',
+            details: 'The passkey is not registered on the smart wallet contract. The contract requires the passkey to be registered before deposits can be made.',
+            suggestion: 'Please register the passkey before attempting the deposit. This requires your secret key, so it cannot be done with signed XDR alone. You can register the passkey by calling the register_signer function on the smart wallet contract.',
+            note: 'If you are using the GeoLink app, the passkey should be automatically registered when you first connect. If you are using XYZ-Wallet, make sure the passkey is registered before attempting deposits.'
+          });
+        }
+      } catch (checkError) {
+        console.warn('[Smart Wallet] ⚠️ Could not check passkey registration:', checkError.message);
+        console.warn('[Smart Wallet] ⚠️ Proceeding anyway - contract will validate and return false if not registered');
+      }
+    }
+
+    // Send signed transaction directly (already signed, no need to sign again)
+    console.log('[Smart Wallet] 📤 Sending signed transaction to network...');
+    const sendResult = await sorobanServer.sendTransaction(transaction);
+    console.log(`[Smart Wallet] ✅ Transaction sent - Hash: ${sendResult.hash}`);
+
+    // Poll for result
+    console.log('[Smart Wallet] ⏳ Polling for transaction result...');
+    let txResult = null;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      txResult = await sorobanServer.getTransaction(sendResult.hash);
+      console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
+      if (txResult.status === 'SUCCESS') {
+        // Check contract return value - even if transaction succeeded, contract might have returned false
+        let contractReturnedFalse = false;
+        let contractLogs = [];
+        
+        if (txResult.resultMetaXdr) {
+          try {
+            // Handle both string (base64) and already-parsed XDR
+            let txMeta;
+            if (typeof txResult.resultMetaXdr === 'string') {
+              txMeta = StellarSdk.xdr.TransactionMeta.fromXDR(txResult.resultMetaXdr, 'base64');
+            } else {
+              // Already parsed, use directly
+              txMeta = txResult.resultMetaXdr;
+            }
+            // Check if v3 is available (Soroban transactions)
+            let sorobanMeta = null;
+            try {
+              if (txMeta.v3) {
+                sorobanMeta = txMeta.v3().sorobanMeta();
+              }
+            } catch (v3Error) {
+              // Transaction might not have Soroban metadata (e.g., classic Stellar transaction)
+              console.log(`[Smart Wallet] ℹ️ Transaction does not have Soroban metadata (v3 not available) - this is normal for classic Stellar transactions`);
+            }
+            if (sorobanMeta) {
+              // Extract contract logs for debugging
+              contractLogs = sorobanMeta.logs().map(log => log.toString());
+              
+              // Extract contract return value
+              const returnVal = sorobanMeta.returnValue();
+              if (returnVal) {
+                console.log(`[Smart Wallet] 📋 Contract returned: ${returnVal.toXDR('base64')} (type: ${returnVal.switch().name})`);
+                if (returnVal.isB()) { // Check if it's a boolean
+                  const boolVal = returnVal.b();
+                  console.log(`[Smart Wallet] 📋 Contract returned boolean: ${boolVal}`);
+                  if (!boolVal) {
+                    contractReturnedFalse = true;
+                    console.error(`[Smart Wallet] ❌ CONTRACT REJECTED DEPOSIT: Contract function returned 'false'`);
+                    console.error(`[Smart Wallet] ❌ This usually indicates an internal contract logic failure (e.g., insufficient balance, invalid parameters, WebAuthn failure)`);
+                    if (contractLogs.length > 0) {
+                      console.error(`[Smart Wallet] 📋 Contract logs:`, contractLogs);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (metaError) {
+            console.warn(`[Smart Wallet] ⚠️ Could not parse transaction metadata:`, metaError.message);
+          }
+        }
+        
+        if (contractReturnedFalse) {
+          return res.status(400).json({
+            success: false,
+            error: 'Contract rejected deposit',
+            message: 'The smart contract function returned false, indicating a rejection.',
+            hash: sendResult.hash,
+            ledger: txResult.ledger,
+            contract_logs: contractLogs,
+            possible_reasons: [
+              'Insufficient balance in Stellar account (contract checks token_client.balance())',
+              'WebAuthn signature verification failed',
+              'Passkey not registered or mismatch',
+              'Invalid parameters (asset, amount, user_address)',
+              'Token allowance insufficient (for transfer_from operations)'
+            ]
+          });
+        }
+        
+        console.log(`[Smart Wallet] ✅ Deposit successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
+        return res.json({ 
+          success: true, 
+          hash: sendResult.hash, 
+          ledger: txResult.ledger,
+          contract_logs: contractLogs.length > 0 ? contractLogs : undefined
+        });
+      } else if (txResult.status === 'FAILED') {
+        console.error(`[Smart Wallet] ❌ Deposit failed - Hash: ${sendResult.hash}`);
+        return res.status(400).json({
+          success: false,
+          error: 'Deposit transaction failed',
+          hash: sendResult.hash,
+          result: txResult.resultXdr || txResult.errorResultXdr
+        });
+      }
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: 'Transaction timeout',
+      hash: sendResult.hash,
+      message: 'Transaction did not complete within 20 seconds'
+    });
+  } catch (error) {
+    console.error('[Smart Wallet] ❌ Error in signed XDR deposit:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Deposit failed',
+      details: error.message
+    });
+  }
+}
+
+/**
  * POST /api/smart-wallet/deposit
  * Deposit tokens into smart wallet using WebAuthn signature
  * Body: {
- *   userPublicKey, userSecretKey, amount (in stroops),
+ *   userPublicKey, userSecretKey (or signedXDR), amount (in stroops),
  *   assetAddress, signaturePayload, passkeyPublicKeySPKI,
  *   webauthnSignature, webauthnAuthenticatorData, webauthnClientData
  * }
@@ -1500,7 +1999,8 @@ router.post('/deposit', authenticateUser, validateSignedXDR, async (req, res) =>
   try {
     const {
       userPublicKey,
-      userSecretKey,
+      userSecretKey, // Optional - only used if signedXDR is not provided (backward compatibility)
+      signedXDR, // Preferred: Signed transaction XDR (secret key never sent to server)
       amount, // In stroops (1 XLM = 10,000,000 stroops)
       assetAddress,
       signaturePayload, // Transaction data JSON string
@@ -1511,10 +2011,27 @@ router.post('/deposit', authenticateUser, validateSignedXDR, async (req, res) =>
     } = req.body;
 
     console.log(`[Smart Wallet] 📋 Deposit params - User: ${userPublicKey}, Amount: ${amount} stroops (${parseFloat(amount) / 10000000} XLM), Asset: ${assetAddress || 'native'}`);
+    console.log(`[Smart Wallet] 🔐 Using ${signedXDR ? 'signed XDR (secure)' : 'server-side signing (less secure - backward compatibility)'}`);
 
+    // Prefer signed XDR over secret key (more secure)
+    if (signedXDR) {
+      // Validate and submit signed XDR directly (no secret key needed)
+      return await handleSignedXDRDeposit(req, res, {
+        signedXDR,
+        userPublicKey,
+        amount,
+        signaturePayload,
+        passkeyPublicKeySPKI,
+        webauthnSignature,
+        webauthnAuthenticatorData,
+        webauthnClientData
+      });
+    }
+
+    // Backward compatibility: Use server-side signing if signedXDR not provided
     if (!userPublicKey || !userSecretKey || !amount) {
       return res.status(400).json({ 
-        error: 'userPublicKey, userSecretKey, and amount are required' 
+        error: 'userPublicKey, userSecretKey (or signedXDR), and amount are required' 
       });
     }
 
@@ -1892,11 +2409,81 @@ router.post('/deposit', authenticateUser, validateSignedXDR, async (req, res) =>
       txResult = await sorobanServer.getTransaction(sendResult.hash);
       console.log(`[Smart Wallet] 📊 Poll attempt ${i + 1}/10 - Status: ${txResult.status}`);
       if (txResult.status === 'SUCCESS') {
+        // Check contract return value - even if transaction succeeded, contract might have returned false
+        let contractReturnedFalse = false;
+        let contractLogs = [];
+        
+        if (txResult.resultMetaXdr) {
+          try {
+            // Handle both string (base64) and already-parsed XDR
+            let txMeta;
+            if (typeof txResult.resultMetaXdr === 'string') {
+              txMeta = StellarSdk.xdr.TransactionMeta.fromXDR(txResult.resultMetaXdr, 'base64');
+            } else {
+              // Already parsed, use directly
+              txMeta = txResult.resultMetaXdr;
+            }
+            // Check if v3 is available (Soroban transactions)
+            let sorobanMeta = null;
+            try {
+              if (txMeta.v3) {
+                sorobanMeta = txMeta.v3().sorobanMeta();
+              }
+            } catch (v3Error) {
+              // Transaction might not have Soroban metadata (e.g., classic Stellar transaction)
+              console.log(`[Smart Wallet] ℹ️ Transaction does not have Soroban metadata (v3 not available) - this is normal for classic Stellar transactions`);
+            }
+            if (sorobanMeta) {
+              // Extract contract logs for debugging
+              contractLogs = sorobanMeta.logs().map(log => log.toString());
+              
+              // Extract contract return value
+              const returnVal = sorobanMeta.returnValue();
+              if (returnVal) {
+                console.log(`[Smart Wallet] 📋 Contract returned: ${returnVal.toXDR('base64')} (type: ${returnVal.switch().name})`);
+                if (returnVal.isB()) { // Check if it's a boolean
+                  const boolVal = returnVal.b();
+                  console.log(`[Smart Wallet] 📋 Contract returned boolean: ${boolVal}`);
+                  if (!boolVal) {
+                    contractReturnedFalse = true;
+                    console.error(`[Smart Wallet] ❌ CONTRACT REJECTED DEPOSIT: Contract function returned 'false'`);
+                    console.error(`[Smart Wallet] ❌ This usually indicates an internal contract logic failure (e.g., insufficient balance, invalid parameters, WebAuthn failure)`);
+                    if (contractLogs.length > 0) {
+                      console.error(`[Smart Wallet] 📋 Contract logs:`, contractLogs);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (metaError) {
+            console.warn(`[Smart Wallet] ⚠️ Could not parse transaction metadata:`, metaError.message);
+          }
+        }
+        
+        if (contractReturnedFalse) {
+          return res.status(400).json({
+            success: false,
+            error: 'Contract rejected deposit',
+            message: 'The smart contract function returned false, indicating a rejection.',
+            hash: sendResult.hash,
+            ledger: txResult.ledger,
+            contract_logs: contractLogs,
+            possible_reasons: [
+              'Insufficient balance in Stellar account (contract checks token_client.balance())',
+              'WebAuthn signature verification failed',
+              'Passkey not registered or mismatch',
+              'Invalid parameters (asset, amount, user_address)',
+              'Token allowance insufficient (for transfer_from operations)'
+            ]
+          });
+        }
+        
         console.log(`[Smart Wallet] ✅ Deposit successful - Hash: ${sendResult.hash}, Ledger: ${txResult.ledger}`);
         return res.json({ 
           success: true, 
           hash: sendResult.hash, 
-          ledger: txResult.ledger 
+          ledger: txResult.ledger,
+          contract_logs: contractLogs.length > 0 ? contractLogs : undefined
         });
       } else if (txResult.status === 'FAILED') {
         console.error(`[Smart Wallet] ❌ Deposit failed - Result: ${txResult.resultXdr || txResult.errorResultXdr}`);
@@ -1971,7 +2558,8 @@ router.get('/vault-balance', async (req, res) => {
     const dummyKeypair = StellarSdk.Keypair.random();
     const dummyAccount = new StellarSdk.Account(dummyKeypair.publicKey(), '0');
     
-    console.log('[Smart Wallet] 🔨 Building token.balance transaction for vault simulation...');
+    // Commented out verbose vault balance log
+    // console.log('[Smart Wallet] 🔨 Building token.balance transaction for vault simulation...');
     const transaction = new StellarSdk.TransactionBuilder(
       dummyAccount,
       {
@@ -1982,16 +2570,19 @@ router.get('/vault-balance', async (req, res) => {
       .addOperation(getBalanceOp)
       .setTimeout(30)
       .build();
-    console.log('[Smart Wallet] ✅ Transaction built');
+    // Commented out verbose vault balance transaction log
+    // console.log('[Smart Wallet] ✅ Transaction built');
 
     let simulation;
-    console.log('[Smart Wallet] 🔄 Simulating get_balance transaction for vault...');
+    // Commented out verbose vault balance log
+    // console.log('[Smart Wallet] 🔄 Simulating get_balance transaction for vault...');
     try {
       simulation = await sorobanServer.simulateTransaction(transaction);
-      console.log('[Smart Wallet] ✅ Simulation completed:', {
-        hasResult: !!simulation.result,
-        hasErrorResult: !!simulation.errorResult
-      });
+      // Commented out verbose vault balance simulation log
+      // console.log('[Smart Wallet] ✅ Simulation completed:', {
+      //   hasResult: !!simulation.result,
+      //   hasErrorResult: !!simulation.errorResult
+      // });
     } catch (simError) {
       console.error('[Smart Wallet] ❌ Error simulating smart wallet vault balance transaction:', simError);
       console.error('[Smart Wallet] 📋 Simulation error details:', {
@@ -2052,7 +2643,8 @@ router.get('/vault-balance', async (req, res) => {
     }
 
     const balanceInXLM = (BigInt(balance) / 10000000n).toString();
-    console.log(`[Smart Wallet] ✅ Vault balance retrieved - Raw: ${balance}, XLM: ${balanceInXLM}`);
+    // Commented out verbose vault balance log
+    // console.log(`[Smart Wallet] ✅ Vault balance retrieved - Raw: ${balance}, XLM: ${balanceInXLM}`);
 
     res.json({
       balance: balance,
@@ -2073,5 +2665,7 @@ router.get('/vault-balance', async (req, res) => {
   }
 });
 
+// Export ensurePasskeyRegistered for use in other routes (e.g., contracts.js)
 module.exports = router;
+module.exports.ensurePasskeyRegistered = ensurePasskeyRegistered;
 

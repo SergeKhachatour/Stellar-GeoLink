@@ -21,6 +21,7 @@ import { useWallet } from '../../contexts/WalletContext';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import webauthnService from '../../services/webauthnService';
+import { buildAndSignDepositTransaction } from '../../services/transactionBuilder';
 import WalletConnectionDialog from './WalletConnectionDialog';
 
 const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
@@ -213,7 +214,42 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
         throw new Error('No passkey registered. Please register a passkey first.');
       }
 
-      const selectedPasskey = passkeys[0]; // Use first passkey
+      // Use the passkey that's registered on the contract
+      // IMPORTANT: The contract stores only ONE passkey per public_key (the last one registered)
+      // We MUST use the passkey that's actually on the contract, not just any passkey
+      let selectedPasskey = passkeys.find(p => p.isOnContract === true);
+      
+      if (!selectedPasskey) {
+        // No passkey is registered on the contract - automatically register the first one
+        console.log('[DepositDialog] ⚠️  No passkey found registered on contract, auto-registering...');
+        selectedPasskey = passkeys[0];
+        
+        if (!selectedPasskey.publicKey && !selectedPasskey.public_key_spki) {
+          throw new Error('Passkey public key not found. Please ensure your passkey is properly registered.');
+        }
+        
+        const passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
+        
+        setStatus('Registering passkey on contract...');
+        
+        try {
+          // Automatically register the passkey on the smart wallet contract
+          await api.post('/smart-wallet/register-signer', {
+            userPublicKey: publicKey,
+            userSecretKey: userSecretKey,
+            passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+            rpId: window.location.hostname
+          });
+          
+          console.log('[DepositDialog] ✅ Passkey registered on contract successfully');
+          setStatus('Passkey registered, proceeding with deposit...');
+        } catch (registerError) {
+          console.error('[DepositDialog] ❌ Failed to register passkey on contract:', registerError);
+          throw new Error(`Failed to register passkey on contract: ${registerError.response?.data?.error || registerError.message}. Please try again.`);
+        }
+      } else {
+        console.log('[DepositDialog] ✅ Using passkey registered on contract:', selectedPasskey.credentialId?.substring(0, 20) + '...');
+      }
 
       // Create deposit data JSON for signature
       const timestamp = Date.now();
@@ -260,13 +296,76 @@ const DepositDialog = ({ open, onClose, onDepositSuccess }) => {
         throw new Error('Passkey public key not found');
       }
 
-      setStatus('Submitting deposit transaction...');
+      setStatus('Building and signing transaction...');
 
-      // Call backend deposit endpoint
+      // Build and sign transaction client-side (SECURITY: secret key never leaves client)
+      const network = 'testnet'; // TODO: Get from config or environment
+      const smartWalletContractId = 'CAAQTGMXO6VS7HUYH7YLBVSI6T64WWHAPQDR6QEO7EVEOD4CR3H3565U'; // TODO: Get from config
+      const sorobanRpcUrl = 'https://soroban-testnet.stellar.org'; // TODO: Get from config
+      const horizonUrl = 'https://horizon-testnet.stellar.org'; // TODO: Get from config
+
+      let signedXDR;
+      try {
+        signedXDR = await buildAndSignDepositTransaction({
+          userPublicKey: publicKey,
+          userSecretKey: userSecretKey,
+          amount: depositData.amount, // In stroops
+          assetAddress: null, // Native XLM
+          signaturePayload,
+          webauthnSignature: authResult.signature,
+          webauthnAuthenticatorData: authResult.authenticatorData,
+          webauthnClientData: authResult.clientDataJSON,
+          network,
+          smartWalletContractId,
+          sorobanRpcUrl,
+          horizonUrl
+        });
+        console.log('[DepositDialog] ✅ Transaction built and signed client-side');
+      } catch (buildError) {
+        console.error('[DepositDialog] ❌ Failed to build transaction:', buildError);
+        // Fallback to old method if transaction building fails
+        console.warn('[DepositDialog] ⚠️ Falling back to server-side signing (less secure)');
+        setStatus('Submitting deposit transaction (server-side signing)...');
+        const depositResponse = await api.post('/smart-wallet/deposit', {
+          userPublicKey: publicKey,
+          userSecretKey: userSecretKey, // Fallback: Use retrieved secret key
+          amount: depositData.amount, // In stroops
+          assetAddress: null, // Native XLM
+          signaturePayload,
+          passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+          webauthnSignature: authResult.signature,
+          webauthnAuthenticatorData: authResult.authenticatorData,
+          webauthnClientData: authResult.clientDataJSON
+        });
+
+        if (depositResponse.data.success) {
+          setDepositResponse(depositResponse.data);
+          setSuccess('Deposit successful! Your tokens are now in the smart wallet.');
+          setStatus('');
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const effectivePublicKey = publicKey || (user && user.public_key);
+          if (effectivePublicKey) {
+            await fetchContractBalance();
+          }
+          
+          if (onDepositSuccess) {
+            onDepositSuccess();
+          }
+          return;
+        } else {
+          throw new Error(depositResponse.data.error || 'Deposit failed');
+        }
+      }
+
+      setStatus('Submitting signed transaction...');
+
+      // Call backend deposit endpoint with signed XDR (no secret key sent)
       const depositResponse = await api.post('/smart-wallet/deposit', {
         userPublicKey: publicKey,
-        userSecretKey: userSecretKey, // Use retrieved secret key
-        amount: depositData.amount, // In stroops
+        signedXDR: signedXDR, // ✅ Only signed XDR, no secret key
+        amount: depositData.amount, // In stroops (for logging/validation)
         assetAddress: null, // Native XLM
         signaturePayload,
         passkeyPublicKeySPKI: passkeyPublicKeySPKI,

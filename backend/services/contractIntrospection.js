@@ -1292,7 +1292,22 @@ class ContractIntrospection {
       return contractParams;
     }
 
+    // WebAuthn fields that should NEVER be mapped from Stellar addresses
+    // These must be actual WebAuthn bytes (base64/base64url), not addresses
+    const webauthnFieldNames = [
+      'webauthn_signature',
+      'webauthn_authenticator_data',
+      'webauthn_client_data',
+      'webauthn_client_data_json',
+      'signature_payload'
+    ];
+
     mapping.parameters.forEach(param => {
+      const paramName = param.name || '';
+      const isWebAuthnField = webauthnFieldNames.some(field => 
+        paramName.toLowerCase().includes(field.toLowerCase())
+      );
+      
       let value = null;
       
       if (param.mapped_from === 'auto_generate') {
@@ -1301,6 +1316,24 @@ class ContractIntrospection {
         value = geolinkData.custom_values?.[param.name];
       } else {
         value = geolinkData[param.mapped_from];
+        
+        // CRITICAL: For WebAuthn fields, ensure value is NOT a Stellar address
+        if (isWebAuthnField && value) {
+          if (typeof value === 'string') {
+            // Check if it looks like a Stellar address (starts with G or C)
+            if (value.startsWith('G') || value.startsWith('C')) {
+              console.warn(`[ContractIntrospection] ⚠️ WebAuthn field ${paramName} has Stellar address value - this is incorrect. WebAuthn fields must be base64/base64url bytes.`);
+              // Don't use the address - use the value from geolinkData directly if it's a WebAuthn field
+              // This ensures we use the actual WebAuthn bytes, not an address
+              value = geolinkData[paramName] || geolinkData[param.mapped_from];
+            }
+            // If value is a placeholder, keep it (will be resolved later)
+            if (value.includes('[Will be') || value.includes('system-generated')) {
+              // Keep placeholder - it will be resolved during execution
+              value = value;
+            }
+          }
+        }
         
         // Apply transform if specified
         if (param.transform) {
@@ -1394,7 +1427,18 @@ class ContractIntrospection {
         });
         return StellarSdk.xdr.ScVal.scvI128(amountI128);
       case 'Bytes':
-        const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
+        let buffer;
+        if (Buffer.isBuffer(value)) {
+          buffer = value;
+        } else if (typeof value === 'object' && value !== null) {
+          // If value is an object (e.g., signature_payload JSON), stringify it first
+          buffer = Buffer.from(JSON.stringify(value), 'utf8');
+        } else if (typeof value === 'string') {
+          // If it's already a string, use it directly
+          buffer = Buffer.from(value, 'utf8');
+        } else {
+          buffer = Buffer.from(value);
+        }
         return StellarSdk.xdr.ScVal.scvBytes(buffer);
       default:
         throw new Error(`Unsupported type: ${type}`);

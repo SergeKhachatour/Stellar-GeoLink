@@ -49,11 +49,27 @@ export async function encodeIntentBytes(intent) {
         const webauthnFields = ['signature_payload', 'webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data', 'webauthn_client_data_json'];
         return !webauthnFields.includes(arg.name);
       })
-      .map(arg => ({
-        name: arg.name,
-        type: arg.type,
-        value: arg.value
-      })),
+      .map(arg => {
+        // CRITICAL: Ensure value is not a placeholder before encoding
+        // Placeholders must be resolved before Intent creation
+        let value = arg.value;
+        if (typeof value === 'string' && (
+          value.includes('[Will be') || 
+          value.includes('system-generated') ||
+          value.trim() === ''
+        )) {
+          console.warn(`[IntentService] ⚠️ Placeholder detected in Intent arg ${arg.name}: ${value}. This should have been resolved before Intent creation.`);
+          // For placeholders, we should not include them in the Intent
+          // But since we're already filtering, this is a safety check
+          value = null;
+        }
+        
+        return {
+          name: arg.name,
+          type: arg.type, // Preserve actual Soroban type (Address, I128, U128, Bytes, String, etc.)
+          value: value
+        };
+      }),
     signer: intent.signer,
     ...(intent.ruleBinding && { ruleBinding: intent.ruleBinding }),
     nonce: intent.nonce,
@@ -108,6 +124,8 @@ export function convertIntrospectedArgsToIntentArgs(introspectedArgs, parameterV
       return !webauthnFieldNames.includes(paramName);
     })
     .map(param => {
+      // CRITICAL: Ensure we preserve the actual Soroban type from introspection
+      // This ensures deterministic encoding based on contract types
       // Support both 'name' and 'parameter_name', 'type' and 'parameter_type'
       const paramName = param.name || param.parameter_name;
       const paramType = param.type || param.parameter_type || 'String'; // Preserve actual contract types
@@ -124,12 +142,18 @@ export function convertIntrospectedArgsToIntentArgs(introspectedArgs, parameterV
         value = null; // Use null instead of placeholder
       }
       
+      // If value is null (placeholder), filter it out
+      if (value === null) {
+        return null;
+      }
+      
       return {
         name: paramName,
-        type: paramType, // Use actual contract type (Address, I128, U128, etc.)
+        type: paramType, // Use actual contract type (Address, I128, U128, Bytes, String, etc.) from introspection
         value: value
       };
-    });
+    })
+    .filter(arg => arg !== null); // Remove any null entries (placeholders)
 }
 
 /**

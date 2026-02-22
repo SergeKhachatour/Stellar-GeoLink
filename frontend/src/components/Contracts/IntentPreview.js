@@ -46,7 +46,27 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
   useEffect(() => {
     if (open && intent) {
       // Initialize editable args from intent
-      setEditableArgs(intent.args ? [...intent.args] : []);
+      // Convert stroops to XLM for amount fields for display
+      const initialArgs = intent.args ? intent.args.map(arg => {
+        const argName = (arg.name || '').toLowerCase();
+        const argType = (arg.type || '').toLowerCase();
+        const isAmountField = argName === 'amount' || argName === 'value' || argName === 'quantity';
+        // Check for number types (I128, U128, i128, u128) OR String type with amount field name
+        const isNumberType = argType.includes('i128') || argType.includes('u128') || 
+                            (isAmountField && (argType === 'string' || argType === ''));
+        
+        if (isAmountField && isNumberType && arg.value) {
+          const numValue = parseFloat(arg.value);
+          if (!isNaN(numValue) && numValue >= 1000000) {
+            // Likely in stroops, convert to XLM for display
+            const xlmValue = (numValue / 10000000).toString();
+            console.log(`[IntentPreview] Converted ${arg.name} from stroops (${numValue}) to XLM (${xlmValue}) for display`);
+            return { ...arg, value: xlmValue, _originalStroops: numValue.toString() };
+          }
+        }
+        return arg;
+      }) : [];
+      setEditableArgs(initialArgs);
       setModifiedIntent(null);
       loadIntentDetails();
     }
@@ -90,9 +110,37 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
 
   const handleArgChange = (index, newValue) => {
     const updatedArgs = [...editableArgs];
+    const arg = updatedArgs[index];
+    const argName = (arg.name || '').toLowerCase();
+    const argType = (arg.type || '').toLowerCase();
+    const isAmountField = argName === 'amount' || argName === 'value' || argName === 'quantity';
+    // Check for number types (I128, U128, i128, u128) OR String type with amount field name
+    const isNumberType = argType.includes('i128') || argType.includes('u128') || 
+                        (isAmountField && (argType === 'string' || argType === ''));
+    
+    let finalValue = newValue;
+    
+    // For amount fields, convert XLM to stroops when user edits
+    if (isAmountField && isNumberType && newValue !== '') {
+      const numValue = parseFloat(newValue);
+      if (!isNaN(numValue)) {
+        // If value is less than 1,000,000, assume it's in XLM and convert to stroops
+        // If value is >= 1,000,000, assume it's already in stroops
+        if (numValue < 1000000) {
+          finalValue = Math.floor(numValue * 10000000).toString();
+          console.log(`[IntentPreview] Converted ${arg.name} from XLM (${numValue}) to stroops (${finalValue})`);
+        } else {
+          // Already in stroops, keep as is
+          finalValue = Math.floor(numValue).toString();
+        }
+      }
+    }
+    
     updatedArgs[index] = {
       ...updatedArgs[index],
-      value: newValue
+      value: finalValue,
+      // Store the display value (XLM) separately for display
+      _displayValue: isAmountField && isNumberType && parseFloat(newValue) < 1000000 ? newValue : undefined
     };
     setEditableArgs(updatedArgs);
   };
@@ -231,19 +279,48 @@ const IntentPreview = ({ open, onClose, intent, onConfirm, loading = false }) =>
                   const isNumberType = displayType.includes('I128') || displayType.includes('U128') || 
                                      displayType.includes('u32') || displayType.includes('i32');
                   
+                  // Check if this is an amount field (for XLM display)
+                  const argName = (arg.name || '').toLowerCase();
+                  const argType = (arg.type || '').toLowerCase();
+                  const isAmountField = argName === 'amount' || argName === 'value' || argName === 'quantity';
+                  // Check for number types (I128, U128, i128, u128) OR String type with amount field name
+                  const isAmountNumberType = argType.includes('i128') || argType.includes('u128') || 
+                                            (isAmountField && (argType === 'string' || argType === ''));
+                  
+                  // For amount fields, display in XLM (convert from stroops if needed)
+                  let displayValue = arg.value || '';
+                  if (isAmountField && isAmountNumberType && arg.value) {
+                    const numValue = parseFloat(arg.value);
+                    if (!isNaN(numValue) && numValue >= 1000000) {
+                      // Value is in stroops, convert to XLM for display
+                      displayValue = (numValue / 10000000).toString();
+                    } else if (!isNaN(numValue) && numValue < 1000000) {
+                      // Value is already in XLM, use as is
+                      displayValue = numValue.toString();
+                    }
+                  }
+                  
                   return (
                     <TextField
                       key={index}
                       fullWidth
                       label={arg.name}
-                      value={arg.value || ''}
+                      value={displayValue}
                       onChange={(e) => handleArgChange(index, e.target.value)}
                       type={isNumberType ? 'number' : 'text'}
-                      helperText={`Type: ${displayType}`}
+                      helperText={isAmountField && isAmountNumberType 
+                        ? `Type: ${displayType} (enter amount in XLM, will be converted to stroops)` 
+                        : `Type: ${displayType}`}
                       InputProps={{
                         startAdornment: isAddressType ? (
                           <InputAdornment position="start">
                             <Chip label="Address" size="small" sx={{ mr: 1 }} />
+                          </InputAdornment>
+                        ) : (isAmountField && isAmountNumberType) ? (
+                          <InputAdornment position="start">
+                            <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                              XLM
+                            </Typography>
                           </InputAdornment>
                         ) : null
                       }}

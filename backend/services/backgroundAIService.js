@@ -508,8 +508,8 @@ class BackgroundAIService {
     const processStartTime = Date.now();
 
     try {
-      // ESSENTIAL: Log location update being processed
-      console.log(`[BackgroundAI] 📍 Processing location update ${update_id} for public_key ${public_key?.substring(0, 8)}... at (${latitude}, ${longitude})`);
+      // Commented out verbose log - only show summary at the end
+      // console.log(`[BackgroundAI] 📍 Processing location update ${update_id} for public_key ${public_key?.substring(0, 8)}... at (${latitude}, ${longitude})`);
 
       // Mark as processing
       await pool.query('SELECT mark_location_update_processing($1)', [update_id]);
@@ -541,29 +541,29 @@ class BackgroundAIService {
       //   fetch_took: `${Date.now() - locationFetchStartTime}ms`
       // });
       
-      // Get all active contract execution rules for this user using latest location
+      // Get all active contract execution rules that match this location (from ANY user)
       // Rules are already filtered by location/proximity in the query
+      // NOTE: We match rules from ALL users, not just the user who sent the location update
       const rulesFetchStartTime = Date.now();
-      const rules = await this.getActiveRulesForLocation(user_id, actualLatitude, actualLongitude, public_key);
+      const rules = await this.getActiveRulesForLocation(actualLatitude, actualLongitude, public_key);
       
-      // ESSENTIAL: Log rules found for this location update
-      if (rules.length > 0) {
-        console.log(`[BackgroundAI] 🔍 Evaluating ${rules.length} rule(s) for location update ${update_id}:`, rules.map(r => `Rule ${r.id} (${r.rule_name})`).join(', '));
-        // Log detailed info for each rule found
-        rules.forEach(rule => {
-          console.log(`[BackgroundAI] 📋 Rule ${rule.id} (${rule.rule_name}) details:`, {
-            rule_id: rule.id,
-            rule_name: rule.rule_name,
-            function_name: rule.function_name,
-            requires_webauthn: rule.requires_webauthn,
-            is_active: rule.is_active,
-            contract_id: rule.contract_id,
-            target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 8) + '...' : 'NULL (any wallet)'
-          });
-        });
-      } else {
-        console.log(`[BackgroundAI] ⚠️ No active rules found for location update ${update_id} at (${actualLatitude}, ${actualLongitude}) for public_key ${public_key.substring(0, 8)}...`);
-      }
+      // Commented out verbose logs - only show summary at the end
+      // if (rules.length > 0) {
+      //   console.log(`[BackgroundAI] 🔍 Evaluating ${rules.length} rule(s) for location update ${update_id}:`, rules.map(r => `Rule ${r.id} (${r.rule_name})`).join(', '));
+      //   rules.forEach(rule => {
+      //     console.log(`[BackgroundAI] 📋 Rule ${rule.id} (${rule.rule_name}) details:`, {
+      //       rule_id: rule.id,
+      //       rule_name: rule.rule_name,
+      //       function_name: rule.function_name,
+      //       requires_webauthn: rule.requires_webauthn,
+      //       is_active: rule.is_active,
+      //       contract_id: rule.contract_id,
+      //       target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 8) + '...' : 'NULL (any wallet)'
+      //     });
+      //   });
+      // } else {
+      //   console.log(`[BackgroundAI] ⚠️ No active rules found for location update ${update_id} at (${actualLatitude}, ${actualLongitude}) for public_key ${public_key.substring(0, 8)}...`);
+      // }
 
       if (rules.length === 0) {
         // console.log(`[BackgroundAI] ℹ️  No active rules found for location update ${update_id} - Skipping`);
@@ -595,25 +595,25 @@ class BackgroundAIService {
       for (const rule of rules) {
         const executionStartTime = Date.now();
         
-        // Log which rule we're processing with ALL advanced settings
-        console.log(`[BackgroundAI] 🔄 Processing Rule ${rule.id} (${rule.rule_name}) - function: ${rule.function_name}`);
-        console.log(`[BackgroundAI] ⚙️ Advanced Settings for Rule ${rule.id}:`, {
-          rule_id: rule.id,
-          rule_name: rule.rule_name,
-          auto_execute: rule.auto_execute,
-          requires_confirmation: rule.requires_confirmation,
-          requires_webauthn: rule.requires_webauthn,
-          contract_requires_webauthn: rule.requires_webauthn, // From contract
-          max_executions_per_public_key: rule.max_executions_per_public_key,
-          execution_time_window_seconds: rule.execution_time_window_seconds,
-          min_location_duration_seconds: rule.min_location_duration_seconds,
-          submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
-          target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 12) + '...' : 'NULL (any wallet)',
-          rule_type: rule.rule_type,
-          center_latitude: rule.center_latitude,
-          center_longitude: rule.center_longitude,
-          radius_meters: rule.radius_meters
-        });
+        // Commented out verbose rule processing logs - only show summary at the end
+        // console.log(`[BackgroundAI] 🔄 Processing Rule ${rule.id} (${rule.rule_name}) - function: ${rule.function_name}`);
+        // console.log(`[BackgroundAI] ⚙️ Advanced Settings for Rule ${rule.id}:`, {
+        //   rule_id: rule.id,
+        //   rule_name: rule.rule_name,
+        //   auto_execute: rule.auto_execute,
+        //   requires_confirmation: rule.requires_confirmation,
+        //   requires_webauthn: rule.requires_webauthn,
+        //   contract_requires_webauthn: rule.requires_webauthn, // From contract
+        //   max_executions_per_public_key: rule.max_executions_per_public_key,
+        //   execution_time_window_seconds: rule.execution_time_window_seconds,
+        //   min_location_duration_seconds: rule.min_location_duration_seconds,
+        //   submit_readonly_to_ledger: rule.submit_readonly_to_ledger,
+        //   target_wallet_public_key: rule.target_wallet_public_key ? rule.target_wallet_public_key.substring(0, 12) + '...' : 'NULL (any wallet)',
+        //   rule_type: rule.rule_type,
+        //   center_latitude: rule.center_latitude,
+        //   center_longitude: rule.center_longitude,
+        //   radius_meters: rule.radius_meters
+        // });
         
         // Check target wallet filtering (advanced setting)
         if (rule.target_wallet_public_key && rule.target_wallet_public_key !== public_key) {
@@ -635,17 +635,17 @@ class BackgroundAIService {
           matchedRuleIds.push(rule.id);
           continue;
         } else if (rule.target_wallet_public_key) {
-          console.log(`[BackgroundAI] ✅ Target wallet check passed for rule ${rule.id} (${rule.rule_name}): wallet matches target`);
+          // console.log(`[BackgroundAI] ✅ Target wallet check passed for rule ${rule.id} (${rule.rule_name}): wallet matches target`);
         }
         
         // Check auto-execute setting (advanced setting)
         if (rule.auto_execute === false) {
-          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Auto-execute disabled:`, {
-            rule_id: rule.id,
-            rule_name: rule.rule_name,
-            auto_execute: rule.auto_execute,
-            requires_manual_execution: true
-          });
+          // console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Auto-execute disabled:`, {
+          //   rule_id: rule.id,
+          //   rule_name: rule.rule_name,
+          //   auto_execute: rule.auto_execute,
+          //   requires_manual_execution: true
+          // });
           executionResults.push({
             rule_id: rule.id,
             success: false,
@@ -657,7 +657,7 @@ class BackgroundAIService {
           matchedRuleIds.push(rule.id);
           continue;
         } else {
-          console.log(`[BackgroundAI] ✅ Auto-execute check passed for rule ${rule.id} (${rule.rule_name}): auto_execute=${rule.auto_execute}`);
+          // console.log(`[BackgroundAI] ✅ Auto-execute check passed for rule ${rule.id} (${rule.rule_name}): auto_execute=${rule.auto_execute}`);
         }
         
         // Check if WebAuthn is required for this rule FIRST
@@ -715,21 +715,22 @@ class BackgroundAIService {
           matchedRuleIds.push(rule.id);
           continue;
         } else if (rule.requires_confirmation === true && requiresWebAuthn) {
-          console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Requires confirmation AND WebAuthn. Marking as requires_webauthn for deposit endpoint compatibility.`);
+          // console.log(`[BackgroundAI] ⚠️ Rule ${rule.id} (${rule.rule_name}) - Requires confirmation AND WebAuthn. Marking as requires_webauthn for deposit endpoint compatibility.`);
           // Will be handled by the WebAuthn check below
         } else {
-          console.log(`[BackgroundAI] ✅ Confirmation check passed for rule ${rule.id} (${rule.rule_name}): requires_confirmation=${rule.requires_confirmation}`);
+          // console.log(`[BackgroundAI] ✅ Confirmation check passed for rule ${rule.id} (${rule.rule_name}): requires_confirmation=${rule.requires_confirmation}`);
         }
 
-        console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id} (${rule.rule_name}):`, {
-          contract_requires_webauthn: rule.requires_webauthn,
-          contract_requires_webauthn_type: typeof rule.requires_webauthn,
-          contract_requires_webauthn_parsed: contractRequiresWebAuthn,
-          has_webauthn_params: hasWebAuthnParams,
-          requires_webauthn: requiresWebAuthn,
-          function_params_keys: Object.keys(functionParams),
-          function_name: rule.function_name
-        });
+        // Commented out verbose WebAuthn check log
+        // console.log(`[BackgroundAI] 🔍 WebAuthn check for rule ${rule.id} (${rule.rule_name}):`, {
+        //   contract_requires_webauthn: rule.requires_webauthn,
+        //   contract_requires_webauthn_type: typeof rule.requires_webauthn,
+        //   contract_requires_webauthn_parsed: contractRequiresWebAuthn,
+        //   has_webauthn_params: hasWebAuthnParams,
+        //   requires_webauthn: requiresWebAuthn,
+        //   function_params_keys: Object.keys(functionParams),
+        //   function_name: rule.function_name
+        // });
         
         // Check advanced settings FIRST (rate limiting, time-based triggers)
         // These checks apply regardless of whether WebAuthn is required
@@ -749,16 +750,17 @@ class BackgroundAIService {
           const execCount = parseInt(rateLimitDetailsQuery.rows[0]?.count || 0);
           const lastExecution = rateLimitDetailsQuery.rows[0]?.last_execution;
           
-          console.log(`[BackgroundAI] ⏱️ Rate limit check for rule ${rule.id} (${rule.rule_name}):`, {
-            rule_id: rule.id,
-            rule_name: rule.rule_name,
-            public_key: public_key.substring(0, 8) + '...',
-            max_executions: rule.max_executions_per_public_key,
-            time_window_seconds: rule.execution_time_window_seconds,
-            current_executions_in_window: execCount,
-            last_execution: lastExecution,
-            can_execute: execCount < rule.max_executions_per_public_key
-          });
+          // Commented out verbose rate limit check log
+          // console.log(`[BackgroundAI] ⏱️ Rate limit check for rule ${rule.id} (${rule.rule_name}):`, {
+          //   rule_id: rule.id,
+          //   rule_name: rule.rule_name,
+          //   public_key: public_key.substring(0, 8) + '...',
+          //   max_executions: rule.max_executions_per_public_key,
+          //   time_window_seconds: rule.execution_time_window_seconds,
+          //   current_executions_in_window: execCount,
+          //   last_execution: lastExecution,
+          //   can_execute: execCount < rule.max_executions_per_public_key
+          // });
           
           const canExecute = await pool.query(
             'SELECT can_execute_rule($1, $2) as can_execute',
@@ -779,7 +781,8 @@ class BackgroundAIService {
             matchedRuleIds.push(rule.id);
             continue;
           } else {
-            console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.rule_name}): ${execCount}/${rule.max_executions_per_public_key} executions in ${rule.execution_time_window_seconds}s window`);
+            // Commented out verbose rate limit check log
+            // console.log(`[BackgroundAI] ✅ Rate limit check passed for rule ${rule.id} (${rule.rule_name}): ${execCount}/${rule.max_executions_per_public_key} executions in ${rule.execution_time_window_seconds}s window`);
           }
         }
         // else {
@@ -815,17 +818,18 @@ class BackgroundAIService {
           const durationInfo = locationDurationQuery.rows[0] || {};
           const actualDuration = parseFloat(durationInfo.duration_seconds || 0);
           
-          console.log(`[BackgroundAI] ⏱️ Location duration check for rule ${rule.id} (${rule.rule_name}):`, {
-            rule_id: rule.id,
-            rule_name: rule.rule_name,
-            public_key: public_key.substring(0, 8) + '...',
-            required_duration_seconds: rule.min_location_duration_seconds,
-            actual_duration_seconds: actualDuration,
-            is_in_range: durationInfo.is_in_range || false,
-            entered_location_at: durationInfo.entered_location_at,
-            last_updated: durationInfo.updated_at,
-            meets_requirement: actualDuration >= rule.min_location_duration_seconds
-          });
+          // Commented out verbose location duration check log
+          // console.log(`[BackgroundAI] ⏱️ Location duration check for rule ${rule.id} (${rule.rule_name}):`, {
+          //   rule_id: rule.id,
+          //   rule_name: rule.rule_name,
+          //   public_key: public_key.substring(0, 8) + '...',
+          //   required_duration_seconds: rule.min_location_duration_seconds,
+          //   actual_duration_seconds: actualDuration,
+          //   is_in_range: durationInfo.is_in_range || false,
+          //   entered_location_at: durationInfo.entered_location_at,
+          //   last_updated: durationInfo.updated_at,
+          //   meets_requirement: actualDuration >= rule.min_location_duration_seconds
+          // });
           
           const hasMinDuration = await pool.query(
             'SELECT has_min_location_duration($1, $2) as has_duration',
@@ -846,7 +850,8 @@ class BackgroundAIService {
             matchedRuleIds.push(rule.id);
             continue;
           } else {
-            console.log(`[BackgroundAI] ✅ Location duration check passed for rule ${rule.id} (${rule.rule_name}): ${actualDuration.toFixed(1)}s >= ${rule.min_location_duration_seconds}s`);
+            // Commented out verbose location duration check passed log
+            // console.log(`[BackgroundAI] ✅ Location duration check passed for rule ${rule.id} (${rule.rule_name}): ${actualDuration.toFixed(1)}s >= ${rule.min_location_duration_seconds}s`);
           }
         }
         // else {
@@ -855,9 +860,10 @@ class BackgroundAIService {
         
         // NOW check WebAuthn requirement (after advanced settings checks pass)
         if (requiresWebAuthn) {
-          // ESSENTIAL: Log when a rule matches and is added to pending rules
+          // Commented out verbose rule matched log - only show summary at the end
+          // const eventMessage = `✅ Rule ${rule.id} (${rule.rule_name}) MATCHED - Added to pending rules (passed advanced settings, requires WebAuthn)`;
+          // console.log(`[BackgroundAI] ${eventMessage}`);
           const eventMessage = `✅ Rule ${rule.id} (${rule.rule_name}) MATCHED - Added to pending rules (passed advanced settings, requires WebAuthn)`;
-          console.log(`[BackgroundAI] ${eventMessage}`);
           // Also log to database for public events feed
           await logEvent('rule_matched', eventMessage, {
             rule_id: rule.id,
@@ -1192,31 +1198,36 @@ Return JSON with:
 
   /**
    * Get active rules that might match this location
+   * Matches rules from ALL users based on location/radius, not just the user who sent the update
    */
-  async getActiveRulesForLocation(userId, latitude, longitude, publicKey) {
+  async getActiveRulesForLocation(latitude, longitude, publicKey) {
     try {
       // Get rules that are:
       // 1. Active
-      // 2. Belong to this user
+      // 2. Match based on location/radius (from ANY user, not just the user who sent the update)
       // 3. Either target this specific wallet OR target any wallet (target_wallet_public_key IS NULL)
       // 4. Location is within rule area (for location/proximity) OR geofence contains location
+      // NOTE: We match rules from ALL users, not just the user_id who sent the location update
+      // This allows rules created by other users to trigger when a public key enters their radius
       
       const result = await pool.query(
         `SELECT cer.*, cc.contract_address, cc.network, cc.function_mappings, cc.requires_webauthn
          FROM contract_execution_rules cer
          JOIN custom_contracts cc ON cer.contract_id = cc.id
-         WHERE cer.user_id = $1
-           AND cer.is_active = true
+         WHERE cer.is_active = true
            AND cc.is_active = true
            AND (
              cer.target_wallet_public_key IS NULL 
-             OR cer.target_wallet_public_key = $4
+             OR cer.target_wallet_public_key = $3
            )
            AND (
              -- Location-based rules: check if point is within radius
-             (cer.rule_type = 'location' AND 
-              ST_DWithin(
-                ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+             (cer.rule_type = 'location' 
+              AND cer.center_latitude IS NOT NULL 
+              AND cer.center_longitude IS NOT NULL
+              AND cer.radius_meters IS NOT NULL
+              AND ST_DWithin(
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                 ST_SetSRID(ST_MakePoint(cer.center_longitude, cer.center_latitude), 4326)::geography,
                 cer.radius_meters
               ))
@@ -1227,21 +1238,24 @@ Return JSON with:
                 SELECT 1 FROM geofences g
                 WHERE g.id = cer.geofence_id
                   AND ST_Within(
-                    ST_SetSRID(ST_MakePoint($3, $2), 4326),
+                    ST_SetSRID(ST_MakePoint($2, $1), 4326),
                     g.boundary
                   )
               ))
              OR
              -- Proximity-based rules: check if point is within proximity radius
-             (cer.rule_type = 'proximity' AND 
-              ST_DWithin(
-                ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography,
+             (cer.rule_type = 'proximity' 
+              AND cer.center_latitude IS NOT NULL 
+              AND cer.center_longitude IS NOT NULL
+              AND cer.radius_meters IS NOT NULL
+              AND ST_DWithin(
+                ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
                 ST_SetSRID(ST_MakePoint(cer.center_longitude, cer.center_latitude), 4326)::geography,
                 cer.radius_meters
               ))
            )
          ORDER BY cer.created_at ASC`,
-        [userId, latitude, longitude, publicKey]
+        [latitude, longitude, publicKey]
       );
 
       return result.rows;

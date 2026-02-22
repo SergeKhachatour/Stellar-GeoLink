@@ -74,7 +74,8 @@ import {
   CheckBox as CheckBoxIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   SmartToy as SmartToyIcon,
-  CleaningServices as CleaningServicesIcon
+  CleaningServices as CleaningServicesIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -151,6 +152,9 @@ const ContractManagement = () => {
   const [batchSecretKeyShow, setBatchSecretKeyShow] = useState(false);
   const [expandedCompletedRule, setExpandedCompletedRule] = useState(null);
   const [expandedRejectedRule, setExpandedRejectedRule] = useState(null);
+  const [expandedDeposit, setExpandedDeposit] = useState(null);
+  const [pendingDepositsPage, setPendingDepositsPage] = useState(0);
+  const [pendingDepositsRowsPerPage, setPendingDepositsRowsPerPage] = useState(10);
   const [functionsDialogOpen, setFunctionsDialogOpen] = useState(false);
   const [selectedContractForFunctions, setSelectedContractForFunctions] = useState(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -269,6 +273,16 @@ const ContractManagement = () => {
       loadPendingRules();
       loadCompletedRules();
       loadRejectedRules();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // Load initial data when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Always load pending rules and deposits on initial load to show counts
+      loadPendingRules();
+      loadPendingDeposits();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -741,35 +755,89 @@ const ContractManagement = () => {
         return;
       }
 
-      // Filter out WebAuthn fields from parameters before creating intent
-      const webauthnFieldNames = [
-        'signature_payload',
-        'webauthn_signature',
-        'webauthn_authenticator_data',
-        'webauthn_client_data',
-        'webauthn_client_data_json'
-      ];
-      const intentParams = {};
-      for (const [key, value] of Object.entries(deposit.parameters || {})) {
-        if (!webauthnFieldNames.includes(key) && 
-            value && 
-            typeof value === 'string' && 
-            !value.includes('[Will be') && 
-            !value.includes('system-generated')) {
-          intentParams[key] = value;
-        }
-      }
-
-      // Convert parameters to typed args using introspection
-      let typedArgs = [];
-      if (contract.discovered_functions) {
-        const discoveredFunctions = typeof contract.discovered_functions === 'string'
-          ? JSON.parse(contract.discovered_functions)
-          : contract.discovered_functions;
+      // For deposit functions on the smart wallet contract, use the deposit format
+      // (same as regular deposit endpoint) instead of Intent format
+      // The smart wallet contract expects: {source, asset, amount, action: 'deposit', timestamp}
+      const isSmartWalletDeposit = deposit.contract_address === 'CAAQTGMXO6VS7HUYH7YLBVSI6T64WWHAPQDR6QEO7EVEOD4CR3H3565U' || 
+                                   deposit.function_name.toLowerCase() === 'deposit';
+      
+      let signaturePayload;
+      let challenge;
+      let intentBytes; // Declare intentBytes in broader scope for use later
+      
+      if (isSmartWalletDeposit) {
+        // Use deposit format (same as regular deposit endpoint)
+        // IMPORTANT: source must be the user's public key (the signer), not matched_public_key
+        // The contract validates that source matches the signer's public key
+        const userPublicKey = user?.public_key || publicKey || deposit.matched_public_key;
+        const depositAmount = deposit.parameters?.amount || '0';
+        const depositAsset = deposit.parameters?.asset || 'XLM';
+        const timestamp = Date.now();
         
-        const func = discoveredFunctions[deposit.function_name];
-        if (func && func.parameters && Array.isArray(func.parameters)) {
-          typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, intentParams);
+        const depositData = {
+          source: userPublicKey, // Use user's public key (the signer), not matched_public_key
+          asset: depositAsset === 'XLM' || depositAsset === 'native' || depositAsset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : depositAsset,
+          amount: depositAmount.toString(),
+          action: 'deposit',
+          timestamp: timestamp
+        };
+        
+        signaturePayload = JSON.stringify(depositData);
+        
+        // For deposit format, authenticateWithPasskey will generate the challenge from signaturePayload
+        // It takes the first 32 bytes of the JSON string and uses that as the WebAuthn challenge
+        // No need to pre-encode the challenge - authenticateWithPasskey handles it
+        challenge = signaturePayload; // Pass the raw signaturePayload, authenticateWithPasskey will extract first 32 bytes
+        
+        console.log('[Deposit Execute] ✅ Using deposit format for signature_payload (smart wallet contract)');
+        console.log('[Deposit Execute] 🔐 Will use first 32 bytes of signature_payload as challenge:', {
+          signaturePayloadLength: signaturePayload.length,
+          signaturePayloadPreview: signaturePayload.substring(0, 100)
+        });
+      } else {
+        // Use Intent format for other contracts
+        // Filter out WebAuthn fields from parameters before creating intent
+        const webauthnFieldNames = [
+          'signature_payload',
+          'webauthn_signature',
+          'webauthn_authenticator_data',
+          'webauthn_client_data',
+          'webauthn_client_data_json'
+        ];
+        const intentParams = {};
+        for (const [key, value] of Object.entries(deposit.parameters || {})) {
+          if (!webauthnFieldNames.includes(key) && 
+              value && 
+              typeof value === 'string' && 
+              !value.includes('[Will be') && 
+              !value.includes('system-generated')) {
+            intentParams[key] = value;
+          }
+        }
+        
+        // Ensure asset is set (default to native XLM if missing)
+        if (!intentParams.asset) {
+          intentParams.asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'; // Native XLM contract address
+        }
+
+        // Convert parameters to typed args using introspection
+        let typedArgs = [];
+        if (contract.discovered_functions) {
+          const discoveredFunctions = typeof contract.discovered_functions === 'string'
+            ? JSON.parse(contract.discovered_functions)
+            : contract.discovered_functions;
+          
+          const func = discoveredFunctions[deposit.function_name];
+          if (func && func.parameters && Array.isArray(func.parameters)) {
+            typedArgs = intentService.convertIntrospectedArgsToIntentArgs(func.parameters, intentParams);
+          } else {
+            // Fallback: create typed args from parameters object
+            typedArgs = Object.entries(intentParams).map(([name, value]) => ({
+              name,
+              type: 'String', // Default type
+              value
+            }));
+          }
         } else {
           // Fallback: create typed args from parameters object
           typedArgs = Object.entries(intentParams).map(([name, value]) => ({
@@ -778,44 +846,176 @@ const ContractManagement = () => {
             value
           }));
         }
-      } else {
-        // Fallback: create typed args from parameters object
-        typedArgs = Object.entries(intentParams).map(([name, value]) => ({
-          name,
-          type: 'String', // Default type
-          value
-        }));
+
+        // Create contract call intent
+        const intent = intentService.createContractCallIntent({
+          contractId: contract.contract_address,
+          fn: deposit.function_name,
+          args: typedArgs,
+          signer: deposit.matched_public_key,
+          network: contract.network || 'testnet',
+          ruleBinding: deposit.rule_id ? deposit.rule_id.toString() : null
+        });
+
+        // Encode intent to bytes
+        intentBytes = await intentService.encodeIntentBytes(intent);
+        
+        // For Intent format, we need to use SHA-256 hash as the challenge (per INTENT_SYSTEM.md)
+        // But authenticateWithPasskey expects a string signaturePayload and takes first 32 bytes
+        // So we need to create a signaturePayload that when we take first 32 bytes, gives us the SHA-256 hash
+        // Solution: Use the SHA-256 hash as the signaturePayload (base64url encoded)
+        const challengeBytes = await intentService.challengeFromIntent(intentBytes); // SHA-256 hash (32 bytes)
+        
+        // Convert challenge bytes to base64url string for use as signaturePayload
+        const base64UrlEncode = (bytes) => {
+          return btoa(String.fromCharCode(...bytes))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        };
+        
+        // For Intent format, the signaturePayload is the base64url-encoded SHA-256 hash
+        // This ensures authenticateWithPasskey uses the correct challenge (SHA-256 hash, not first 32 bytes of intent)
+        signaturePayload = base64UrlEncode(challengeBytes);
+        challenge = signaturePayload; // Pass the challenge as signaturePayload
+        
+        console.log('[Deposit Execute] ✅ Using Intent format for signature_payload (generic contract)');
+        console.log('[Deposit Execute] 🔐 Using SHA-256 hash of intent bytes as challenge (per INTENT_SYSTEM.md):', {
+          intentBytesLength: intentBytes.length,
+          challengeLength: challengeBytes.length,
+          challengeBase64Url: signaturePayload
+        });
       }
 
-      // Create contract call intent
-      const intent = intentService.createContractCallIntent({
-        contractId: contract.contract_address,
-        fn: deposit.function_name,
-        args: typedArgs,
-        signer: deposit.matched_public_key,
-        network: contract.network || 'testnet',
-        ruleBinding: deposit.rule_id ? deposit.rule_id.toString() : null
+      // Get user's passkeys for WebAuthn authentication
+      const passkeysResponse = await api.get('/webauthn/passkeys');
+      const passkeys = passkeysResponse.data.passkeys || [];
+      
+      if (passkeys.length === 0) {
+        setError('No passkey registered. Please register a passkey first.');
+        return;
+      }
+
+      // CRITICAL: Use the passkey that's registered on the contract
+      // The contract stores only ONE passkey per public_key (the last one registered)
+      // We MUST use the passkey that's actually on the contract, not just any passkey
+      // If we use a different passkey, the contract will reject the signature
+      let selectedPasskey = passkeys.find(p => p.isOnContract === true);
+      
+      if (!selectedPasskey) {
+        // No passkey is registered on the contract - we need to register one first
+        console.warn('[Deposit Execute] ⚠️  No passkey found registered on contract');
+        console.warn('[Deposit Execute] ⚠️  Attempting to auto-register the first available passkey...');
+        
+        if (passkeys.length === 0) {
+          setError('No passkey registered. Please register a passkey first.');
+          return;
+        }
+        
+        selectedPasskey = passkeys[0];
+        
+        if (!selectedPasskey.publicKey && !selectedPasskey.public_key_spki) {
+          setError('Passkey public key not found. Please ensure your passkey is properly registered.');
+          return;
+        }
+        
+        const passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
+        const userPublicKey = user?.public_key || publicKey || deposit.matched_public_key;
+        // Get userSecretKey from the outer scope (already defined earlier in the function)
+        const secretKeyForRegistration = userSecretKey || secretKey;
+        
+        if (!userSecretKey) {
+          setError('Secret key is required to register passkey on contract. Please import your wallet with secret key.');
+          return;
+        }
+        
+        try {
+          // Automatically register the passkey on the smart wallet contract
+          console.log('[Deposit Execute] 🔐 Registering passkey on contract...');
+          await api.post('/smart-wallet/register-signer', {
+            userPublicKey: userPublicKey,
+            userSecretKey: secretKeyForRegistration,
+            passkeyPublicKeySPKI: passkeyPublicKeySPKI,
+            rpId: window.location.hostname || 'localhost'
+          });
+          
+          console.log('[Deposit Execute] ✅ Passkey registered on contract successfully');
+          // Update the passkey's isOnContract status
+          selectedPasskey.isOnContract = true;
+        } catch (registerError) {
+          console.error('[Deposit Execute] ❌ Failed to register passkey on contract:', registerError);
+          setError(`Failed to register passkey on contract: ${registerError.response?.data?.error || registerError.message}. Please try again.`);
+          return;
+        }
+      } else {
+        console.log('[Deposit Execute] ✅ Using passkey registered on contract:', (selectedPasskey.credentialId || selectedPasskey.credential_id)?.substring(0, 20) + '...');
+      }
+
+      if (!selectedPasskey) {
+        setError('No valid passkey found. Please register a passkey first.');
+        return;
+      }
+
+      const credentialId = selectedPasskey.credentialId || selectedPasskey.credential_id;
+      const passkeyPublicKeySPKI = selectedPasskey.publicKey || selectedPasskey.public_key_spki;
+
+      if (!credentialId || !passkeyPublicKeySPKI) {
+        setError('Passkey is missing required information. Please re-register your passkey.');
+        return;
+      }
+      
+      console.log('[Deposit Execute] 🔐 Using passkey for authentication:', {
+        credentialId: credentialId?.substring(0, 20) + '...',
+        hasPublicKeySPKI: !!passkeyPublicKeySPKI,
+        isOnContract: selectedPasskey.isOnContract
       });
 
-      // Encode intent to bytes
-      const intentBytes = await intentService.encodeIntentBytes(intent);
-      const signaturePayload = Buffer.from(intentBytes).toString('base64');
-
-      // Generate WebAuthn challenge from intent bytes
-      const challenge = await intentService.challengeFromIntent(intentBytes);
-
-      // Convert challenge to base64 for WebAuthn
-      const challengeBase64 = Buffer.from(challenge).toString('base64');
+      // authenticateWithPasskey expects the signaturePayload (string)
+      // For deposit format: it's the JSON string, authenticateWithPasskey will take first 32 bytes
+      // For Intent format: it's the base64url-encoded SHA-256 hash, authenticateWithPasskey will take first 32 bytes (which is the full hash)
+      // Both cases: challenge is already set to signaturePayload above
+      const signaturePayloadForAuth = challenge; // This is already the correct format (JSON string for deposit, base64url hash for Intent)
+      
+      console.log('[Deposit Execute] 🔐 Calling authenticateWithPasskey with signaturePayload:', {
+        signaturePayloadType: typeof signaturePayloadForAuth,
+        signaturePayloadLength: signaturePayloadForAuth.length,
+        isDepositFormat: isSmartWalletDeposit,
+        preview: signaturePayloadForAuth.substring(0, 100)
+      });
 
       // Perform WebAuthn authentication
-      const webauthnResult = await webauthnService.authenticateUser({
-        challenge: challengeBase64,
-        publicKey: deposit.matched_public_key
-      });
+      // authenticateWithPasskey will generate the challenge from signaturePayload internally
+      const authResult = await webauthnService.authenticateWithPasskey(
+        credentialId,
+        signaturePayloadForAuth
+      );
 
-      if (!webauthnResult) {
+      if (!authResult) {
         setError('WebAuthn authentication failed or was cancelled');
         return;
+      }
+
+      // Create AuthProof from WebAuthn result
+      // For smart wallet deposits, we use signaturePayload directly (JSON string)
+      // For other contracts, we use intentBytes (base64-encoded intent bytes)
+      let authProof;
+      if (isSmartWalletDeposit) {
+        // For smart wallet deposits, signaturePayload is already a JSON string
+        // We don't need intentBytes for AuthProof - just use the signaturePayload
+        authProof = {
+          webauthn_signature: authResult.signature,
+          webauthn_authenticator_data: authResult.authenticatorData,
+          webauthn_client_data_json: authResult.clientDataJSON,
+          signature_payload: signaturePayload
+        };
+      } else {
+        // For Intent-based contracts, create AuthProof with intentBytes
+        authProof = intentService.createAuthProof({
+          intentBytes: intentBytes,
+          webauthnSignature: authResult.signature,
+          webauthnAuthenticatorData: authResult.authenticatorData,
+          webauthnClientDataJSON: authResult.clientDataJSON
+        });
       }
 
       // Execute deposit
@@ -824,11 +1024,11 @@ const ContractManagement = () => {
         {
           public_key: deposit.matched_public_key,
           user_secret_key: userSecretKey,
-          webauthn_signature: webauthnResult.signature,
-          webauthn_authenticator_data: webauthnResult.authenticatorData,
-          webauthn_client_data: webauthnResult.clientDataJSON,
-          signature_payload: signaturePayload,
-          passkey_public_key_spki: webauthnResult.publicKeySPKI
+          webauthn_signature: authProof.webauthn_signature,
+          webauthn_authenticator_data: authProof.webauthn_authenticator_data,
+          webauthn_client_data: authProof.webauthn_client_data_json,
+          signature_payload: authProof.signature_payload,
+          passkey_public_key_spki: passkeyPublicKeySPKI
         }
       );
 
@@ -1736,6 +1936,32 @@ const ContractManagement = () => {
 
   const handleEditRule = (rule) => {
     setEditingRule(rule);
+    
+    // Parse function parameters and convert amount from stroops to XLM for display
+    let functionParams = {};
+    try {
+      functionParams = typeof rule.function_parameters === 'string' 
+        ? JSON.parse(rule.function_parameters) 
+        : rule.function_parameters || {};
+      
+      // Convert amount from stroops to XLM if present
+      if (functionParams.amount !== undefined && functionParams.amount !== null && functionParams.amount !== '') {
+        const amountNum = parseFloat(functionParams.amount);
+        if (!isNaN(amountNum) && amountNum > 0) {
+          // If amount is >= 1,000,000, assume it's in stroops and convert to XLM
+          if (amountNum >= 1000000) {
+            functionParams.amount = (amountNum / 10000000).toString();
+          }
+          // If amount is < 1,000,000, assume it's already in XLM (legacy data or small amounts)
+        }
+      }
+    } catch (e) {
+      // If parsing fails, use original
+      functionParams = typeof rule.function_parameters === 'string' 
+        ? rule.function_parameters 
+        : rule.function_parameters || {};
+    }
+    
     setRuleForm({
       contract_id: rule.contract_id,
       rule_name: rule.rule_name,
@@ -1744,9 +1970,9 @@ const ContractManagement = () => {
       center_longitude: rule.center_longitude || '',
       radius_meters: rule.radius_meters || '',
       function_name: rule.function_name,
-      function_parameters: typeof rule.function_parameters === 'string' 
-        ? rule.function_parameters 
-        : JSON.stringify(rule.function_parameters || {}, null, 2),
+      function_parameters: typeof functionParams === 'string' 
+        ? functionParams 
+        : JSON.stringify(functionParams, null, 2),
       trigger_on: rule.trigger_on,
       auto_execute: rule.auto_execute,
       requires_confirmation: rule.requires_confirmation,
@@ -1808,6 +2034,22 @@ const ContractManagement = () => {
       } catch (e) {
         setError('Invalid JSON in function parameters');
         return;
+      }
+
+      // Convert amount from XLM to stroops if present
+      // If amount is less than 1,000,000, assume it's in XLM and convert to stroops
+      // If amount is >= 1,000,000, assume it's already in stroops
+      if (functionParams.amount !== undefined && functionParams.amount !== null && functionParams.amount !== '') {
+        const amountNum = parseFloat(functionParams.amount);
+        if (!isNaN(amountNum) && amountNum > 0) {
+          // If amount is less than 1,000,000, treat it as XLM and convert to stroops
+          if (amountNum < 1000000) {
+            functionParams.amount = Math.floor(amountNum * 10000000).toString();
+          } else {
+            // Already in stroops, keep as is
+            functionParams.amount = Math.floor(amountNum).toString();
+          }
+        }
       }
 
       // Parse required wallet public keys (comma-separated string to array)
@@ -3179,6 +3421,30 @@ const ContractManagement = () => {
     let functionParams = providedParams || (typeof rule.function_parameters === 'string'
       ? JSON.parse(rule.function_parameters)
       : rule.function_parameters || {});
+    
+    // CRITICAL: If skipIntentCreation is true, extract modified args from currentIntent
+    // This ensures that any address or other arguments modified in Intent Preview are used
+    if (skipIntentCreation && currentIntent && currentIntent.args && Array.isArray(currentIntent.args)) {
+      console.log('[ContractManagement] Extracting modified args from currentIntent for execution');
+      // Convert intent args back to functionParams format
+      const modifiedParams = {};
+      for (const arg of currentIntent.args) {
+        if (arg.name && arg.value !== undefined && arg.value !== null) {
+          // Skip WebAuthn fields - they're handled separately
+          const webauthnFields = ['signature_payload', 'webauthn_signature', 'webauthn_authenticator_data', 'webauthn_client_data'];
+          if (!webauthnFields.includes(arg.name)) {
+            modifiedParams[arg.name] = arg.value;
+            console.log(`[ContractManagement] Using modified arg: ${arg.name} = ${typeof arg.value === 'string' && arg.value.length > 50 ? arg.value.substring(0, 50) + '...' : arg.value}`);
+          }
+        }
+      }
+      // Merge modified params into functionParams (modified params take precedence)
+      functionParams = {
+        ...functionParams,
+        ...modifiedParams
+      };
+      console.log('[ContractManagement] ✅ Updated functionParams with modified intent args:', Object.keys(modifiedParams));
+    }
 
     // CRITICAL: Check for missing required parameters (including destination) BEFORE creating Intent
     // This ensures all required fields are provided before we encode the Intent
@@ -3595,12 +3861,15 @@ const ContractManagement = () => {
           // Format: {source, destination, amount, asset, memo, timestamp}
           // This matches the format expected by the smart wallet contract
           
-          // Check if this is a payment function
-          const isPaymentFunc = isPaymentFunction(rule.function_name, functionParams) || 
+          // Check if this is a payment function (but NOT a deposit function)
+          const isDepositFunc = rule.function_name && rule.function_name.toLowerCase().includes('deposit');
+          const isPaymentFunc = !isDepositFunc && (
+                               isPaymentFunction(rule.function_name, functionParams) || 
                                rule.function_name.toLowerCase().includes('payment') ||
                                rule.function_name.toLowerCase().includes('transfer') ||
                                rule.function_name.toLowerCase().includes('send') ||
-                               rule.function_name.toLowerCase().includes('pay');
+                               rule.function_name.toLowerCase().includes('pay')
+          );
           
           if (isPaymentFunc || willRouteThroughSmartWallet || paymentSource === 'smart-wallet') {
           // For payment functions, create signature payload in the format expected by the smart wallet contract
@@ -3657,8 +3926,38 @@ const ContractManagement = () => {
           };
           signaturePayload = JSON.stringify(paymentData);
           console.log('[ContractManagement] Regenerated payload:', signaturePayload);
+        } else if (rule.function_name && rule.function_name.toLowerCase().includes('deposit')) {
+          // For deposit functions, use deposit format (no destination field)
+          // Format must be: {source, asset, amount, action: 'deposit', timestamp}
+          console.log('[ContractManagement] Regenerating signature payload for deposit function');
+          
+          let amount = functionParams.amount || functionParams.value || functionParams.quantity || '0';
+          // Convert to stroops if it's a small number (assume XLM)
+          if (typeof amount === 'number' && amount < 1000000) {
+            amount = Math.floor(amount * 10000000).toString();
+          } else {
+            amount = amount.toString();
+          }
+          
+          let asset = functionParams.asset || functionParams.asset_address || functionParams.token || 'native';
+          // Convert XLM/native to contract address
+          if (asset === 'XLM' || asset === 'native' || asset === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC') {
+            asset = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+          }
+          
+          const depositData = {
+            source: publicKey, // User's public key (the signer)
+            asset: asset,
+            amount: amount,
+            action: 'deposit',
+            timestamp: Date.now()
+            // CRITICAL: Do NOT include destination or memo fields
+          };
+          
+          signaturePayload = JSON.stringify(depositData);
+          console.log('[ContractManagement] Regenerated deposit payload (no destination field):', signaturePayload);
         } else {
-          // For regular (non-payment) functions, use existing logic
+          // For regular (non-payment, non-deposit) functions, use existing logic
           signaturePayload = functionParams.signature_payload || JSON.stringify({
             function: rule.function_name,
             contract_id: rule.contract_id,
@@ -4170,14 +4469,102 @@ const ContractManagement = () => {
         userSecretKeyProvided: !!userSecretKey,
         userSecretKeyLength: userSecretKey ? userSecretKey.length : 0,
         submitToLedger,
-        hasWebAuthn: !!webauthnData
+        hasWebAuthn: !!webauthnData,
+        hasDiscoveredFunctions: !!(contract?.discovered_functions)
       });
+      
+      // SECURITY: Build and sign transaction client-side if we have function signature and secret key
+      let signedXDR = null;
+      if (contract?.discovered_functions && userSecretKey && submitToLedger) {
+        try {
+          setExecutionStatus('Building transaction...');
+          
+          // Parse discovered_functions
+          let discoveredFunctions = contract.discovered_functions;
+          if (typeof discoveredFunctions === 'string') {
+            discoveredFunctions = JSON.parse(discoveredFunctions);
+          }
+          
+          const functionSignature = discoveredFunctions[rule.function_name];
+          if (functionSignature && functionSignature.parameters && Array.isArray(functionSignature.parameters)) {
+            console.log('[ContractManagement] ✅ Building transaction client-side with signed XDR');
+            
+            // Convert functionParams to functionParameters array in correct order
+            const functionParameters = functionSignature.parameters.map(param => {
+              const paramName = param.name || param.parameter_name;
+              const paramType = param.type;
+              let paramValue = functionParams[paramName];
+              
+              // Handle parameter name variations
+              if (paramValue === undefined || paramValue === null || paramValue === '') {
+                // Try mapped_from or common variations
+                const mappedFrom = param.mapped_from;
+                if (mappedFrom) {
+                  paramValue = functionParams[mappedFrom];
+                }
+                
+                // Try common name variations
+                if (!paramValue) {
+                  const variations = {
+                    'destination': ['recipient', 'to', 'to_address', 'destination_address'],
+                    'amount': ['value', 'quantity'],
+                    'asset': ['asset_address', 'token'],
+                    'user_address': ['userAddress', 'user'],
+                    'signer_address': ['signerAddress', 'signer']
+                  };
+                  
+                  if (variations[paramName]) {
+                    for (const variation of variations[paramName]) {
+                      if (functionParams[variation]) {
+                        paramValue = functionParams[variation];
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              
+              return {
+                name: paramName,
+                type: paramType,
+                value: paramValue
+              };
+            }).filter(param => param.value !== undefined && param.value !== null && param.value !== '');
+            
+            // Build and sign transaction
+            const { buildAndSignContractTransaction } = await import('../../services/transactionBuilder');
+            const network = contract.network || 'testnet';
+            const sorobanRpcUrl = network === 'mainnet' 
+              ? 'https://soroban.stellar.org'
+              : 'https://soroban-testnet.stellar.org';
+            
+            signedXDR = await buildAndSignContractTransaction({
+              userPublicKey: publicKey,
+              userSecretKey: userSecretKey,
+              contractAddress: contract.contract_address,
+              functionName: rule.function_name,
+              functionParameters: functionParameters,
+              network: network,
+              sorobanRpcUrl: sorobanRpcUrl
+            });
+            
+            console.log('[ContractManagement] ✅ Transaction built and signed client-side (signed XDR)');
+          } else {
+            console.warn('[ContractManagement] ⚠️ Function signature not found, falling back to server-side signing');
+          }
+        } catch (buildError) {
+          console.error('[ContractManagement] ❌ Failed to build transaction client-side:', buildError);
+          console.warn('[ContractManagement] ⚠️ Falling back to server-side signing (less secure)');
+          // Continue with server-side signing as fallback
+        }
+      }
       
       const requestBody = {
         function_name: rule.function_name,
         parameters: functionParams,
         user_public_key: publicKey,
-        user_secret_key: userSecretKey,
+        signedXDR: signedXDR, // ✅ Prefer signed XDR (secure)
+        user_secret_key: signedXDR ? undefined : userSecretKey, // Only send secret key if signedXDR not available (backward compatibility)
         submit_to_ledger: submitToLedger, // Only submit to ledger if it's a write function OR if we have a secret key for read-only
         rule_id: rule.id,
         update_id: rule.update_id, // Include update_id to mark only the specific location update as completed
@@ -4997,20 +5384,35 @@ const ContractManagement = () => {
           />
           <Tab 
             label={
-              <Box display="flex" alignItems="center" gap={1}>
-                <Typography variant="body2" noWrap>Deposit Actions</Typography>
+              <Box display="flex" alignItems="center" gap={0.5} sx={{ flexWrap: { xs: 'nowrap', sm: 'wrap' } }}>
+                <Typography variant="body2" noWrap sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Deposit Actions</Box>
+                  <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Deposits</Box>
+                </Typography>
                 {isAuthenticated && (
                   <Chip 
                     label={loadingPendingDeposits ? '...' : pendingDeposits.length} 
                     size="small" 
                     color="warning"
-                    sx={{ minWidth: '24px', height: '20px', flexShrink: 0 }}
+                    sx={{ 
+                      minWidth: '24px', 
+                      height: '20px', 
+                      flexShrink: 0,
+                      fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                      '& .MuiChip-label': {
+                        px: { xs: 0.5, sm: 1 }
+                      }
+                    }}
                   />
                 )}
               </Box>
             } 
             {...a11yProps(3)}
             disabled={!isAuthenticated}
+            sx={{ 
+              minWidth: { xs: 'auto', sm: '160px' },
+              padding: { xs: '6px 8px', sm: '12px 16px' }
+            }}
           />
           <Tab 
             label={
@@ -5869,8 +6271,8 @@ const ContractManagement = () => {
                             />
                           )}
                           {pendingRule.matched_public_key && (
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontFamily: 'monospace' }}>
-                              Wallet: {pendingRule.matched_public_key.substring(0, 8)}...{pendingRule.matched_public_key.substring(pendingRule.matched_public_key.length - 8)}
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                              Wallet: {pendingRule.matched_public_key}
                             </Typography>
                           )}
                           {pendingRule.matched_at && (
@@ -5899,10 +6301,15 @@ const ContractManagement = () => {
                         {/* Rule Details */}
                         <Box mb={2}>
                           {pendingRule.matched_public_key && (
-                            <Box display="flex" alignItems="center" gap={1} mb={1}>
-                              <AccountBalanceWalletIcon fontSize="small" color="action" />
-                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace' }}>
-                                <strong>Matched Wallet:</strong> {pendingRule.matched_public_key}
+                            <Box mb={1}>
+                              <Box display="flex" alignItems="flex-start" gap={1} mb={0.5}>
+                                <AccountBalanceWalletIcon fontSize="small" color="action" sx={{ mt: 0.5 }} />
+                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                  Matched Wallet:
+                                </Typography>
+                              </Box>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', wordBreak: 'break-all', ml: 4 }}>
+                                {pendingRule.matched_public_key}
                               </Typography>
                             </Box>
                           )}
@@ -6081,70 +6488,224 @@ const ContractManagement = () => {
                 No pending deposit actions. All deposits have been completed.
               </Alert>
             ) : (
-              <TableContainer component={Paper}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Rule</TableCell>
-                      <TableCell>Contract</TableCell>
-                      <TableCell>Function</TableCell>
-                      <TableCell>Amount</TableCell>
-                      <TableCell>Location</TableCell>
-                      <TableCell>Received</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {pendingDeposits.map((deposit) => (
-                      <TableRow key={deposit.id}>
-                        <TableCell>{deposit.rule_name}</TableCell>
-                        <TableCell>{deposit.contract_name}</TableCell>
-                        <TableCell>{deposit.function_name}</TableCell>
-                        <TableCell>
-                          {deposit.parameters?.amount 
-                            ? `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} XLM`
-                            : deposit.parameters?.asset || 'N/A'}
-                        </TableCell>
-                        <TableCell>
-                          {deposit.location?.latitude != null && deposit.location?.longitude != null
-                            ? `${Number(deposit.location.latitude).toFixed(4)}, ${Number(deposit.location.longitude).toFixed(4)}`
-                            : 'N/A'}
-                        </TableCell>
-                        <TableCell>
-                          {deposit.received_at 
-                            ? new Date(deposit.received_at).toLocaleString()
-                            : 'N/A'}
-                        </TableCell>
-                        <TableCell>
-                          <Chip 
-                            label={deposit.status} 
-                            color={
-                              deposit.status === 'completed' ? 'success' :
-                              deposit.status === 'failed' ? 'error' :
-                              deposit.status === 'cancelled' ? 'default' : 'warning'
-                            }
-                            size="small"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          {deposit.status === 'pending' && (
-                            <Button
-                              variant="contained"
-                              color="primary"
-                              size="small"
-                              onClick={() => handleExecuteDeposit(deposit)}
-                              startIcon={<PlayArrowIcon />}
+              <>
+                <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
+                  {pendingDeposits
+                    .slice(pendingDepositsPage * pendingDepositsRowsPerPage, pendingDepositsPage * pendingDepositsRowsPerPage + pendingDepositsRowsPerPage)
+                    .map((deposit, index) => {
+                      const contract = contracts.find(c => c.id === deposit.contract_id);
+                      const uniqueKey = deposit.id || `deposit_${deposit.rule_id}_${deposit.matched_public_key}_${index}`;
+                      const isExpanded = expandedDeposit === uniqueKey;
+                      
+                      return (
+                        <React.Fragment key={uniqueKey}>
+                          <Paper 
+                            sx={{ 
+                              mb: 1.5, 
+                              border: '2px solid', 
+                              borderColor: deposit.status === 'pending' ? 'warning.main' : 
+                                          deposit.status === 'completed' ? 'success.main' :
+                                          deposit.status === 'failed' ? 'error.main' : 'default',
+                              borderRadius: 2,
+                              overflow: 'hidden'
+                            }}
+                          >
+                            <ListItemButton
+                              onClick={() => setExpandedDeposit(isExpanded ? null : uniqueKey)}
+                              sx={{
+                                py: 1.5,
+                                px: 2,
+                                '&:hover': { bgcolor: 'action.hover' }
+                              }}
                             >
-                              Execute
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Box display="flex" alignItems="center" gap={1} mb={0.5} flexWrap="wrap">
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1, minWidth: 0 }}>
+                                    {deposit.rule_name}
+                                  </Typography>
+                                  <Chip 
+                                    icon={deposit.status === 'pending' ? <AccountBalanceWalletIcon /> : 
+                                          deposit.status === 'completed' ? <CheckCircleIcon /> :
+                                          deposit.status === 'failed' ? <WarningIcon /> : <InfoIcon />}
+                                    label={deposit.status === 'pending' ? 'Pending Deposit' : 
+                                           deposit.status === 'completed' ? 'Completed' :
+                                           deposit.status === 'failed' ? 'Failed' : deposit.status}
+                                    color={deposit.status === 'pending' ? 'warning' :
+                                           deposit.status === 'completed' ? 'success' :
+                                           deposit.status === 'failed' ? 'error' : 'default'}
+                                    size="small"
+                                    sx={{ fontSize: '0.7rem', height: '20px' }}
+                                  />
+                                </Box>
+                                <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                                    <strong>Function:</strong> {deposit.function_name}
+                                  </Typography>
+                                  {contract && (
+                                    <Chip 
+                                      label={contract.contract_name || 'Unknown'} 
+                                      variant="outlined"
+                                      size="small"
+                                      sx={{ fontSize: '0.7rem', height: '20px' }}
+                                    />
+                                  )}
+                                  {deposit.parameters?.amount && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                      {deposit.parameters.asset 
+                                        ? `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} ${deposit.parameters.asset}`
+                                        : `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} XLM`}
+                                    </Typography>
+                                  )}
+                                  {deposit.matched_public_key && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                      Wallet: {deposit.matched_public_key.substring(0, 8)}...{deposit.matched_public_key.substring(deposit.matched_public_key.length - 8)}
+                                    </Typography>
+                                  )}
+                                  {deposit.received_at && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                      {new Date(deposit.received_at).toLocaleString()}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              </Box>
+                              <IconButton
+                                edge="end"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedDeposit(isExpanded ? null : uniqueKey);
+                                }}
+                                sx={{ ml: 1 }}
+                              >
+                                {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                              </IconButton>
+                            </ListItemButton>
+                            
+                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                              <Box sx={{ px: 2, pb: 2 }}>
+                                <Divider sx={{ mb: 2 }} />
+                                
+                                {/* Deposit Details */}
+                                <Box mb={2}>
+                                  {deposit.matched_public_key && (
+                                    <Box mb={1}>
+                                      <Box display="flex" alignItems="flex-start" gap={1} mb={0.5}>
+                                        <AccountBalanceWalletIcon fontSize="small" color="action" sx={{ mt: 0.5 }} />
+                                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                          Matched Wallet:
+                                        </Typography>
+                                      </Box>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', wordBreak: 'break-all', ml: 4 }}>
+                                        {deposit.matched_public_key}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  
+                                  {deposit.parameters?.amount && (
+                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                        Amount:
+                                      </Typography>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                        {deposit.parameters.asset 
+                                          ? `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} ${deposit.parameters.asset}`
+                                          : `${(parseInt(deposit.parameters.amount) / 10000000).toFixed(7)} XLM`}
+                                        <Tooltip title={`${deposit.parameters.amount} stroops`}>
+                                          <InfoIcon fontSize="small" sx={{ ml: 0.5, verticalAlign: 'middle', cursor: 'help' }} />
+                                        </Tooltip>
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  
+                                  {(deposit.parameters?.user_address || deposit.parameters?.destination) && (
+                                    <Box mb={1}>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold', mb: 0.5 }}>
+                                        Destination:
+                                      </Typography>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', wordBreak: 'break-all', ml: 2 }}>
+                                        {deposit.parameters.user_address || deposit.parameters.destination}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  
+                                  {deposit.location?.latitude != null && deposit.location?.longitude != null && (
+                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                      <LocationOnIcon fontSize="small" color="action" />
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                        Location: {Number(deposit.location.latitude).toFixed(6)}, {Number(deposit.location.longitude).toFixed(6)}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  
+                                  {deposit.received_at && (
+                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                        <strong>Received:</strong> {new Date(deposit.received_at).toLocaleString()}
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                </Box>
+
+                                {/* Function Parameters */}
+                                {deposit.parameters && Object.keys(deposit.parameters).length > 0 && (
+                                  <Box mb={2}>
+                                    <Typography variant="subtitle2" gutterBottom sx={{ fontSize: '0.9rem' }}>
+                                      Deposit Parameters:
+                                    </Typography>
+                                    <Paper 
+                                      variant="outlined" 
+                                      sx={{ 
+                                        p: 1.5, 
+                                        bgcolor: 'grey.50',
+                                        maxHeight: '200px',
+                                        overflow: 'auto'
+                                      }}
+                                    >
+                                      <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                        {JSON.stringify(deposit.parameters, null, 2)}
+                                      </pre>
+                                    </Paper>
+                                  </Box>
+                                )}
+
+                                {/* Execute Button */}
+                                {deposit.status === 'pending' && (
+                                  <Box mt={2}>
+                                    <Button
+                                      variant="contained"
+                                      color="primary"
+                                      fullWidth
+                                      onClick={() => handleExecuteDeposit(deposit)}
+                                      startIcon={<PlayArrowIcon />}
+                                      sx={{ 
+                                        minWidth: { xs: '100%', sm: 'auto' },
+                                        flex: { xs: '1 1 100%', sm: '0 1 auto' }
+                                      }}
+                                    >
+                                      Execute Deposit
+                                    </Button>
+                                  </Box>
+                                )}
+                              </Box>
+                            </Collapse>
+                          </Paper>
+                        </React.Fragment>
+                      );
+                    })}
+                </List>
+                <TablePagination
+                  component="div"
+                  count={pendingDeposits.length}
+                  page={pendingDepositsPage}
+                  onPageChange={(event, newPage) => setPendingDepositsPage(newPage)}
+                  rowsPerPage={pendingDepositsRowsPerPage}
+                  onRowsPerPageChange={(event) => {
+                    setPendingDepositsRowsPerPage(parseInt(event.target.value, 10));
+                    setPendingDepositsPage(0);
+                  }}
+                  rowsPerPageOptions={[5, 10, 25, 50]}
+                  sx={{ mt: 2 }}
+                />
+              </>
             )}
           </>
         )}
@@ -6276,9 +6837,12 @@ const ContractManagement = () => {
                             </Box>
                           )}
                           {matchedPublicKey && matchedPublicKey !== 'unknown' && (
-                            <Box display="flex" alignItems="center" gap={1} mb={1}>
-                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
-                                <strong>Matched Public Key:</strong> {matchedPublicKey}
+                            <Box mb={1}>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontWeight: 'bold', mb: 0.5 }}>
+                                Matched Public Key:
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                {matchedPublicKey}
                               </Typography>
                             </Box>
                           )}

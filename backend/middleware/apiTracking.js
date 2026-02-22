@@ -11,7 +11,8 @@ const trackApiUsage = async (req, res, next) => {
         return next();
     }
     
-    console.log('🔍 API Tracking: Found API key:', apiKey.substring(0, 10) + '...');
+    // Commented out verbose API tracking logs - only log errors
+    // console.log('🔍 API Tracking: Found API key:', apiKey.substring(0, 10) + '...');
 
     // Store original URL before any modifications by other middleware
     const endpoint = req.originalUrl;
@@ -33,7 +34,7 @@ const trackApiUsage = async (req, res, next) => {
                 );
 
                 if (apiKeyResult.rows.length > 0) {
-                    console.log('📊 API Tracking: Logging usage for API key ID:', apiKeyResult.rows[0].id);
+                    // console.log('📊 API Tracking: Logging usage for API key ID:', apiKeyResult.rows[0].id);
                     
                     // Get wallet provider and data consumer IDs for this API key
                     const providerResult = await pool.query(
@@ -49,7 +50,7 @@ const trackApiUsage = async (req, res, next) => {
                     const walletProviderId = providerResult.rows.length > 0 ? providerResult.rows[0].id : null;
                     const dataConsumerId = consumerResult.rows.length > 0 ? consumerResult.rows[0].id : null;
                     
-                    console.log('📊 API Tracking: Provider ID:', walletProviderId, 'Consumer ID:', dataConsumerId);
+                    // console.log('📊 API Tracking: Provider ID:', walletProviderId, 'Consumer ID:', dataConsumerId);
                     
                     await pool.query(
                         `INSERT INTO api_usage_logs 
@@ -68,9 +69,10 @@ const trackApiUsage = async (req, res, next) => {
                             dataConsumerId
                         ]
                     );
-                    console.log('✅ API Tracking: Usage logged successfully');
+                    // console.log('✅ API Tracking: Usage logged successfully');
                 } else {
-                    console.log('❌ API Tracking: API key not found in database');
+                    // Only log errors
+                    // console.log('❌ API Tracking: API key not found in database');
                 }
             } catch (error) {
                 console.error('Error tracking API usage:', error);

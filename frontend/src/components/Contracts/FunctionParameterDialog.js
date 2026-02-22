@@ -53,7 +53,20 @@ const FunctionParameterDialog = ({
         
         // Use existing value if available
         if (existingParams[paramName] !== undefined) {
-          initialValues[paramName] = existingParams[paramName];
+          let value = existingParams[paramName];
+          
+          // For amount fields, convert from stroops to XLM for display
+          if ((paramName === 'amount' || paramName === 'value' || paramName === 'quantity') && 
+              (paramType.includes('I128') || paramType.includes('U128') || paramType.includes('i128') || paramType.includes('u128'))) {
+            const numValue = parseFloat(value);
+            if (!isNaN(numValue) && numValue >= 1000000) {
+              // Likely in stroops, convert to XLM for display
+              value = (numValue / 10000000).toString();
+              console.log(`[FunctionParameterDialog] Converted ${paramName} from stroops (${numValue}) to XLM (${value}) for display`);
+            }
+          }
+          
+          initialValues[paramName] = value;
         } else {
           // Set default based on type
           if (paramType.includes('Address') || paramType.includes('address')) {
@@ -136,7 +149,33 @@ const FunctionParameterDialog = ({
 
   const handleConfirm = () => {
     if (validateParams()) {
-      onConfirm(paramValues);
+      // Convert amount fields from XLM to stroops before sending to backend
+      const convertedParams = { ...paramValues };
+      parameters.forEach(param => {
+        const paramName = param.name || param.parameter_name;
+        const paramType = param.type || param.parameter_type || 'String';
+        
+        // For amount fields, convert from XLM to stroops
+        if ((paramName === 'amount' || paramName === 'value' || paramName === 'quantity') && 
+            (paramType.includes('I128') || paramType.includes('U128') || paramType.includes('i128') || paramType.includes('u128'))) {
+          const value = convertedParams[paramName];
+          if (value && value !== '') {
+            const numValue = parseFloat(value);
+            if (!isNaN(numValue)) {
+              // If value is less than 1,000,000, assume it's in XLM and convert to stroops
+              // If value is >= 1,000,000, assume it's already in stroops
+              if (numValue < 1000000) {
+                convertedParams[paramName] = Math.floor(numValue * 10000000).toString();
+                console.log(`[FunctionParameterDialog] Converted ${paramName} from XLM (${numValue}) to stroops (${convertedParams[paramName]})`);
+              } else {
+                // Already in stroops, keep as is
+                convertedParams[paramName] = Math.floor(numValue).toString();
+              }
+            }
+          }
+        }
+      });
+      onConfirm(convertedParams);
     }
   };
 
@@ -163,7 +202,7 @@ const FunctionParameterDialog = ({
     }
     
     if (paramName === 'amount' || paramName === 'value' || paramName === 'quantity') {
-      return 'Amount in XLM (will be converted to stroops)';
+      return 'Amount in XLM (will be automatically converted to stroops when executing)';
     }
     
     return `Type: ${paramType}`;
@@ -312,6 +351,9 @@ const FunctionParameterDialog = ({
                 const isAddressType = paramType.includes('Address') || paramType.includes('address') || 
                                      paramName.includes('address') || paramName.includes('destination') || 
                                      paramName === 'to' || paramName === 'recipient';
+                
+                // Check if this is an amount field (for XLM display)
+                const isAmountField = paramName === 'amount' || paramName === 'value' || paramName === 'quantity';
 
                 return (
                   <Box key={index}>
@@ -348,6 +390,12 @@ const FunctionParameterDialog = ({
                         InputProps={{
                           startAdornment: isAddressType ? (
                             <Chip label="Address" size="small" sx={{ mr: 1 }} />
+                          ) : isAmountField ? (
+                            <InputAdornment position="start">
+                              <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                                XLM
+                              </Typography>
+                            </InputAdornment>
                           ) : null,
                           endAdornment: isAddressType ? (
                             <InputAdornment position="end">

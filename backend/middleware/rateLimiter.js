@@ -12,23 +12,23 @@ const rateLimiter = rateLimit({
     skip: (req) => {
         // Skip rate limiting for API key requests
         if (req.header('X-API-Key')) {
-            console.log('🚀 Skipping rate limit for API key request:', req.originalUrl);
+            // console.log('🚀 Skipping rate limit for API key request:', req.originalUrl);
             return true;
         }
         
         // Skip rate limiting for authentication endpoints
         if (req.path.includes('/auth/') || req.originalUrl.includes('/auth/')) {
-            console.log('🔐 Skipping rate limit for auth endpoint:', req.originalUrl);
+            // console.log('🔐 Skipping rate limit for auth endpoint:', req.originalUrl);
             return true;
         }
         
         // Skip rate limiting for all API endpoints in development
         if (req.originalUrl.startsWith('/api/')) {
-            console.log('🌐 Skipping rate limit for API endpoint:', req.originalUrl);
+            // console.log('🌐 Skipping rate limit for API endpoint:', req.originalUrl);
             return true;
         }
         
-        console.log('⚠️ Applying rate limit to:', req.originalUrl);
+        // console.log('⚠️ Applying rate limit to:', req.originalUrl);
         return false;
     }
 });

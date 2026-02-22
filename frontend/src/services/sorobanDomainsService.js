@@ -4,7 +4,7 @@
  * Based on: https://github.com/lightsail-network/sorobandomains-query
  */
 
-const SOROBAN_DOMAINS_API_BASE = 'https://sorobandomains-query.lightsail.network/api/v1';
+const SOROBAN_DOMAINS_API_BASE = 'https://sorobandomains-query.lightsail.network';
 
 class SorobanDomainsService {
   /**
