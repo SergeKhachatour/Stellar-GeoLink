@@ -3,6 +3,12 @@ const router = express.Router();
 const pool = require('../config/database');
 const { authenticateUser } = require('../middleware/authUser');
 const { logEvent, fuzzLocation } = require('../utils/eventLogger');
+const {
+    calculateCellId,
+    createCellTransitionEvent,
+    createRuleTriggeredEvent,
+    createCheckpointEvent
+} = require('../utils/anchorEvents');
 
 // Basic API key authentication middleware
 const authenticateApiKey = async (req, res, next) => {
@@ -266,9 +272,81 @@ router.get('/nearby', authenticateUser, authenticateNearbyOptional, async (req, 
  *             schema:
  *               type: object
  *               properties:
+ *                 ok:
+ *                   type: boolean
+ *                   description: Success indicator (GeoTrust format)
+ *                   example: true
+ *                 cell_id:
+ *                   type: string
+ *                   description: Current geospatial cell ID
+ *                   example: "34.230000_-118.232000"
+ *                 matched_rules:
+ *                   type: array
+ *                   description: Array of matched location-based rules
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       rule_id:
+ *                         type: string
+ *                         example: "123"
+ *                       rule_name:
+ *                         type: string
+ *                         example: "Entered restricted zone"
+ *                       rule_type:
+ *                         type: string
+ *                         example: "location"
+ *                 anchor_events:
+ *                   type: array
+ *                   description: Array of events to anchor on-chain (GeoTrust event-boundary anchoring)
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       event_id:
+ *                         type: string
+ *                         description: Deterministic SHA-256 hash of the event
+ *                         example: "a1b2c3d4e5f6..."
+ *                       event_type:
+ *                         type: string
+ *                         enum: [CELL_TRANSITION, RULE_TRIGGERED, CHECKPOINT]
+ *                         example: "CELL_TRANSITION"
+ *                       occurred_at:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T10:30:00Z"
+ *                       cell_id:
+ *                         type: string
+ *                         example: "34.230000_-118.232000"
+ *                       prev_cell_id:
+ *                         type: string
+ *                         description: Previous cell ID (for CELL_TRANSITION events)
+ *                         example: "34.229000_-118.231000"
+ *                       rule_id:
+ *                         type: string
+ *                         description: Rule ID (for RULE_TRIGGERED events)
+ *                         example: "123"
+ *                       commitment:
+ *                         type: string
+ *                         description: Hash of off-chain evidence (optional)
+ *                         example: "0x0000000000000000000000000000000000000000000000000000000000000000"
+ *                       zk_proof:
+ *                         type: string
+ *                         description: Zero-knowledge proof (optional, currently null)
+ *                         nullable: true
+ *                 next_suggested_anchor_after_secs:
+ *                   type: integer
+ *                   description: Optional hint for next anchor (not yet implemented)
+ *                   nullable: true
  *                 success:
  *                   type: boolean
+ *                   description: Legacy success indicator (backward compatibility)
  *                   example: true
+ *                 message:
+ *                   type: string
+ *                   description: Legacy message (backward compatibility)
+ *                   example: "Location updated successfully"
+ *                 data:
+ *                   type: object
+ *                   description: Legacy data object (backward compatibility)
  *       400:
  *         description: Missing required fields
  *       403:
@@ -317,6 +395,250 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             latitude: parseFloat(latitude),
             longitude: parseFloat(longitude)
         });
+
+        // Calculate current cell_id
+        const currentCellId = calculateCellId(parseFloat(latitude), parseFloat(longitude));
+        const occurredAt = new Date();
+
+        // Get previous location to detect cell transitions
+        // Query current wallet_locations table (before update) to get previous cell
+        let prevCellId = null;
+        try {
+            const prevLocationResult = await pool.query(
+                `SELECT latitude, longitude 
+                 FROM wallet_locations
+                 WHERE public_key = $1 AND blockchain = $2
+                 LIMIT 1`,
+                [public_key, blockchain]
+            );
+            
+            if (prevLocationResult.rows.length > 0 && 
+                prevLocationResult.rows[0].latitude !== null && 
+                prevLocationResult.rows[0].longitude !== null) {
+                const prevLoc = prevLocationResult.rows[0];
+                prevCellId = calculateCellId(
+                    parseFloat(prevLoc.latitude),
+                    parseFloat(prevLoc.longitude)
+                );
+            }
+        } catch (prevError) {
+            // If location doesn't exist or query fails, prevCellId remains null
+            // This is fine for first-time location updates
+            console.warn('⚠️  Could not get previous location:', prevError.message);
+        }
+
+        // Get matched rules synchronously for anchor events
+        let matchedRules = [];
+        try {
+            const rulesResult = await pool.query(
+                `SELECT cer.id, cer.rule_name, cer.rule_type
+                 FROM contract_execution_rules cer
+                 JOIN custom_contracts cc ON cer.contract_id = cc.id
+                 WHERE cer.is_active = true
+                   AND cc.is_active = true
+                   AND (
+                     cer.target_wallet_public_key IS NULL 
+                     OR cer.target_wallet_public_key = $3
+                   )
+                   AND (
+                     -- Location-based rules
+                     (cer.rule_type = 'location' 
+                      AND cer.center_latitude IS NOT NULL 
+                      AND cer.center_longitude IS NOT NULL
+                      AND cer.radius_meters IS NOT NULL
+                      AND ST_DWithin(
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint(cer.center_longitude, cer.center_latitude), 4326)::geography,
+                        cer.radius_meters
+                      ))
+                     OR
+                     -- Geofence-based rules
+                     (cer.rule_type = 'geofence' AND cer.geofence_id IS NOT NULL AND
+                      EXISTS (
+                        SELECT 1 FROM geofences g
+                        WHERE g.id = cer.geofence_id
+                          AND ST_Within(
+                            ST_SetSRID(ST_MakePoint($2, $1), 4326),
+                            g.boundary
+                          )
+                      ))
+                     OR
+                     -- Proximity-based rules
+                     (cer.rule_type = 'proximity' 
+                      AND cer.center_latitude IS NOT NULL 
+                      AND cer.center_longitude IS NOT NULL
+                      AND cer.radius_meters IS NOT NULL
+                      AND ST_DWithin(
+                        ST_SetSRID(ST_MakePoint($2, $1), 4326)::geography,
+                        ST_SetSRID(ST_MakePoint(cer.center_longitude, cer.center_latitude), 4326)::geography,
+                        cer.radius_meters
+                      ))
+                   )
+                 ORDER BY cer.created_at ASC`,
+                [parseFloat(latitude), parseFloat(longitude), public_key]
+            );
+            matchedRules = rulesResult.rows;
+        } catch (rulesError) {
+            console.warn('⚠️  Error getting matched rules for anchor events:', rulesError.message);
+        }
+
+        // Generate anchor events
+        const anchorEvents = [];
+
+        // 1. Cell transition event (if cell changed)
+        if (prevCellId && prevCellId !== currentCellId) {
+            const transitionEvent = createCellTransitionEvent(
+                public_key,
+                currentCellId,
+                prevCellId,
+                occurredAt
+            );
+            anchorEvents.push(transitionEvent);
+        }
+
+        // 2. Rule triggered events (for each matched rule)
+        // Check which rule events have already been returned to prevent duplicates
+        const returnedEventIds = new Set();
+        try {
+            const returnedEventsResult = await pool.query(
+                `SELECT event_id 
+                 FROM anchor_events_returned 
+                 WHERE public_key = $1 AND blockchain = $2
+                   AND returned_at > NOW() - INTERVAL '1 hour'`,
+                [public_key, blockchain]
+            );
+            returnedEventsResult.rows.forEach(row => returnedEventIds.add(row.event_id));
+        } catch (trackError) {
+            // Table might not exist yet, that's okay - we'll create it if needed
+            console.warn('⚠️  Could not check returned events (table may not exist):', trackError.message);
+        }
+
+        // Generate rule triggered events for new rule matches
+        for (const rule of matchedRules) {
+            const ruleEvent = createRuleTriggeredEvent(
+                public_key,
+                currentCellId,
+                rule.id,
+                occurredAt
+            );
+            
+            // Only add if we haven't returned this event recently
+            if (!returnedEventIds.has(ruleEvent.event_id)) {
+                anchorEvents.push(ruleEvent);
+                
+                // Track that we're returning this event
+                try {
+                    await pool.query(
+                        `INSERT INTO anchor_events_returned (public_key, blockchain, event_id, returned_at)
+                         VALUES ($1, $2, $3, NOW())
+                         ON CONFLICT (public_key, blockchain, event_id) 
+                         DO UPDATE SET returned_at = NOW()`,
+                        [public_key, blockchain, ruleEvent.event_id]
+                    );
+                } catch (trackError) {
+                    // Table might not exist, log but don't fail
+                    console.warn('⚠️  Could not track returned event:', trackError.message);
+                }
+            }
+        }
+
+        // 3. Checkpoint events (periodic anchoring)
+        // Generate checkpoint if enough time has passed since last checkpoint
+        // Default interval: 5 minutes (300 seconds)
+        const CHECKPOINT_INTERVAL_SECONDS = parseInt(process.env.CHECKPOINT_INTERVAL_SECONDS || '300', 10);
+        
+        let shouldGenerateCheckpoint = false;
+        let lastCheckpointAt = null; // Declared in outer scope for use in response calculation
+        
+        try {
+            const checkpointResult = await pool.query(
+                `SELECT last_checkpoint_at, last_checkpoint_cell_id
+                 FROM checkpoint_tracking
+                 WHERE public_key = $1 AND blockchain = $2`,
+                [public_key, blockchain]
+            );
+            
+            if (checkpointResult.rows.length > 0) {
+                lastCheckpointAt = checkpointResult.rows[0].last_checkpoint_at;
+                const timeSinceLastCheckpoint = (occurredAt.getTime() - new Date(lastCheckpointAt).getTime()) / 1000;
+                
+                // Generate checkpoint if:
+                // 1. Enough time has passed since last checkpoint
+                // 2. No other events were generated (cell transition or rule trigger)
+                // 3. We're still in the same cell (or no previous checkpoint exists)
+                if (timeSinceLastCheckpoint >= CHECKPOINT_INTERVAL_SECONDS && anchorEvents.length === 0) {
+                    shouldGenerateCheckpoint = true;
+                }
+            } else {
+                // No previous checkpoint - generate one if no other events
+                // This ensures first-time users get an initial checkpoint
+                if (anchorEvents.length === 0) {
+                    shouldGenerateCheckpoint = true;
+                }
+            }
+        } catch (checkpointError) {
+            // Table might not exist yet, that's okay
+            console.warn('⚠️  Could not check checkpoint tracking (table may not exist):', checkpointError.message);
+        }
+        
+        if (shouldGenerateCheckpoint) {
+            const checkpointEvent = createCheckpointEvent(
+                public_key,
+                currentCellId,
+                occurredAt
+            );
+            
+            // Only add if we haven't returned this checkpoint recently
+            if (!returnedEventIds.has(checkpointEvent.event_id)) {
+                anchorEvents.push(checkpointEvent);
+                
+                // Track that we're returning this checkpoint
+                try {
+                    await pool.query(
+                        `INSERT INTO anchor_events_returned (public_key, blockchain, event_id, returned_at)
+                         VALUES ($1, $2, $3, NOW())
+                         ON CONFLICT (public_key, blockchain, event_id) 
+                         DO UPDATE SET returned_at = NOW()`,
+                        [public_key, blockchain, checkpointEvent.event_id]
+                    );
+                } catch (trackError) {
+                    console.warn('⚠️  Could not track returned checkpoint event:', trackError.message);
+                }
+                
+                // Update checkpoint tracking
+                try {
+                    await pool.query(
+                        `INSERT INTO checkpoint_tracking (public_key, blockchain, last_checkpoint_at, last_checkpoint_cell_id, updated_at)
+                         VALUES ($1, $2, $3, $4, NOW())
+                         ON CONFLICT (public_key, blockchain) 
+                         DO UPDATE SET 
+                             last_checkpoint_at = $3,
+                             last_checkpoint_cell_id = $4,
+                             updated_at = NOW()`,
+                        [public_key, blockchain, occurredAt, currentCellId]
+                    );
+                } catch (updateError) {
+                    console.warn('⚠️  Could not update checkpoint tracking:', updateError.message);
+                }
+            }
+        } else if (anchorEvents.length > 0) {
+            // If other events occurred, reset checkpoint timer
+            // This prevents checkpoint spam when user is actively moving/triggering rules
+            try {
+                await pool.query(
+                    `INSERT INTO checkpoint_tracking (public_key, blockchain, last_checkpoint_at, last_checkpoint_cell_id, updated_at)
+                     VALUES ($1, $2, $3, $4, NOW())
+                     ON CONFLICT (public_key, blockchain) 
+                     DO UPDATE SET 
+                         last_checkpoint_at = $3,
+                         last_checkpoint_cell_id = $4,
+                         updated_at = NOW()`,
+                    [public_key, blockchain, occurredAt, currentCellId]
+                );
+            } catch (updateError) {
+                // Silently fail - checkpoint tracking is optional
+            }
+        }
 
         // Update wallet location (trigger will automatically populate history table)
         const result = await pool.query(
@@ -382,11 +704,34 @@ router.post('/update', authenticateApiKey, async (req, res) => {
             console.error('⚠️  Error queueing location update for AI processing:', queueError.message);
         }
 
-        res.json({ 
-            success: true, 
+        // Build response with backward compatibility
+        const response = {
+            ok: true,
+            cell_id: currentCellId,
+            matched_rules: matchedRules.map(rule => ({
+                rule_id: String(rule.id),
+                rule_name: rule.rule_name,
+                rule_type: rule.rule_type
+            })),
+            anchor_events: anchorEvents,
+            next_suggested_anchor_after_secs: (() => {
+                // Calculate when next checkpoint should be suggested
+                // Only suggest if no events were generated and checkpoint tracking exists
+                if (anchorEvents.length === 0 && lastCheckpointAt) {
+                    const timeSinceLastCheckpoint = (occurredAt.getTime() - new Date(lastCheckpointAt).getTime()) / 1000;
+                    const CHECKPOINT_INTERVAL_SECONDS = parseInt(process.env.CHECKPOINT_INTERVAL_SECONDS || '300', 10);
+                    const remaining = CHECKPOINT_INTERVAL_SECONDS - timeSinceLastCheckpoint;
+                    return Math.max(0, Math.ceil(remaining));
+                }
+                return null;
+            })(),
+            // Legacy fields for backward compatibility
+            success: true,
             message: 'Location updated successfully',
             data: result.rows[0]
-        });
+        };
+
+        res.json(response);
     } catch (error) {
         console.error('❌ Error updating location:', error.message);
         // console.error('Error details:', {
